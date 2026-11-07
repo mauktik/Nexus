@@ -24,6 +24,19 @@ type Provider interface {
 	Bindings() []Binding
 }
 
+// KV is the daemon's small persistent key-value store (the kv bucket of
+// state.db). Keys are prefixed with the name of what writes them.
+type KV interface {
+	KVGet(key string) ([]byte, bool, error)
+	KVPut(key string, value []byte) error
+}
+
+// KVUser is a provider that keeps state in KV. The daemon calls UseKV once,
+// after opening the store and before serving any request.
+type KVUser interface {
+	UseKV(KV)
+}
+
 // Status is a provider's preflight result.
 type Status struct {
 	State   apitypes.ProviderState

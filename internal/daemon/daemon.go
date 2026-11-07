@@ -149,6 +149,11 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 		}
 		return nil, err
 	}
+	for _, p := range providers {
+		if u, ok := p.(provider.KVUser); ok {
+			u.UseKV(db)
+		}
+	}
 	opsDir := filepath.Join(stateDir, "ops")
 	launcher, err := detach.New(detach.Config{OpsDir: opsDir, Logger: log}, opts.Detach)
 	if err != nil {

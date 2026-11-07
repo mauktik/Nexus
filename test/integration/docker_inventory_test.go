@@ -274,6 +274,9 @@ func expected(t *testing.T, name string) spec.ContainerProperties {
 		Ports:          []spec.Port{},
 		ComposeProject: in.Config.Labels["com.docker.compose.project"],
 		ComposeService: in.Config.Labels["com.docker.compose.service"],
+		// Not from docker inspect: a fresh nexusd has stored no
+		// check-updates result (WI 6.3, A-13).
+		Update: spec.UpdateCheck{Status: spec.UpdateNotChecked},
 	}
 	if in.State.Health != nil {
 		p.Health = in.State.Health.Status

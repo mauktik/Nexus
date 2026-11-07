@@ -42,6 +42,7 @@ type Provider struct {
 	timeout   time.Duration
 	preflight func(context.Context) provider.Status
 	engine    atomic.Pointer[engine]
+	kv        atomic.Pointer[provider.KV] // Stored update checks; memKV until UseKV
 }
 
 // engine is one configuration's settings and client. A reload builds a new
@@ -61,6 +62,8 @@ func New(opts Options) *Provider {
 		p.timeout = DefaultCallTimeout
 	}
 	p.engine.Store(&engine{})
+	var mem provider.KV = &memKV{}
+	p.kv.Store(&mem)
 	return p
 }
 
@@ -122,11 +125,12 @@ func (p *Provider) Preflight(ctx context.Context) provider.Status {
 	}}
 }
 
-// Bindings binds the read operations and the lifecycle actions.
+// Bindings binds the read operations, the lifecycle actions and the update
+// check.
 func (p *Provider) Bindings() []provider.Binding {
-	return append([]provider.Binding{
+	return append(append([]provider.Binding{
 		provider.Sync(spec.List, p.list),
 		provider.Sync(spec.Get, p.get),
 		provider.Stream(spec.Logs, p.logs),
-	}, p.lifecycleBindings()...)
+	}, p.lifecycleBindings()...), p.checkBinding())
 }

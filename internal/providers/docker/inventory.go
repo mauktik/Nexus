@@ -53,7 +53,15 @@ func (p *Provider) list(ctx context.Context, in spec.ListInput) (apitypes.List[s
 	if limit <= 0 {
 		limit = spec.DefaultLimit
 	}
+	keep, err := statusFilter(in.Filter)
+	if err != nil {
+		return none, err
+	}
 	cli, err := p.client()
+	if err != nil {
+		return none, err
+	}
+	checks, err := p.loadChecks()
 	if err != nil {
 		return none, err
 	}
@@ -67,6 +75,11 @@ func (p *Provider) list(ctx context.Context, in spec.ListInput) (apitypes.List[s
 	type entry struct{ name, id string }
 	entries := make([]entry, 0, len(res.Items))
 	for _, s := range res.Items {
+		// The filter applies before paging, from the summary's image ID, so
+		// a page is full and cursors stay stable (A-13).
+		if keep != nil && !keep[checks.updateOf(s.ID, s.ImageID).Status] {
+			continue
+		}
 		if name := primaryName(s.Names); name != "" {
 			entries = append(entries, entry{name: name, id: s.ID})
 		}
@@ -87,13 +100,16 @@ func (p *Provider) list(ctx context.Context, in spec.ListInput) (apitypes.List[s
 	g.SetLimit(inspectConcurrency)
 	for i, e := range page {
 		g.Go(func() error {
-			c, err := p.inspect(gctx, cli, e.id, images)
+			c, err := p.inspect(gctx, cli, e.id, images, checks)
 			if err != nil {
 				var perr *problem.Error
 				if errors.As(err, &perr) && perr.Slug() == problem.NotFound {
 					return nil // Removed since the list: not part of this page.
 				}
 				return err
+			}
+			if keep != nil && !keep[c.Properties.Update.Status] {
+				return nil // Its image changed since the list.
 			}
 			found[i] = &c
 			return nil
@@ -122,7 +138,11 @@ func (p *Provider) get(ctx context.Context, in spec.ContainerInput) (spec.Contai
 	if err != nil {
 		return spec.Container{}, err
 	}
-	return p.inspect(ctx, cli, in.Name, newImageCache())
+	checks, err := p.loadChecks()
+	if err != nil {
+		return spec.Container{}, err
+	}
+	return p.inspect(ctx, cli, in.Name, newImageCache(), checks)
 }
 
 func validName(name string) bool {
@@ -130,8 +150,9 @@ func validName(name string) bool {
 }
 
 // inspect reads one container, and its image through images, into the wire
-// form. ref is a name or an ID.
-func (p *Provider) inspect(ctx context.Context, cli *client.Client, ref string, images *imageCache) (spec.Container, error) {
+// form, with its stored update status from checks. ref is a name or an ID.
+func (p *Provider) inspect(ctx context.Context, cli *client.Client, ref string, images *imageCache,
+	checks storedChecks) (spec.Container, error) {
 	callCtx, cancel := p.callCtx(ctx)
 	res, err := cli.ContainerInspect(callCtx, ref, client.ContainerInspectOptions{})
 	cancel()
@@ -143,15 +164,16 @@ func (p *Provider) inspect(ctx context.Context, cli *client.Client, ref string, 
 	if err != nil {
 		return spec.Container{}, err
 	}
-	return p.resource(c, digests), nil
+	return p.resource(c, digests, checks.updateOf(c.ID, c.Image)), nil
 }
 
 // resource is the wire form of an inspected container.
-func (p *Provider) resource(c container.InspectResponse, repoDigests []string) spec.Container {
+func (p *Provider) resource(c container.InspectResponse, repoDigests []string, update spec.UpdateCheck) spec.Container {
 	props := spec.ContainerProperties{
 		ContainerID: c.ID,
 		Health:      spec.HealthNone,
 		Ports:       []spec.Port{},
+		Update:      update,
 	}
 	if c.Config != nil {
 		props.ImageReference = c.Config.Image
@@ -247,6 +269,7 @@ type imageCache struct {
 type imageEntry struct {
 	once    sync.Once
 	digests []string
+	missing bool // The image is no longer on this host
 	err     error
 }
 
@@ -255,8 +278,15 @@ func newImageCache() *imageCache { return &imageCache{entries: map[string]*image
 // repoDigests returns the RepoDigests of image id. An image removed since
 // the container was created has none.
 func (ic *imageCache) repoDigests(ctx context.Context, p *Provider, cli *client.Client, id string) ([]string, error) {
+	digests, _, err := ic.lookup(ctx, p, cli, id)
+	return digests, err
+}
+
+// lookup returns the RepoDigests of image id, and whether the image is
+// missing: removed since the container was created.
+func (ic *imageCache) lookup(ctx context.Context, p *Provider, cli *client.Client, id string) ([]string, bool, error) {
 	if id == "" {
-		return nil, nil
+		return nil, true, nil
 	}
 	ic.mu.Lock()
 	e, ok := ic.entries[id]
@@ -271,13 +301,14 @@ func (ic *imageCache) repoDigests(ctx context.Context, p *Provider, cli *client.
 		res, err := cli.ImageInspect(callCtx, id)
 		switch {
 		case cerrdefs.IsNotFound(err):
+			e.missing = true
 		case err != nil:
 			e.err = p.engineError(ctx, err, "inspect image", nil)
 		default:
 			e.digests = res.RepoDigests
 		}
 	})
-	return e.digests, e.err
+	return e.digests, e.missing, e.err
 }
 
 func notFound() *problem.Error {
