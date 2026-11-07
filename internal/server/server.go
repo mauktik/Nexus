@@ -5,6 +5,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -39,6 +40,10 @@ type Options struct {
 	// Auth authenticates every request except GET /healthz. It is required:
 	// there is no configuration in which the API is open.
 	Auth *auth.Authenticator
+	// TLS, when non-nil, holds the certificate to serve; its MinVersion is
+	// raised to MinTLSVersion. Nil serves plain HTTP, which Serve allows on
+	// loopback listeners only.
+	TLS *tls.Config
 }
 
 // Server serves the REST API and /healthz.
@@ -91,6 +96,9 @@ func New(reg *core.Registry, opts Options) (*Server, error) {
 		BaseContext:       func(net.Listener) context.Context { return s.base },
 		ErrorLog:          slog.NewLogLogger(s.log.Handler(), slog.LevelWarn),
 	}
+	if opts.TLS != nil {
+		s.http.TLSConfig = serverTLS(opts.TLS)
+	}
 	return s, nil
 }
 
@@ -100,10 +108,17 @@ func (s *Server) HTTP() *http.Server { return s.http }
 // Handler returns the full handler chain.
 func (s *Server) Handler() http.Handler { return s.http.Handler }
 
-// Serve accepts connections on l until Shutdown. It returns nil after a
-// shutdown and the accept error otherwise.
+// Serve accepts connections on l until Shutdown, over TLS when Options.TLS
+// was set. Without TLS it refuses a listener that is not loopback. It returns
+// nil after a shutdown and the accept error otherwise.
 func (s *Server) Serve(l net.Listener) error {
-	if err := s.http.Serve(l); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	var err error
+	if s.http.TLSConfig != nil {
+		err = s.http.ServeTLS(l, "", "")
+	} else if err = checkPlainHTTP(l.Addr()); err == nil {
+		err = s.http.Serve(l)
+	}
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("serve %s: %w", l.Addr(), err)
 	}
 	return nil

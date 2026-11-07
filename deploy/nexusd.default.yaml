@@ -11,11 +11,17 @@ host:
 # Loopback only. Exposing nexusd on the LAN is an explicit choice.
 listen: ["127.0.0.1:7443"]
 
+# auto generates a self-signed ECDSA P-256 certificate on first start, in
+# /var/lib/nexus/tls/ (mode 0600), and logs its SHA-256 fingerprint for client
+# pinning; `nexusd tls fingerprint` prints it again. files serves certFile and
+# keyFile. off serves plain HTTP and is refused unless every listen address is
+# a loopback IP such as 127.0.0.1 or [::1]; 0.0.0.0 and [::] are not, and
+# there is no override. TLS 1.2 is the minimum version.
 tls:
-  mode: auto                 # auto | files | off. off is allowed only on loopback
+  mode: auto                 # auto | files | off
   certFile: ""               # Required in files mode, rejected otherwise
   keyFile: ""                # Required in files mode, rejected otherwise
-  extraSANs: []              # Extra names for the generated certificate
+  extraSANs: []              # Extra names or IPs for the generated certificate
 
 limits:
   maxBodyBytes: 1048576

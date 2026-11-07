@@ -22,3 +22,14 @@ func TestRestartRequiredReportsAuthChanges(t *testing.T) {
 		t.Fatalf("changed auth.failureLimitPerMinute: %v, want [auth]", keys)
 	}
 }
+
+// The audit log is opened once at startup with its retention, so a changed
+// audit.retentionDays must be reported as needing a restart.
+func TestRestartRequiredReportsAuditChanges(t *testing.T) {
+	running := config.Default()
+	next := config.Default()
+	next.Audit.RetentionDays = 30
+	if keys := restartRequired(&running, &next); !slices.Equal(keys, []string{"audit"}) {
+		t.Fatalf("changed audit.retentionDays: %v, want [audit]", keys)
+	}
+}

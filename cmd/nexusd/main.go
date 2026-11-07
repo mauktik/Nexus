@@ -3,16 +3,21 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/mauktik/nexus/internal/audit"
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/daemon"
+	"github.com/mauktik/nexus/internal/tlsutil"
 	"github.com/mauktik/nexus/internal/version"
 )
 
@@ -28,9 +33,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		case "validate-config":
 			return validateConfig(args[1:], stdout, stderr)
 		case "serve":
-			return serve(args[1:], stderr)
+			return serve(args[1:], stdout, stderr)
 		case "token":
 			return auth.TokenCommand(name, args[1:], stdout, stderr)
+		case "tls":
+			return tlsCommand(args[1:], stdout, stderr)
 		}
 	}
 
@@ -38,7 +45,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	showVersion := fs.Bool("version", false, "print the version and exit")
 	fs.Usage = func() {
-		fmt.Fprintf(stderr, "Usage:\n  %[1]s -version\n  %[1]s serve [--config path] [--state-dir dir]\n  %[1]s validate-config [--config path]\n  %[1]s token create|list|revoke ...\n\nFlags:\n", name)
+		fmt.Fprintf(stderr, "Usage:\n  %[1]s -version\n  %[1]s serve [--config path] [--state-dir dir]\n  %[1]s validate-config [--config path]\n  %[1]s token create|list|revoke ...\n  %[1]s tls fingerprint [--config path] [--state-dir dir]\n\nFlags:\n", name)
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -85,7 +92,7 @@ func validateConfig(args []string, stdout, stderr io.Writer) int {
 
 // serve runs the daemon until SIGTERM. Logs go to stdout as JSON; only
 // failures to start are written to stderr.
-func serve(args []string, stderr io.Writer) int {
+func serve(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet(name+" serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	path := fs.String("config", config.DefaultPath, "configuration file")
@@ -106,13 +113,109 @@ func serve(args []string, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	d, err := daemon.New(cfg, daemon.Options{ConfigPath: *path, StateDir: *stateDir, AuditDir: *auditDir})
+	log := slog.New(slog.NewJSONHandler(stdout, nil))
+	tlsConf, err := loadTLS(cfg, *stateDir, log)
+	if err != nil {
+		fmt.Fprintf(stderr, "%s: %v\n", name, err)
+		return 1
+	}
+	d, err := daemon.New(cfg, daemon.Options{ConfigPath: *path, StateDir: *stateDir, AuditDir: *auditDir,
+		Logger: log, TLS: tlsConf})
 	if err != nil {
 		fmt.Fprintf(stderr, "%s: %v\n", name, err)
 		return 1
 	}
 	if err := d.Run(context.Background()); err != nil {
 		fmt.Fprintf(stderr, "%s: %v\n", name, err)
+		return 1
+	}
+	return 0
+}
+
+// loadTLS returns the certificate to serve, or nil in tls.mode off. In auto
+// mode it is generated on first start under the state directory. Its SHA-256
+// fingerprint goes to stdout in a log record, for clients to pin.
+func loadTLS(cfg *config.Config, stateDir string, log *slog.Logger) (*tls.Config, error) {
+	var cert tls.Certificate
+	var certPath string
+	generated := false
+	switch cfg.TLS.Mode {
+	case config.TLSOff:
+		return nil, nil
+	case config.TLSAuto:
+		dir := tlsutil.Dir(stateDir)
+		certPath = filepath.Join(dir, tlsutil.CertFileName)
+		var err error
+		cert, generated, err = tlsutil.LoadOrCreate(dir, cfg.Host.Name, cfg.TLS.ExtraSANs, time.Now())
+		if err != nil {
+			return nil, fmt.Errorf("tls: %w", err)
+		}
+	case config.TLSFiles:
+		certPath = cfg.TLS.CertFile
+		var err error
+		cert, err = tls.LoadX509KeyPair(cfg.TLS.CertFile, cfg.TLS.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("tls: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("tls: unknown mode %q", cfg.TLS.Mode)
+	}
+	msg := "serving TLS certificate"
+	if generated {
+		msg = "generated a self-signed TLS certificate; clients pin its fingerprint"
+	}
+	log.Info(msg, "mode", cfg.TLS.Mode, "certFile", certPath, "fingerprint", tlsutil.Fingerprint(cert.Certificate[0]),
+		"generated", generated)
+	return &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}, nil
+}
+
+// tlsCommand is `nexusd tls fingerprint`: it prints the SHA-256 fingerprint
+// of the certificate nexusd serves, to compare out of band with what a
+// client was shown. It never generates a certificate.
+func tlsCommand(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] != "fingerprint" {
+		fmt.Fprintf(stderr, "Usage:\n  %s tls fingerprint [--config path] [--state-dir dir]\n", name)
+		return 2
+	}
+	fs := flag.NewFlagSet(name+" tls fingerprint", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	path := fs.String("config", config.DefaultPath, "configuration file")
+	stateDir := fs.String("state-dir", auth.DefaultStateDir, "state directory holding tls/cert.pem in tls.mode auto")
+	if err := fs.Parse(args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintf(stderr, "%s tls fingerprint: unexpected argument %q\n", name, fs.Arg(0))
+		return 2
+	}
+	cfg, err := config.Load(*path)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	var certPath string
+	switch cfg.TLS.Mode {
+	case config.TLSOff:
+		fmt.Fprintf(stderr, "%s: tls.mode is off in %s, so there is no certificate\n", name, *path)
+		return 1
+	case config.TLSFiles:
+		certPath = cfg.TLS.CertFile
+	default:
+		certPath = filepath.Join(tlsutil.Dir(*stateDir), tlsutil.CertFileName)
+	}
+	fp, err := tlsutil.FileFingerprint(certPath)
+	if errors.Is(err, os.ErrNotExist) && cfg.TLS.Mode == config.TLSAuto {
+		fmt.Fprintf(stderr, "%s: no certificate at %s yet; nexusd serve generates it on first start\n", name, certPath)
+		return 1
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "%s: %v\n", name, err)
+		return 1
+	}
+	if _, err := fmt.Fprintln(stdout, fp); err != nil {
 		return 1
 	}
 	return 0

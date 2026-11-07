@@ -57,7 +57,7 @@ func (p *serveProc) output() string {
 func startServe(t *testing.T, notifySocket string) *serveProc {
 	t.Helper()
 	addr := freeAddr(t)
-	cfg := writeConfig(t, "nexusd.yaml", "listen: [\""+addr+"\"]\n")
+	cfg := writeConfig(t, "nexusd.yaml", "listen: [\""+addr+"\"]\ntls: {mode: off}\n")
 	cmd := exec.Command(nexusdBin, "serve", "--config", cfg, "--audit-dir", t.TempDir())
 	cmd.Env = slices.DeleteFunc(os.Environ(), func(e string) bool { return strings.HasPrefix(e, "NOTIFY_SOCKET=") })
 	if notifySocket != "" {

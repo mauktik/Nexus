@@ -53,5 +53,9 @@ func restartRequired(running, next *config.Config) []string {
 	if running.Auth != next.Auth {
 		keys = append(keys, "auth")
 	}
+	// The audit log is opened once at startup with its retention.
+	if running.Audit != next.Audit {
+		keys = append(keys, "audit")
+	}
 	return keys
 }

@@ -1,8 +1,14 @@
 package config
 
 import (
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
+	"errors"
 	"fmt"
 	"net"
+	"net/netip"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -37,6 +43,9 @@ func (c *Config) validate(errs *collector) {
 		if c.TLS.KeyFile == "" {
 			v.fail("tls.keyFile", "required when tls.mode is files")
 		}
+		if c.TLS.CertFile != "" && c.TLS.KeyFile != "" {
+			v.tlsFiles(c.TLS.CertFile, c.TLS.KeyFile)
+		}
 	case TLSAuto, TLSOff:
 		if c.TLS.CertFile != "" {
 			v.fail("tls.certFile", "only allowed when tls.mode is files")
@@ -46,6 +55,16 @@ func (c *Config) validate(errs *collector) {
 		}
 	default:
 		v.failf("tls.mode", "must be one of auto, files or off, got %q", c.TLS.Mode)
+	}
+	// Plain HTTP only on loopback (FR-23, ASM-5). There is deliberately no
+	// key or flag that relaxes this.
+	if c.TLS.Mode == TLSOff {
+		for i, addr := range c.Listen {
+			if checkListen(addr) == nil && !isLoopbackListen(addr) {
+				v.failf(fmt.Sprintf("listen[%d]", i), "%q is not a loopback address, and tls.mode off is allowed only "+
+					"when every listen address is a loopback IP such as 127.0.0.1 or [::1]; use tls.mode auto or files", addr)
+			}
+		}
 	}
 	for i, san := range c.TLS.ExtraSANs {
 		if san == "" {
@@ -179,6 +198,58 @@ func (v validator) absolute(path, p string) {
 	if !filepath.IsAbs(p) {
 		v.failf(path, "must be an absolute path, got %q", p)
 	}
+}
+
+// tlsFiles loads the configured pair as startup will, so validate-config
+// reports a missing, unparsable or mismatched pair.
+func (v validator) tlsFiles(certPath, keyPath string) {
+	certPEM, certErr := os.ReadFile(certPath)
+	if certErr != nil {
+		v.failf("tls.certFile", "cannot read %s: %v", certPath, unwrapPath(certErr))
+	}
+	keyPEM, keyErr := os.ReadFile(keyPath)
+	if keyErr != nil {
+		v.failf("tls.keyFile", "cannot read %s: %v", keyPath, unwrapPath(keyErr))
+	}
+	if certErr != nil || keyErr != nil {
+		return
+	}
+	if err := checkCertificatePEM(certPEM); err != nil {
+		v.failf("tls.certFile", "%s: %v", certPath, err)
+		return
+	}
+	if _, err := tls.X509KeyPair(certPEM, keyPEM); err != nil {
+		v.failf("tls.keyFile", "cannot use %s with %s: %v", keyPath, certPath, err)
+	}
+}
+
+func checkCertificatePEM(data []byte) error {
+	for {
+		var block *pem.Block
+		block, data = pem.Decode(data)
+		if block == nil {
+			return errors.New("no PEM CERTIFICATE block")
+		}
+		if block.Type == "CERTIFICATE" {
+			_, err := x509.ParseCertificate(block.Bytes)
+			return err
+		}
+	}
+}
+
+// isLoopbackListen reports whether a valid listen address is a loopback IP.
+// A host name, localhost included, is not: what it resolves to is outside
+// the file.
+func isLoopbackListen(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	return ip.Unmap().IsLoopback()
 }
 
 func checkListen(addr string) error {

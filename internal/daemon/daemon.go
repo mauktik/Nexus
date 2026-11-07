@@ -5,6 +5,7 @@ package daemon
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -44,6 +45,9 @@ type Options struct {
 	// AuditDir holds audit.jsonl and its rotations. Empty means
 	// audit.DefaultDir.
 	AuditDir string
+	// TLS holds the certificate to serve. It is required unless tls.mode is
+	// off; cmd/nexusd loads or generates it (2.4).
+	TLS *tls.Config
 }
 
 // Daemon is one nexusd serve process.
@@ -64,6 +68,9 @@ type Daemon struct {
 // New builds the daemon from a loaded configuration. Provider preflights run
 // here; a failed one makes that provider unavailable and never fails New.
 func New(cfg *config.Config, opts Options) (*Daemon, error) {
+	if cfg.TLS.Mode != config.TLSOff && opts.TLS == nil {
+		return nil, fmt.Errorf("tls.mode is %s but no certificate was loaded", cfg.TLS.Mode)
+	}
 	log := opts.Logger
 	if log == nil {
 		log = slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -110,7 +117,8 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 	}
 	authn := auth.New(stateDir, auth.Options{FailureLimitPerMinute: cfg.Auth.FailureLimitPerMinute, Logger: log,
 		Audit: auditLog})
-	srv, err := server.New(reg, server.Options{MaxBodyBytes: cfg.Limits.MaxBodyBytes, Logger: log, Auth: authn})
+	srv, err := server.New(reg, server.Options{MaxBodyBytes: cfg.Limits.MaxBodyBytes, Logger: log, Auth: authn,
+		TLS: opts.TLS})
 	if err != nil {
 		return fail(fmt.Errorf("server: %w", err))
 	}

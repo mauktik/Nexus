@@ -277,7 +277,7 @@ func TestConcurrentTokenCreates(t *testing.T) {
 func startServeWithState(t *testing.T, dir string) *serveProc {
 	t.Helper()
 	addr := freeAddr(t)
-	cfg := writeConfig(t, "nexusd.yaml", "listen: [\""+addr+"\"]\n")
+	cfg := writeConfig(t, "nexusd.yaml", "listen: [\""+addr+"\"]\ntls: {mode: off}\n")
 	cmd := exec.Command(nexusdBin, "serve", "--config", cfg, "--state-dir", dir, "--audit-dir", t.TempDir())
 	p := &serveProc{cmd: cmd, addr: addr, done: make(chan error, 1)}
 	var stderr bytes.Buffer
