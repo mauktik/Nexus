@@ -50,6 +50,9 @@ type Provider struct {
 	// run a transient unit, and the nexusd binary the unit runs.
 	systemd    func() detach.Availability
 	executable func() (string, error)
+	// composeTools finds the docker CLI and Compose plugin that Compose
+	// updates run (compose.go).
+	composeTools func(configDir string) composeTools
 }
 
 // engine is one configuration's settings and client. A reload builds a new
@@ -62,7 +65,7 @@ type engine struct {
 // New returns the provider; it has no client until Configure.
 func New(opts Options) *Provider {
 	p := &Provider{host: opts.Host, log: opts.Logger, timeout: opts.CallTimeout, preflight: opts.Preflight,
-		systemd: detach.SystemdAvailable, executable: os.Executable}
+		systemd: detach.SystemdAvailable, executable: os.Executable, composeTools: findCompose}
 	if p.log == nil {
 		p.log = slog.Default()
 	}
@@ -111,7 +114,9 @@ func (p *Provider) Configure(decode func(into any) error) error {
 func (p *Provider) Settings() config.DockerConfig { return p.engine.Load().settings }
 
 // Preflight pings the Engine, which also negotiates the API version. The
-// negotiated version and the socket are reported in capabilities.
+// negotiated version and the socket are reported in capabilities, and so
+// is whether the Docker Compose plugin is installed: without it only
+// Compose-managed updates are refused (CON-6).
 func (p *Provider) Preflight(ctx context.Context) provider.Status {
 	if p.preflight != nil {
 		return p.preflight(ctx)
@@ -127,9 +132,10 @@ func (p *Provider) Preflight(ctx context.Context) provider.Status {
 		return provider.Status{State: apitypes.ProviderUnavailable, Reason: reason(e.settings.Socket, err, p.timeout)}
 	}
 	return provider.Status{State: apitypes.ProviderEnabled, Details: map[string]any{
-		"socket":           e.settings.Socket,
-		"apiVersion":       e.cli.ClientVersion(),
-		"daemonApiVersion": ping.APIVersion,
+		"socket":                 e.settings.Socket,
+		"apiVersion":             e.cli.ClientVersion(),
+		"daemonApiVersion":       ping.APIVersion,
+		spec.DetailComposePlugin: composeDetail(p.composeTools(e.settings.ConfigDir)),
 	}}
 }
 

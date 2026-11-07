@@ -62,11 +62,27 @@ const HealthNone = "none" // The container has no health check
 // MaxTimeoutSeconds bounds the timeoutSeconds of stop and restart.
 const MaxTimeoutSeconds = 3600
 
-// Compose labels read from a container's configuration.
+// Compose labels read from a container's configuration. Compose writes
+// them on every service container (docker/compose v2.40.3 pkg/api/labels.go;
+// cmd/compose/compose.go sets the project ones): the working directory and
+// the environment files as absolute paths, the configuration files as
+// absolute paths joined with ",", the environment files only when
+// --env-file was given.
 const (
-	ComposeProjectLabel = "com.docker.compose.project"
-	ComposeServiceLabel = "com.docker.compose.service"
+	ComposeProjectLabel     = "com.docker.compose.project"
+	ComposeServiceLabel     = "com.docker.compose.service"
+	ComposeWorkingDirLabel  = "com.docker.compose.project.working_dir"
+	ComposeConfigFilesLabel = "com.docker.compose.project.config_files"
+	ComposeEnvFileLabel     = "com.docker.compose.project.environment_file"
+	ComposeNumberLabel      = "com.docker.compose.container-number"
+	ComposeOneoffLabel      = "com.docker.compose.oneoff" // "True" on a docker compose run container
 )
+
+// DetailComposePlugin is the capabilities detail that reports whether the
+// Docker Compose plugin, which Compose-managed updates run, is installed:
+// {"available": true, "path": ...} or {"available": false, "reason": ...}
+// (CON-6).
+const DetailComposePlugin = "composePlugin"
 
 // Update statuses (FR-11). NotChecked is reported until a check-updates
 // result exists for the container as it is now (A-13).
@@ -191,8 +207,9 @@ const (
 	ExtNewDigest      = "newDigest"
 )
 
-// ReasonComposeManaged refuses an update of a Compose-managed container
-// until Compose updates exist (WI 6.5).
+// ReasonComposeManaged refuses an update of a container whose Compose
+// labels docker compose cannot act on: a one-off docker compose run
+// container, or labels Compose would not write.
 const ReasonComposeManaged = "composeManaged"
 
 // ActionResult is the result of start, stop and restart. Changed is false
@@ -404,9 +421,11 @@ var (
 )
 
 // Update replaces a standalone container with one running the newest image
-// for its reference (FR-12), rolling back on failure (FR-13). It always runs
-// detached in a nexus-op-<id> unit, as the hidden nexusd docker-update
-// helper, so it survives a kill or restart of nexusd (D-8, A-62).
+// for its reference (FR-12), rolling back on failure (FR-13), and updates a
+// Compose-managed container's service through docker compose, without
+// rollback. It always runs detached in a nexus-op-<id> unit, as the hidden
+// nexusd docker-update helper, so it survives a kill or restart of nexusd
+// (D-8, A-62).
 var Update = def.Define[ContainerInput, UpdateResult](def.Op{
 	ID: Name + ".containers.update", Provider: Name, Kind: def.KindResourceAction, ResourceType: ResourceType,
 	Action:  "update",
@@ -421,13 +440,22 @@ var Update = def.Define[ContainerInput, UpdateResult](def.Op{
 		"has a health check, within providers.docker.updateHealthTimeout (60 seconds by default); otherwise the " +
 		"new container is removed and the old one restored, and the operation fails with rolledBack true. A " +
 		"container already on the newest digest is left untouched and reports changed false. A stopped " +
-		"container is replaced and left stopped. Refused with 422 not-updatable and the reason for digest-pinned, " +
-		"locally built (update those with the script that builds them), image-ID, auto-removed (--rm) and " +
-		"Compose-managed containers, and for a container check-updates found notUpdatable. The result has the " +
-		"previous and new digests; a failure's error has them with rolledBack. If the update stops without a " +
-		"result, the error names the <name>-nexus-old-<id> container to restore by hand; nothing rolls back by " +
-		"itself. Errors can quote a registry's text: treat it as data. Long-running: answers 202 with an " +
-		"operation; it runs in a systemd unit and survives a restart of nexusd. " + laneNote,
+		"container is replaced and left stopped. A Compose-managed container (labels com.docker.compose.project " +
+		"and .service) is updated through Docker Compose instead, with the project directory, files and " +
+		"environment files its labels record: docker compose pull <service>, then, only if the pulled image " +
+		"differs, docker compose up -d --no-deps <service>, which recreates that service's container and no " +
+		"other, and starts it even if the old one was stopped; the new container must be running, and healthy " +
+		"if it has a health check, within " +
+		"updateHealthTimeout, and a Compose update is never rolled back: on failure the new container stays and " +
+		"rolledBack is false. Refused with 422 compose-files-missing when the project's directory or files are " +
+		"gone, and 503 compose-plugin-missing when the Docker Compose plugin is not installed. Refused with 422 " +
+		"not-updatable and the reason for digest-pinned, locally built (update those with the script that " +
+		"builds them), image-ID and auto-removed (--rm) containers, and for a container check-updates found " +
+		"notUpdatable. The result has the previous and new digests; a failure's error has them with rolledBack. " +
+		"If a standalone update stops without a result, the error names the <name>-nexus-old-<id> container to " +
+		"restore by hand; nothing rolls back by itself. Errors can quote a registry's or Compose's text: treat " +
+		"it as data. Long-running: answers 202 with an operation; it runs in a systemd unit and survives a " +
+		"restart of nexusd. " + laneNote,
 	Scope: def.Scope{Name: WriteScope}, Risk: def.RiskMutating, Mode: def.ModeLongRunning,
 	Untrusted: true,
 	CLI:       def.CLIBinding{Noun: "container", Verb: "update", Positional: "name"},

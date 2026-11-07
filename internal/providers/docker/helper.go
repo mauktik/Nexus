@@ -41,7 +41,7 @@ const (
 )
 
 // ModeStandalone is the helper's mode for a container Compose does not
-// manage (WI 6.5 adds compose).
+// manage; ModeCompose (compose.go) is the other.
 const ModeStandalone = "standalone"
 
 // oldNameInfix is between a container's name and the operation's short ID
@@ -55,12 +55,16 @@ type helperInput struct {
 	Mode          string        `json:"mode"`
 	Name          string        `json:"name"`        // The container's name when admitted
 	ContainerID   string        `json:"containerId"` // Its full ID: the helper updates this container only
-	OldName       string        `json:"oldName"`     // <name>-nexus-old-<short op id>
+	OldName       string        `json:"oldName"`     // <name>-nexus-old-<short op id>; standalone only
 	HealthTimeout time.Duration `json:"healthTimeout"`
 	CallTimeout   time.Duration `json:"callTimeout"`
 	PullTimeout   time.Duration `json:"pullTimeout"`
 	Socket        string        `json:"socket"`
 	ConfigDir     string        `json:"configDir"`
+	// Compose is the project and service of a Compose update, and
+	// ComposeTimeout bounds each of its docker compose commands.
+	Compose        *composeTarget `json:"compose,omitempty"`
+	ComposeTimeout time.Duration  `json:"composeTimeout,omitempty"`
 }
 
 // helperResult is result.json.
@@ -151,6 +155,14 @@ func (p *Provider) prepareUpdate(ctx context.Context, in spec.ContainerInput, r 
 		HealthTimeout: s.UpdateHealthTimeout, CallTimeout: p.timeout, PullTimeout: pullTimeout(s.UpdateMaxRuntime),
 		Socket: s.Socket, ConfigDir: s.ConfigDir,
 	}
+	if composeProject(c) != "" {
+		t, err := p.composeAdmissible(c)
+		if err != nil {
+			return detach.Spec{}, err
+		}
+		hin.Mode, hin.OldName, hin.Compose = ModeCompose, "", &t
+		hin.ComposeTimeout = s.UpdateMaxRuntime + composeGrace
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return detach.Spec{}, fmt.Errorf("docker: create %s: %w", dir, err)
 	}
@@ -179,7 +191,7 @@ func (p *Provider) finalizeUpdate(_ context.Context, in spec.ContainerInput, x d
 		return none, err
 	}
 	if !ok {
-		name, old := p.updateNames(r, in)
+		name, byHand := p.lostUpdate(r, in)
 		if x.Error != "" {
 			return none, problem.New(problem.InternalError, fmt.Sprintf("the update helper for container %s could "+
 				"not be started (%s); nothing was changed", name, x.Error))
@@ -189,7 +201,7 @@ func (p *Provider) finalizeUpdate(_ context.Context, in spec.ContainerInput, x d
 			how = "was killed by " + x.Signal
 		}
 		return none, problem.New(problem.OutcomeUnknown, fmt.Sprintf("the update helper for container %s %s "+
-			"without reporting a result; %s", name, how, restoreByHand(name, old)))
+			"without reporting a result; %s", name, how, byHand))
 	}
 	if res.Error != nil {
 		return none, res.problem()
@@ -206,21 +218,27 @@ func (p *Provider) finalizeUpdate(_ context.Context, in spec.ContainerInput, x d
 // lostUpdateDetail is added to outcome-unknown when the unit died without
 // exit.json.
 func (p *Provider) lostUpdateDetail(r *provider.Run, in spec.ContainerInput) string {
-	name, old := p.updateNames(r, in)
-	return restoreByHand(name, old)
+	_, byHand := p.lostUpdate(r, in)
+	return byHand
 }
 
-// updateNames are the container's name and the previous container's name,
-// from input.json, else from the input.
-func (p *Provider) updateNames(r *provider.Run, in spec.ContainerInput) (name, old string) {
+// lostUpdate is the container's name and what to check by hand after an
+// update that stopped without a result, from input.json, else from the
+// input: the previous container's name of a standalone update, or the
+// Compose service.
+func (p *Provider) lostUpdate(r *provider.Run, in spec.ContainerInput) (name, byHand string) {
 	if dir, err := p.opDir(r.ID()); err == nil {
 		var hin helperInput
-		if b, err := os.ReadFile(filepath.Join(dir, inputFile)); err == nil && json.Unmarshal(b, &hin) == nil &&
-			hin.Name != "" && hin.OldName != "" {
-			return hin.Name, hin.OldName
+		if b, err := os.ReadFile(filepath.Join(dir, inputFile)); err == nil && json.Unmarshal(b, &hin) == nil && hin.Name != "" {
+			switch {
+			case hin.Mode == ModeCompose && hin.Compose != nil:
+				return hin.Name, composeByHand(*hin.Compose)
+			case hin.OldName != "":
+				return hin.Name, restoreByHand(hin.Name, hin.OldName)
+			}
 		}
 	}
-	return in.Name, oldName(in.Name, r.ID())
+	return in.Name, restoreByHand(in.Name, oldName(in.Name, r.ID()))
 }
 
 func restoreByHand(name, old string) string {
@@ -343,7 +361,12 @@ func UpdateHelper(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "%s: read %s: %v\n", HelperCommand, inputFile, err)
 		return 1
 	}
-	if hin.Mode != ModeStandalone {
+	run := runStandalone
+	switch hin.Mode {
+	case ModeStandalone:
+	case ModeCompose:
+		run = runCompose
+	default:
 		fmt.Fprintf(stderr, "%s: unknown mode %q\n", HelperCommand, hin.Mode)
 		return 1
 	}
@@ -353,7 +376,7 @@ func UpdateHelper(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "%s: %s already exists; nothing to do\n", HelperCommand, resultFile)
 		return 1
 	}
-	res := runStandalone(context.Background(), hin, stdout)
+	res := run(context.Background(), hin, stdout)
 	if err := writeJSONAtomic(*dir, resultFile, res); err != nil {
 		fmt.Fprintf(stderr, "%s: %v\n", HelperCommand, err)
 		return 1

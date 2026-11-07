@@ -1,0 +1,13 @@
+# WI 6.5 T1 fixture (test/integration/docker_compose_test.go): a Compose
+# project with two services. The tests copy this file into a project
+# directory and start it with --env-file, so every container carries
+# com.docker.compose.project.environment_file, and the images come only
+# from that file. Both images are busybox commits whose CMD stops at once
+# on SIGTERM.
+services:
+  app:
+    image: ${NX_APP_IMAGE:?set NX_APP_IMAGE in the environment file}
+    stop_grace_period: 3s
+  other:
+    image: ${NX_OTHER_IMAGE:?set NX_OTHER_IMAGE in the environment file}
+    stop_grace_period: 3s

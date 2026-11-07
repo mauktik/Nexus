@@ -716,16 +716,17 @@ func dockerInspectField(t *testing.T, name, format string) string {
 	return dockerCLI(t, "inspect", "--type", "container", "-f", format, name)
 }
 
-// TC-ERR36 (FR-12, A-36): locally built, digest-pinned, auto-removed and
-// (until 6.5) Compose-managed containers are refused with 422
-// not-updatable and a reason before anything happens: no operation, no
-// Engine event. The locally built one has a hint naming scripts. The check
+// TC-ERR36 (FR-12, A-36): locally built, digest-pinned and auto-removed
+// containers are refused with 422 not-updatable and a reason before
+// anything happens: no operation, no Engine event. (Compose-managed
+// containers are updated since WI 6.5; their refusals are TC-ERR41 and
+// TC-ERR42 in docker_compose_test.go.) The locally built one has a hint naming scripts. The check
 // runs first: on the containerd image store only the registry tells a
 // local build, and update reads the stored status (A-13).
 func TestDockerUpdateRefusesNotUpdatable(t *testing.T) {
 	startRegistries(t)
-	built, pinned, rm, compose := "tcerr36-built", "tcerr36-pinned", "tcerr36-rm", "tcerr36-compose"
-	removeUpdated(t, built, pinned, rm, compose)
+	built, pinned, rm := "tcerr36-built", "tcerr36-pinned", "tcerr36-rm"
+	removeUpdated(t, built, pinned, rm)
 	local := regOpen + "/nx/tcerr36-local:dev"
 	buildImage(t, local, "built here "+time.Now().String(), updPlain)
 	dockerCLI(t, "run", "-d", "--name", built, local)
@@ -734,15 +735,12 @@ func TestDockerUpdateRefusesNotUpdatable(t *testing.T) {
 	regCmd(t, "push", ref)
 	dockerCLI(t, "run", "-d", "--name", pinned, regOpen+"/nx/tcerr36@"+registryDigest(t, regOpen, "nx/tcerr36", "v1", false))
 	dockerCLI(t, "run", "-d", "--rm", "--name", rm, ref)
-	dockerCLI(t, "run", "-d", "--name", compose, "--label", spec.ComposeProjectLabel+"=nxproj",
-		"--label", spec.ComposeServiceLabel+"=web", ref)
 
 	n := upNexusd(t, "tcerr36", "")
 	n.check()
 	since := time.Now()
 	for _, tc := range []struct{ name, reason string }{
 		{built, spec.ReasonLocallyBuilt}, {pinned, spec.ReasonDigestPinned}, {rm, spec.ReasonAutoRemove},
-		{compose, "composeManaged"},
 	} {
 		code, b := n.act(tc.name, "update", "{}")
 		p := lcProblem(t, code, b)

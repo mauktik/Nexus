@@ -47,19 +47,22 @@ func (p *Provider) admitUpdate(ctx context.Context, in spec.ContainerInput) erro
 	return p.updatable(ctx, cli, c)
 }
 
-// updatable refuses with not-updatable a container the update cannot
-// replace: Compose-managed (until 6.5), created from an image ID or a
-// digest-pinned reference, auto-removed (A-36), stored notUpdatable by the
-// last check-updates (A-13), or running an image with no registry digest
-// for its repository (locally built, ASM-8). It contacts no registry and
+// updatable refuses a container the update cannot replace. A
+// Compose-managed one needs the Compose plugin (compose-plugin-missing)
+// and its project's files (compose-files-missing). Any container is
+// not-updatable when created from an image ID or a digest-pinned
+// reference, auto-removed (A-36), stored notUpdatable by the last
+// check-updates (A-13), or running an image with no registry digest for
+// its repository (locally built, ASM-8). It contacts no registry and
 // causes no Engine event.
 func (p *Provider) updatable(ctx context.Context, cli *client.Client, c container.InspectResponse) error {
 	if paused(c) {
 		return problem.New(problem.Conflict, "the container is paused; Nexus does not unpause containers")
 	}
-	if project := composeProject(c); project != "" {
-		return refuseUpdate(spec.ReasonComposeManaged, fmt.Sprintf("the container belongs to Docker Compose "+
-			"project %q, and updating Compose-managed containers is not available in this version", project))
+	if composeProject(c) != "" {
+		if _, err := p.composeAdmissible(c); err != nil {
+			return err
+		}
 	}
 	ref := ""
 	if c.Config != nil {
@@ -124,6 +127,11 @@ type updater struct {
 // runStandalone updates the container in, writing progress to out, and
 // returns the result to store.
 func runStandalone(ctx context.Context, in helperInput, out io.Writer) helperResult {
+	return runUpdater(ctx, in, out, (*updater).run)
+}
+
+// runUpdater runs one mode's flow with the Engine client of in.
+func runUpdater(ctx context.Context, in helperInput, out io.Writer, flow func(*updater, context.Context) helperResult) helperResult {
 	u := &updater{in: in, out: out}
 	u.res.PreviousContainerID = in.ContainerID
 	if u.in.CallTimeout <= 0 {
@@ -142,7 +150,7 @@ func runStandalone(ctx context.Context, in helperInput, out io.Writer) helperRes
 		}
 	}()
 	u.cli = cli
-	return u.run(ctx)
+	return flow(u, ctx)
 }
 
 func (u *updater) say(format string, args ...any) {

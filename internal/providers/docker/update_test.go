@@ -117,7 +117,8 @@ func TestAdmitUpdateRefusals(t *testing.T) {
 	f.add("byid", strings.TrimPrefix(imgOne, "sha256:")[:12], imgOne, false)
 	f.add("built", "registry.example/local:dev", imgTwo, false)
 	f.add("compose", "registry.example/app:1", imgOne, false)
-	f.containers["compose"]["Config"].(map[string]any)["Labels"] = map[string]string{spec.ComposeProjectLabel: "media"}
+	f.containers["compose"]["Config"].(map[string]any)["Labels"] = map[string]string{spec.ComposeProjectLabel: "media",
+		spec.ComposeServiceLabel: "web"}
 	p, _ := updProvider(t, f)
 	ctx := context.Background()
 
@@ -125,7 +126,7 @@ func TestAdmitUpdateRefusals(t *testing.T) {
 		t.Fatalf("ok: %v", err)
 	}
 	for name, reason := range map[string]string{"pinned": spec.ReasonDigestPinned, "rm": spec.ReasonAutoRemove,
-		"byid": spec.ReasonNoRegistrySource, "built": spec.ReasonLocallyBuilt, "compose": spec.ReasonComposeManaged} {
+		"byid": spec.ReasonNoRegistrySource, "built": spec.ReasonLocallyBuilt} {
 		err := p.admitUpdate(ctx, spec.ContainerInput{Name: name})
 		var pe *problem.Error
 		if !errors.As(err, &pe) || pe.Slug() != problem.NotUpdatable || pe.Status != 422 || pe.Extensions["reason"] != reason {
@@ -136,6 +137,13 @@ func TestAdmitUpdateRefusals(t *testing.T) {
 		if (name == "built") != strings.Contains(hint, "script") {
 			t.Errorf("%s: hint %q", name, hint)
 		}
+	}
+	// WI 6.5: a Compose-managed container is no longer refused as such; one
+	// whose labels record no project files is compose-files-missing
+	// (TC-ERR41).
+	p.composeTools = func(string) composeTools { return composeTools{Docker: "/usr/bin/docker", Plugin: "/p/docker-compose"} }
+	if err := p.admitUpdate(ctx, spec.ContainerInput{Name: "compose"}); slugOf(err) != problem.ComposeFilesMissing {
+		t.Errorf("compose: %v, want compose-files-missing", err)
 	}
 	if n := len(f.calls()); n != 0 {
 		t.Errorf("%d registry calls at admission", n)
