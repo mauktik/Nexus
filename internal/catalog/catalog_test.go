@@ -158,7 +158,7 @@ func copyContractModule(t *testing.T) string {
 	for _, f := range []string{"go.mod", "go.sum"} {
 		copyFile(t, filepath.Join(src, f), filepath.Join(dst, f))
 	}
-	for _, pkg := range []string{"catalog", "def", "apitypes", "problem"} {
+	for _, pkg := range []string{"catalog", "def", "apitypes", "problem", "systemspec"} {
 		files, err := filepath.Glob(filepath.Join(src, "internal", pkg, "*.go"))
 		if err != nil {
 			t.Fatal(err)

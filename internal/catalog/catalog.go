@@ -5,11 +5,16 @@
 // provider adds one line to All.
 package catalog
 
-import "github.com/mauktik/nexus/internal/def"
+import (
+	"github.com/mauktik/nexus/internal/def"
+	"github.com/mauktik/nexus/internal/systemspec"
+)
 
-// All returns every provider's declarations.
+// All returns every provider's declarations, the system operations first.
 func All() []def.ProviderSpec {
-	return []def.ProviderSpec{}
+	return []def.ProviderSpec{
+		systemspec.Spec(),
+	}
 }
 
 // Ops returns every declared operation across all providers.
