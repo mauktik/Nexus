@@ -57,6 +57,9 @@ const MaxTail = 1000000
 // Health values beyond Docker's own starting, healthy and unhealthy.
 const HealthNone = "none" // The container has no health check
 
+// MaxTimeoutSeconds bounds the timeoutSeconds of stop and restart.
+const MaxTimeoutSeconds = 3600
+
 // Compose labels read from a container's configuration.
 const (
 	ComposeProjectLabel = "com.docker.compose.project"
@@ -80,6 +83,36 @@ type LogsInput struct {
 	Tail   *int   `json:"tail,omitempty" jsonschema:"Only the last this many lines. Absent means every line."`
 	Since  string `json:"since,omitempty" jsonschema:"Only lines logged at or after this RFC 3339 time."`
 	Follow bool   `json:"follow,omitempty" jsonschema:"Keep streaming new lines until the container stops."`
+}
+
+// StopInput is the input of docker.containers.stop and restart.
+type StopInput struct {
+	Name           string `json:"name" jsonschema:"Container name, without a leading slash, or container ID."`
+	TimeoutSeconds *int   `json:"timeoutSeconds,omitempty" jsonschema:"Seconds to wait after the stop signal before the container is killed, 0 to 3600. Absent means the container's own stop timeout, 10 seconds unless it was created with another."`
+}
+
+// RemoveInput is the input of docker.containers.remove.
+type RemoveInput struct {
+	Name string `json:"name" jsonschema:"Container name, without a leading slash, or container ID."`
+	// RemoveVolumes also deletes named volumes, which docker rm -v keeps
+	// (S-5).
+	RemoveVolumes bool `json:"removeVolumes,omitempty" jsonschema:"Also delete the container's volumes, named and anonymous. A volume another container still uses is kept, with a warning. Default false: every volume is kept, as docker rm does."`
+}
+
+// ActionResult is the result of start, stop and restart. Changed is false
+// when the container was already in the requested state.
+type ActionResult struct {
+	apitypes.ActionResult
+	ContainerID string `json:"containerId"` // The container acted on
+}
+
+// RemoveResult is the result of docker.containers.remove.
+type RemoveResult struct {
+	apitypes.ActionResult
+	ContainerID string `json:"containerId"` // The container removed
+	// RemovedVolumes are the volumes deleted with it, sorted; empty unless
+	// removeVolumes was set.
+	RemovedVolumes []string `json:"removedVolumes"`
 }
 
 // Container is one container as the API returns it. Its id is
@@ -150,7 +183,19 @@ func refineLogs(s *jsonschema.Schema) {
 	}
 }
 
-// The docker read operations, in the order of the Operation catalog table.
+func refineStop(s *jsonschema.Schema) {
+	refineName(s)
+	if p := s.Properties["timeoutSeconds"]; p != nil {
+		lo, hi := 0.0, float64(MaxTimeoutSeconds)
+		p.Minimum, p.Maximum = &lo, &hi
+	}
+}
+
+// laneNote is how every lifecycle description states its lane (A-56).
+const laneNote = "Answers 409 naming the blocking operation while another start, stop, restart, remove or update " +
+	"holds the same container, or any container of the same Compose project. Answers 404 for an unknown container."
+
+// The docker operations, in the order of the Operation catalog table.
 var (
 	List = def.Define[ListInput, apitypes.List[Container]](def.Op{
 		ID: Name + ".containers.list", Provider: Name, Kind: def.KindList, ResourceType: ResourceType,
@@ -189,11 +234,66 @@ var (
 		MCP:       &def.MCPBinding{Tool: "get_container_logs", Description: "Read a page of a Docker container's logs."},
 		Refine:    refineLogs,
 	})
+
+	Start = def.Define[ContainerInput, ActionResult](def.Op{
+		ID: Name + ".containers.start", Provider: Name, Kind: def.KindResourceAction, ResourceType: ResourceType,
+		Action:  "start",
+		Summary: "Start a container",
+		Description: "Starts an existing stopped container. Side effects: the container's process starts. A " +
+			"running container is left as it is, and the result reports changed false. Long-running: answers 202 " +
+			"with an operation. " + laneNote,
+		Scope: def.Scope{Name: WriteScope}, Risk: def.RiskMutating, Mode: def.ModeLongRunning, Idempotent: true,
+		CLI:    def.CLIBinding{Noun: "container", Verb: "start", Positional: "name"},
+		MCP:    &def.MCPBinding{Tool: "start_container", Description: "Start a stopped Docker container."},
+		Refine: refineName,
+	})
+
+	Stop = def.Define[StopInput, ActionResult](def.Op{
+		ID: Name + ".containers.stop", Provider: Name, Kind: def.KindResourceAction, ResourceType: ResourceType,
+		Action:  "stop",
+		Summary: "Stop a container",
+		Description: "Stops a running container: Docker sends its stop signal, waits timeoutSeconds, then kills it. " +
+			"Side effects: the container's processes end; the container and its data are kept. A stopped " +
+			"container is left as it is, and the result reports changed false. Long-running: answers 202 with an " +
+			"operation. " + laneNote,
+		Scope: def.Scope{Name: WriteScope}, Risk: def.RiskMutating, Mode: def.ModeLongRunning, Idempotent: true,
+		CLI:    def.CLIBinding{Noun: "container", Verb: "stop", Positional: "name"},
+		MCP:    &def.MCPBinding{Tool: "stop_container", Description: "Stop a running Docker container."},
+		Refine: refineStop,
+	})
+
+	Restart = def.Define[StopInput, ActionResult](def.Op{
+		ID: Name + ".containers.restart", Provider: Name, Kind: def.KindResourceAction, ResourceType: ResourceType,
+		Action:  "restart",
+		Summary: "Restart a container",
+		Description: "Restarts a container: stops it as stop does, waiting up to timeoutSeconds, then starts it. " +
+			"Side effects: the container's processes end and start again; a stopped container is started. " +
+			"Long-running: answers 202 with an operation. " + laneNote,
+		Scope: def.Scope{Name: WriteScope}, Risk: def.RiskMutating, Mode: def.ModeLongRunning,
+		CLI:    def.CLIBinding{Noun: "container", Verb: "restart", Positional: "name"},
+		MCP:    &def.MCPBinding{Tool: "restart_container", Description: "Restart a Docker container."},
+		Refine: refineStop,
+	})
+
+	Remove = def.Define[RemoveInput, RemoveResult](def.Op{
+		ID: Name + ".containers.remove", Provider: Name, Kind: def.KindResourceAction, ResourceType: ResourceType,
+		Action:  "remove",
+		Summary: "Remove a container",
+		Description: "Removes a stopped container. Side effects: the container is deleted; its volumes, named and " +
+			"anonymous, are kept unless removeVolumes is true, which deletes them except one another container " +
+			"still uses (a warning names it). A running container is refused with 409: stop it first. Removing a " +
+			"Compose-managed container adds a warning, because the next Compose deploy recreates it. " +
+			"Long-running: answers 202 with an operation. " + laneNote,
+		Scope: def.Scope{Name: WriteScope}, Risk: def.RiskDestructive, Mode: def.ModeLongRunning,
+		CLI:    def.CLIBinding{Noun: "container", Verb: "remove", Positional: "name"},
+		MCP:    &def.MCPBinding{Tool: "remove_container", Description: "Remove a stopped Docker container."},
+		Refine: refineName,
+	})
 )
 
 // Spec returns the docker provider's declarations for the catalog.
 func Spec() def.ProviderSpec {
 	return def.ProviderSpec{Name: Name, ReadScope: ReadScope, Ops: []def.Op{
-		List.Op(), Get.Op(), Logs.Op(),
+		List.Op(), Get.Op(), Logs.Op(), Start.Op(), Stop.Op(), Restart.Op(), Remove.Op(),
 	}}
 }

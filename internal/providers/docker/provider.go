@@ -122,11 +122,11 @@ func (p *Provider) Preflight(ctx context.Context) provider.Status {
 	}}
 }
 
-// Bindings binds the read operations.
+// Bindings binds the read operations and the lifecycle actions.
 func (p *Provider) Bindings() []provider.Binding {
-	return []provider.Binding{
+	return append([]provider.Binding{
 		provider.Sync(spec.List, p.list),
 		provider.Sync(spec.Get, p.get),
 		provider.Stream(spec.Logs, p.logs),
-	}
+	}, p.lifecycleBindings()...)
 }

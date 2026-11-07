@@ -54,6 +54,10 @@ var catalogStubs = map[string]func(*testprovider.Spy) provider.Provider{
 			testprovider.Sync(s, docker.List),
 			testprovider.Sync(s, docker.Get),
 			testprovider.Stream(s, docker.Logs),
+			testprovider.InProcess(s, docker.Start),
+			testprovider.InProcess(s, docker.Stop),
+			testprovider.InProcess(s, docker.Restart),
+			testprovider.InProcess(s, docker.Remove),
 		)
 	},
 	scripts.Name: func(s *testprovider.Spy) provider.Provider {
