@@ -35,6 +35,7 @@ const (
 	helperEnv       = "NEXUS_DAEMON_TEST_HELPER"
 	helperConfigEnv = "NEXUS_DAEMON_TEST_CONFIG"
 	helperStateEnv  = "NEXUS_DAEMON_TEST_STATE"
+	helperAuditEnv  = "NEXUS_DAEMON_TEST_AUDIT"
 )
 
 // testStateDir holds the token every daemon under test accepts, testToken.
@@ -58,6 +59,9 @@ func TestMain(m *testing.M) {
 		// Helper subprocesses inherit the environment.
 		err = os.Setenv(helperStateEnv, dir)
 	}
+	if err == nil {
+		err = os.Setenv(helperAuditEnv, filepath.Join(dir, "audit"))
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		_ = os.RemoveAll(dir)
@@ -74,7 +78,8 @@ func helperMain(path string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	d, err := New(cfg, Options{Providers: helperProviders(), ConfigPath: path, StateDir: os.Getenv(helperStateEnv)})
+	d, err := New(cfg, Options{Providers: helperProviders(), ConfigPath: path, StateDir: os.Getenv(helperStateEnv),
+		AuditDir: os.Getenv(helperAuditEnv)})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -506,6 +511,7 @@ func TestNoPollingAtIdle(t *testing.T) {
 		ConfigPath: cfgPath,
 		Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		StateDir:   testStateDir,
+		AuditDir:   t.TempDir(),
 	})
 	if err != nil {
 		t.Fatal(err)

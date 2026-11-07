@@ -278,7 +278,7 @@ func startServeWithState(t *testing.T, dir string) *serveProc {
 	t.Helper()
 	addr := freeAddr(t)
 	cfg := writeConfig(t, "nexusd.yaml", "listen: [\""+addr+"\"]\n")
-	cmd := exec.Command(nexusdBin, "serve", "--config", cfg, "--state-dir", dir)
+	cmd := exec.Command(nexusdBin, "serve", "--config", cfg, "--state-dir", dir, "--audit-dir", t.TempDir())
 	p := &serveProc{cmd: cmd, addr: addr, done: make(chan error, 1)}
 	var stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = p, &stderr

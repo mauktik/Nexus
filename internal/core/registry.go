@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/mauktik/nexus/internal/apitypes"
+	"github.com/mauktik/nexus/internal/audit"
 	"github.com/mauktik/nexus/internal/def"
 	"github.com/mauktik/nexus/internal/provider"
 )
@@ -45,6 +46,10 @@ type Options struct {
 	Logger           *slog.Logger     // Nil means slog.Default()
 	PreflightTimeout time.Duration    // Zero means DefaultPreflightTimeout
 	Now              func() time.Time // Clock for preflight re-checks; nil means time.Now
+	// Audit is the audit log the Dispatcher writes and system.audit.list
+	// reads. Nil means none: mutating requests then fail closed with
+	// audit-unavailable.
+	Audit *audit.Log
 }
 
 // Entry is one binding and the provider that owns it.
@@ -61,6 +66,7 @@ type Registry struct {
 	log              *slog.Logger
 	preflightTimeout time.Duration
 	now              func() time.Time
+	audit            *audit.Log
 	providers        []provider.Provider // Sorted by name
 	entries          []Entry             // Sorted by op ID
 
@@ -90,6 +96,7 @@ func New(providers []provider.Provider, opts Options) (*Registry, error) {
 		log:              opts.Logger,
 		preflightTimeout: opts.PreflightTimeout,
 		now:              opts.Now,
+		audit:            opts.Audit,
 	}
 	if r.now == nil {
 		r.now = time.Now

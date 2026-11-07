@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mauktik/nexus/internal/audit"
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/core"
@@ -40,6 +41,9 @@ type Options struct {
 	Logger *slog.Logger
 	// StateDir holds tokens.json. Empty means auth.DefaultStateDir.
 	StateDir string
+	// AuditDir holds audit.jsonl and its rotations. Empty means
+	// audit.DefaultDir.
+	AuditDir string
 }
 
 // Daemon is one nexusd serve process.
@@ -48,6 +52,7 @@ type Daemon struct {
 	path   string
 	log    *slog.Logger
 	reg    *core.Registry
+	audit  *audit.Log
 	srv    *server.Server
 	notify *notifier
 	ready  chan struct{}
@@ -71,29 +76,50 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 	if providers == nil {
 		providers = builtinProviders()
 	}
+	// The audit log opens first: no request is served without it, and a
+	// directory it cannot use stops startup rather than every mutation.
+	auditLog, err := audit.Open(audit.Options{
+		Dir:             opts.AuditDir,
+		Host:            cfg.Host.Name,
+		RetentionDays:   cfg.Audit.RetentionDays,
+		AggregateWindow: auth.FailureWindow,
+		Logger:          log,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("audit: %w", err)
+	}
+	fail := func(err error) (*Daemon, error) {
+		if cerr := auditLog.Close(); cerr != nil {
+			err = errors.Join(err, cerr)
+		}
+		return nil, err
+	}
 	reg, err := core.New(providers, core.Options{
 		Host:      cfg.Host.Name,
 		Version:   version.Version,
 		Providers: providerConfigs(cfg),
 		Logger:    log,
+		Audit:     auditLog,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("providers: %w", err)
+		return fail(fmt.Errorf("providers: %w", err))
 	}
 	stateDir := opts.StateDir
 	if stateDir == "" {
 		stateDir = auth.DefaultStateDir
 	}
-	authn := auth.New(stateDir, auth.Options{FailureLimitPerMinute: cfg.Auth.FailureLimitPerMinute, Logger: log})
+	authn := auth.New(stateDir, auth.Options{FailureLimitPerMinute: cfg.Auth.FailureLimitPerMinute, Logger: log,
+		Audit: auditLog})
 	srv, err := server.New(reg, server.Options{MaxBodyBytes: cfg.Limits.MaxBodyBytes, Logger: log, Auth: authn})
 	if err != nil {
-		return nil, fmt.Errorf("server: %w", err)
+		return fail(fmt.Errorf("server: %w", err))
 	}
 	return &Daemon{
 		cfg:    cfg,
 		path:   path,
 		log:    log,
 		reg:    reg,
+		audit:  auditLog,
 		srv:    srv,
 		notify: newNotifier(os.Getenv("NOTIFY_SOCKET")),
 		ready:  make(chan struct{}),
@@ -123,6 +149,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	listeners, err := d.listen(ctx)
 	if err != nil {
+		if cerr := d.audit.Close(); cerr != nil {
+			err = errors.Join(err, cerr)
+		}
 		return err
 	}
 	serveErr := make(chan error, len(listeners))
@@ -211,6 +240,10 @@ func (d *Daemon) shutdown() {
 	defer cancel()
 	if err := d.srv.Shutdown(ctx); err != nil {
 		d.log.Warn("graceful shutdown incomplete; remaining connections closed", "error", err.Error())
+	}
+	// After the server: in-flight requests may still write records.
+	if err := d.audit.Close(); err != nil {
+		d.log.Error("closing the audit log failed", "error", err.Error())
 	}
 	d.log.Info("nexusd stopped")
 }

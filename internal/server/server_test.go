@@ -407,6 +407,7 @@ func TestRoutesAreRecordedFromTheRegistry(t *testing.T) {
 		got[r.Method+" "+r.Path] = r.OpID
 	}
 	want := map[string]string{
+		"GET /v1/audit":                                    "system.audit.list",
 		"GET /v1/capabilities":                             "system.capabilities.get",
 		"GET /v1/providers/gadgets/gadgets/{name}":         "gadgets.gadgets.get",
 		"GET /v1/providers/gadgets/gadgets/{name}/explode": "gadgets.gadgets.explode",

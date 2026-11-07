@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/mauktik/nexus/internal/audit"
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/daemon"
@@ -89,6 +90,7 @@ func serve(args []string, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	path := fs.String("config", config.DefaultPath, "configuration file")
 	stateDir := fs.String("state-dir", auth.DefaultStateDir, "state directory (tokens.json, state.db)")
+	auditDir := fs.String("audit-dir", audit.DefaultDir, "audit log directory (audit.jsonl and its rotations)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -104,7 +106,7 @@ func serve(args []string, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	d, err := daemon.New(cfg, daemon.Options{ConfigPath: *path, StateDir: *stateDir})
+	d, err := daemon.New(cfg, daemon.Options{ConfigPath: *path, StateDir: *stateDir, AuditDir: *auditDir})
 	if err != nil {
 		fmt.Fprintf(stderr, "%s: %v\n", name, err)
 		return 1

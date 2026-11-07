@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/mauktik/nexus/internal/problem"
+	"github.com/mauktik/nexus/internal/systemspec"
 )
 
 // ErrInvalidToken means the presented credentials do not authenticate. It
@@ -61,6 +62,19 @@ type Options struct {
 	// Logger receives authentication failures and token file errors. Nil
 	// means slog.Default().
 	Logger *slog.Logger
+	// Audit records every denied request (FR-24). Nil means denials are
+	// only logged.
+	Audit Auditor
+}
+
+// Auditor is what the middleware needs of the audit log; *audit.Log
+// implements it.
+type Auditor interface {
+	// Write appends one record durably.
+	Write(rec systemspec.AuditRecord, sensitive []string) (string, error)
+	// RateLimited counts a denial of a rate-limited source into that
+	// source's aggregate record for the window (A-47).
+	RateLimited(source, surface string)
 }
 
 // Authenticator checks bearer tokens against tokens.json in a state
@@ -72,6 +86,7 @@ type Authenticator struct {
 	now     func() time.Time
 	log     *slog.Logger
 	limiter *Limiter
+	audit   Auditor
 	euid    int
 
 	mu     sync.Mutex
@@ -112,6 +127,7 @@ func New(dir string, opts Options) *Authenticator {
 		now:     opts.Now,
 		log:     opts.Logger,
 		limiter: NewLimiter(opts.FailureLimitPerMinute, opts.Now),
+		audit:   opts.Audit,
 		euid:    os.Geteuid(),
 	}
 }
@@ -237,7 +253,8 @@ func exempt(r *http.Request) bool {
 // /healthz. A source over its failure limit gets 429 before its token is
 // looked at. The authenticated Principal reaches next through the request
 // context (PrincipalFrom). Only the Authorization header is read: a token in
-// the query string is ignored.
+// the query string is ignored. Every refusal is audited as denied (FR-24);
+// those of a rate-limited source collapse into one aggregate per window.
 func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if exempt(r) {
@@ -246,6 +263,9 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 		}
 		src := SourceAddr(r)
 		if ok, retry := a.limiter.Allow(src); !ok {
+			if a.audit != nil {
+				a.audit.RateLimited(sourceGroup(src), surfaceOf(r))
+			}
 			w.Header().Set("Retry-After", strconv.Itoa(int(retry/time.Second)))
 			a.write(w, r, problem.New(problem.RateLimited, "too many failed authentication attempts from this source; retry later"))
 			return
@@ -254,6 +274,7 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 		if !present {
 			a.limiter.Fail(src)
 			a.log.Info("authentication failed", "source", src.String(), "reason", "no bearer credentials")
+			a.denied(r, src)
 			w.Header().Set("WWW-Authenticate", `Bearer realm="nexus"`)
 			a.write(w, r, unauthorized())
 			return
@@ -268,6 +289,7 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 				a.limiter.Fail(src)
 			}
 			a.log.Info("authentication failed", "source", src.String(), "reason", reason)
+			a.denied(r, src)
 			w.Header().Set("WWW-Authenticate", `Bearer realm="nexus", error="invalid_token"`)
 			a.write(w, r, unauthorized())
 			return
@@ -275,6 +297,47 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 		p.Source = src
 		next.ServeHTTP(w, r.WithContext(WithPrincipal(r.Context(), p)))
 	})
+}
+
+// denied audits one authentication failure. No credential material is
+// recorded: an unauthenticated request has no token name or ID, and the
+// presented token is never read into the record. The response does not
+// depend on the write; a failure is logged and the audit log marks itself
+// unhealthy.
+func (a *Authenticator) denied(r *http.Request, src netip.Addr) {
+	if a.audit == nil {
+		return
+	}
+	rec := systemspec.AuditRecord{Surface: surfaceOf(r), Outcome: "denied", Problem: string(problem.Unauthorized)}
+	if src.IsValid() {
+		rec.Source = src.String()
+	}
+	if _, err := a.audit.Write(rec, nil); err != nil {
+		a.log.Error("audit write failed", "outcome", rec.Outcome, "problem", rec.Problem, "source", rec.Source,
+			"error", err.Error())
+	}
+}
+
+// sourceGroup names the group the limiter counts a source in: an IPv4
+// address, or an IPv6 /64.
+func sourceGroup(a netip.Addr) string {
+	k := sourceKey(a)
+	if !k.IsValid() {
+		return ""
+	}
+	if k.Addr().Is4() {
+		return k.Addr().String()
+	}
+	return k.String()
+}
+
+// surfaceOf is the transport a request arrived on: MCP at /mcp (8.1), REST
+// everywhere else.
+func surfaceOf(r *http.Request) string {
+	if r.URL.Path == "/mcp" || strings.HasPrefix(r.URL.Path, "/mcp/") {
+		return "mcp"
+	}
+	return "rest"
 }
 
 func unauthorized() *problem.Error {

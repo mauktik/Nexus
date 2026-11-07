@@ -55,24 +55,30 @@ type OperationLogsInput struct {
 	Follow bool   `json:"follow,omitempty"` // Keep streaming until the operation ends
 }
 
-// AuditRecord is one audit log entry as the API returns it (FR-24, FR-30).
-// Parameters are already redacted when the record is written.
+// AuditRecord is one audit log entry as the API returns it (FR-24, FR-30),
+// and one line of audit.jsonl. Parameters are already redacted when the
+// record is written.
 type AuditRecord struct {
-	ID          string          `json:"id"`
-	Host        string          `json:"host"`
-	Time        time.Time       `json:"time"`
-	TokenName   string          `json:"tokenName"`
-	TokenID     string          `json:"tokenId"`
-	Source      string          `json:"source"`  // TCP peer address
-	Surface     string          `json:"surface"` // "rest" or "mcp"
-	Provider    string          `json:"provider"`
-	Action      string          `json:"action"` // Op ID
-	Target      string          `json:"target"`
-	Params      json.RawMessage `json:"params,omitempty"`
-	Outcome     string          `json:"outcome"`
-	Problem     string          `json:"problem,omitempty"` // Problem slug of a refusal or denial
-	OperationID string          `json:"operationId,omitempty"`
-	Count       int             `json:"count,omitempty"` // Aggregated denials under rate limiting
+	ID        string          `json:"id"`
+	Host      string          `json:"host"`
+	Time      time.Time       `json:"time"`
+	TokenName string          `json:"tokenName"`
+	TokenID   string          `json:"tokenId"`
+	Source    string          `json:"source"`  // TCP peer address; an IPv6 /64 for an aggregate
+	Surface   string          `json:"surface"` // "rest" or "mcp"
+	Provider  string          `json:"provider"`
+	Action    string          `json:"action"` // Op ID
+	Target    string          `json:"target"`
+	Params    json.RawMessage `json:"params,omitempty"`
+	// Outcome is requested, denied, refused, replayed, or an operation
+	// state for a state change.
+	Outcome string `json:"outcome"`
+	Problem string `json:"problem,omitempty"` // Problem slug of a refusal or denial
+	// InvalidFields are the failing input paths of a validation refusal.
+	// Values are never recorded: unvalidated input cannot be redacted.
+	InvalidFields []string `json:"invalidFields,omitempty"`
+	OperationID   string   `json:"operationId,omitempty"`
+	Count         int      `json:"count,omitempty"` // Denials one aggregate stands for under rate limiting (A-47)
 }
 
 func refineList(filterKeys ...string) func(*jsonschema.Schema) {

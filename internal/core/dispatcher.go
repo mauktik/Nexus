@@ -16,10 +16,12 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 
 	"github.com/mauktik/nexus/internal/apitypes"
+	"github.com/mauktik/nexus/internal/audit"
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/def"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
+	"github.com/mauktik/nexus/internal/systemspec"
 )
 
 // Surface is the transport a request arrived on.
@@ -89,9 +91,17 @@ type InvokeResult struct {
 // FromTarget op), capability, input validation, then the handler with panic
 // containment (Data Flow). Long-running ops continue with idempotency,
 // storage, Admit and lanes, which arrive with the operation manager (3.2).
+//
+// It writes the audit records of these steps (FR-24): denied for every
+// failed authentication or scope check, refused for a mutating request any
+// later step refuses, and requested, durably, before a sync mutating
+// handler runs. A failed requested write refuses the call with
+// audit-unavailable; a failed denied or refused write changes nothing,
+// because nothing executes, and is logged.
 type Dispatcher struct {
 	reg        *Registry
 	log        *slog.Logger
+	audit      *audit.Log // Nil: denials and refusals are logged only, mutations fail closed
 	loadTarget TargetLoader
 	entries    map[string]Entry
 	validators sync.Map // op ID -> *validator
@@ -99,7 +109,7 @@ type Dispatcher struct {
 
 // NewDispatcher returns the Dispatcher over every binding in reg.
 func NewDispatcher(reg *Registry, opts DispatcherOptions) *Dispatcher {
-	d := &Dispatcher{reg: reg, log: opts.Logger, loadTarget: opts.LoadTarget, entries: map[string]Entry{}}
+	d := &Dispatcher{reg: reg, log: opts.Logger, audit: reg.audit, loadTarget: opts.LoadTarget, entries: map[string]Entry{}}
 	if d.log == nil {
 		d.log = slog.Default()
 	}
@@ -129,16 +139,21 @@ func (d *Dispatcher) Invoke(ctx context.Context, req InvokeRequest) (InvokeResul
 		return InvokeResult{}, perr
 	}
 	if ok, st := d.reg.availableForCall(ctx, e.Provider); !ok {
-		return InvokeResult{}, problem.New(problem.CapabilityUnavailable,
+		return InvokeResult{}, d.refuse(op, req, problem.New(problem.CapabilityUnavailable,
 			fmt.Sprintf("provider %s is %s", e.Provider, st.State)).
-			With("provider", e.Provider).With("reason", st.Reason)
+			With("provider", e.Provider).With("reason", st.Reason))
 	}
 	in, perr := d.validate(op, e.Binding, req)
 	if perr != nil {
-		return InvokeResult{}, perr
+		return InvokeResult{}, d.refuse(op, req, perr)
 	}
 
 	b := e.Binding
+	if k := b.Kind(); k == provider.BindSync || k == provider.BindStream {
+		if perr := d.requested(op, req); perr != nil {
+			return InvokeResult{}, perr
+		}
+	}
 	switch b.Kind() {
 	case provider.BindSync:
 		out, err := d.callSync(ctx, b, in)
@@ -154,9 +169,10 @@ func (d *Dispatcher) Invoke(ctx context.Context, req InvokeRequest) (InvokeResul
 			return nil
 		}}, nil
 	}
-	// Long-running bindings run through the operation manager (3.2).
+	// Long-running bindings run through the operation manager (3.2), which
+	// writes their requested record at Data Flow step 9.
 	d.log.Error("no operation manager for a long-running op", "op", op.ID)
-	return InvokeResult{}, problem.New(problem.InternalError, genericDetail)
+	return InvokeResult{}, d.refuse(op, req, problem.New(problem.InternalError, genericDetail))
 }
 
 // authorize is the scope check. It is default-deny: a call passes only when
@@ -170,8 +186,7 @@ func (d *Dispatcher) authorize(ctx context.Context, op def.Op, req InvokeRequest
 	if op.Scope.FromTarget {
 		rec, perr := d.loadRecord(ctx, op, target)
 		if perr != nil {
-			d.denied(op, req, perr.Slug(), "")
-			return perr
+			return d.refuse(op, req, perr)
 		}
 		need := d.reg.readScope(rec.Provider)
 		if op.OperationControl {
@@ -218,11 +233,147 @@ func (d *Dispatcher) forbid(op def.Op, req InvokeRequest, need string) *problem.
 		With("requiredScope", need)
 }
 
-// denied records a refused call. The audit record (FR-24) is written here
-// once the audit log exists (2.3).
+// denied records a call that failed authentication or the scope check, for
+// every op, read or mutating (FR-24).
 func (d *Dispatcher) denied(op def.Op, req InvokeRequest, slug problem.Slug, need string) {
 	d.log.Info("request denied", "op", op.ID, "tokenId", req.Caller.TokenID, "tokenName", req.Caller.Name,
 		"surface", string(req.Surface), "problem", string(slug), "requiredScope", need)
+	d.note(d.record(op, req, audit.OutcomeDenied, slug))
+}
+
+// refuse records a mutating call refused after authorization and returns
+// perr. A validation failure is recorded with the failing field paths and
+// no parameter values, because unvalidated input cannot be redacted
+// reliably. Reads, and what-if requests, are not audited (Data Flow).
+func (d *Dispatcher) refuse(op def.Op, req InvokeRequest, perr *problem.Error) *problem.Error {
+	if !audited(op, req) {
+		return perr
+	}
+	d.log.Info("request refused", "op", op.ID, "tokenId", req.Caller.TokenID, "tokenName", req.Caller.Name,
+		"surface", string(req.Surface), "problem", string(perr.Slug()))
+	rec := d.record(op, req, audit.OutcomeRefused, perr.Slug())
+	if perr.Slug() == problem.ValidationFailed {
+		rec.InvalidFields = fieldPaths(perr)
+	}
+	d.note(rec)
+	return perr
+}
+
+// requested durably records a validated mutating call before its handler
+// runs. When the record cannot be written the call is refused with
+// audit-unavailable: the audit log fails closed (FR-24).
+func (d *Dispatcher) requested(op def.Op, req InvokeRequest) *problem.Error {
+	if !audited(op, req) {
+		return nil
+	}
+	unavailable := problem.New(problem.AuditUnavailable, "the audit record could not be written, so the request was not carried out")
+	if d.audit == nil {
+		d.log.Error("audit write failed", "op", op.ID, "outcome", audit.OutcomeRequested, "error", "no audit log")
+		return unavailable
+	}
+	rec := d.record(op, req, audit.OutcomeRequested, "")
+	rec.Params = req.Input
+	if len(bytes.TrimSpace(rec.Params)) == 0 {
+		rec.Params = json.RawMessage("{}")
+	}
+	if _, err := d.audit.Write(rec, op.Sensitive); err != nil {
+		d.log.Error("audit write failed", "op", op.ID, "outcome", audit.OutcomeRequested, "error", err.Error())
+		return unavailable
+	}
+	return nil
+}
+
+// note writes a record whose failure cannot change the response: it is
+// logged, and the audit log marks itself unhealthy.
+func (d *Dispatcher) note(rec systemspec.AuditRecord) {
+	if d.audit == nil {
+		return
+	}
+	if _, err := d.audit.Write(rec, nil); err != nil {
+		d.log.Error("audit write failed", "op", rec.Action, "outcome", rec.Outcome, "problem", rec.Problem,
+			"error", err.Error())
+	}
+}
+
+// record is the audit record of a call, without parameters. Target is set
+// only when it passes the op's schema for that field.
+func (d *Dispatcher) record(op def.Op, req InvokeRequest, outcome string, slug problem.Slug) systemspec.AuditRecord {
+	rec := systemspec.AuditRecord{
+		TokenName: req.Caller.Name, TokenID: req.Caller.TokenID, Surface: string(req.Surface),
+		Provider: op.Provider, Action: op.ID, Target: d.validTarget(op, req),
+		Outcome: outcome, Problem: string(slug),
+	}
+	if req.Caller.Source.IsValid() {
+		rec.Source = req.Caller.Source.String()
+	}
+	if op.Scope.FromTarget {
+		// The target of a FromTarget op is an operation ID.
+		rec.OperationID = rec.Target
+	}
+	return rec
+}
+
+// audited reports whether a call writes requested and refused records:
+// mutating ops, except a what-if request, which mutates nothing (Data
+// Flow, read-risk requests).
+func audited(op def.Op, req InvokeRequest) bool {
+	if !op.Mutating() {
+		return false
+	}
+	if op.WhatIf {
+		var in struct {
+			WhatIf json.RawMessage `json:"whatIf"`
+		}
+		if json.Unmarshal(req.Input, &in) == nil && string(bytes.TrimSpace(in.WhatIf)) == "true" {
+			return false
+		}
+	}
+	return true
+}
+
+// validTarget is the value of the op's target field when it passes the
+// schema of that field, else "". It is never a sensitive field.
+func (d *Dispatcher) validTarget(op def.Op, req InvokeRequest) string {
+	f := targetField(op)
+	if f == "" || slices.Contains(op.Sensitive, f) {
+		return ""
+	}
+	v, ok := inputString(req.Input, f)
+	if !ok || v == "" {
+		return ""
+	}
+	val, err := d.validatorFor(op)
+	if err != nil {
+		return ""
+	}
+	if r := val.props[f]; r == nil || r.Validate(v) != nil {
+		return ""
+	}
+	return v
+}
+
+// maxAuditedFields and maxAuditedPathLen bound what a validation refusal
+// records: an unknown property's path is a caller-chosen key.
+const (
+	maxAuditedFields  = 32
+	maxAuditedPathLen = 128
+)
+
+// fieldPaths lists the JSON Pointers of a validation failure's errors[].
+func fieldPaths(p *problem.Error) []string {
+	fe, _ := p.Extensions["errors"].([]problem.FieldError)
+	paths := make([]string, 0, min(len(fe), maxAuditedFields))
+	for _, e := range fe {
+		if len(paths) == maxAuditedFields {
+			break
+		}
+		path := e.Path
+		if len(path) > maxAuditedPathLen {
+			path = strings.ToValidUTF8(path[:maxAuditedPathLen], "") + "..."
+		}
+		paths = append(paths, path)
+	}
+	return paths
 }
 
 func (d *Dispatcher) loadRecord(ctx context.Context, op def.Op, id string) (TargetRecord, *problem.Error) {

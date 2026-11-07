@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/mauktik/nexus/internal/apitypes"
+	"github.com/mauktik/nexus/internal/audit"
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/def"
 	"github.com/mauktik/nexus/internal/problem"
@@ -37,9 +38,16 @@ const recID = "01890a5d-ac96-774b-bcce-b302099a8057"
 // with spy handlers, so the FromTarget path can be exercised now.
 func fromTargetFixture(t *testing.T, load TargetLoader) (*Dispatcher, *atomic.Int64) {
 	t.Helper()
+	// Cancel is mutating, so it needs an audit log to write requested to.
+	lg, err := audit.Open(audit.Options{Dir: t.TempDir(), Logger: slog.New(slog.NewJSONHandler(io.Discard, nil))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lg.Close() })
 	reg, err := New([]provider.Provider{readScoped{}}, Options{
 		Logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		Providers: map[string]ProviderConfig{"recs": {Enabled: true}},
+		Audit:     lg,
 	})
 	if err != nil {
 		t.Fatal(err)
