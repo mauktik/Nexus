@@ -1,0 +1,63 @@
+# nexusd configuration. Install as /etc/nexus/nexusd.yaml, owned by root:root
+# with mode 0600: running as root, nexusd refuses the file if any group or
+# other permission bit is set, because script env values can be secrets.
+#
+# Every key is listed with its default. Unknown keys are errors.
+# Check a change with: nexusd validate-config --config /etc/nexus/nexusd.yaml
+
+host:
+  name: ""                   # Empty means the OS hostname
+
+# Loopback only. Exposing nexusd on the LAN is an explicit choice.
+listen: ["127.0.0.1:7443"]
+
+tls:
+  mode: auto                 # auto | files | off. off is allowed only on loopback
+  certFile: ""               # Required in files mode, rejected otherwise
+  keyFile: ""                # Required in files mode, rejected otherwise
+  extraSANs: []              # Extra names for the generated certificate
+
+limits:
+  maxBodyBytes: 1048576
+  storageBudgetBytes: 1073741824
+  outputCapBytes: 10485760
+
+auth:
+  failureLimitPerMinute: 10  # Authentication failures per source
+
+audit:
+  retentionDays: 90
+
+mcp:
+  allowedOrigins: []
+
+providers:
+  docker:
+    enabled: false
+    socket: /run/docker.sock
+    configDir: /root/.docker
+    updateHealthTimeout: 60s
+    updateMaxRuntime: 1h
+
+  apt:
+    enabled: false
+    lockWait: 300s
+    maxRuntime: 6h
+
+  scripts:
+    enabled: false
+    catalog: []
+    # Example entry:
+    # catalog:
+    #   - id: deploy-api
+    #     description: Pull main and redeploy the API container
+    #     path: /opt/deploy/deploy-api.sh
+    #     runAs: deploy
+    #     workingDirectory: /opt/deploy
+    #     timeout: 1h
+    #     concurrency: 1
+    #     terminationGrace: 30s
+    #     env: {PATH: "/home/deploy/.local/bin:/usr/local/bin:/usr/bin:/bin"}
+    #     parameters:
+    #       - {name: branch, type: string, pattern: '^[A-Za-z0-9._/][A-Za-z0-9._/-]*$', arg: "--branch"}
+    #       - {name: apiKey, type: string, pattern: '^[A-Za-z0-9]+$', sensitive: true, env: API_KEY}
