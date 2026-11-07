@@ -132,17 +132,30 @@ func TestConcurrentStartsOnARejectLaneAdmitTheLimit(t *testing.T) {
 					fmt.Sprintf(`{"lane":%q,"policy":"reject","limit":%d}`, lane, limit))
 			})
 		}
-		var otherTook time.Duration
 		var otherAns answer
 		wg.Go(func() {
 			<-start
-			time.Sleep(5 * time.Millisecond) // During the burst
-			begin := time.Now()
+			// Fire once a winner is running and held, so the other lane is
+			// asked while a lane is occupied; the rest of the burst is
+			// still in flight. An event, not a sleep, so it holds at any speed.
+			select {
+			case <-g.started:
+			case <-time.After(30 * time.Second):
+			}
 			otherAns = post("/v1/providers/tp/things/"+other+"/run", `{"lane":"`+lane+`-other","policy":"reject"}`)
-			otherTook = time.Since(begin)
 		})
 		close(start)
-		wg.Wait()
+		// The winner's gate stays closed until this round ends, so the other
+		// lane answering at all proves it is not blocked behind a held lane.
+		// The bound only detects a deadlock; it is not a latency assertion, so
+		// CPU contention under -race cannot trip it.
+		done := make(chan struct{})
+		go func() { wg.Wait(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(30 * time.Second):
+			t.Fatalf("round %d limit %d: the burst or the other lane never answered while the winner was held", round, limit)
+		}
 
 		var winners []string
 		conflicts := 0
@@ -164,8 +177,8 @@ func TestConcurrentStartsOnARejectLaneAdmitTheLimit(t *testing.T) {
 				t.Fatalf("round %d: blocker %q is not a winner %v", round, a.blocker, winners)
 			}
 		}
-		if otherAns.status != http.StatusAccepted || otherTook >= 500*time.Millisecond {
-			t.Fatalf("round %d: the other lane answered %d in %v", round, otherAns.status, otherTook)
+		if otherAns.status != http.StatusAccepted {
+			t.Fatalf("round %d: the other lane answered %d, want 202", round, otherAns.status)
 		}
 		if limit == 1 {
 			g.waitStarted(t)
