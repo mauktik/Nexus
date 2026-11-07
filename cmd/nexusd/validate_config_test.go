@@ -239,3 +239,102 @@ func nodePosition(t *testing.T, fixture, key string) (int, int) {
 	}
 	return found.Line, found.Column
 }
+
+// catalogEntry is a valid catalog entry, one key per line from line 4, so a
+// row can drop or replace one line. Its parameter is on line 10.
+var catalogEntry = []string{
+	"providers:",
+	"  scripts:",
+	"    catalog:",
+	"      - id: deploy",
+	"        description: Deploy the API",
+	"        path: /opt/deploy/deploy.sh",
+	"        runAs: deploy",
+	"        workingDirectory: /opt/deploy",
+	"        parameters:",
+	"          - {name: branch, type: string, pattern: '^[a-z]+$', arg: --branch}",
+}
+
+// catalogYAML returns catalogEntry with line n (1-based) replaced by with,
+// or dropped when with is empty, plus extra lines.
+func catalogYAML(n int, with string, extra ...string) string {
+	var lines []string
+	for i, l := range catalogEntry {
+		switch {
+		case i+1 != n:
+			lines = append(lines, l)
+		case with != "":
+			lines = append(lines, with)
+		}
+	}
+	return strings.Join(append(lines, extra...), "\n") + "\n"
+}
+
+// at is ":<line>:<column>: " for the first occurrence of token in text,
+// which is line n of a fixture.
+func at(n int, text, token string) string {
+	return fmt.Sprintf(":%d:%d: ", n, strings.Index(text, token)+1)
+}
+
+// TC-ERR24: each catalog rule fails validate-config, which names the entry
+// and field and gives the line and column: of the value at fault, of the
+// unknown key, or of the entry when a required key is absent.
+func TestValidateConfigCatalogRules(t *testing.T) {
+	if out, code := runNexusd(t, "validate-config", "--config", writeConfig(t, "ok.yaml", catalogYAML(0, ""))); code != 0 {
+		t.Fatalf("the valid base entry exited %d:\n%s", code, out)
+	}
+	const entry = ":4:9: " // The entry's first key, where an absent key is reported
+	p := func(name string) string {
+		return "          - {name: " + name + ", type: string, pattern: '^a$', arg: --k}"
+	}
+	noPattern := "          - {name: branch, type: string, arg: --branch}"
+	sensitiveNoEnv := "          - {name: k, type: string, pattern: '^a$', sensitive: true}"
+	sensitiveArg := "          - {name: k, type: string, pattern: '^a$', sensitive: true, env: K, arg: --k}"
+	badRegex := "          - {name: k, type: string, pattern: '(', arg: --k}"
+	badEnv := "          - {name: k, type: string, pattern: '^a$', env: 'A=B'}"
+	rows := []struct {
+		name, yaml, want string
+	}{
+		{"missing id", catalogYAML(4, "      - description: Deploy the API"), entry + "providers.scripts.catalog[0].id: required"},
+		{"missing description", catalogYAML(5, ""), entry + "providers.scripts.catalog[0].description: required"},
+		{"missing path", catalogYAML(6, ""), entry + "providers.scripts.catalog[0].path: required"},
+		{"missing runAs", catalogYAML(7, ""), entry + "providers.scripts.catalog[0].runAs: required"},
+		{"missing workingDirectory", catalogYAML(8, ""), entry + "providers.scripts.catalog[0].workingDirectory: required"},
+		{"relative path", catalogYAML(6, "        path: deploy.sh"),
+			at(6, "        path: deploy.sh", "deploy.sh") + "providers.scripts.catalog[0].path: must be an absolute path"},
+		{"relative workingDirectory", catalogYAML(8, "        workingDirectory: opt"),
+			at(8, "        workingDirectory: opt", "opt") + "providers.scripts.catalog[0].workingDirectory: must be an absolute path"},
+		{"bad id", catalogYAML(4, "      - id: ../x"), at(4, "      - id: ../x", "../x") + "providers.scripts.catalog[0].id: must match"},
+		{"duplicate id", catalogYAML(0, "", "      - id: deploy", "        description: Again", "        path: /opt/b.sh",
+			"        runAs: deploy", "        workingDirectory: /opt"),
+			at(11, "      - id: deploy", "deploy") + `providers.scripts.catalog[1].id: duplicate script id "deploy"`},
+		{"string parameter without pattern", catalogYAML(10, noPattern),
+			at(10, noPattern, "{") + "providers.scripts.catalog[0].parameters[0].pattern: required for a string parameter"},
+		{"sensitive without env", catalogYAML(10, sensitiveNoEnv),
+			at(10, sensitiveNoEnv, "{") + "providers.scripts.catalog[0].parameters[0].env: required because the parameter is sensitive"},
+		{"sensitive with arg", catalogYAML(10, sensitiveArg),
+			at(10, sensitiveArg, "--k") + "providers.scripts.catalog[0].parameters[0].arg: not allowed because the parameter is sensitive"},
+		{"invalid regex", catalogYAML(10, badRegex),
+			at(10, badRegex, "'('") + "providers.scripts.catalog[0].parameters[0].pattern: not a valid regular expression"},
+		{"bad parameter name", catalogYAML(10, p("-rf")),
+			at(10, p("-rf"), "-rf") + "providers.scripts.catalog[0].parameters[0].name: must match"},
+		{"bad env name", catalogYAML(10, badEnv),
+			at(10, badEnv, "'A=B'") + "providers.scripts.catalog[0].parameters[0].env: must match"},
+		{"bad catalog env name", catalogYAML(0, "", "        env: {'A B': x}"),
+			at(11, "        env: {'A B': x}", "{") + `providers.scripts.catalog[0].env: variable name "A B" must match`},
+		{"unknown key in entry", catalogYAML(0, "", "        timeoutz: 1h"),
+			at(11, "        timeoutz: 1h", "timeoutz") + `providers.scripts.catalog[0].timeoutz: unknown key "timeoutz"`},
+	}
+	for _, r := range rows {
+		t.Run(r.name, func(t *testing.T) {
+			path := writeConfig(t, "catalog.yaml", r.yaml)
+			out, code := runNexusd(t, "validate-config", "--config", path)
+			if code == 0 {
+				t.Fatalf("validate-config exited 0 for:\n%s", r.yaml)
+			}
+			if !strings.Contains(out, path+r.want) {
+				t.Fatalf("output lacks %q:\n%s", path+r.want, out)
+			}
+		})
+	}
+}

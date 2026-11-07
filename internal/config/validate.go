@@ -11,9 +11,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mauktik/nexus/internal/providers/scripts/spec"
 )
 
 // validate checks values after decoding. Each problem is located at the
@@ -91,53 +94,107 @@ func (c *Config) validate(errs *collector) {
 	v.catalog(c.Providers.Scripts.Settings.Catalog)
 }
 
-// catalog applies the Configuration rules for script entries. Catalog-wide
-// semantics beyond these belong to the scripts provider.
+// catalog applies the Configuration rules for script entries, located in the
+// file. Catalog-wide semantics beyond these belong to the scripts provider.
 func (v validator) catalog(entries []Script) {
+	CheckCatalog(entries, v.fail)
+}
+
+var (
+	scriptIDRE      = regexp.MustCompile(spec.IDPattern)
+	parameterNameRE = regexp.MustCompile(spec.ParameterNamePattern)
+	envNameRE       = regexp.MustCompile(EnvNamePattern)
+)
+
+// EnvNamePattern is what an environment variable name in the catalog must
+// match: a portable shell name, so it cannot carry "=" or a NUL.
+const EnvNamePattern = `^[A-Za-z_][A-Za-z0-9_]*$`
+
+// CheckCatalog applies the validate-config rules for script catalog entries
+// and calls fail once per problem, with the key path under
+// providers.scripts.catalog. validate-config and the scripts provider's
+// Configure both use it, so the two cannot disagree. Env values can be
+// secrets and are never part of a message.
+func CheckCatalog(entries []Script, fail func(path, msg string)) {
+	failf := func(path, format string, args ...any) { fail(path, fmt.Sprintf(format, args...)) }
+	required := func(path, value string) bool {
+		if value == "" {
+			fail(path, "required")
+			return false
+		}
+		return true
+	}
+	absolute := func(path, value string) {
+		if required(path, value) && !filepath.IsAbs(value) {
+			failf(path, "must be an absolute path, got %q", value)
+		}
+	}
 	ids := map[string]bool{}
 	for i, s := range entries {
 		p := fmt.Sprintf("providers.scripts.catalog[%d]", i)
 		switch {
-		case s.ID == "":
-			v.fail(p+".id", "required")
+		case !required(p+".id", s.ID):
+		case !scriptIDRE.MatchString(s.ID):
+			failf(p+".id", "must match %s, got %q", spec.IDPattern, s.ID)
 		case ids[s.ID]:
-			v.failf(p+".id", "duplicate script id %q", s.ID)
+			failf(p+".id", "duplicate script id %q", s.ID)
 		}
 		ids[s.ID] = true
-		v.absolute(p+".path", s.Path)
-		if s.WorkingDirectory != "" {
-			v.absolute(p+".workingDirectory", s.WorkingDirectory)
+		required(p+".description", s.Description)
+		absolute(p+".path", s.Path)
+		required(p+".runAs", s.RunAs)
+		absolute(p+".workingDirectory", s.WorkingDirectory)
+		// Zero means the provider's default.
+		if s.Timeout < 0 {
+			failf(p+".timeout", "must not be negative, got %s", s.Timeout)
 		}
-		v.nonNegativeDuration(p+".timeout", s.Timeout)
-		v.nonNegativeDuration(p+".terminationGrace", s.TerminationGrace)
-		v.nonNegative(p+".concurrency", int64(s.Concurrency))
+		if s.TerminationGrace < 0 {
+			failf(p+".terminationGrace", "must not be negative, got %s", s.TerminationGrace)
+		}
+		if s.Concurrency < 0 {
+			failf(p+".concurrency", "must not be negative, got %d", s.Concurrency)
+		}
+		names := make([]string, 0, len(s.Env))
+		for name := range s.Env {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			if !envNameRE.MatchString(name) {
+				failf(p+".env", "variable name %q must match %s", name, EnvNamePattern)
+			}
+		}
 
-		names := map[string]bool{}
+		params := map[string]bool{}
 		for j, prm := range s.Parameters {
 			pp := fmt.Sprintf("%s.parameters[%d]", p, j)
 			switch {
-			case prm.Name == "":
-				v.fail(pp+".name", "required")
-			case names[prm.Name]:
-				v.failf(pp+".name", "duplicate parameter name %q", prm.Name)
+			case !required(pp+".name", prm.Name):
+			case !parameterNameRE.MatchString(prm.Name):
+				failf(pp+".name", "must match %s, got %q", spec.ParameterNamePattern, prm.Name)
+			case params[prm.Name]:
+				failf(pp+".name", "duplicate parameter name %q", prm.Name)
 			}
-			names[prm.Name] = true
+			params[prm.Name] = true
 			// The catalog author decides about leading dashes and
 			// metacharacters, so a string parameter must say what it accepts.
 			if prm.Type == "string" && prm.Pattern == "" {
-				v.fail(pp+".pattern", "required for a string parameter")
+				fail(pp+".pattern", "required for a string parameter")
 			}
 			if prm.Pattern != "" {
 				if _, err := regexp.Compile(prm.Pattern); err != nil {
-					v.failf(pp+".pattern", "not a valid regular expression: %v", err)
+					failf(pp+".pattern", "not a valid regular expression: %v", err)
 				}
+			}
+			if prm.Env != "" && !envNameRE.MatchString(prm.Env) {
+				failf(pp+".env", "must match %s, got %q", EnvNamePattern, prm.Env)
 			}
 			// argv is visible in /proc, so sensitive values travel by env.
 			if prm.Sensitive && prm.Env == "" {
-				v.fail(pp+".env", "required because the parameter is sensitive")
+				fail(pp+".env", "required because the parameter is sensitive")
 			}
 			if prm.Sensitive && prm.Arg != "" {
-				v.fail(pp+".arg", "not allowed because the parameter is sensitive")
+				fail(pp+".arg", "not allowed because the parameter is sensitive")
 			}
 		}
 	}
@@ -179,18 +236,6 @@ func (v validator) positive(path string, n int64) {
 func (v validator) positiveDuration(path string, d time.Duration) {
 	if d <= 0 {
 		v.failf(path, "must be greater than zero, got %s", d)
-	}
-}
-
-func (v validator) nonNegativeDuration(path string, d time.Duration) {
-	if d < 0 {
-		v.failf(path, "must not be negative, got %s", d)
-	}
-}
-
-func (v validator) nonNegative(path string, n int64) {
-	if n < 0 {
-		v.failf(path, "must not be negative, got %d", n)
 	}
 }
 

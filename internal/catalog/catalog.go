@@ -7,6 +7,7 @@ package catalog
 
 import (
 	"github.com/mauktik/nexus/internal/def"
+	scripts "github.com/mauktik/nexus/internal/providers/scripts/spec"
 	"github.com/mauktik/nexus/internal/systemspec"
 )
 
@@ -14,6 +15,7 @@ import (
 func All() []def.ProviderSpec {
 	return []def.ProviderSpec{
 		systemspec.Spec(),
+		scripts.Spec(),
 	}
 }
 

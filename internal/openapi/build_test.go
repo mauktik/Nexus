@@ -26,12 +26,15 @@ import (
 	"github.com/mauktik/nexus/internal/audit"
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/catalog"
+	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/core"
 	"github.com/mauktik/nexus/internal/def"
 	"github.com/mauktik/nexus/internal/openapi"
 	"github.com/mauktik/nexus/internal/ops"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
+	"github.com/mauktik/nexus/internal/providers/scripts"
+	scriptspec "github.com/mauktik/nexus/internal/providers/scripts/spec"
 	"github.com/mauktik/nexus/internal/server"
 	"github.com/mauktik/nexus/internal/store"
 )
@@ -188,7 +191,27 @@ type stack struct {
 }
 
 func enabledAll() map[string]core.ProviderConfig {
-	return map[string]core.ProviderConfig{"tp": {Enabled: true}, "tq": {Enabled: true}}
+	return map[string]core.ProviderConfig{"tp": {Enabled: true}, "tq": {Enabled: true},
+		scriptspec.Name: {Enabled: true, Decode: scriptsSection}}
+}
+
+// scriptsSection is the real scripts provider's configuration in the stack:
+// one cataloged script.
+func scriptsSection(into any) error {
+	into.(*config.ScriptsConfig).Catalog = []config.Script{{
+		ID: "deploy", Description: "Deploy the API", Path: "/opt/deploy.sh", RunAs: "deploy",
+		WorkingDirectory: "/opt", Env: map[string]string{"TOKEN": "secret"},
+		Parameters: []config.Parameter{{Name: "branch", Type: "string", Pattern: "^[a-z]+$", Arg: "--branch"}},
+	}}
+	return nil
+}
+
+// scriptsProvider is the real scripts provider, with its preflight forced
+// enabled because T0 hosts have no systemd.
+func scriptsProvider() provider.Provider {
+	return scripts.New(scripts.Options{Host: "testhost", Preflight: func(context.Context) provider.Status {
+		return provider.Status{State: apitypes.ProviderEnabled}
+	}})
 }
 
 func newStack(t *testing.T) *stack {
@@ -208,14 +231,14 @@ func newStack(t *testing.T) *stack {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reg, err := core.New([]provider.Provider{tp{}, tq{}}, core.Options{
+	reg, err := core.New([]provider.Provider{tp{}, tq{}, scriptsProvider()}, core.Options{
 		Host: "testhost", Version: "v0.0.0-test", Logger: log, Audit: alog, Ops: mgr, Providers: enabledAll(),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	full, _, err := auth.Create(stateDir, auth.CreateRequest{Name: "full",
-		Scopes: []string{"tp:read", "tp:write", "tp:run", "tq:read", "audit:read"}})
+		Scopes: []string{"tp:read", "tp:write", "tp:run", "tq:read", "audit:read", "scripts:read", "scripts:run"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -368,6 +391,8 @@ func TestDocumentMatchesRoutes(t *testing.T) {
 		"GET /v1/providers/tp/things", "GET /v1/providers/tp/things/{name}", "GET /v1/providers/tp/things/{name}/logs",
 		"POST /v1/providers/tp/things/{name}/restart", "POST /v1/providers/tp/actions/check",
 		"GET /v1/providers/tq/items/{name}",
+		"GET /v1/providers/scripts/scripts", "GET /v1/providers/scripts/scripts/{name}",
+		"POST /v1/providers/scripts/scripts/{name}/invoke",
 	} {
 		if _, ok := document[want]; !ok {
 			t.Errorf("document lacks %s", want)
@@ -749,6 +774,9 @@ func TestResponsesMatchTheDocument(t *testing.T) {
 	check(http.MethodGet, "/v1/providers/tp/things/a", s.full, "", 200)
 	check(http.MethodGet, "/v1/providers/tp/things/a/status", s.full, "", 200)
 	check(http.MethodPost, "/v1/providers/tp/things/a/restart", s.full, `{"force":true}`, 202)
+	check(http.MethodGet, "/v1/providers/scripts/scripts", s.full, "", 200)
+	check(http.MethodGet, "/v1/providers/scripts/scripts/deploy", s.full, "", 200)
+	check(http.MethodGet, "/v1/providers/scripts/scripts/nope", s.full, "", 404)
 	check(http.MethodGet, "/v1/operations", s.full, "", 200)
 	check(http.MethodGet, "/v1/audit", s.full, "", 200)
 	check(http.MethodGet, "/v1/providers/tp/things/a", s.scopeFree, "", 403)
@@ -777,7 +805,7 @@ func TestDocumentIsDeterministicAndTracksEnablement(t *testing.T) {
 		t.Fatal("two fetches differ")
 	}
 	again, err := openapi.Build(entriesOps(s.reg), openapi.Options{Version: "v0.0.0-test",
-		ReadScopes: map[string]string{"tp": "tp:read", "tq": "tq:read"}})
+		ReadScopes: map[string]string{"tp": "tp:read", "tq": "tq:read", scriptspec.Name: scriptspec.ReadScope}})
 	if err != nil {
 		t.Fatal(err)
 	}

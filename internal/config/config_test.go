@@ -285,7 +285,8 @@ func TestProviderSectionDecode(t *testing.T) {
 
 func scriptsYAML(params ...string) string {
 	var b strings.Builder
-	b.WriteString("providers:\n  scripts:\n    catalog:\n      - id: deploy\n        path: /opt/deploy.sh\n        parameters:\n")
+	b.WriteString("providers:\n  scripts:\n    catalog:\n      - id: deploy\n        description: Deploy\n        path: /opt/deploy.sh\n" +
+		"        runAs: deploy\n        workingDirectory: /opt\n        parameters:\n")
 	for _, p := range params {
 		b.WriteString("          - " + p + "\n")
 	}

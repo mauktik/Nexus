@@ -15,6 +15,7 @@ import (
 	"github.com/mauktik/nexus/internal/def"
 	"github.com/mauktik/nexus/internal/openapi"
 	"github.com/mauktik/nexus/internal/problem"
+	scripts "github.com/mauktik/nexus/internal/providers/scripts/spec"
 )
 
 // attacks is the FR-25 list sent through every string parameter: shell
@@ -42,6 +43,9 @@ var attacks = []struct{ name, value string }{
 var inertAllowed = map[string]bool{
 	testprovider.WidgetsRestart.Op().ID + " /note": true,
 	testprovider.ActionsEcho.Op().ID + " /text":    true,
+	// Script parameter values reach the script only as one argv element or
+	// one env value (5.3 proves it against real processes, TC-106).
+	scripts.Invoke.Op().ID + " /parameters/{key}": true,
 }
 
 // stringParams lists the paths of op's string inputs.

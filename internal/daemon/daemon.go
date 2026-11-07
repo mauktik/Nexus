@@ -108,7 +108,7 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 	}
 	providers := opts.Providers
 	if providers == nil {
-		providers = builtinProviders()
+		providers = builtinProviders(cfg.Host.Name)
 	}
 	// The audit log opens first: no request is served without it, and a
 	// directory it cannot use stops startup rather than every mutation.

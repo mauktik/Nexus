@@ -50,6 +50,19 @@ providers:
     lockWait: 300s
     maxRuntime: 6h
 
+  # The script catalog. Scripts are defined only here: no API, MCP or CLI call
+  # can add, change or remove one. Reads return every field except env values,
+  # which are listed by name only. A reload (SIGHUP) swaps the whole catalog;
+  # a running script keeps the definition it started with.
+  #
+  # Required per entry: id (letters, digits, ".", "_" and "-", at most 64,
+  # starting with a letter or digit), description, path (absolute), runAs and
+  # workingDirectory (absolute). Defaults: timeout 1h, concurrency 1,
+  # terminationGrace 30s (between SIGTERM and SIGKILL on cancel or timeout).
+  # A string parameter requires a pattern. sensitive: true requires env and
+  # forbids arg, because argv is visible in /proc. A parameter with neither
+  # arg nor env is positional, in declared order. Scripts run only under
+  # systemd; without it the provider reports unavailable.
   scripts:
     enabled: false
     catalog: []

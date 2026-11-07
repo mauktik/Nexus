@@ -36,6 +36,7 @@ import (
 	"github.com/mauktik/nexus/internal/ops"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
+	scripts "github.com/mauktik/nexus/internal/providers/scripts/spec"
 	"github.com/mauktik/nexus/internal/server"
 	"github.com/mauktik/nexus/internal/store"
 )
@@ -46,7 +47,15 @@ const module = "github.com/mauktik/nexus"
 // system, whose ops core binds itself. A provider added to catalog.All()
 // adds one entry here, built with testprovider.NewStub and the spy helpers
 // (testprovider.Sync, Stream, InProcess), one binding per op.
-var catalogStubs = map[string]func(*testprovider.Spy) provider.Provider{}
+var catalogStubs = map[string]func(*testprovider.Spy) provider.Provider{
+	scripts.Name: func(s *testprovider.Spy) provider.Provider {
+		return testprovider.NewStub(scripts.Spec(),
+			testprovider.Sync(s, scripts.List),
+			testprovider.Sync(s, scripts.Get),
+			testprovider.InProcess(s, scripts.Invoke),
+		)
+	},
+}
 
 // stack is the real server, Dispatcher, audit log and operation manager over
 // the system ops, the conformance provider and a stub of every other catalog
