@@ -190,8 +190,12 @@ func TestReaderAcrossProcessesAndPartialFinalLine(t *testing.T) {
 		})
 
 		r := oplog.NewReader(dir)
+		// Read until the child has crossed segment boundaries (event, not a
+		// wall-clock window) so the property holds however slowly it starts.
+		// The deadline only bounds a hung child.
+		const wantSegments = 3
 		reads, maxSeen := 0, 0
-		for deadline := time.Now().Add(1500 * time.Millisecond); time.Now().Before(deadline); {
+		for deadline := time.Now().Add(60 * time.Second); ; {
 			p, err := r.Read(0, 0)
 			if err != nil {
 				t.Fatalf("Read while child writes: %v", err)
@@ -202,6 +206,12 @@ func TestReaderAcrossProcessesAndPartialFinalLine(t *testing.T) {
 			}
 			maxSeen = n
 			reads++
+			if reads >= 20 && maxSeen > 0 && len(segments(t, dir)) >= wantSegments {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("child wrote %d segments and %d frames in 60s, want >= %d segments", len(segments(t, dir)), maxSeen, wantSegments)
+			}
 		}
 		if err := cmd.Process.Signal(os.Kill); err != nil {
 			t.Fatal(err)
@@ -217,8 +227,8 @@ func TestReaderAcrossProcessesAndPartialFinalLine(t *testing.T) {
 		if maxSeen == 0 || final < maxSeen {
 			t.Fatalf("final %d frames, max seen while writing %d", final, maxSeen)
 		}
-		if n := len(segments(t, dir)); n < 2 {
-			t.Errorf("child wrote %d segments, want several to cross segment boundaries", n)
+		if n := len(segments(t, dir)); n < wantSegments {
+			t.Errorf("child wrote %d segments, want >= %d to cross segment boundaries", n, wantSegments)
 		}
 		t.Logf("%d reads while writing, %d frames after SIGKILL", reads, final)
 	})
