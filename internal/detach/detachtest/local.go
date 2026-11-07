@@ -1,0 +1,166 @@
+// Package detachtest runs detached operations on a development machine
+// without systemd, for T0 tests. The real systemd-run path is proven in the
+// systemd harness (3.5).
+package detachtest
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/mauktik/nexus/internal/detach"
+)
+
+// Local returns the three process seams of detach.Options for every T0
+// test of a detached operation: a launcher that execs the real
+// `nexusd op-supervise` in its own session (Setsid) instead of a unit, a
+// UnitState that reports the unit active while that supervisor lives
+// (kill(pid, 0)) and absent once it has exited, and a Signal that sends to
+// the supervisor's PID. A test takes all three, never Launch alone, so a
+// nil UnitState can never reach a real systemctl here.
+func Local() detach.Options {
+	l := &local{procs: map[string]*proc{}}
+	return detach.Options{Launch: l.launch, UnitState: l.state, Signal: l.signal}
+}
+
+type proc struct {
+	pid  int
+	done chan struct{} // Closed once the supervisor has exited and been reaped
+}
+
+type local struct {
+	mu    sync.Mutex
+	procs map[string]*proc // By unit
+}
+
+func (l *local) launch(_ context.Context, inv detach.Invocation) error {
+	exe, err := Supervisor()
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(exe, "op-supervise", "--dir", inv.Dir)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("detachtest: start supervisor: %w", err)
+	}
+	p := &proc{pid: cmd.Process.Pid, done: make(chan struct{})}
+	l.mu.Lock()
+	l.procs[inv.Unit] = p
+	l.mu.Unlock()
+	go func() {
+		// The exit status is the supervisor's business; reaping it is what
+		// matters, so kill(pid, 0) stops seeing a zombie.
+		if err := cmd.Wait(); err != nil {
+			fmt.Fprintf(os.Stderr, "detachtest: supervisor for %s: %v\n", inv.Unit, err)
+		}
+		close(p.done)
+	}()
+	return nil
+}
+
+var (
+	absent = detach.UnitState{ActiveState: "inactive", LoadState: "not-found"}
+	active = detach.UnitState{ActiveState: "active", LoadState: "loaded"}
+)
+
+func (l *local) state(_ context.Context, unit string) (detach.UnitState, error) {
+	l.mu.Lock()
+	p, ok := l.procs[unit]
+	l.mu.Unlock()
+	if !ok {
+		return absent, nil
+	}
+	select {
+	case <-p.done:
+		// A unit started with --collect is unloaded once it ends.
+		return absent, nil
+	default:
+	}
+	if err := syscall.Kill(p.pid, 0); err != nil && !errors.Is(err, syscall.EPERM) {
+		return absent, nil
+	}
+	return active, nil
+}
+
+func (l *local) signal(_ context.Context, unit string, sig syscall.Signal) error {
+	l.mu.Lock()
+	p, ok := l.procs[unit]
+	l.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("detachtest: unit %s not loaded", unit)
+	}
+	select {
+	case <-p.done:
+		return fmt.Errorf("detachtest: unit %s not loaded", unit)
+	default:
+	}
+	return syscall.Kill(p.pid, sig)
+}
+
+var build struct {
+	once sync.Once
+	path string
+	err  error
+}
+
+// Supervisor returns the path of a nexusd binary built from this module,
+// once per test process, for running `nexusd op-supervise` for real.
+func Supervisor() (string, error) {
+	build.once.Do(func() { build.path, build.err = buildNexusd() })
+	return build.path, build.err
+}
+
+func buildNexusd() (string, error) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		return "", errors.New("detachtest: cannot locate the module")
+	}
+	root := filepath.Join(filepath.Dir(file), "..", "..", "..")
+	parent := filepath.Join(os.TempDir(), "nexus-detachtest")
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		return "", fmt.Errorf("detachtest: %w", err)
+	}
+	pruneOld(parent)
+	dir, err := os.MkdirTemp(parent, "build-*")
+	if err != nil {
+		return "", fmt.Errorf("detachtest: %w", err)
+	}
+	goTool, err := exec.LookPath("go")
+	if err != nil {
+		return "", fmt.Errorf("detachtest: no go tool to build nexusd: %w", err)
+	}
+	out := filepath.Join(dir, "nexusd")
+	cmd := exec.Command(goTool, "build", "-o", out, "./cmd/nexusd")
+	cmd.Dir = root
+	if b, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("detachtest: build nexusd: %w\n%s", err, b)
+	}
+	return out, nil
+}
+
+// pruneOld removes builds of earlier test runs. A build still in use by a
+// concurrent test process is younger than the cutoff.
+func pruneOld(parent string) {
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-time.Hour)
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil || !info.ModTime().Before(cutoff) {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(parent, e.Name())); err != nil {
+			fmt.Fprintf(os.Stderr, "detachtest: prune %s: %v\n", e.Name(), err)
+		}
+	}
+}

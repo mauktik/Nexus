@@ -13,6 +13,7 @@ import (
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/def"
+	"github.com/mauktik/nexus/internal/detach"
 )
 
 // Provider is one compiled-in provider.
@@ -85,6 +86,24 @@ type InProcessSpec[In, Out any] struct {
 	Run   func(context.Context, In, *Run) (Out, error)
 }
 
+// DetachedSpec is a long-running operation that runs in a systemd transient
+// unit outside nexusd, so it survives a crash or restart of the daemon
+// (FR-6).
+type DetachedSpec[In, Out any] struct {
+	Admit func(context.Context, In) error         // Optional synchronous pre-checks; return a *problem.Error
+	Lane  func(context.Context, In) (Lane, error) // Optional; nil means NoLane. Runs once, at admission
+	// Prepare builds the process spec and captures any pre-state. Its
+	// context is canceled by a cancel of the queued operation. Required.
+	Prepare func(context.Context, In, *Run) (detach.Spec, error)
+	// Finalize turns exit.json into the result. It must be idempotent, read
+	// files and never wait, and must not depend on sensitive input fields:
+	// In is decoded from the record's redacted input. Required.
+	Finalize func(context.Context, In, detach.Exit, *Run) (Out, error)
+	// LostDetail is appended to outcome-unknown when the unit died without
+	// exit.json. Optional.
+	LostDetail func(*Run, In) string
+}
+
 // BindingKind is how a binding executes.
 type BindingKind string
 
@@ -92,6 +111,7 @@ const (
 	BindSync      BindingKind = "sync"
 	BindStream    BindingKind = "stream"
 	BindInProcess BindingKind = "in-process"
+	BindDetached  BindingKind = "detached"
 )
 
 // InProcessFuncs is an in-process binding with its types erased. Each function
@@ -100,6 +120,16 @@ type InProcessFuncs struct {
 	Admit func(ctx context.Context, in any) error
 	Lane  func(ctx context.Context, in any) (Lane, error)
 	Run   func(ctx context.Context, in any, r *Run) (any, error)
+}
+
+// DetachedFuncs is a detached binding with its types erased. Each function
+// takes the value returned by Binding.Decode.
+type DetachedFuncs struct {
+	Admit      func(ctx context.Context, in any) error
+	Lane       func(ctx context.Context, in any) (Lane, error)
+	Prepare    func(ctx context.Context, in any, r *Run) (detach.Spec, error)
+	Finalize   func(ctx context.Context, in any, x detach.Exit, r *Run) (any, error)
+	LostDetail func(r *Run, in any) string // Empty when the spec has none
 }
 
 // Binding is a handler bound to its declaration. The core calls it through
@@ -111,6 +141,7 @@ type Binding struct {
 	sync      func(context.Context, any) (any, error)
 	stream    func(context.Context, any, func(apitypes.Frame) error) error
 	inProcess *InProcessFuncs
+	detached  *DetachedFuncs
 }
 
 // Op returns the declaration the binding implements.
@@ -144,6 +175,14 @@ func (b Binding) InProcess() (InProcessFuncs, bool) {
 		return InProcessFuncs{}, false
 	}
 	return *b.inProcess, true
+}
+
+// Detached returns the erased functions of a detached binding.
+func (b Binding) Detached() (DetachedFuncs, bool) {
+	if b.detached == nil {
+		return DetachedFuncs{}, false
+	}
+	return *b.detached, true
 }
 
 // Sync binds a handler to a ModeSync operation.
@@ -227,6 +266,59 @@ func InProcess[In, Out any](op def.Typed[In, Out], s InProcessSpec[In, Out]) Bin
 		},
 	}
 	return Binding{op: d, kind: BindInProcess, decode: decoder[In](), inProcess: funcs}
+}
+
+// Detached binds a long-running operation that runs in a transient unit.
+func Detached[In, Out any](op def.Typed[In, Out], s DetachedSpec[In, Out]) Binding {
+	d := op.Op()
+	requireMode(d, def.ModeLongRunning, "Detached")
+	if s.Prepare == nil || s.Finalize == nil {
+		panic(fmt.Sprintf("provider: op %q: DetachedSpec needs Prepare and Finalize", d.ID))
+	}
+	funcs := &DetachedFuncs{
+		Admit: func(ctx context.Context, in any) error {
+			v, err := typedInput[In](d, in)
+			if err != nil {
+				return err
+			}
+			if s.Admit == nil {
+				return nil
+			}
+			return s.Admit(ctx, v)
+		},
+		Lane: func(ctx context.Context, in any) (Lane, error) {
+			v, err := typedInput[In](d, in)
+			if err != nil {
+				return Lane{}, err
+			}
+			if s.Lane == nil {
+				return NoLane, nil
+			}
+			return s.Lane(ctx, v)
+		},
+		Prepare: func(ctx context.Context, in any, r *Run) (detach.Spec, error) {
+			v, err := typedInput[In](d, in)
+			if err != nil {
+				return detach.Spec{}, err
+			}
+			return s.Prepare(ctx, v, r)
+		},
+		Finalize: func(ctx context.Context, in any, x detach.Exit, r *Run) (any, error) {
+			v, err := typedInput[In](d, in)
+			if err != nil {
+				return nil, err
+			}
+			return s.Finalize(ctx, v, x, r)
+		},
+		LostDetail: func(r *Run, in any) string {
+			v, err := typedInput[In](d, in)
+			if err != nil || s.LostDetail == nil {
+				return ""
+			}
+			return s.LostDetail(r, v)
+		},
+	}
+	return Binding{op: d, kind: BindDetached, decode: decoder[In](), detached: funcs}
 }
 
 func requireMode(op def.Op, want def.Mode, constructor string) {

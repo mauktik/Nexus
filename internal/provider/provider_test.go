@@ -15,6 +15,7 @@ import (
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/def"
+	"github.com/mauktik/nexus/internal/detach"
 )
 
 // A hypothetical provider with distinct input and output types per binding.
@@ -35,6 +36,14 @@ type widgetRepaintIn struct {
 type widgetRepaintOut struct {
 	apitypes.ActionResult
 	Previous string `json:"previous"`
+}
+type widgetDeployIn struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+type widgetDeployOut struct {
+	apitypes.ActionResult
+	ExitCode int `json:"exitCode"`
 }
 
 func baseOp(id string) def.Op {
@@ -64,13 +73,22 @@ var (
 		op.CLI.Verb = "update"
 		return op
 	}())
+
+	widgetDeploy = def.Define[widgetDeployIn, widgetDeployOut](func() def.Op {
+		op := baseOp("widgets.widgets.deploy")
+		op.Kind, op.Action = def.KindResourceAction, "deploy"
+		op.Scope = def.Scope{Name: "widgets:write"}
+		op.Risk, op.Mode, op.Cancel = def.RiskMutating, def.ModeLongRunning, def.CancelRunning
+		op.CLI.Verb = "invoke"
+		return op
+	}())
 )
 
 type widgetProvider struct{}
 
 func (widgetProvider) Spec() def.ProviderSpec {
 	return def.ProviderSpec{Name: "widgets", ReadScope: "widgets:read",
-		Ops: []def.Op{widgetGet.Op(), widgetLogs.Op(), widgetRepaint.Op()}}
+		Ops: []def.Op{widgetGet.Op(), widgetLogs.Op(), widgetRepaint.Op(), widgetDeploy.Op()}}
 }
 
 func (widgetProvider) Configure(decode func(into any) error) error {
@@ -107,7 +125,19 @@ func (widgetProvider) Bindings() []Binding {
 				return widgetRepaintOut{ActionResult: apitypes.ActionResult{Changed: true}, Previous: "red"}, nil
 			},
 		}),
-		// Detached is added at 3.3, when detach.Spec exists; TC-9 is extended then.
+		Detached(widgetDeploy, DetachedSpec[widgetDeployIn, widgetDeployOut]{
+			Lane: func(_ context.Context, in widgetDeployIn) (Lane, error) {
+				return Lane{Key: "widget:" + in.Name, Policy: LaneReject}, nil
+			},
+			Prepare: func(_ context.Context, in widgetDeployIn, _ *Run) (detach.Spec, error) {
+				return detach.Spec{Argv: []string{"/usr/bin/deploy", in.Name, in.Version},
+					KillMode: detach.KillControlGroup, MaxRuntime: time.Hour}, nil
+			},
+			Finalize: func(_ context.Context, _ widgetDeployIn, x detach.Exit, _ *Run) (widgetDeployOut, error) {
+				return widgetDeployOut{ActionResult: apitypes.ActionResult{Changed: x.ExitCode == 0}, ExitCode: x.ExitCode}, nil
+			},
+			LostDetail: func(_ *Run, in widgetDeployIn) string { return "deploy of " + in.Name + " may be partial" },
+		}),
 	}
 }
 
@@ -122,7 +152,7 @@ func TestBindingsExposeTheirOps(t *testing.T) {
 	if len(bindings) != len(spec.Ops) {
 		t.Fatalf("%d bindings for %d ops", len(bindings), len(spec.Ops))
 	}
-	wantKinds := []BindingKind{BindSync, BindStream, BindInProcess}
+	wantKinds := []BindingKind{BindSync, BindStream, BindInProcess, BindDetached}
 	for i, b := range bindings {
 		if b.Op().ID != spec.Ops[i].ID {
 			t.Errorf("binding %d exposes op %q, want %q", i, b.Op().ID, spec.Ops[i].ID)
@@ -193,6 +223,51 @@ func TestErasedCallsReachTypedHandlers(t *testing.T) {
 	}
 	if _, ok := get.InProcess(); ok {
 		t.Error("InProcess() available on a sync binding")
+	}
+}
+
+// TC-9 (extended at 3.3): the erased detached functions reach the typed
+// Prepare, Finalize and LostDetail, and only a detached binding has them.
+func TestErasedDetachedCallsReachTypedHandlers(t *testing.T) {
+	ctx := context.Background()
+	bindings := widgetProvider{}.Bindings()
+	deploy := bindings[3]
+	in, err := deploy.Decode(json.RawMessage(`{"name":"w4","version":"1.2"}`))
+	if err != nil {
+		t.Fatalf("Decode deploy: %v", err)
+	}
+	df, ok := deploy.Detached()
+	if !ok {
+		t.Fatal("Detached() not available on a Detached binding")
+	}
+	if err := df.Admit(ctx, in); err != nil {
+		t.Errorf("Admit with no spec Admit: %v", err)
+	}
+	if lane, err := df.Lane(ctx, in); err != nil || lane.Key != "widget:w4" {
+		t.Errorf("Lane = %+v, %v", lane, err)
+	}
+	r := NewRun("op-4", nil)
+	spec, err := df.Prepare(ctx, in, r)
+	if err != nil || strings.Join(spec.Argv, " ") != "/usr/bin/deploy w4 1.2" {
+		t.Errorf("Prepare = %+v, %v", spec, err)
+	}
+	out, err := df.Finalize(ctx, in, detach.Exit{ExitCode: 3}, r)
+	if err != nil || out.(widgetDeployOut).ExitCode != 3 || out.(widgetDeployOut).Changed {
+		t.Errorf("Finalize = %+v, %v", out, err)
+	}
+	if d := df.LostDetail(r, in); d != "deploy of w4 may be partial" {
+		t.Errorf("LostDetail = %q", d)
+	}
+	if _, err := df.Prepare(ctx, widgetGetIn{Name: "w4"}, r); err == nil {
+		t.Error("Prepare accepted an input of the wrong type")
+	}
+	for i, b := range bindings[:3] {
+		if _, ok := b.Detached(); ok {
+			t.Errorf("binding %d (%s) reports Detached()", i, b.Kind())
+		}
+	}
+	if _, ok := deploy.InProcess(); ok {
+		t.Error("InProcess() available on a detached binding")
 	}
 }
 
@@ -325,7 +400,7 @@ func copyContractModule(t *testing.T) string {
 	for _, f := range []string{"go.mod", "go.sum"} {
 		copyFile(t, filepath.Join(src, f), filepath.Join(dst, f))
 	}
-	for _, pkg := range []string{"def", "apitypes", "problem", "provider"} {
+	for _, pkg := range []string{"def", "apitypes", "problem", "provider", "detach", "oplog"} {
 		files, err := filepath.Glob(filepath.Join(src, "internal", pkg, "*.go"))
 		if err != nil {
 			t.Fatal(err)

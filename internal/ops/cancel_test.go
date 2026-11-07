@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/mauktik/nexus/internal/audit"
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/core"
+	"github.com/mauktik/nexus/internal/detach"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/systemspec"
@@ -219,23 +222,28 @@ func TestCancelRefusalsAndAuthorization(t *testing.T) {
 }
 
 // TC-ERR69: a cancel whose audit record cannot be written is refused, with
-// no state change and no signal to the running operation. The detached
-// signal spy (detachtest.Local) arrives at 3.3; here the in-process run's
-// context is the signal.
+// no state change and no signal to the running operation. The running
+// CancelRunning op is detached, its child run by detachtest.Local, with a
+// spy as detach.Options.Signal.
 func TestCancelIsRefusedWhenAuditFails(t *testing.T) {
-	w := newWorld(t)
-	p := who("ops", "test:write")
 	signaled := make(chan struct{})
-	started := make(chan struct{})
-	w.tp.on("long", func(ctx context.Context, in thingIn, _ *provider.Run) (thingOut, error) {
-		close(started)
-		<-ctx.Done()
-		close(signaled)
-		return thingOut{}, ctx.Err()
+	var once sync.Once
+	var local detach.Options
+	w := localWorld(t, func(d *detach.Options) {
+		local = *d
+		d.Signal = func(ctx context.Context, unit string, sig syscall.Signal) error {
+			once.Do(func() { close(signaled) })
+			return local.Signal(ctx, unit, sig)
+		}
 	})
-	running := w.start(p, tpOps.cancelable.Op(), `{"name":"long","lane":"c"}`, "")
-	<-started
-	queued := w.start(p, tpOps.cancelable.Op(), `{"name":"later","lane":"c"}`, "")
+	p := who("ops", "td:write")
+	w.td.onPrepare("long", func(context.Context, thingIn) (detach.Spec, error) {
+		return shJob("echo pid=$$; while :; do sleep 0.1; done"), nil
+	})
+	running := w.start(p, tdOps.job.Op(), `{"name":"long","lane":"c"}`, "")
+	w.childPID(running.ID)
+	t.Cleanup(func() { stopLocal(t, local, running.ID) })
+	queued := w.start(p, tdOps.job.Op(), `{"name":"later","lane":"c"}`, "")
 
 	for _, mode := range []int32{failWrite, failSync} {
 		w.aud.mode.Store(mode)

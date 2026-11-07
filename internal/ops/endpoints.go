@@ -194,6 +194,12 @@ func (m *Manager) Cancel(_ context.Context, id string, cancelPolicy func(action 
 			if cancelPolicy == nil || cancelPolicy(rec.Action) != def.CancelRunning {
 				return apitypes.Operation{}, notCancelable(rec)
 			}
+			if rec.Exec == store.ExecDetached {
+				if err := m.cancelDetached(rec); err != nil {
+					return apitypes.Operation{}, err
+				}
+				return rec.ToAPI(m.host), nil
+			}
 			m.cancelRunning(rec)
 			return rec.ToAPI(m.host), nil
 		default:

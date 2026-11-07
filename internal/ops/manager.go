@@ -15,11 +15,13 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"runtime/debug"
 	"sync"
 	"time"
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/def"
+	"github.com/mauktik/nexus/internal/detach"
 	"github.com/mauktik/nexus/internal/oplog"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
@@ -67,6 +69,9 @@ type Options struct {
 	PollInterval time.Duration
 	Logger       *slog.Logger     // Nil means slog.Default()
 	Now          func() time.Time // Output frame timestamps; nil means time.Now
+	// Detach launches, signals and watches detached operations. Nil fails
+	// every detached operation with an internal error.
+	Detach *detach.Launcher
 }
 
 // Manager runs long-running operations. It is safe for concurrent use and
@@ -81,6 +86,7 @@ type Manager struct {
 	poll     time.Duration
 	log      *slog.Logger
 	now      func() time.Time
+	detach   *detach.Launcher
 
 	base context.Context // Canceled by Shutdown
 	stop context.CancelFunc
@@ -103,7 +109,8 @@ func New(opts Options) (*Manager, error) {
 	m := &Manager{
 		store: opts.Store, audit: opts.Audit, dir: opts.Dir, host: opts.Host,
 		capBytes: opts.OutputCapBytes, poll: opts.PollInterval, log: opts.Logger, now: opts.Now,
-		lanes: map[string]*lane{}, live: map[string]*entry{},
+		detach: opts.Detach,
+		lanes:  map[string]*lane{}, live: map[string]*entry{},
 	}
 	if m.log == nil {
 		m.log = slog.Default()
@@ -130,7 +137,22 @@ type Work struct {
 	// RequestID is the id of the request's requested audit record, which
 	// the operation's Queued record names. Empty for a read-risk request.
 	RequestID string
-	Run       func(ctx context.Context, r *provider.Run) (any, error)
+	// Run is an in-process operation; Detached a detached one. Exactly one
+	// is set.
+	Run      func(ctx context.Context, r *provider.Run) (any, error)
+	Detached *DetachedWork
+}
+
+// DetachedWork is a detached operation's provider functions and the input
+// Prepare runs on.
+type DetachedWork struct {
+	// In is the decoded request input, sensitive values included. It is
+	// dropped once spec.json is written.
+	In any
+	// Decode decodes the record's redacted input, which Finalize and
+	// LostDetail run on, as they do after a restart.
+	Decode func(json.RawMessage) (any, error)
+	Funcs  provider.DetachedFuncs
 }
 
 // entry is an admitted operation in memory.
@@ -150,6 +172,7 @@ type entry struct {
 	doneOnce sync.Once
 
 	userCanceled bool // Set under Manager.mu by a cancel of the running operation
+	launched     bool // Set under Manager.mu once a detached operation's unit exists
 }
 
 func (e *entry) markDone() { e.doneOnce.Do(func() { close(e.done) }) }
@@ -183,6 +206,9 @@ func (a *Admission) Create(rec store.OpRecord, idem store.IdempotencyKey, w Work
 		return store.CreateResult{}, errors.New("ops: the manager is shut down")
 	}
 	rec.Lane = a.Lane()
+	if w.Detached != nil {
+		rec.Exec = store.ExecDetached
+	}
 	res, err := m.store.CreateWithIdempotency(rec, idem)
 	if err != nil || res.Existing {
 		return res, err
@@ -214,6 +240,10 @@ func (m *Manager) start(e *entry) {
 		return
 	}
 	m.wg.Add(1)
+	if e.work.Detached != nil {
+		go m.runDetached(e)
+		return
+	}
 	go m.run(e)
 }
 
@@ -288,4 +318,223 @@ func (m *Manager) getAPI(id string) (apitypes.Operation, error) {
 		return apitypes.Operation{}, fmt.Errorf("load operation: %w", err)
 	}
 	return rec.ToAPI(m.host), nil
+}
+
+// runDetached is the worker of one dequeued detached operation (Data Flow,
+// detached operation lifecycle). Prepare runs while the record is Queued,
+// under the context a cancel cancels. The compare-and-set to Running then
+// decides between launching and abandoning, so a canceled operation never
+// gets a unit; Running is audited, spec.json written and the unit launched,
+// in that order. The watcher reports the end, which is audited then
+// committed through CommitTerminal. At shutdown the worker leaves the
+// record Running and the unit alone, for restart recovery.
+func (m *Manager) runDetached(e *entry) {
+	defer m.wg.Done()
+	defer m.finish(e)
+	d := e.work.Detached
+	r := provider.NewRun(e.id, nil)
+
+	if m.detach == nil {
+		m.log.Error("no launcher for a detached operation", "operationId", e.id, "op", e.rec.Action)
+		m.failQueued(e, problem.New(problem.InternalError, genericDetail))
+		return
+	}
+	spec, perr := m.prepare(e, d, r)
+	if perr != nil {
+		if m.base.Err() != nil {
+			// Shutdown canceled Prepare: the record stays Queued for
+			// restart recovery.
+			return
+		}
+		m.failQueued(e, perr)
+		return
+	}
+	rec, err := m.store.CompareAndSetStatus(e.id, apitypes.StatusQueued, apitypes.StatusRunning)
+	if err != nil {
+		if errors.Is(err, store.ErrStatusConflict) {
+			m.log.Debug("operation abandoned: no longer queued", "operationId", e.id)
+		} else {
+			m.log.Error("cannot start the operation", "operationId", e.id, "error", err.Error())
+		}
+		return
+	}
+	m.stateChange(e, apitypes.StatusRunning, nil)
+
+	maxRuntime := spec.MaxRuntime
+	lerr := m.detach.Start(context.WithoutCancel(m.base), e.id, spec)
+	// spec.json holds the sensitive values from here on; memory does not.
+	spec, d.In = detach.Spec{}, nil
+	if lerr != nil {
+		m.log.Error("cannot launch the operation", "operationId", e.id, "error", lerr.Error())
+		m.commitEnd(e, apitypes.StatusFailed, nil,
+			problem.New(problem.InternalError, "the operation could not be launched"))
+		return
+	}
+	m.mu.Lock()
+	e.launched = true
+	canceled := e.userCanceled
+	m.mu.Unlock()
+	if canceled {
+		// Canceled between the compare-and-set and the launch; a failure
+		// is logged, and the cancel can be repeated.
+		if err := m.signalCancel(e.id); err != nil {
+			m.log.Error("cannot signal the operation's unit", "operationId", e.id, "unit", detach.Unit(e.id), "error", err.Error())
+		}
+	}
+
+	started := m.now()
+	if rec.Started != nil {
+		started = *rec.Started
+	}
+	select {
+	case o := <-m.detach.Watch(m.base, e.id, started, maxRuntime):
+		to, result, perr := m.detachedEnd(e, d, r, o)
+		m.commitEnd(e, to, result, perr)
+	case <-m.base.Done():
+	}
+}
+
+// prepare runs Prepare with panic containment. A failure is the
+// operation's problem.
+func (m *Manager) prepare(e *entry, d *DetachedWork, r *provider.Run) (spec detach.Spec, perr *problem.Error) {
+	defer func() {
+		if v := recover(); v != nil {
+			m.log.Error("operation panic", "operationId", e.id, "op", e.rec.Action,
+				"panic", fmt.Sprint(v), "stack", string(debug.Stack()))
+			perr = problem.New(problem.InternalError, genericDetail)
+		}
+	}()
+	spec, err := d.Funcs.Prepare(e.ctx, d.In, r)
+	if err != nil {
+		return detach.Spec{}, m.problemOf(e, "prepare", err)
+	}
+	return spec, nil
+}
+
+// problemOf is the structured problem of a provider error: a
+// *problem.Error as returned, anything else a generic internal-error whose
+// cause goes only to the log.
+func (m *Manager) problemOf(e *entry, stage string, err error) *problem.Error {
+	var p *problem.Error
+	if errors.As(err, &p) {
+		return p
+	}
+	m.log.Error("operation failed", "operationId", e.id, "op", e.rec.Action, "stage", stage, "error", err.Error())
+	return problem.New(problem.InternalError, genericDetail)
+}
+
+// failQueued fails an operation that never left Queued. The commit comes
+// first, because a cancel may have moved the record to Canceled meanwhile:
+// then nothing more happens.
+func (m *Manager) failQueued(e *entry, perr *problem.Error) {
+	_, err := m.store.CommitTerminal(e.id, apitypes.StatusQueued, apitypes.StatusFailed, nil, perr)
+	if errors.Is(err, store.ErrStatusConflict) {
+		m.log.Debug("operation abandoned: no longer queued", "operationId", e.id)
+		return
+	}
+	if err != nil {
+		m.log.Error("cannot commit the operation's end", "operationId", e.id, "error", err.Error())
+		return
+	}
+	m.stateChange(e, apitypes.StatusFailed, perr)
+}
+
+// commitEnd audits then commits the end of a Running operation. A record
+// no longer Running was already finalized, which is not an error.
+func (m *Manager) commitEnd(e *entry, to apitypes.OperationStatus, result json.RawMessage, perr *problem.Error) {
+	m.stateChange(e, to, perr)
+	_, err := m.store.CommitTerminal(e.id, apitypes.StatusRunning, to, result, perr)
+	if errors.Is(err, store.ErrStatusConflict) {
+		m.log.Debug("operation already finalized", "operationId", e.id)
+		return
+	}
+	if err != nil {
+		m.log.Error("cannot commit the operation's end", "operationId", e.id, "status", string(to), "error", err.Error())
+	}
+}
+
+// detachedEnd maps the watcher's outcome to the terminal status: exit.json
+// with canceled set is Canceled; any other exit.json goes through
+// Finalize; a lost unit or a passed MaxRuntime is outcome-unknown naming
+// the unit.
+func (m *Manager) detachedEnd(e *entry, d *DetachedWork, r *provider.Run, o detach.Outcome) (
+	to apitypes.OperationStatus, result json.RawMessage, perr *problem.Error) {
+	unit := detach.Unit(e.id)
+	switch {
+	case o.Exit != nil && o.Exit.Canceled:
+		return apitypes.StatusCanceled, nil, nil
+	case o.Overran:
+		return apitypes.StatusFailed, nil, problem.New(problem.OutcomeUnknown,
+			fmt.Sprintf("the operation passed its maximum runtime; unit %s was not stopped and may still be running", unit))
+	}
+	defer func() {
+		if v := recover(); v != nil {
+			m.log.Error("operation panic", "operationId", e.id, "op", e.rec.Action,
+				"panic", fmt.Sprint(v), "stack", string(debug.Stack()))
+			to, result, perr = apitypes.StatusFailed, nil, problem.New(problem.InternalError, genericDetail)
+		}
+	}()
+	in, err := d.Decode(e.rec.Input)
+	if err != nil {
+		m.log.Error("cannot decode the operation's input", "operationId", e.id, "error", err.Error())
+		in = nil
+	}
+	if o.Lost {
+		detail := fmt.Sprintf("unit %s ended without reporting an outcome", unit)
+		if in != nil {
+			if extra := d.Funcs.LostDetail(r, in); extra != "" {
+				detail += "; " + extra
+			}
+		}
+		return apitypes.StatusFailed, nil, problem.New(problem.OutcomeUnknown, detail)
+	}
+	if in == nil {
+		return apitypes.StatusFailed, nil, problem.New(problem.InternalError, genericDetail)
+	}
+	out, err := d.Funcs.Finalize(m.base, in, *o.Exit, r)
+	if err != nil {
+		return apitypes.StatusFailed, nil, m.problemOf(e, "finalize", err)
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		m.log.Error("cannot encode the operation's result", "operationId", e.id, "error", err.Error())
+		return apitypes.StatusFailed, nil, problem.New(problem.InternalError, genericDetail)
+	}
+	return apitypes.StatusSucceeded, b, nil
+}
+
+// signalTimeout bounds one cancel signal through the unit.
+const signalTimeout = 10 * time.Second
+
+// cancelDetached cancels a running detached operation by signaling its
+// unit; it ends Canceled when exit.json reports canceled. A cancel that
+// lands between the compare-and-set to Running and the launch is sent by
+// the worker once the unit exists. A record this process does not run,
+// such as one reattached after a restart, is signaled directly.
+func (m *Manager) cancelDetached(rec store.OpRecord) error {
+	m.mu.Lock()
+	if e, ok := m.live[rec.ID]; ok {
+		e.userCanceled = true
+		if !e.launched {
+			m.mu.Unlock()
+			return nil
+		}
+	}
+	m.mu.Unlock()
+	if err := m.signalCancel(rec.ID); err != nil {
+		// The cause stays in the log; the caller gets the problem.
+		m.log.Error("cannot signal the operation's unit", "operationId", rec.ID, "unit", detach.Unit(rec.ID), "error", err.Error())
+		return problem.New(problem.InternalError, "the cancel signal could not be delivered to the operation")
+	}
+	return nil
+}
+
+// signalCancel sends the cancel signal to operation id's unit.
+func (m *Manager) signalCancel(id string) error {
+	if m.detach == nil {
+		return errors.New("no launcher")
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(m.base), signalTimeout)
+	defer cancel()
+	return m.detach.Cancel(ctx, id)
 }

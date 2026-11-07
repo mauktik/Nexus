@@ -22,6 +22,7 @@ import (
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/core"
+	"github.com/mauktik/nexus/internal/detach"
 	"github.com/mauktik/nexus/internal/ops"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/server"
@@ -52,6 +53,10 @@ type Options struct {
 	// TLS holds the certificate to serve. It is required unless tls.mode is
 	// off; cmd/nexusd loads or generates it (2.4).
 	TLS *tls.Config
+	// Detach is passed to detach.New: its nil fields select the real
+	// systemd-run, systemctl show and systemctl kill. Daemon-level T0 tests
+	// set it from detachtest.Local.
+	Detach detach.Options
 }
 
 // Daemon is one nexusd serve process.
@@ -123,13 +128,19 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 		}
 		return nil, err
 	}
+	opsDir := filepath.Join(stateDir, "ops")
+	launcher, err := detach.New(detach.Config{OpsDir: opsDir, Logger: log}, opts.Detach)
+	if err != nil {
+		return fail(fmt.Errorf("operations: %w", err))
+	}
 	mgr, err := ops.New(ops.Options{
 		Store:          db,
 		Audit:          auditLog,
-		Dir:            filepath.Join(stateDir, "ops"),
+		Dir:            opsDir,
 		Host:           cfg.Host.Name,
 		OutputCapBytes: cfg.Limits.OutputCapBytes,
 		Logger:         log,
+		Detach:         launcher,
 	})
 	if err != nil {
 		return fail(fmt.Errorf("operations: %w", err))

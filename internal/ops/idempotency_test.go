@@ -88,11 +88,12 @@ func TestReplaysAreAuditedReplayed(t *testing.T) {
 // TC-229 (and the WI 3.2 T0 test): concurrent same-key requests that resolve
 // to different lanes pass the step 8 re-check together, and
 // CreateWithIdempotency decides: exactly one operation exists per key, and
-// no requested record stands alone.
+// no requested record stands alone. The scripts-style op is detached, with
+// its launcher injected through detach.Options so no real unit starts.
 func TestConcurrentSameKeyOnDifferentLanesCreatesOneOperation(t *testing.T) {
-	w := newWorld(t)
-	p := who("runner", "tp:run")
-	op := tpOps.invoke.Op()
+	w := spyWorld(t, newUnitSpy())
+	p := who("runner", "td:run")
+	op := tdOps.script.Op()
 	type answer struct {
 		res core.InvokeResult
 		err error

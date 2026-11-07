@@ -202,7 +202,14 @@ func (d *Dispatcher) Invoke(ctx context.Context, req InvokeRequest) (InvokeResul
 		}}, nil
 	}
 	if funcs, ok := b.InProcess(); ok && d.ops != nil {
-		return d.longRunning(ctx, op, e.Provider, req, in, funcs)
+		return d.longRunning(ctx, op, e.Provider, req, in, funcs.Admit, funcs.Lane, ops.Work{
+			Run: func(ctx context.Context, r *provider.Run) (any, error) { return funcs.Run(ctx, in, r) },
+		})
+	}
+	if funcs, ok := b.Detached(); ok && d.ops != nil {
+		return d.longRunning(ctx, op, e.Provider, req, in, funcs.Admit, funcs.Lane, ops.Work{
+			Detached: &ops.DetachedWork{In: in, Decode: b.Decode, Funcs: funcs},
+		})
 	}
 	d.log.Error("no operation manager for a long-running op", "op", op.ID)
 	return InvokeResult{}, d.refuse(op, req, problem.New(problem.InternalError, genericDetail))
@@ -743,7 +750,8 @@ const maxIdempotencyKeyLen = 255
 // skips the storage check, ignores its key, and writes no requested,
 // refused or replayed record; scope, Admit and lane rules still apply.
 func (d *Dispatcher) longRunning(ctx context.Context, op def.Op, prov string, req InvokeRequest, in any,
-	funcs provider.InProcessFuncs) (InvokeResult, error) {
+	admit func(context.Context, any) error, laneOf func(context.Context, any) (provider.Lane, error),
+	work ops.Work) (InvokeResult, error) {
 	readRisk := !audited(op, req)
 	key := req.IdempotencyKey
 	if readRisk {
@@ -768,12 +776,12 @@ func (d *Dispatcher) longRunning(ctx context.Context, op def.Op, prov string, re
 		}
 	}
 	// Step 6.
-	if err := d.provide(op, func() error { return funcs.Admit(ctx, in) }); err != nil {
+	if err := d.provide(op, func() error { return admit(ctx, in) }); err != nil {
 		return InvokeResult{}, d.refuse(op, req, d.sanitize(ctx, op, err))
 	}
 	// Step 7.
 	var lane provider.Lane
-	if err := d.provide(op, func() (err error) { lane, err = funcs.Lane(ctx, in); return err }); err != nil {
+	if err := d.provide(op, func() (err error) { lane, err = laneOf(ctx, in); return err }); err != nil {
 		return InvokeResult{}, d.refuse(op, req, d.sanitize(ctx, op, err))
 	}
 	adm := d.ops.Admit(lane)
@@ -803,10 +811,8 @@ func (d *Dispatcher) longRunning(ctx context.Context, op def.Op, prov string, re
 	if key != "" {
 		idem = store.IdempotencyKey{TokenID: req.Caller.TokenID, Key: key, RequestHash: hash}
 	}
-	created, err := adm.Create(rec, idem, ops.Work{
-		Op: op, TokenID: req.Caller.TokenID, RequestID: requestID,
-		Run: func(ctx context.Context, r *provider.Run) (any, error) { return funcs.Run(ctx, in, r) },
-	})
+	work.Op, work.TokenID, work.RequestID = op, req.Caller.TokenID, requestID
+	created, err := adm.Create(rec, idem, work)
 	if err != nil {
 		d.log.Error("cannot create the operation", "op", op.ID, "error", err.Error())
 		return InvokeResult{}, d.refuseAfter(op, req, problem.New(problem.InternalError, genericDetail), requestID)

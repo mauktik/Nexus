@@ -17,6 +17,7 @@ import (
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/daemon"
+	"github.com/mauktik/nexus/internal/detach"
 	"github.com/mauktik/nexus/internal/tlsutil"
 	"github.com/mauktik/nexus/internal/version"
 )
@@ -38,6 +39,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return auth.TokenCommand(name, args[1:], stdout, stderr)
 		case "tls":
 			return tlsCommand(args[1:], stdout, stderr)
+		case "op-supervise":
+			// Hidden: the main process of an operation's unit (FR-6).
+			return opSupervise(args[1:], stderr)
 		}
 	}
 
@@ -88,6 +92,25 @@ func validateConfig(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// opSupervise runs one detached operation from its directory's spec.json.
+// systemd-run starts it as the main process of nexus-op-<id>.service.
+func opSupervise(args []string, stderr io.Writer) int {
+	fs := flag.NewFlagSet(name+" op-supervise", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dir := fs.String("dir", "", "the operation's directory")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if *dir == "" || fs.NArg() > 0 {
+		fmt.Fprintf(stderr, "%s op-supervise: usage: %s op-supervise --dir dir\n", name, name)
+		return 2
+	}
+	return detach.Supervise(*dir, stderr)
 }
 
 // serve runs the daemon until SIGTERM. Logs go to stdout as JSON; only

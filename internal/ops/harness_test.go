@@ -395,6 +395,7 @@ type world struct {
 	disp  *core.Dispatcher
 	tp    *testProv
 	tq    *testProv
+	td    *detProv // Detached operations (detached_test.go)
 
 	srv  *server.Server
 	base string
@@ -423,6 +424,7 @@ func newWorld(t *testing.T, tune ...func(*ops.Options)) *world {
 	}
 	w.log = slog.New(slog.NewJSONHandler(w.logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	w.tp = newTestProv("tp", "test:read", tpOps)
+	w.td = newDetProv()
 	w.tq = newTestProv("tq", "other:read", tqOps)
 	alog, err := audit.Open(audit.Options{Dir: w.auditDir, Host: "testhost", Logger: w.log})
 	if err != nil {
@@ -453,7 +455,7 @@ func (w *world) open() {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w.reg, err = core.New([]provider.Provider{w.tp, w.tq}, core.Options{
+	w.reg, err = core.New([]provider.Provider{w.tp, w.tq, w.td}, core.Options{
 		Host: "testhost", Logger: w.log, Audit: w.alog, Ops: w.mgr,
 		StorageCheck: func() *problem.Error {
 			if w.overFull.Load() {
@@ -461,7 +463,7 @@ func (w *world) open() {
 			}
 			return nil
 		},
-		Providers: map[string]core.ProviderConfig{"tp": {Enabled: true}, "tq": {Enabled: true}},
+		Providers: map[string]core.ProviderConfig{"tp": {Enabled: true}, "tq": {Enabled: true}, "td": {Enabled: true}},
 	})
 	if err != nil {
 		t.Fatal(err)
