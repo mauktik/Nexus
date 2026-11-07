@@ -9,22 +9,64 @@ import (
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/audit"
+	"github.com/mauktik/nexus/internal/auth"
+	"github.com/mauktik/nexus/internal/def"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/systemspec"
 )
 
-// systemBindings binds the system.* operations implemented so far. The rest
-// of internal/systemspec is bound as its machinery lands: the operation ops
-// at 3.2.
+// systemBindings binds the system.* operations. The operation ops are bound
+// when the registry has an operation manager.
 func (r *Registry) systemBindings() []provider.Binding {
-	return []provider.Binding{
+	b := []provider.Binding{
 		provider.Sync(systemspec.CapabilitiesGet,
 			func(ctx context.Context, in systemspec.CapabilitiesGetInput) (apitypes.Capabilities, error) {
 				return r.Capabilities(ctx, in.Refresh), nil
 			}),
 		provider.Sync(systemspec.AuditList, r.auditList),
 	}
+	if r.ops != nil {
+		b = append(b,
+			provider.Sync(systemspec.OperationsList, r.operationsList),
+			// get and logs are FromTarget: the Dispatcher has loaded the
+			// record and checked its provider's read scope (FR-22).
+			provider.Sync(systemspec.OperationsGet, r.ops.GetOperation),
+			provider.Stream(systemspec.OperationsLogs, r.ops.Logs),
+			// cancel is FromTarget too, against the record's StartScope, and
+			// the Dispatcher has written its request record before this runs.
+			provider.Sync(systemspec.OperationsCancel,
+				func(ctx context.Context, in systemspec.OperationInput) (apitypes.Operation, error) {
+					return r.ops.Cancel(ctx, in.ID, r.cancelPolicy)
+				}),
+		)
+	}
+	return b
+}
+
+// operationsList is system.operations.list: only operations of providers
+// whose read scope the caller holds (A-50). A caller with none gets an
+// empty list.
+func (r *Registry) operationsList(ctx context.Context, in systemspec.ListInput) (apitypes.List[apitypes.Operation], error) {
+	caller, _ := auth.PrincipalFrom(ctx)
+	readable := []string{}
+	for _, p := range r.providers {
+		s := p.Spec()
+		if s.ReadScope != "" && caller.Has(s.ReadScope) {
+			readable = append(readable, s.Name)
+		}
+	}
+	return r.ops.List(ctx, in, readable)
+}
+
+// cancelPolicy is the declared Cancel of the op an operation runs.
+func (r *Registry) cancelPolicy(action string) def.Cancel {
+	for _, e := range r.entries {
+		if op := e.Binding.Op(); op.ID == action {
+			return op.Cancel
+		}
+	}
+	return def.CancelQueuedOnly
 }
 
 // auditList is system.audit.list: audit records newest first, across the

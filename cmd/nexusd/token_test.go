@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	bolt "go.etcd.io/bbolt"
+
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/store"
 )
@@ -319,15 +321,15 @@ func TestRevocationWithoutRestart(t *testing.T) {
 	dir := t.TempDir()
 	p := startServeWithState(t, dir)
 	p.waitHealthy(t)
-	// The daemon does not open state.db until the operation manager (3.2)
-	// lands, so this process holds the bbolt lock in its place: the token
-	// commands below must not touch it. Once serve holds state.db itself,
-	// drop this stand-in.
-	db, err := store.Open(dir, store.Options{})
-	if err != nil {
-		t.Fatal(err)
+	// serve holds state.db's exclusive bbolt lock while it runs; the token
+	// commands below must not touch it. Confirm the lock is held: even a
+	// shared (read-only) open times out.
+	probe, err := bolt.Open(filepath.Join(dir, store.FileName), store.FileMode,
+		&bolt.Options{ReadOnly: true, Timeout: 300 * time.Millisecond})
+	if err == nil {
+		_ = probe.Close()
+		t.Fatal("state.db is not locked by the running daemon")
 	}
-	defer db.Close()
 
 	url := "http://" + p.addr + "/v1/capabilities"
 	start := time.Now()

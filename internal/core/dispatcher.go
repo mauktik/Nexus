@@ -3,6 +3,8 @@ package core
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,8 +21,10 @@ import (
 	"github.com/mauktik/nexus/internal/audit"
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/def"
+	"github.com/mauktik/nexus/internal/ops"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
+	"github.com/mauktik/nexus/internal/store"
 	"github.com/mauktik/nexus/internal/systemspec"
 )
 
@@ -47,12 +51,23 @@ type TargetRecord struct {
 // ErrTargetNotFound when there is none. 3.2 supplies it from the store.
 type TargetLoader func(ctx context.Context, id string) (TargetRecord, error)
 
+// AuditWriter is what the Dispatcher needs of the audit log. *audit.Log
+// implements it; tests wrap it to inject write failures.
+type AuditWriter interface {
+	Write(rec systemspec.AuditRecord, sensitive []string) (string, error)
+	Redact(provider, action string, params json.RawMessage, sensitive []string) (json.RawMessage, error)
+}
+
 // DispatcherOptions configures NewDispatcher.
 type DispatcherOptions struct {
 	Logger *slog.Logger // Nil means slog.Default()
-	// LoadTarget loads operation records for FromTarget ops. Nil means no
-	// record exists, so every FromTarget op answers not-found.
+	// LoadTarget loads operation records for FromTarget ops. Nil means the
+	// registry's operation manager loads them; without one, no record
+	// exists, so every FromTarget op answers not-found.
 	LoadTarget TargetLoader
+	// Audit, when non-nil, replaces the registry's audit log for every
+	// record the Dispatcher writes.
+	Audit AuditWriter
 }
 
 // InvokeRequest is one call of an operation, from any transport.
@@ -101,7 +116,8 @@ type InvokeResult struct {
 type Dispatcher struct {
 	reg        *Registry
 	log        *slog.Logger
-	audit      *audit.Log // Nil: denials and refusals are logged only, mutations fail closed
+	audit      AuditWriter // Nil: denials and refusals are logged only, mutations fail closed
+	ops        *ops.Manager
 	loadTarget TargetLoader
 	entries    map[string]Entry
 	validators sync.Map // op ID -> *validator
@@ -109,9 +125,19 @@ type Dispatcher struct {
 
 // NewDispatcher returns the Dispatcher over every binding in reg.
 func NewDispatcher(reg *Registry, opts DispatcherOptions) *Dispatcher {
-	d := &Dispatcher{reg: reg, log: opts.Logger, audit: reg.audit, loadTarget: opts.LoadTarget, entries: map[string]Entry{}}
+	d := &Dispatcher{reg: reg, log: opts.Logger, ops: reg.ops, loadTarget: opts.LoadTarget, entries: map[string]Entry{}}
 	if d.log == nil {
 		d.log = slog.Default()
+	}
+	// No typed nil: a nil *audit.Log stays a nil interface.
+	switch {
+	case opts.Audit != nil:
+		d.audit = opts.Audit
+	case reg.audit != nil:
+		d.audit = reg.audit
+	}
+	if d.loadTarget == nil && d.ops != nil {
+		d.loadTarget = opsLoader(d.ops)
 	}
 	for _, e := range reg.Entries() {
 		d.entries[e.Binding.Op().ID] = e
@@ -150,15 +176,21 @@ func (d *Dispatcher) Invoke(ctx context.Context, req InvokeRequest) (InvokeResul
 
 	b := e.Binding
 	if k := b.Kind(); k == provider.BindSync || k == provider.BindStream {
-		if perr := d.requested(op, req); perr != nil {
+		if _, perr := d.requested(op, req); perr != nil {
 			return InvokeResult{}, perr
 		}
 	}
+	// Handlers that act for the caller, such as system.operations.list,
+	// read the principal from the context.
+	ctx = auth.WithPrincipal(ctx, req.Caller)
 	switch b.Kind() {
 	case provider.BindSync:
 		out, err := d.callSync(ctx, b, in)
 		if err != nil {
-			return InvokeResult{}, d.sanitize(ctx, op, err)
+			// A mutating sync op (system.operations.cancel) that refuses
+			// after its request record, such as not-cancelable, is audited
+			// refused.
+			return InvokeResult{}, d.refuse(op, req, d.sanitize(ctx, op, err))
 		}
 		return InvokeResult{Status: 200, Body: out}, nil
 	case provider.BindStream:
@@ -169,8 +201,9 @@ func (d *Dispatcher) Invoke(ctx context.Context, req InvokeRequest) (InvokeResul
 			return nil
 		}}, nil
 	}
-	// Long-running bindings run through the operation manager (3.2), which
-	// writes their requested record at Data Flow step 9.
+	if funcs, ok := b.InProcess(); ok && d.ops != nil {
+		return d.longRunning(ctx, op, e.Provider, req, in, funcs)
+	}
 	d.log.Error("no operation manager for a long-running op", "op", op.ID)
 	return InvokeResult{}, d.refuse(op, req, problem.New(problem.InternalError, genericDetail))
 }
@@ -238,7 +271,7 @@ func (d *Dispatcher) forbid(op def.Op, req InvokeRequest, need string) *problem.
 func (d *Dispatcher) denied(op def.Op, req InvokeRequest, slug problem.Slug, need string) {
 	d.log.Info("request denied", "op", op.ID, "tokenId", req.Caller.TokenID, "tokenName", req.Caller.Name,
 		"surface", string(req.Surface), "problem", string(slug), "requiredScope", need)
-	d.note(d.record(op, req, audit.OutcomeDenied, slug))
+	d.note(d.record(op, req, audit.OutcomeDenied, slug), nil)
 }
 
 // refuse records a mutating call refused after authorization and returns
@@ -246,50 +279,69 @@ func (d *Dispatcher) denied(op def.Op, req InvokeRequest, slug problem.Slug, nee
 // no parameter values, because unvalidated input cannot be redacted
 // reliably. Reads, and what-if requests, are not audited (Data Flow).
 func (d *Dispatcher) refuse(op def.Op, req InvokeRequest, perr *problem.Error) *problem.Error {
+	return d.refuseAfter(op, req, perr, "")
+}
+
+// refuseAfter is refuse for a request that already wrote its requested
+// record, requestID, which the refused record names so it does not stand
+// alone. An empty requestID is a refusal before any requested record.
+func (d *Dispatcher) refuseAfter(op def.Op, req InvokeRequest, perr *problem.Error, requestID string) *problem.Error {
 	if !audited(op, req) {
 		return perr
 	}
 	d.log.Info("request refused", "op", op.ID, "tokenId", req.Caller.TokenID, "tokenName", req.Caller.Name,
 		"surface", string(req.Surface), "problem", string(perr.Slug()))
 	rec := d.record(op, req, audit.OutcomeRefused, perr.Slug())
+	rec.RequestID = requestID
 	if perr.Slug() == problem.ValidationFailed {
 		rec.InvalidFields = fieldPaths(perr)
 	}
-	d.note(rec)
+	d.note(rec, nil)
 	return perr
 }
 
 // requested durably records a validated mutating call before its handler
-// runs. When the record cannot be written the call is refused with
-// audit-unavailable: the audit log fails closed (FR-24).
-func (d *Dispatcher) requested(op def.Op, req InvokeRequest) *problem.Error {
+// runs, and returns the record's id. When the record cannot be written the
+// call is refused with audit-unavailable: the audit log fails closed
+// (FR-24). This write is also the audit-health check: it is the only way a
+// mutation proceeds, and its success clears the flag a failed state-change
+// write set.
+func (d *Dispatcher) requested(op def.Op, req InvokeRequest) (string, *problem.Error) {
 	if !audited(op, req) {
-		return nil
+		return "", nil
 	}
 	unavailable := problem.New(problem.AuditUnavailable, "the audit record could not be written, so the request was not carried out")
 	if d.audit == nil {
 		d.log.Error("audit write failed", "op", op.ID, "outcome", audit.OutcomeRequested, "error", "no audit log")
-		return unavailable
+		return "", unavailable
 	}
 	rec := d.record(op, req, audit.OutcomeRequested, "")
-	rec.Params = req.Input
-	if len(bytes.TrimSpace(rec.Params)) == 0 {
-		rec.Params = json.RawMessage("{}")
-	}
-	if _, err := d.audit.Write(rec, op.Sensitive); err != nil {
+	rec.Params = params(req)
+	id, err := d.audit.Write(rec, op.Sensitive)
+	if err != nil {
 		d.log.Error("audit write failed", "op", op.ID, "outcome", audit.OutcomeRequested, "error", err.Error())
-		return unavailable
+		return "", unavailable
 	}
-	return nil
+	return id, nil
+}
+
+// params is a call's input as recorded: validated, and redacted by the
+// audit log's one redactor when written.
+func params(req InvokeRequest) json.RawMessage {
+	if len(bytes.TrimSpace(req.Input)) == 0 {
+		return json.RawMessage("{}")
+	}
+	return req.Input
 }
 
 // note writes a record whose failure cannot change the response: it is
-// logged, and the audit log marks itself unhealthy.
-func (d *Dispatcher) note(rec systemspec.AuditRecord) {
+// logged, and the audit log marks itself unhealthy. sensitive names the
+// paths to redact when the record carries params.
+func (d *Dispatcher) note(rec systemspec.AuditRecord, sensitive []string) {
 	if d.audit == nil {
 		return
 	}
-	if _, err := d.audit.Write(rec, nil); err != nil {
+	if _, err := d.audit.Write(rec, sensitive); err != nil {
 		d.log.Error("audit write failed", "op", rec.Action, "outcome", rec.Outcome, "problem", rec.Problem,
 			"error", err.Error())
 	}
@@ -668,4 +720,246 @@ func (d *Dispatcher) sanitize(ctx context.Context, op def.Op, err error) *proble
 		d.log.Error("operation failed", "op", op.ID, "error", err.Error())
 	}
 	return problem.New(problem.InternalError, genericDetail)
+}
+
+// maxIdempotencyKeyLen bounds an Idempotency-Key, which is stored hashed.
+const maxIdempotencyKeyLen = 255
+
+// longRunning is Data Flow steps 4 to 11 for an in-process op, after
+// authorization, capability and validation:
+//
+//  4. idempotency lookup: a hit replays or refuses the reuse, ahead of the
+//     storage check and Admit;
+//  5. storage check;
+//  6. Admit;
+//  7. lane resolution, then the lane's mutex, under which run
+//  8. the idempotency re-check and the lane conflict check,
+//  9. the requested record, and
+//  10. the record's creation with its key, where CreateWithIdempotency is
+//     the final arbiter of the key;
+//  11. 202 with the operation.
+//
+// A read-risk request (a read-only op such as check-updates, or whatIf)
+// skips the storage check, ignores its key, and writes no requested,
+// refused or replayed record; scope, Admit and lane rules still apply.
+func (d *Dispatcher) longRunning(ctx context.Context, op def.Op, prov string, req InvokeRequest, in any,
+	funcs provider.InProcessFuncs) (InvokeResult, error) {
+	readRisk := !audited(op, req)
+	key := req.IdempotencyKey
+	if readRisk {
+		key = ""
+	}
+	if len(key) > maxIdempotencyKeyLen {
+		return InvokeResult{}, d.refuse(op, req, invalidInput(problem.FieldError{Path: "",
+			Message: fmt.Sprintf("the Idempotency-Key must be at most %d characters", maxIdempotencyKeyLen)}))
+	}
+	hash := requestHash(op, req.Input)
+
+	// Step 4.
+	if key != "" {
+		if res, hit, err := d.lookupKey(op, req, key, hash, ""); hit {
+			return res, err
+		}
+	}
+	// Step 5.
+	if !readRisk && d.reg.storageCheck != nil {
+		if perr := d.reg.storageCheck(); perr != nil {
+			return InvokeResult{}, d.refuse(op, req, perr)
+		}
+	}
+	// Step 6.
+	if err := d.provide(op, func() error { return funcs.Admit(ctx, in) }); err != nil {
+		return InvokeResult{}, d.refuse(op, req, d.sanitize(ctx, op, err))
+	}
+	// Step 7.
+	var lane provider.Lane
+	if err := d.provide(op, func() (err error) { lane, err = funcs.Lane(ctx, in); return err }); err != nil {
+		return InvokeResult{}, d.refuse(op, req, d.sanitize(ctx, op, err))
+	}
+	adm := d.ops.Admit(lane)
+	defer adm.Release()
+
+	// Step 8.
+	if key != "" {
+		if res, hit, err := d.lookupKey(op, req, key, hash, ""); hit {
+			return res, err
+		}
+	}
+	if blocker, busy := adm.Blocker(); busy {
+		return InvokeResult{}, d.refuse(op, req, problem.New(problem.Conflict,
+			"another operation holds this operation's lane").With("blockingOperationId", blocker))
+	}
+	// Step 9.
+	requestID, perr := d.requested(op, req)
+	if perr != nil {
+		return InvokeResult{}, perr
+	}
+	// Step 10.
+	rec, perr := d.newRecord(op, prov, req)
+	if perr != nil {
+		return InvokeResult{}, d.refuseAfter(op, req, perr, requestID)
+	}
+	idem := store.IdempotencyKey{}
+	if key != "" {
+		idem = store.IdempotencyKey{TokenID: req.Caller.TokenID, Key: key, RequestHash: hash}
+	}
+	created, err := adm.Create(rec, idem, ops.Work{
+		Op: op, TokenID: req.Caller.TokenID, RequestID: requestID,
+		Run: func(ctx context.Context, r *provider.Run) (any, error) { return funcs.Run(ctx, in, r) },
+	})
+	if err != nil {
+		d.log.Error("cannot create the operation", "op", op.ID, "error", err.Error())
+		return InvokeResult{}, d.refuseAfter(op, req, problem.New(problem.InternalError, genericDetail), requestID)
+	}
+	adm.Release()
+	if created.Existing {
+		return d.answerExisting(op, req, created.ID, created.RequestHash, hash, requestID)
+	}
+	// Step 11.
+	return d.accepted(op, created.ID)
+}
+
+// lookupKey is the idempotency lookup of steps 4 and 8. hit reports that
+// the key is stored, and res and err are then the answer.
+func (d *Dispatcher) lookupKey(op def.Op, req InvokeRequest, key, hash, requestID string) (res InvokeResult, hit bool, err error) {
+	e, ok, lerr := d.ops.LookupIdempotency(req.Caller.TokenID, key)
+	if lerr != nil {
+		d.log.Error("idempotency lookup failed", "op", op.ID, "error", lerr.Error())
+		return InvokeResult{}, true, d.refuseAfter(op, req, problem.New(problem.InternalError, genericDetail), requestID)
+	}
+	if !ok {
+		return InvokeResult{}, false, nil
+	}
+	res, err = d.answerExisting(op, req, e.OperationID, e.RequestHash, hash, requestID)
+	return res, true, err
+}
+
+// answerExisting answers a request whose key is already stored: the original
+// operation when the request hashes match (a replay, audited replayed with
+// the original operation ID), else idempotency-key-reused (audited
+// refused). Either record names requestID, the request's own requested
+// record when it wrote one before CreateWithIdempotency found the key.
+func (d *Dispatcher) answerExisting(op def.Op, req InvokeRequest, opID, storedHash, hash, requestID string) (InvokeResult, error) {
+	if storedHash != hash {
+		return InvokeResult{}, d.refuseAfter(op, req, problem.New(problem.IdempotencyKeyReused,
+			"the Idempotency-Key was already used for a different request").With("operationId", opID), requestID)
+	}
+	res, err := d.accepted(op, opID)
+	if err != nil {
+		return InvokeResult{}, d.refuseAfter(op, req, problem.New(problem.InternalError, genericDetail), requestID)
+	}
+	rec := d.record(op, req, audit.OutcomeReplayed, "")
+	rec.Params, rec.OperationID, rec.RequestID = params(req), opID, requestID
+	d.note(rec, op.Sensitive)
+	return res, nil
+}
+
+// accepted is the 202 answer for operation id: the transport derives
+// Location from OperationID (A-49).
+func (d *Dispatcher) accepted(op def.Op, id string) (InvokeResult, error) {
+	rec, err := d.ops.Get(id)
+	if err != nil {
+		d.log.Error("cannot load the operation", "op", op.ID, "operationId", id, "error", err.Error())
+		return InvokeResult{}, problem.New(problem.InternalError, genericDetail)
+	}
+	return InvokeResult{Status: 202, Body: rec.ToAPI(d.ops.Host()), OperationID: id}, nil
+}
+
+// newRecord is the record of a validated request: its input as the one
+// redactor leaves it, whether a sensitive value was supplied, and the scope
+// that authorized it. Sensitive values stay in memory only.
+func (d *Dispatcher) newRecord(op def.Op, prov string, req InvokeRequest) (store.OpRecord, *problem.Error) {
+	raw := params(req)
+	var redacted json.RawMessage
+	var err error
+	if d.audit != nil {
+		redacted, err = d.audit.Redact(op.Provider, op.ID, raw, op.Sensitive)
+	} else {
+		redacted, err = audit.Redact(raw, op.Sensitive)
+	}
+	if err != nil {
+		d.log.Error("cannot redact the operation input", "op", op.ID, "error", err.Error())
+		return store.OpRecord{}, problem.New(problem.InternalError, genericDetail)
+	}
+	// Redact re-encodes only when it has paths, so compare canonical forms:
+	// they differ exactly when a sensitive value was supplied.
+	before, err := canonicalJSON(raw)
+	var after json.RawMessage
+	if err == nil {
+		after, err = canonicalJSON(redacted)
+	}
+	if err != nil {
+		d.log.Error("cannot encode the operation input", "op", op.ID, "error", err.Error())
+		return store.OpRecord{}, problem.New(problem.InternalError, genericDetail)
+	}
+	return store.OpRecord{
+		Action: op.ID, Provider: prov, Target: d.validTarget(op, req), TokenName: req.Caller.Name,
+		Input: redacted, HasSensitive: !bytes.Equal(before, after),
+		Exec: store.ExecInProcess, StartScope: d.startScope(op, req),
+	}, nil
+}
+
+// startScope is the scope that authorizes the operation's cancel: the
+// per-target scope when the op has one, whichever scope the caller held
+// (scripts:run:<id>), else the op's scope.
+func (d *Dispatcher) startScope(op def.Op, req InvokeRequest) string {
+	if s, ok := expand(op.Scope.PerTarget, req.Input); ok {
+		return s
+	}
+	if op.Scope.Name != "" {
+		return op.Scope.Name
+	}
+	return d.reg.readScope(op.Provider)
+}
+
+// requestHash identifies a request for replay detection: the op and its
+// canonical input, sensitive values included, so a different value is a
+// different request. Only the hash is stored.
+func requestHash(op def.Op, input json.RawMessage) string {
+	h := sha256.New()
+	h.Write([]byte(op.ID))
+	h.Write([]byte{0})
+	c, err := canonicalJSON(params(InvokeRequest{Input: input}))
+	if err != nil {
+		c = input
+	}
+	h.Write(c)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// canonicalJSON re-encodes validated input with sorted keys and no
+// insignificant whitespace.
+func canonicalJSON(raw json.RawMessage) (json.RawMessage, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, fmt.Errorf("canonical input: %w", err)
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("canonical input: %w", err)
+	}
+	return b, nil
+}
+
+// provide calls provider code at admission (Admit, Lane) with panic
+// containment: a panic fails this request only (NFR-3).
+func (d *Dispatcher) provide(op def.Op, f func() error) (err error) {
+	defer d.contain(op, &err)
+	return f()
+}
+
+// opsLoader loads FromTarget records from the operation manager.
+func opsLoader(m *ops.Manager) TargetLoader {
+	return func(_ context.Context, id string) (TargetRecord, error) {
+		rec, err := m.Get(id)
+		if errors.Is(err, store.ErrNotFound) {
+			return TargetRecord{}, ErrTargetNotFound
+		}
+		if err != nil {
+			return TargetRecord{}, err
+		}
+		return TargetRecord{Provider: rec.Provider, StartScope: rec.StartScope}, nil
+	}
 }

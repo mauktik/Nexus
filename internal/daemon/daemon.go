@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"sync"
 	"syscall"
@@ -21,8 +22,10 @@ import (
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/core"
+	"github.com/mauktik/nexus/internal/ops"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/server"
+	"github.com/mauktik/nexus/internal/store"
 	"github.com/mauktik/nexus/internal/version"
 )
 
@@ -40,7 +43,8 @@ type Options struct {
 	ConfigPath string
 	// Logger receives every log record. Nil means slog JSON on stdout.
 	Logger *slog.Logger
-	// StateDir holds tokens.json. Empty means auth.DefaultStateDir.
+	// StateDir holds tokens.json, state.db and the ops directory. Empty
+	// means auth.DefaultStateDir.
 	StateDir string
 	// AuditDir holds audit.jsonl and its rotations. Empty means
 	// audit.DefaultDir.
@@ -57,6 +61,8 @@ type Daemon struct {
 	log    *slog.Logger
 	reg    *core.Registry
 	audit  *audit.Log
+	store  *store.Store
+	ops    *ops.Manager
 	srv    *server.Server
 	notify *notifier
 	ready  chan struct{}
@@ -95,11 +101,38 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 	if err != nil {
 		return nil, fmt.Errorf("audit: %w", err)
 	}
+	stateDir := opts.StateDir
+	if stateDir == "" {
+		stateDir = auth.DefaultStateDir
+	}
+	// state.db is locked while open, so a second daemon on the same state
+	// directory stops here (ErrLocked).
+	db, err := store.Open(stateDir, store.Options{})
+	if err != nil {
+		if cerr := auditLog.Close(); cerr != nil {
+			err = errors.Join(err, cerr)
+		}
+		return nil, fmt.Errorf("state: %w", err)
+	}
 	fail := func(err error) (*Daemon, error) {
+		if cerr := db.Close(); cerr != nil {
+			err = errors.Join(err, cerr)
+		}
 		if cerr := auditLog.Close(); cerr != nil {
 			err = errors.Join(err, cerr)
 		}
 		return nil, err
+	}
+	mgr, err := ops.New(ops.Options{
+		Store:          db,
+		Audit:          auditLog,
+		Dir:            filepath.Join(stateDir, "ops"),
+		Host:           cfg.Host.Name,
+		OutputCapBytes: cfg.Limits.OutputCapBytes,
+		Logger:         log,
+	})
+	if err != nil {
+		return fail(fmt.Errorf("operations: %w", err))
 	}
 	reg, err := core.New(providers, core.Options{
 		Host:      cfg.Host.Name,
@@ -107,13 +140,10 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 		Providers: providerConfigs(cfg),
 		Logger:    log,
 		Audit:     auditLog,
+		Ops:       mgr,
 	})
 	if err != nil {
 		return fail(fmt.Errorf("providers: %w", err))
-	}
-	stateDir := opts.StateDir
-	if stateDir == "" {
-		stateDir = auth.DefaultStateDir
 	}
 	authn := auth.New(stateDir, auth.Options{FailureLimitPerMinute: cfg.Auth.FailureLimitPerMinute, Logger: log,
 		Audit: auditLog})
@@ -128,6 +158,8 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 		log:    log,
 		reg:    reg,
 		audit:  auditLog,
+		store:  db,
+		ops:    mgr,
 		srv:    srv,
 		notify: newNotifier(os.Getenv("NOTIFY_SOCKET")),
 		ready:  make(chan struct{}),
@@ -157,6 +189,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	listeners, err := d.listen(ctx)
 	if err != nil {
+		if cerr := d.store.Close(); cerr != nil {
+			err = errors.Join(err, cerr)
+		}
 		if cerr := d.audit.Close(); cerr != nil {
 			err = errors.Join(err, cerr)
 		}
@@ -248,6 +283,14 @@ func (d *Daemon) shutdown() {
 	defer cancel()
 	if err := d.srv.Shutdown(ctx); err != nil {
 		d.log.Warn("graceful shutdown incomplete; remaining connections closed", "error", err.Error())
+	}
+	// After the server, so no request admits an operation meanwhile. Queued
+	// operations stay queued in state.db for restart recovery.
+	if err := d.ops.Shutdown(ctx); err != nil {
+		d.log.Warn("operations still running at shutdown", "error", err.Error())
+	}
+	if err := d.store.Close(); err != nil {
+		d.log.Error("closing the state database failed", "error", err.Error())
 	}
 	// After the server: in-flight requests may still write records.
 	if err := d.audit.Close(); err != nil {

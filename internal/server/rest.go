@@ -19,6 +19,7 @@ import (
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/core"
 	"github.com/mauktik/nexus/internal/def"
+	"github.com/mauktik/nexus/internal/ops"
 	"github.com/mauktik/nexus/internal/problem"
 )
 
@@ -165,7 +166,7 @@ func (s *Server) opHandler(disp *core.Dispatcher, op def.Op, names []string, fie
 		}
 		res, err := disp.Invoke(r.Context(), core.InvokeRequest{
 			Caller: caller, Surface: core.SurfaceREST, Op: op, Target: target,
-			Input: raw, InputError: inputErr,
+			Input: raw, InputError: inputErr, IdempotencyKey: idempotencyKey(r.Header),
 		})
 		switch {
 		case err != nil:
@@ -173,9 +174,25 @@ func (s *Server) opHandler(disp *core.Dispatcher, op def.Op, names []string, fie
 		case res.Stream != nil:
 			s.stream(w, r, op, res.Stream)
 		default:
+			if res.Status == http.StatusAccepted && res.OperationID != "" {
+				// RFC 9110 15.3.3: a 202 points to a status monitor.
+				w.Header().Set("Location", ops.LocationPrefix+res.OperationID)
+				w.Header().Set("Retry-After", strconv.Itoa(ops.RetryAfterSeconds))
+			}
 			s.writeJSON(w, r, op, res.Status, res.Body)
 		}
 	})
+}
+
+// idempotencyKey reads the Idempotency-Key header. The IETF draft makes its
+// value a Structured Field String, so a quoted value is unquoted; a bare
+// token is taken as it is.
+func idempotencyKey(h http.Header) string {
+	v := strings.TrimSpace(h.Get("Idempotency-Key"))
+	if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
+		v = strings.NewReplacer(`\"`, `"`, `\\`, `\`).Replace(v[1 : len(v)-1])
+	}
+	return v
 }
 
 // writeError sends a *problem.Error as is. Any other error is an internal

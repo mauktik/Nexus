@@ -78,7 +78,12 @@ type AuditRecord struct {
 	// Values are never recorded: unvalidated input cannot be redacted.
 	InvalidFields []string `json:"invalidFields,omitempty"`
 	OperationID   string   `json:"operationId,omitempty"`
-	Count         int      `json:"count,omitempty"` // Denials one aggregate stands for under rate limiting (A-47)
+	// RequestID is the id of the requested record this record answers: on
+	// the replayed or refused record of a request that had already written
+	// one, and on the Queued record of the operation that request created.
+	// So no requested record stands alone (FR-24, Data Flow step 10).
+	RequestID string `json:"requestId,omitempty"`
+	Count     int    `json:"count,omitempty"` // Denials one aggregate stands for under rate limiting (A-47)
 }
 
 func refineList(filterKeys ...string) func(*jsonschema.Schema) {

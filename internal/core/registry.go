@@ -19,6 +19,8 @@ import (
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/audit"
 	"github.com/mauktik/nexus/internal/def"
+	"github.com/mauktik/nexus/internal/ops"
+	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
 )
 
@@ -50,6 +52,13 @@ type Options struct {
 	// reads. Nil means none: mutating requests then fail closed with
 	// audit-unavailable.
 	Audit *audit.Log
+	// Ops is the operation manager that runs long-running ops and backs
+	// system.operations.*. Nil means none: long-running ops then fail with
+	// internal-error and the operation routes are not served.
+	Ops *ops.Manager
+	// StorageCheck is the storage hook (4.3) at Data Flow step 5: a non-nil
+	// problem refuses a new mutation. Nil means no limit.
+	StorageCheck func() *problem.Error
 }
 
 // Entry is one binding and the provider that owns it.
@@ -67,6 +76,8 @@ type Registry struct {
 	preflightTimeout time.Duration
 	now              func() time.Time
 	audit            *audit.Log
+	ops              *ops.Manager
+	storageCheck     func() *problem.Error
 	providers        []provider.Provider // Sorted by name
 	entries          []Entry             // Sorted by op ID
 
@@ -97,6 +108,8 @@ func New(providers []provider.Provider, opts Options) (*Registry, error) {
 		preflightTimeout: opts.PreflightTimeout,
 		now:              opts.Now,
 		audit:            opts.Audit,
+		ops:              opts.Ops,
+		storageCheck:     opts.StorageCheck,
 	}
 	if r.now == nil {
 		r.now = time.Now

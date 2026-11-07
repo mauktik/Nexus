@@ -58,7 +58,8 @@ func startServe(t *testing.T, notifySocket string) *serveProc {
 	t.Helper()
 	addr := freeAddr(t)
 	cfg := writeConfig(t, "nexusd.yaml", "listen: [\""+addr+"\"]\ntls: {mode: off}\n")
-	cmd := exec.Command(nexusdBin, "serve", "--config", cfg, "--audit-dir", t.TempDir())
+	// serve opens state.db in its state directory at startup (3.2).
+	cmd := exec.Command(nexusdBin, "serve", "--config", cfg, "--state-dir", t.TempDir(), "--audit-dir", t.TempDir())
 	cmd.Env = slices.DeleteFunc(os.Environ(), func(e string) bool { return strings.HasPrefix(e, "NOTIFY_SOCKET=") })
 	if notifySocket != "" {
 		cmd.Env = append(cmd.Env, "NOTIFY_SOCKET="+notifySocket)
