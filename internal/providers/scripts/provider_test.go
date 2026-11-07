@@ -430,6 +430,29 @@ func TestCatalogReloadSwapsAtomically(t *testing.T) {
 		}
 	})
 
+	// Do not reload until the reader has read the old catalog, so that
+	// "reads of both catalogs" does not depend on goroutine scheduling.
+	waitSeen := func(v string) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			mu.Lock()
+			c, bad := seen[v], len(torn)
+			mu.Unlock()
+			if c > 0 {
+				return
+			}
+			if bad > 0 {
+				return // reported below
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("the reader never saw the %s catalog", v)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	waitSeen("v1")
+
 	// Step 2: change the file and reload.
 	writeFile(t, n.cfgPath, configYAML(strings.TrimPrefix(n.base, "http://"),
 		versionCatalog("v2", "bravo", "charlie", "delta", "echo")))
@@ -446,8 +469,8 @@ func TestCatalogReloadSwapsAtomically(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	// Keep reading across the swap for a moment longer.
-	time.Sleep(100 * time.Millisecond)
+	// Keep reading until the reader itself has seen the new catalog.
+	waitSeen("v2")
 	close(stop)
 	wg.Wait()
 
