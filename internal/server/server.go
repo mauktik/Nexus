@@ -55,6 +55,11 @@ type Server struct {
 	log        *slog.Logger
 	base       context.Context
 	cancelBase context.CancelFunc
+	// tls records whether Options.TLS was set. Serve decides per listener
+	// from it, not from http.Server.TLSConfig: net/http fills TLSConfig in
+	// while configuring HTTP/2 on the first plain Serve, so a later
+	// listener would otherwise be served as TLS with no certificate.
+	tls bool
 }
 
 // New builds the server and registers every route the registry implies.
@@ -97,6 +102,7 @@ func New(reg *core.Registry, opts Options) (*Server, error) {
 		ErrorLog:          slog.NewLogLogger(s.log.Handler(), slog.LevelWarn),
 	}
 	if opts.TLS != nil {
+		s.tls = true
 		s.http.TLSConfig = serverTLS(opts.TLS)
 	}
 	return s, nil
@@ -113,7 +119,7 @@ func (s *Server) Handler() http.Handler { return s.http.Handler }
 // nil after a shutdown and the accept error otherwise.
 func (s *Server) Serve(l net.Listener) error {
 	var err error
-	if s.http.TLSConfig != nil {
+	if s.tls {
 		err = s.http.ServeTLS(l, "", "")
 	} else if err = checkPlainHTTP(l.Addr()); err == nil {
 		err = s.http.Serve(l)
