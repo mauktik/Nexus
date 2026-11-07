@@ -104,8 +104,11 @@ type InvokeResult struct {
 // the only place scopes are enforced. Every call runs, in this order:
 // authentication present, scope (loading the target record first for a
 // FromTarget op), capability, input validation, then the handler with panic
-// containment (Data Flow). Long-running ops continue with idempotency,
-// storage, Admit and lanes, which arrive with the operation manager (3.2).
+// containment (Data Flow). Long-running ops continue with idempotency, the
+// storage check (the limit flag of internal/storage, through
+// Options.StorageCheck), Admit and lanes. Only a new mutation meets the
+// storage check: reads, replays, read-risk requests, whatIf and cancel
+// continue at the limit (A-68).
 //
 // It writes the audit records of these steps (FR-24): denied for every
 // failed authentication or scope check, refused for a mutating request any

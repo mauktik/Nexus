@@ -4,12 +4,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"sync"
 	"testing"
 	"time"
 
+	bolt "go.etcd.io/bbolt"
+
 	"github.com/mauktik/nexus/internal/apitypes"
+	"github.com/mauktik/nexus/internal/opid"
 	"github.com/mauktik/nexus/internal/problem"
 )
 
@@ -448,5 +452,187 @@ func TestListProvidersFilter(t *testing.T) {
 	got, _ = listAll(t, s, ListQuery{Providers: nil})
 	if len(got) != len(fixture) {
 		t.Fatalf("nil set = %d records, want %d", len(got), len(fixture))
+	}
+}
+
+// seedAt creates n records moved to status with the clock at at, so a
+// terminal one has Ended == at, and returns their IDs in creation order.
+func seedAt(t *testing.T, s *Store, clock *fixedClock, at time.Time, n int, status apitypes.OperationStatus) []string {
+	t.Helper()
+	clock.Set(at)
+	out := make([]string, n)
+	for i := range out {
+		out[i] = createAs(t, s, "p", status).ID
+	}
+	return out
+}
+
+// bulkTerminal writes n terminal records created and ended at at, in one
+// transaction: thousands of fsynced commits would dominate the test. The
+// records are what CreateWithIdempotency and CommitTerminal would leave:
+// opid IDs in creation order, Created and Ended set.
+func bulkTerminal(t *testing.T, s *Store, at time.Time, n int, status apitypes.OperationStatus) []string {
+	t.Helper()
+	out := make([]string, n)
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketOps)
+		for i := range out {
+			ended := at
+			rec := OpRecord{ID: opid.New(), Action: "p.x", Provider: "p", Status: status, Created: at,
+				Started: &ended, Ended: &ended, Exec: ExecInProcess}
+			enc, err := encodeRecord(rec)
+			if err != nil {
+				return err
+			}
+			if err := b.Put([]byte(rec.ID), enc); err != nil {
+				return err
+			}
+			out[i] = rec.ID
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func allIDs(t *testing.T, s *Store) []string {
+	t.Helper()
+	recs, _ := listAll(t, s, ListQuery{Limit: MaxListLimit})
+	out := ids(recs)
+	slices.Sort(out)
+	return out
+}
+
+// TC-87: retention keeps whichever retains more of the records younger than
+// 30 days and the newest 1,000, and never removes a non-terminal record.
+// The expected keep-set is computed independently of PruneTerminal:
+// keep = newest max(count(age < 30d), min(1000, total)).
+func TestPruneTerminalKeepsWhicheverRetainsMore(t *testing.T) {
+	const (
+		maxAge = 30 * 24 * time.Hour
+		keep   = 1000
+	)
+	now := time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)
+	old, recent := now.Add(-40*24*time.Hour), now.Add(-5*24*time.Hour)
+	cases := []struct {
+		name          string
+		nOld, nRecent int
+		want          int
+	}{
+		{"1500 old", 1500, 0, 1000},
+		{"1500 recent", 0, 1500, 1500},
+		{"1100 old and 100 recent", 1100, 100, 1000},
+		{"900 old", 900, 0, 900},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			clock := &fixedClock{t: old}
+			s := openTemp(t, Options{Now: clock.Now})
+			// Old non-terminal records come first, so they are the oldest IDs
+			// and outside the newest 1,000.
+			live := append(seedAt(t, s, clock, old.Add(-time.Hour), 3, apitypes.StatusQueued),
+				seedAt(t, s, clock, old.Add(-time.Hour), 3, apitypes.StatusRunning)...)
+			terminal := append(bulkTerminal(t, s, old, c.nOld, apitypes.StatusSucceeded),
+				bulkTerminal(t, s, recent, c.nRecent, apitypes.StatusCanceled)...)
+
+			// Expected: the newest max(young, min(keep, total)) terminal
+			// records, plus every non-terminal one.
+			young := c.nRecent
+			n := max(young, min(keep, len(terminal)))
+			want := append(slices.Clone(terminal[len(terminal)-n:]), live...)
+			slices.Sort(want)
+			if len(want)-len(live) != c.want {
+				t.Fatalf("fixture: computed keep-set has %d terminal records, table says %d", len(want)-len(live), c.want)
+			}
+
+			clock.Set(now)
+			deleted, err := s.PruneTerminal(now.Add(-maxAge), keep)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := allIDs(t, s)
+			if !slices.Equal(got, want) {
+				t.Fatalf("remaining %d records, want %d", len(got), len(want))
+			}
+			if len(deleted) != len(terminal)-n || !slices.IsSorted(deleted) {
+				t.Fatalf("deleted %d IDs (sorted %v), want %d oldest first", len(deleted), slices.IsSorted(deleted), len(terminal)-n)
+			}
+			for _, id := range deleted {
+				if slices.Contains(want, id) {
+					t.Fatalf("deleted %s, which is in the keep-set", id)
+				}
+			}
+			for _, id := range live {
+				if _, err := s.Get(id); err != nil {
+					t.Fatalf("non-terminal record %s removed: %v", id, err)
+				}
+			}
+			// A second pass finds nothing more.
+			if again, err := s.PruneTerminal(now.Add(-maxAge), keep); err != nil || len(again) != 0 {
+				t.Fatalf("second prune deleted %d (%v)", len(again), err)
+			}
+		})
+	}
+}
+
+// Retention is measured from Ended, not Created: an operation created long
+// ago that ended recently is young.
+func TestPruneTerminalMeasuresFromEnded(t *testing.T) {
+	now := time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)
+	clock := &fixedClock{t: now.Add(-60 * 24 * time.Hour)}
+	s := openTemp(t, Options{Now: clock.Now})
+	res, err := s.CreateWithIdempotency(newRec(), IdempotencyKey{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CompareAndSetStatus(res.ID, apitypes.StatusQueued, apitypes.StatusRunning); err != nil {
+		t.Fatal(err)
+	}
+	clock.Set(now.Add(-24 * time.Hour))
+	if _, err := s.CommitTerminal(res.ID, apitypes.StatusRunning, apitypes.StatusSucceeded, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	clock.Set(now)
+	if deleted, err := s.PruneTerminal(now.Add(-30*24*time.Hour), 0); err != nil || len(deleted) != 0 {
+		t.Fatalf("deleted %v (%v); the record ended a day ago", deleted, err)
+	}
+	if deleted, err := s.PruneTerminal(now, 0); err != nil || !slices.Equal(deleted, []string{res.ID}) {
+		t.Fatalf("deleted %v (%v), want %s", deleted, err, res.ID)
+	}
+	if _, err := s.Get(res.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Get after prune: %v", err)
+	}
+}
+
+// SetOutputEvicted sets only OutputEvicted, and a gone record is
+// ErrNotFound.
+func TestSetOutputEvicted(t *testing.T) {
+	s := openTemp(t, Options{})
+	rec := createAs(t, s, "p", apitypes.StatusSucceeded)
+	if rec.OutputEvicted {
+		t.Fatal("a new record is evicted")
+	}
+	if err := s.SetOutputEvicted(rec.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Get(rec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := rec
+	want.OutputEvicted = true
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("after SetOutputEvicted:\n got %+v\nwant %+v", got, want)
+	}
+	if !got.ToAPI("h").OutputEvicted {
+		t.Fatal("outputEvicted does not reach the API")
+	}
+	if err := s.SetOutputEvicted(rec.ID); err != nil {
+		t.Fatalf("repeat: %v", err)
+	}
+	if err := s.SetOutputEvicted("0190a1b2-0000-7000-8000-000000000000"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing record: %v, want ErrNotFound", err)
 	}
 }

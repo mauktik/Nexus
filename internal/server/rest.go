@@ -170,11 +170,7 @@ func (s *Server) opHandler(disp *core.Dispatcher, op def.Op, names []string, fie
 		// A request without a principal cannot pass the authentication
 		// middleware; if one ever did, the Dispatcher refuses the zero value.
 		caller, _ := auth.PrincipalFrom(r.Context())
-		raw, inputErr, tooLarge := buildInput(r, names, fields)
-		if tooLarge != nil {
-			writeProblem(s.log, w, r, tooLarge)
-			return
-		}
+		raw, inputErr := buildInput(r, names, fields)
 		var target string
 		if len(names) > 0 {
 			target = r.PathValue(names[0])
@@ -285,11 +281,13 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, op def.Op,
 
 // buildInput assembles an op's JSON input: query parameters for GET, the JSON
 // object body for POST, and the route wildcards, which name input fields. It
-// does not refuse anything except an oversize body: an input it cannot
-// assemble comes back as inputErr for the Dispatcher to report at its
-// validation step, after the scope and capability checks. The wildcards are
-// always present in raw, so the Dispatcher can authorize by target.
-func buildInput(r *http.Request, names []string, fields map[string]reflect.Type) (raw json.RawMessage, inputErr, tooLarge *problem.Error) {
+// refuses nothing: an input it cannot assemble, an oversize body included
+// (payload-too-large), comes back as inputErr for the Dispatcher to report
+// at its validation step, after the scope and capability checks, so a
+// refused mutating request is audited (FR-24). The wildcards are always
+// present in raw, so the Dispatcher can authorize by target.
+func buildInput(r *http.Request, names []string, fields map[string]reflect.Type) (raw json.RawMessage, inputErr *problem.Error) {
+	var tooLarge *problem.Error
 	obj := map[string]any{}
 	switch r.Method {
 	case http.MethodGet:
@@ -314,9 +312,10 @@ func buildInput(r *http.Request, names []string, fields map[string]reflect.Type)
 		if err != nil {
 			var mbe *http.MaxBytesError
 			if errors.As(err, &mbe) {
-				return nil, nil, payloadTooLarge(mbe.Limit)
+				tooLarge = payloadTooLarge(mbe.Limit)
+			} else {
+				inputErr = invalid("", "cannot read the request body")
 			}
-			inputErr = invalid("", "cannot read the request body")
 			body = nil
 		}
 		if len(bytes.TrimSpace(body)) > 0 {
@@ -338,9 +337,13 @@ func buildInput(r *http.Request, names []string, fields map[string]reflect.Type)
 	}
 	raw, err := json.Marshal(obj)
 	if err != nil {
-		return nil, invalid("", "cannot encode the input"), nil
+		return nil, invalid("", "cannot encode the input")
 	}
-	return raw, inputErr, nil
+	if tooLarge != nil {
+		// It outranks any other input error: the body was never seen.
+		inputErr = tooLarge
+	}
+	return raw, inputErr
 }
 
 // invalid is a validation failure of one input field; an empty field means

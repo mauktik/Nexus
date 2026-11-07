@@ -26,6 +26,7 @@ import (
 	"github.com/mauktik/nexus/internal/ops"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/server"
+	"github.com/mauktik/nexus/internal/storage"
 	"github.com/mauktik/nexus/internal/store"
 	"github.com/mauktik/nexus/internal/version"
 )
@@ -57,6 +58,16 @@ type Options struct {
 	// systemd-run, systemctl show and systemctl kill. Daemon-level T0 tests
 	// set it from detachtest.Local.
 	Detach detach.Options
+	// Now is the clock of state.db, the audit log, the operation manager
+	// and retention: it drives timestamps, idempotency expiry and the
+	// retention of records and audit files. Nil means time.Now.
+	Now func() time.Time
+	// StorageTick, when non-nil, replaces the hourly ticker of storage
+	// accounting (storage.Interval): each value received runs a pass.
+	StorageTick <-chan time.Time
+	// StorageObserve, when non-nil, receives the report of every storage
+	// accounting pass.
+	StorageObserve func(storage.Report)
 }
 
 // Daemon is one nexusd serve process.
@@ -68,6 +79,8 @@ type Daemon struct {
 	audit  *audit.Log
 	store  *store.Store
 	ops    *ops.Manager
+	acct   *storage.Accountant
+	tick   <-chan time.Time // Nil: an hourly ticker made by Run
 	srv    *server.Server
 	notify *notifier
 	ready  chan struct{}
@@ -104,6 +117,7 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 		Host:            cfg.Host.Name,
 		RetentionDays:   cfg.Audit.RetentionDays,
 		AggregateWindow: auth.FailureWindow,
+		Now:             opts.Now,
 		Logger:          log,
 	})
 	if err != nil {
@@ -115,7 +129,7 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 	}
 	// state.db is locked while open, so a second daemon on the same state
 	// directory stops here (ErrLocked).
-	db, err := store.Open(stateDir, store.Options{})
+	db, err := store.Open(stateDir, store.Options{Now: opts.Now})
 	if err != nil {
 		if cerr := auditLog.Close(); cerr != nil {
 			err = errors.Join(err, cerr)
@@ -136,13 +150,33 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 	if err != nil {
 		return fail(fmt.Errorf("operations: %w", err))
 	}
+	retention, err := ops.NewRetention(ops.RetentionOptions{Store: db, Dir: opsDir, Now: opts.Now, Logger: log})
+	if err != nil {
+		return fail(fmt.Errorf("storage: %w", err))
+	}
+	acct, err := storage.New(storage.Options{
+		BudgetBytes: cfg.Limits.StorageBudgetBytes,
+		StateDB:     db.Path(),
+		OpsDir:      opsDir,
+		AuditDir:    auditLog.Dir(),
+		Retention:   retention,
+		Audit:       auditLog,
+		Now:         opts.Now,
+		Logger:      log,
+		Observe:     opts.StorageObserve,
+	})
+	if err != nil {
+		return fail(fmt.Errorf("storage: %w", err))
+	}
 	mgr, err := ops.New(ops.Options{
-		Store:          db,
+		// Each terminal commit asks for an accounting pass (NFR-10).
+		Store:          ops.OnTerminal(db, acct.Trigger),
 		Audit:          auditLog,
 		Dir:            opsDir,
 		Host:           cfg.Host.Name,
 		OutputCapBytes: cfg.Limits.OutputCapBytes,
 		Logger:         log,
+		Now:            opts.Now,
 		Detach:         launcher,
 	})
 	if err != nil {
@@ -155,6 +189,8 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 		Logger:    log,
 		Audit:     auditLog,
 		Ops:       mgr,
+		// Data Flow step 5: the limit flag refuses new mutations.
+		StorageCheck: acct.Check,
 	})
 	if err != nil {
 		return fail(fmt.Errorf("providers: %w", err))
@@ -178,6 +214,8 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 		audit:  auditLog,
 		store:  db,
 		ops:    mgr,
+		acct:   acct,
+		tick:   opts.StorageTick,
 		srv:    srv,
 		notify: newNotifier(os.Getenv("NOTIFY_SOCKET")),
 		ready:  make(chan struct{}),
@@ -202,7 +240,9 @@ func (d *Daemon) Addrs() []net.Addr {
 // Run opens the listeners, serves, and handles signals until SIGTERM, SIGINT
 // or the end of ctx, then shuts down within ShutdownTimeout. It returns nil
 // after a clean stop and an error when a listener cannot be opened or fails.
-// Nothing runs in the background between requests (NFR-1).
+// Nothing runs in the background between requests (NFR-1): storage
+// accounting runs in this loop, at startup, hourly and after each terminal
+// operation, and starts no goroutine of its own.
 func (d *Daemon) Run(ctx context.Context) error {
 	// Before the listener opens: SIGHUP's default action would kill the
 	// process if a reload arrived right after READY=1.
@@ -216,6 +256,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	err := d.ops.Restore(d.binding)
 	var listeners []net.Listener
 	if err == nil {
+		// Startup accounting, before the first request, so a full disk
+		// refuses new mutations from the start (NFR-10).
+		d.acct.Account()
 		listeners, err = d.listen(ctx)
 	}
 	if err != nil {
@@ -250,6 +293,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// delay the listener.
 	d.ops.Recover()
 
+	tick := d.tick
+	if tick == nil {
+		t := time.NewTicker(storage.Interval)
+		defer t.Stop()
+		tick = t.C
+	}
 	var runErr error
 loop:
 	for {
@@ -267,6 +316,10 @@ loop:
 		case err := <-serveErr:
 			runErr = err
 			break loop
+		case <-tick:
+			d.acct.Account()
+		case <-d.acct.Pending():
+			d.acct.Account()
 		}
 	}
 

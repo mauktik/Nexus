@@ -414,3 +414,73 @@ func decodeCursor(c string) ([]byte, error) {
 	}
 	return b, nil
 }
+
+// PruneTerminal deletes, in one write transaction, every terminal record
+// whose Ended is before olderThan and that is not among the newest
+// keepNewest records by ID, so retention keeps whichever of the two sets is
+// larger (FR-4). A Queued or Running record is never deleted, and it counts
+// among the newest like any other. It returns the deleted IDs, oldest
+// first, so the caller can remove their ops directories.
+func (s *Store) PruneTerminal(olderThan time.Time, keepNewest int) ([]string, error) {
+	var deleted []string
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketOps)
+		c := b.Cursor()
+		rank := 0
+		for k, v := c.Last(); k != nil; k, v = c.Prev() {
+			rank++
+			if rank <= keepNewest {
+				continue
+			}
+			rec, err := decodeRecord(v)
+			if err != nil {
+				return err
+			}
+			if rec.Status.Terminal() && rec.Ended != nil && rec.Ended.Before(olderThan) {
+				deleted = append(deleted, string(k))
+			}
+		}
+		// Deleting while the cursor walks the bucket can skip keys, so the
+		// deletes come after the scan.
+		for _, id := range deleted {
+			if err := b.Delete([]byte(id)); err != nil {
+				return fmt.Errorf("delete operation %q: %v", id, err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	slices.Reverse(deleted)
+	return deleted, nil
+}
+
+// SetOutputEvicted marks the record of id as having had its output removed
+// to stay within the storage budget (NFR-10). It changes nothing else, and
+// returns ErrNotFound when the record is gone.
+func (s *Store) SetOutputEvicted(id string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketOps)
+		v := b.Get([]byte(id))
+		if v == nil {
+			return fmt.Errorf("operation %q: %w", id, ErrNotFound)
+		}
+		cur, err := decodeRecord(v)
+		if err != nil {
+			return err
+		}
+		if cur.OutputEvicted {
+			return nil
+		}
+		cur.OutputEvicted = true
+		enc, err := encodeRecord(cur)
+		if err != nil {
+			return err
+		}
+		if err := b.Put([]byte(id), enc); err != nil {
+			return fmt.Errorf("store operation %q: %v", id, err)
+		}
+		return nil
+	})
+}

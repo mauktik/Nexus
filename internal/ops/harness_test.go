@@ -33,6 +33,7 @@ import (
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/server"
+	"github.com/mauktik/nexus/internal/storage"
 	"github.com/mauktik/nexus/internal/store"
 	"github.com/mauktik/nexus/internal/systemspec"
 )
@@ -133,6 +134,7 @@ type testProv struct {
 	runs     atomic.Int64
 	admitted atomic.Int64
 	refuse   atomic.Bool // Admit refuses with not-updatable
+	down     atomic.Bool // Preflight reports unavailable
 
 	mu      sync.Mutex
 	hooks   map[string]hook
@@ -154,6 +156,9 @@ func (p *testProv) Spec() def.ProviderSpec {
 }
 func (p *testProv) Configure(func(any) error) error { return nil }
 func (p *testProv) Preflight(context.Context) provider.Status {
+	if p.down.Load() {
+		return provider.Status{State: apitypes.ProviderUnavailable, Reason: "down for the test"}
+	}
 	return provider.Status{State: apitypes.ProviderEnabled}
 }
 
@@ -309,6 +314,9 @@ const (
 	failNone = iota
 	failWrite
 	failSync
+	// failReal makes the real audit log fail the write, by handing it
+	// params it cannot parse, so its own audit-health flag is exercised.
+	failReal
 )
 
 // faultyAudit wraps the real audit log. From the failFrom-th write on (when
@@ -332,6 +340,9 @@ func (f *faultyAudit) Write(rec systemspec.AuditRecord, sensitive []string) (str
 	switch mode {
 	case failWrite:
 		return "", fmt.Errorf("write audit record: %w", syscall.ENOSPC)
+	case failReal:
+		rec.Params = json.RawMessage(`{`)
+		return f.Log.Write(rec, sensitive)
 	case failSync:
 		if _, err := f.Log.Write(rec, sensitive); err != nil {
 			return "", err
@@ -402,6 +413,9 @@ type world struct {
 
 	clock    atomic.Pointer[time.Time] // Store time when set
 	overFull atomic.Bool               // The storage hook refuses new mutations
+	// acct, when set, is a real storage accountant whose limit flag the
+	// storage hook also checks (storage_test.go).
+	acct     atomic.Pointer[storage.Accountant]
 	tuneOpts func(*ops.Options)
 }
 
@@ -460,6 +474,9 @@ func (w *world) open() {
 		StorageCheck: func() *problem.Error {
 			if w.overFull.Load() {
 				return problem.New(problem.StorageLimitReached, "the storage budget is used up")
+			}
+			if a := w.acct.Load(); a != nil {
+				return a.Check()
 			}
 			return nil
 		},

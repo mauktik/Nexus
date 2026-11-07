@@ -190,3 +190,48 @@ func TestCreateValidation(t *testing.T) {
 		t.Fatalf("records = %d after refused creates", got)
 	}
 }
+
+// TC-E16 (store half): PurgeExpiredIdempotency deletes exactly the keys a
+// lookup already treats as absent, so whether it ran never changes an
+// answer.
+func TestPurgeExpiredIdempotency(t *testing.T) {
+	t0 := time.Date(2026, 11, 7, 10, 0, 0, 0, time.UTC)
+	clock := &fixedClock{t: t0}
+	s := openTemp(t, Options{Now: clock.Now})
+	key := func(k string) IdempotencyKey { return IdempotencyKey{TokenID: "tok", Key: k, RequestHash: "h"} }
+	if _, err := s.CreateWithIdempotency(newRec(), key("early")); err != nil {
+		t.Fatal(err)
+	}
+	clock.Set(t0.Add(time.Hour))
+	late, err := s.CreateWithIdempotency(newRec(), key("late"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	clock.Set(t0.Add(IdempotencyWindow - time.Minute))
+	if n, err := s.PurgeExpiredIdempotency(); err != nil || n != 0 {
+		t.Fatalf("purge inside the window: %d, %v", n, err)
+	}
+	if _, ok, err := s.LookupIdempotency("tok", "early"); err != nil || !ok {
+		t.Fatalf("purge inside the window removed a live key: %v %v", ok, err)
+	}
+
+	clock.Set(t0.Add(IdempotencyWindow))
+	if n, err := s.PurgeExpiredIdempotency(); err != nil || n != 1 {
+		t.Fatalf("purge at expiry of the first key: %d, %v; want 1", n, err)
+	}
+	if e, ok, err := s.LookupIdempotency("tok", "late"); err != nil || !ok || e.OperationID != late.ID {
+		t.Fatalf("the unexpired key went too: %+v %v %v", e, ok, err)
+	}
+	clock.Set(t0.Add(IdempotencyWindow + 2*time.Hour))
+	if n, err := s.PurgeExpiredIdempotency(); err != nil || n != 1 {
+		t.Fatalf("second purge: %d, %v; want 1", n, err)
+	}
+	if n, err := s.PurgeExpiredIdempotency(); err != nil || n != 0 {
+		t.Fatalf("idle purge: %d, %v", n, err)
+	}
+	// Records are untouched: purge reclaims keys only.
+	if got := countRecords(t, s); got != 2 {
+		t.Fatalf("records = %d, want 2", got)
+	}
+}

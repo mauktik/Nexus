@@ -64,19 +64,35 @@ func (t *trackingWriter) Write(b []byte) (int, error) {
 
 func (t *trackingWriter) Unwrap() http.ResponseWriter { return t.ResponseWriter }
 
-// limitBody refuses a declared oversize body at once and caps every body
-// with http.MaxBytesReader, so a body that only turns out to be too long
-// fails its read with *http.MaxBytesError (payload-too-large in rest.go).
+// limitBody caps every body with http.MaxBytesReader, so a body that turns
+// out to be too long fails its read with *http.MaxBytesError, which the
+// route reports as payload-too-large through the Dispatcher (rest.go). A
+// declared oversize body is never read: the body's first read fails at
+// once. GET and HEAD routes read no body and are not audited, so they are
+// refused here.
 func limitBody(log *slog.Logger, max int64, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.ContentLength > max {
-			writeProblem(log, w, r, payloadTooLarge(max))
+			if r.Method == http.MethodGet || r.Method == http.MethodHead {
+				writeProblem(log, w, r, payloadTooLarge(max))
+				return
+			}
+			r.Body = oversizeBody{limit: max}
+			next.ServeHTTP(w, r)
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, max)
 		next.ServeHTTP(w, r)
 	})
 }
+
+// oversizeBody replaces a body whose Content-Length exceeds the limit. Its
+// first read fails as MaxBytesReader's would, without reading a byte; the
+// server still closes the real body.
+type oversizeBody struct{ limit int64 }
+
+func (b oversizeBody) Read([]byte) (int, error) { return 0, &http.MaxBytesError{Limit: b.limit} }
+func (oversizeBody) Close() error               { return nil }
 
 func payloadTooLarge(max int64) *problem.Error {
 	return problem.New(problem.PayloadTooLarge, fmt.Sprintf("the request body exceeds %d bytes", max))

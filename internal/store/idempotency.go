@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -160,4 +161,40 @@ func (s *Store) CreateWithIdempotency(rec OpRecord, idem IdempotencyKey) (Create
 		return CreateResult{}, err
 	}
 	return res, nil
+}
+
+// PurgeExpiredIdempotency deletes every key past its expiry, in one write
+// transaction, and returns how many it deleted. Lookups already ignore an
+// expired key, so this only reclaims space: whether it has run never
+// changes an answer (FR-7).
+func (s *Store) PurgeExpiredIdempotency() (int, error) {
+	var expired [][]byte
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketIdem)
+		now := s.nowUTC()
+		err := b.ForEach(func(k, v []byte) error {
+			var e idemValue
+			if err := json.Unmarshal(v, &e); err != nil {
+				return fmt.Errorf("decode idempotency entry: %v", err)
+			}
+			if !now.Before(e.Expires) {
+				// k is only valid for the transaction.
+				expired = append(expired, slices.Clone(k))
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		for _, k := range expired {
+			if err := b.Delete(k); err != nil {
+				return fmt.Errorf("delete idempotency entry: %v", err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return len(expired), nil
 }

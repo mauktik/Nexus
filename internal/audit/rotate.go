@@ -182,10 +182,15 @@ func syncDir(dir string) error {
 	return errors.Join(d.Sync(), d.Close())
 }
 
+// Dir is the audit directory, which storage accounting measures (NFR-10).
+func (l *Log) Dir() string { return l.dir }
+
 // Prune deletes the rotated files older than the retention period. A file's
 // age is its newest possible record: the later of its rotation time and its
 // modification time, so neither a renamed nor a touched file loses records
-// younger than retention (NFR-10). The live file is never deleted.
+// younger than retention (NFR-10). The live file is never deleted. It is
+// safe to call concurrently with Write: storage accounting calls it when
+// over budget, and a file another call already removed is not an error.
 func (l *Log) Prune() error {
 	entries, err := os.ReadDir(l.dir)
 	if err != nil {
