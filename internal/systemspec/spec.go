@@ -33,26 +33,26 @@ const maxCursorLength = 512
 
 // CapabilitiesGetInput is the input of system.capabilities.get.
 type CapabilitiesGetInput struct {
-	Refresh bool `json:"refresh,omitempty"` // Re-run every enabled provider's preflight first
+	Refresh bool `json:"refresh,omitempty" jsonschema:"Re-run every enabled provider's preflight first."`
 }
 
 // ListInput is the input of the paged list operations.
 type ListInput struct {
-	Limit  int      `json:"limit,omitempty"`  // Default 100, maximum 1000
-	Cursor string   `json:"cursor,omitempty"` // From a previous page's nextCursor
+	Limit  int      `json:"limit,omitempty" jsonschema:"Page size: default 100, maximum 1000."`
+	Cursor string   `json:"cursor,omitempty" jsonschema:"Opaque cursor from a previous page's nextCursor."`
 	Filter []string `json:"filter,omitempty"` // Repeatable key=value; declared keys only
 }
 
 // OperationInput names one operation.
 type OperationInput struct {
-	ID string `json:"id"`
+	ID string `json:"id" jsonschema:"Operation ID."`
 }
 
 // OperationLogsInput is the input of system.operations.logs.
 type OperationLogsInput struct {
-	ID     string `json:"id"`
-	Offset int64  `json:"offset,omitempty"` // Absolute byte offset to start from
-	Follow bool   `json:"follow,omitempty"` // Keep streaming until the operation ends
+	ID     string `json:"id" jsonschema:"Operation ID."`
+	Offset int64  `json:"offset,omitempty" jsonschema:"Absolute byte offset to start from."`
+	Follow bool   `json:"follow,omitempty" jsonschema:"Keep streaming until the operation ends."`
 }
 
 // AuditRecord is one audit log entry as the API returns it (FR-24, FR-30),
@@ -212,7 +212,9 @@ var (
 		OperationControl: true,
 		Summary:          "Cancel an operation",
 		Description: "Cancels a queued operation, or a running one whose action allows it, and returns the " +
-			"operation. Starts no new work. Repeating it on a canceled operation changes nothing. " +
+			"operation. Side effects: a queued operation becomes Canceled without running; a running one is " +
+			"stopped and ends Canceled, possibly having made part of its changes. Starts no new work. " +
+			"Repeating it on a canceled operation changes nothing. Answers at once; not long-running. " +
 			"Requires the scope that started the operation.",
 		Scope: def.Scope{FromTarget: true}, Risk: def.RiskMutating, Mode: def.ModeSync, Idempotent: true,
 		CLI:    def.CLIBinding{Noun: "operation", Verb: "cancel", Positional: "id"},

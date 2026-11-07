@@ -161,6 +161,16 @@ func New(providers []provider.Provider, opts Options) (*Registry, error) {
 // Entries returns every binding, system ones included, sorted by op ID.
 func (r *Registry) Entries() []Entry { return slices.Clone(r.entries) }
 
+// Specs returns every provider's declarations, sorted by name. The system
+// operations are not among them.
+func (r *Registry) Specs() []def.ProviderSpec {
+	specs := make([]def.ProviderSpec, len(r.providers))
+	for i, p := range r.providers {
+		specs[i] = p.Spec()
+	}
+	return specs
+}
+
 // Host is the host name reported to clients.
 func (r *Registry) Host() string { return r.host }
 

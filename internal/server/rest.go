@@ -7,24 +7,26 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"reflect"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/core"
 	"github.com/mauktik/nexus/internal/def"
+	"github.com/mauktik/nexus/internal/openapi"
 	"github.com/mauktik/nexus/internal/ops"
 	"github.com/mauktik/nexus/internal/problem"
 )
 
 // APIPrefix is the path prefix of every catalog route.
-const APIPrefix = "/" + apitypes.APIVersion
+const APIPrefix = openapi.Prefix
 
 // Route is one registered REST route. Path is a ServeMux pattern path, such
 // as /v1/providers/docker/containers/{name}.
@@ -39,73 +41,14 @@ type Route struct {
 func (s *Server) Routes() []Route { return slices.Clone(s.routes) }
 
 // RouteFor derives an op's route: from Op.Path for provider system, and from
-// Kind otherwise. Nothing else decides a route.
+// Kind otherwise. internal/openapi owns the derivation, so the document and
+// the routes cannot disagree on one.
 func RouteFor(op def.Op) (Route, error) {
-	method, err := methodFor(op.Kind)
+	method, path, err := openapi.Route(op)
 	if err != nil {
-		return Route{}, fmt.Errorf("op %q: %w", op.ID, err)
-	}
-	if op.Provider == def.SystemProvider {
-		if !strings.HasPrefix(op.Path, "/") {
-			return Route{}, fmt.Errorf("op %q: system op needs a Path starting with /", op.ID)
-		}
-		return Route{Method: method, Path: APIPrefix + op.Path, OpID: op.ID}, nil
-	}
-
-	need := func(field, v string) error {
-		if v == "" || strings.ContainsAny(v, "/{} ") {
-			return fmt.Errorf("op %q: %s %q is not a route segment", op.ID, field, v)
-		}
-		return nil
-	}
-	if err := need("Provider", op.Provider); err != nil {
 		return Route{}, err
 	}
-	base := APIPrefix + "/providers/" + op.Provider
-	var path string
-	switch op.Kind {
-	case def.KindProviderAction:
-		if err := need("Action", op.Action); err != nil {
-			return Route{}, err
-		}
-		path = base + "/actions/" + op.Action
-	default:
-		if err := need("ResourceType", op.ResourceType); err != nil {
-			return Route{}, err
-		}
-		path = base + "/" + op.ResourceType
-		if op.Kind != def.KindList {
-			path += "/{name}"
-		}
-		if op.Kind == def.KindSubresource || op.Kind == def.KindResourceAction {
-			if err := need("Action", op.Action); err != nil {
-				return Route{}, err
-			}
-			path += "/" + op.Action
-		}
-	}
 	return Route{Method: method, Path: path, OpID: op.ID}, nil
-}
-
-func methodFor(k def.Kind) (string, error) {
-	switch k {
-	case def.KindList, def.KindGet, def.KindSubresource:
-		return http.MethodGet, nil
-	case def.KindResourceAction, def.KindProviderAction:
-		return http.MethodPost, nil
-	}
-	return "", fmt.Errorf("unknown Kind %q", k)
-}
-
-var wildcardRE = regexp.MustCompile(`\{([A-Za-z0-9_]+)\}`)
-
-// wildcards returns the path's wildcard names in order.
-func wildcards(path string) []string {
-	var names []string
-	for _, m := range wildcardRE.FindAllStringSubmatch(path, -1) {
-		names = append(names, m[1])
-	}
-	return names
 }
 
 // registerREST registers one route per binding in the registry, and records
@@ -119,7 +62,7 @@ func (s *Server) registerREST() error {
 		if err != nil {
 			return err
 		}
-		names := wildcards(rt.Path)
+		names := openapi.Wildcards(rt.Path)
 		fields := inputFields(op.InputType())
 		for _, n := range names {
 			if _, ok := fields[n]; !ok {
@@ -131,7 +74,79 @@ func (s *Server) registerREST() error {
 		}
 		s.routes = append(s.routes, rt)
 	}
+	doc := &openAPIHandler{reg: s.reg, log: s.log}
+	// Built once now, so a declaration the builder rejects stops startup.
+	if _, err := doc.document(); err != nil {
+		return fmt.Errorf("openapi: %w", err)
+	}
+	s.mux.Handle("GET "+openapi.Path, doc)
 	return nil
+}
+
+// openAPIHandler serves /v1/openapi.json, outside the catalog: any valid
+// token may read it (A-50), and the authentication middleware has already
+// required one. The document covers the ops of enabled providers, so it is
+// rebuilt when a reload changes provider enablement; between changes the
+// same bytes are served.
+type openAPIHandler struct {
+	reg   *core.Registry
+	log   *slog.Logger
+	cache atomic.Pointer[openAPIDoc]
+}
+
+// openAPIDoc is the document built for one build version and set of
+// enabled providers, its key.
+type openAPIDoc struct {
+	key  string
+	body []byte
+}
+
+func (h *openAPIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	body, err := h.document()
+	if err != nil {
+		h.log.Error("building the OpenAPI document failed", "error", err.Error())
+		writeProblem(h.log, w, r, problem.New(problem.InternalError, "the server failed to handle the request"))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if _, err := w.Write(body); err != nil {
+		h.log.Debug("response write failed", "method", r.Method, "path", r.URL.Path, "error", err.Error())
+	}
+}
+
+// document returns the document for the current provider enablement,
+// building it when that changed. A provider is in it unless configuration
+// disables it: an unavailable provider's ops stay documented, as they
+// answer capability-unavailable until a re-check finds it working.
+func (h *openAPIHandler) document() ([]byte, error) {
+	caps := h.reg.Capabilities(context.Background(), false)
+	enabled := map[string]bool{def.SystemProvider: true}
+	key := caps.Version
+	for _, p := range caps.Providers {
+		if p.Status != apitypes.ProviderDisabled {
+			enabled[p.Name] = true
+			key += "\x00" + p.Name
+		}
+	}
+	if d := h.cache.Load(); d != nil && d.key == key {
+		return d.body, nil
+	}
+	var ops []def.Op
+	for _, e := range h.reg.Entries() {
+		if enabled[e.Provider] {
+			ops = append(ops, e.Binding.Op())
+		}
+	}
+	readScopes := map[string]string{}
+	for _, spec := range h.reg.Specs() {
+		readScopes[spec.Name] = spec.ReadScope
+	}
+	body, err := openapi.Build(ops, openapi.Options{Version: caps.Version, ReadScopes: readScopes})
+	if err != nil {
+		return nil, err
+	}
+	h.cache.Store(&openAPIDoc{key: key, body: body})
+	return body, nil
 }
 
 // handle registers a pattern, turning ServeMux's panic on a conflicting
