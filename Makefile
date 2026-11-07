@@ -15,7 +15,7 @@ RELEASE_BUILD   := CGO_ENABLED=0 go build -trimpath -ldflags='$(RELEASE_LDFLAGS)
 # recurses into make.
 export NEXUS_IN_MAKE := 1
 
-.PHONY: build build-release test vet vuln check
+.PHONY: build build-release test vet vuln check test-harness
 
 # Host-arch binaries for local use.
 build:
@@ -42,3 +42,9 @@ vuln:
 	go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
 check: vet test vuln
+
+# T1: real systemd in a privileged container on the Docker CLI's current
+# context, native architecture. Test-only binaries go to build/harness/,
+# never dist/. BASE defaults to ubuntu:latest; RUN narrows the tests.
+test-harness:
+	BASE='$(BASE)' RUN='$(RUN)' test/harness/run.sh
