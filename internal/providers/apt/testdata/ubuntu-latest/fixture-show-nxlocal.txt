@@ -1,0 +1,11 @@
+Package: nxlocal
+Status: install ok installed
+Priority: optional
+Section: misc
+Maintainer: Nexus fixtures <fixtures@nexus.invalid>
+Architecture: all
+Version: 1.0
+Description: Nexus apt fixture package nxlocal
+ A package built by the Nexus T1 harness. It installs one file.
+Description-md5: 
+

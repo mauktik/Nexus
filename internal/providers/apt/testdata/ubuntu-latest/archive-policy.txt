@@ -1,0 +1,40 @@
+base-files:
+  Installed: 14ubuntu6.2
+  Candidate: 14ubuntu6.3
+  Version table:
+     14ubuntu6.3 500
+        500 http://ports.ubuntu.com/ubuntu-ports resolute-updates/main arm64 Packages
+ *** 14ubuntu6.2 100
+        100 /var/lib/dpkg/status
+     14ubuntu6 500
+        500 http://ports.ubuntu.com/ubuntu-ports resolute/main arm64 Packages
+libapt-pkg7.0:
+  Installed: 3.2.0
+  Candidate: 3.2.1ubuntu0.1
+  Version table:
+     3.2.1ubuntu0.1 500
+        500 http://ports.ubuntu.com/ubuntu-ports resolute-updates/main arm64 Packages
+        500 http://ports.ubuntu.com/ubuntu-ports resolute-security/main arm64 Packages
+ *** 3.2.0 500
+        500 http://ports.ubuntu.com/ubuntu-ports resolute/main arm64 Packages
+        100 /var/lib/dpkg/status
+apt:
+  Installed: 3.2.0
+  Candidate: 3.2.1ubuntu0.1
+  Version table:
+     3.2.1ubuntu0.1 500
+        500 http://ports.ubuntu.com/ubuntu-ports resolute-updates/main arm64 Packages
+        500 http://ports.ubuntu.com/ubuntu-ports resolute-security/main arm64 Packages
+ *** 3.2.0 500
+        500 http://ports.ubuntu.com/ubuntu-ports resolute/main arm64 Packages
+        100 /var/lib/dpkg/status
+libpcre2-8-0:
+  Installed: 10.46-1build1
+  Candidate: 10.46-1ubuntu0.1
+  Version table:
+     10.46-1ubuntu0.1 500
+        500 http://ports.ubuntu.com/ubuntu-ports resolute-updates/main arm64 Packages
+        500 http://ports.ubuntu.com/ubuntu-ports resolute-security/main arm64 Packages
+ *** 10.46-1build1 500
+        500 http://ports.ubuntu.com/ubuntu-ports resolute/main arm64 Packages
+        100 /var/lib/dpkg/status

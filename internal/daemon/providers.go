@@ -6,6 +6,7 @@ import (
 	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/core"
 	"github.com/mauktik/nexus/internal/provider"
+	"github.com/mauktik/nexus/internal/providers/apt"
 	"github.com/mauktik/nexus/internal/providers/docker"
 	"github.com/mauktik/nexus/internal/providers/scripts"
 )
@@ -16,6 +17,7 @@ import (
 func builtinProviders(host string, log *slog.Logger) []provider.Provider {
 	return []provider.Provider{
 		docker.New(docker.Options{Host: host, Logger: log}),
+		apt.New(apt.Options{Host: host, Logger: log}),
 		scripts.New(scripts.Options{Host: host}),
 	}
 }

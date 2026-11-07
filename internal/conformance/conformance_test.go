@@ -36,6 +36,7 @@ import (
 	"github.com/mauktik/nexus/internal/ops"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
+	apt "github.com/mauktik/nexus/internal/providers/apt/spec"
 	docker "github.com/mauktik/nexus/internal/providers/docker/spec"
 	scripts "github.com/mauktik/nexus/internal/providers/scripts/spec"
 	"github.com/mauktik/nexus/internal/server"
@@ -60,6 +61,14 @@ var catalogStubs = map[string]func(*testprovider.Spy) provider.Provider{
 			testprovider.InProcess(s, docker.Remove),
 			testprovider.InProcess(s, docker.Update),
 			testprovider.InProcess(s, docker.CheckUpdates),
+		)
+	},
+	apt.Name: func(s *testprovider.Spy) provider.Provider {
+		return testprovider.NewStub(apt.Spec(),
+			testprovider.Sync(s, apt.List),
+			testprovider.Sync(s, apt.Get),
+			testprovider.Sync(s, apt.UpgradableList),
+			testprovider.InProcess(s, apt.Refresh),
 		)
 	},
 	scripts.Name: func(s *testprovider.Spy) provider.Provider {

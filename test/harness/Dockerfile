@@ -10,7 +10,7 @@ ENV container=docker DEBIAN_FRONTEND=noninteractive
 # docker-compose-v2 is an Ubuntu package; on a base without it the Docker
 # tests skip (NFR-6 runs at BASE=debian:stable).
 RUN apt-get update \
- && compose="$(apt-cache show docker-compose-v2 >/dev/null 2>&1 && echo docker-compose-v2)" \
+ && compose="$(apt-cache show docker-compose-v2 >/dev/null 2>&1 && echo docker-compose-v2 || true)" \
  && apt-get install -y --no-install-recommends \
       systemd systemd-sysv dbus needrestart docker.io ${compose} dpkg-dev ca-certificates \
       iproute2 procps util-linux git \

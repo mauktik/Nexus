@@ -50,10 +50,19 @@ providers:
     updateHealthTimeout: 60s   # How long an updated container may take to become healthy
     updateMaxRuntime: 1h       # Bound on one container update
 
+  # Packages through the fixed binaries /usr/bin/apt-get, apt-cache,
+  # dpkg-query and dpkg, in the C locale, never prompting. Reads list
+  # installed and upgradable packages and show one package; refresh runs
+  # apt-get update in its own systemd unit, queued behind any other apt
+  # operation. Needs apt, dpkg and systemd; without them the provider reports
+  # unavailable and the rest of nexusd is unaffected. The upgradable list is
+  # cached until the dpkg status, the package indexes, the apt sources or
+  # preferences change. Capabilities report whether a reboot is required,
+  # from /var/run/reboot-required: unknown when nothing on the host writes it.
   apt:
     enabled: false
-    lockWait: 300s
-    maxRuntime: 6h
+    lockWait: 300s           # How long a mutation waits for the dpkg lock
+    maxRuntime: 6h           # Bound on one apt operation, after which it reports outcome-unknown
 
   # The script catalog. Scripts are defined only here: no API, MCP or CLI call
   # can add, change or remove one. Reads return every field except env values,

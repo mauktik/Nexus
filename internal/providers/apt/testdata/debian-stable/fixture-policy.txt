@@ -1,0 +1,26 @@
+nxplain:
+  Installed: 1.0
+  Candidate: 2.0
+  Version table:
+     2.0 500
+        500 file:/srv/nexus-aptrepo ./ Packages
+ *** 1.0 100
+        100 /var/lib/dpkg/status
+nxavail:
+  Installed: (none)
+  Candidate: 1.0
+  Version table:
+     1.0 500
+        500 file:/srv/nexus-aptrepo ./ Packages
+nxlocal:
+  Installed: 1.0
+  Candidate: 1.0
+  Version table:
+ *** 1.0 100
+        100 /var/lib/dpkg/status
+dpkg:
+  Installed: 1.22.22
+  Candidate: 1.22.22
+  Version table:
+ *** 1.22.22 100
+        100 /var/lib/dpkg/status

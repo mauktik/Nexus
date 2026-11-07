@@ -33,6 +33,8 @@ import (
 	"github.com/mauktik/nexus/internal/ops"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
+	"github.com/mauktik/nexus/internal/providers/apt"
+	aptspec "github.com/mauktik/nexus/internal/providers/apt/spec"
 	"github.com/mauktik/nexus/internal/providers/docker"
 	dockerspec "github.com/mauktik/nexus/internal/providers/docker/spec"
 	"github.com/mauktik/nexus/internal/providers/scripts"
@@ -195,7 +197,16 @@ type stack struct {
 func enabledAll() map[string]core.ProviderConfig {
 	return map[string]core.ProviderConfig{"tp": {Enabled: true}, "tq": {Enabled: true},
 		scriptspec.Name: {Enabled: true, Decode: scriptsSection},
-		dockerspec.Name: {Enabled: true, Decode: dockerSection}}
+		dockerspec.Name: {Enabled: true, Decode: dockerSection},
+		aptspec.Name:    {Enabled: true}}
+}
+
+// aptProvider is the real apt provider, with its preflight forced enabled
+// because T0 hosts have no apt.
+func aptProvider() provider.Provider {
+	return apt.New(apt.Options{Host: "testhost", Preflight: func(context.Context) provider.Status {
+		return provider.Status{State: apitypes.ProviderEnabled}
+	}})
 }
 
 // dockerSection points the real docker provider at a socket that does not
@@ -248,7 +259,7 @@ func newStack(t *testing.T) *stack {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reg, err := core.New([]provider.Provider{tp{}, tq{}, scriptsProvider(), dockerProvider()}, core.Options{
+	reg, err := core.New([]provider.Provider{tp{}, tq{}, scriptsProvider(), dockerProvider(), aptProvider()}, core.Options{
 		Host: "testhost", Version: "v0.0.0-test", Logger: log, Audit: alog, Ops: mgr, Providers: enabledAll(),
 	})
 	if err != nil {
@@ -256,7 +267,7 @@ func newStack(t *testing.T) *stack {
 	}
 	full, _, err := auth.Create(stateDir, auth.CreateRequest{Name: "full",
 		Scopes: []string{"tp:read", "tp:write", "tp:run", "tq:read", "audit:read", "scripts:read", "scripts:run",
-			dockerspec.ReadScope}})
+			dockerspec.ReadScope, aptspec.ReadScope, aptspec.WriteScope}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,6 +424,8 @@ func TestDocumentMatchesRoutes(t *testing.T) {
 		"POST /v1/providers/scripts/scripts/{name}/invoke",
 		"GET /v1/providers/docker/containers", "GET /v1/providers/docker/containers/{name}",
 		"GET /v1/providers/docker/containers/{name}/logs",
+		"GET /v1/providers/apt/packages", "GET /v1/providers/apt/packages/{name}", "GET /v1/providers/apt/upgradable",
+		"POST /v1/providers/apt/actions/refresh",
 	} {
 		if _, ok := document[want]; !ok {
 			t.Errorf("document lacks %s", want)
@@ -831,7 +844,7 @@ func TestDocumentIsDeterministicAndTracksEnablement(t *testing.T) {
 	}
 	again, err := openapi.Build(entriesOps(s.reg), openapi.Options{Version: "v0.0.0-test",
 		ReadScopes: map[string]string{"tp": "tp:read", "tq": "tq:read", scriptspec.Name: scriptspec.ReadScope,
-			dockerspec.Name: dockerspec.ReadScope}})
+			dockerspec.Name: dockerspec.ReadScope, aptspec.Name: aptspec.ReadScope}})
 	if err != nil {
 		t.Fatal(err)
 	}

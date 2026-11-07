@@ -1,0 +1,15 @@
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Calculating upgrade...
+The following packages will be upgraded:
+  apt base-files libapt-pkg7.0 libpcre2-8-0
+4 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.
+Inst base-files [14ubuntu6.2] (14ubuntu6.3 Ubuntu:26.04/resolute-updates [arm64])
+Conf base-files (14ubuntu6.3 Ubuntu:26.04/resolute-updates [arm64])
+Inst libapt-pkg7.0 [3.2.0] (3.2.1ubuntu0.1 Ubuntu:26.04/resolute-updates, Ubuntu:26.04/resolute-security [arm64])
+Conf libapt-pkg7.0 (3.2.1ubuntu0.1 Ubuntu:26.04/resolute-updates, Ubuntu:26.04/resolute-security [arm64])
+Inst apt [3.2.0] (3.2.1ubuntu0.1 Ubuntu:26.04/resolute-updates, Ubuntu:26.04/resolute-security [arm64])
+Conf apt (3.2.1ubuntu0.1 Ubuntu:26.04/resolute-updates, Ubuntu:26.04/resolute-security [arm64])
+Inst libpcre2-8-0 [10.46-1build1] (10.46-1ubuntu0.1 Ubuntu:26.04/resolute-updates, Ubuntu:26.04/resolute-security [arm64])
+Conf libpcre2-8-0 (10.46-1ubuntu0.1 Ubuntu:26.04/resolute-updates, Ubuntu:26.04/resolute-security [arm64])

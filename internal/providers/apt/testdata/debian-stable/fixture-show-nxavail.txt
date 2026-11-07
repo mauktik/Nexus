@@ -1,0 +1,15 @@
+Package: nxavail
+Version: 1.0
+Architecture: all
+Maintainer: Nexus fixtures <fixtures@nexus.invalid>
+Filename: ./nxavail_1.0_all.deb
+Size: 828
+MD5sum: 6c7ce78cc28bb381f12795cc9421fba0
+SHA1: ffeb358d818b091ffbf8d7c7295f31f361b77942
+SHA256: d3ce76a7547d58e3e69457d324eecb3b4a4f1c04a5db45423e5779efb6aa51c3
+Section: misc
+Priority: optional
+Description: Nexus apt fixture package nxavail
+ A package built by the Nexus T1 harness. It installs one file.
+Description-md5: 
+
