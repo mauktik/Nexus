@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mauktik/nexus/internal/apitypes"
+	"github.com/mauktik/nexus/internal/problem"
 )
 
 var allStatuses = []apitypes.OperationStatus{
@@ -301,5 +303,150 @@ func TestListNonTerminal(t *testing.T) {
 	}
 	if !slices.Equal(ids(got), want) {
 		t.Fatalf("ListNonTerminal = %v, want %v", ids(got), want)
+	}
+}
+
+// CommitTerminal moves a record from Queued or Running to a terminal status
+// in one transaction, storing Result or Error and Ended, and refuses a stale
+// from without changing anything (WI 3.2 store addition).
+func TestCommitTerminal(t *testing.T) {
+	t0 := time.Date(2026, 11, 7, 9, 0, 0, 0, time.UTC)
+	clock := &fixedClock{t: t0}
+	s := openTemp(t, Options{Now: clock.Now})
+
+	ok := createAs(t, s, "apt", apitypes.StatusRunning)
+	clock.Set(t0.Add(time.Minute))
+	rec, err := s.CommitTerminal(ok.ID, apitypes.StatusRunning, apitypes.StatusSucceeded, json.RawMessage(`{"changed":true}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Status != apitypes.StatusSucceeded || string(rec.Result) != `{"changed":true}` || rec.Error != nil ||
+		rec.Ended == nil || !rec.Ended.Equal(t0.Add(time.Minute)) || rec.Started == nil {
+		t.Fatalf("committed %+v", rec)
+	}
+	if got, err := s.Get(ok.ID); err != nil || string(got.Result) != `{"changed":true}` || got.Status != apitypes.StatusSucceeded {
+		t.Fatalf("stored %+v %v", got, err)
+	}
+
+	failed := createAs(t, s, "apt", apitypes.StatusRunning)
+	perr := problem.New(problem.InternalError, "the operation failed")
+	rec, err = s.CommitTerminal(failed.ID, apitypes.StatusRunning, apitypes.StatusFailed, nil, perr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Get(failed.ID); got.Error == nil || got.Error.Slug() != problem.InternalError || got.Result != nil {
+		t.Fatalf("failed record %+v", got)
+	}
+
+	// From Queued: no Started.
+	q := createAs(t, s, "apt", apitypes.StatusQueued)
+	rec, err = s.CommitTerminal(q.ID, apitypes.StatusQueued, apitypes.StatusFailed, nil,
+		problem.New(problem.OutcomeUnknown, "never started"))
+	if err != nil || rec.Started != nil || rec.Ended == nil {
+		t.Fatalf("from Queued: %+v %v", rec, err)
+	}
+
+	// A stale from changes nothing and reports the current record.
+	cur, err := s.CommitTerminal(ok.ID, apitypes.StatusRunning, apitypes.StatusFailed, nil, perr)
+	if !errors.Is(err, ErrStatusConflict) || cur.Status != apitypes.StatusSucceeded {
+		t.Fatalf("stale commit: %+v %v", cur, err)
+	}
+	if got, _ := s.Get(ok.ID); got.Status != apitypes.StatusSucceeded || got.Error != nil {
+		t.Fatalf("stale commit changed the record: %+v", got)
+	}
+
+	r := createAs(t, s, "apt", apitypes.StatusRunning)
+	bad := []struct {
+		name     string
+		from, to apitypes.OperationStatus
+		perr     *problem.Error
+	}{
+		{"from terminal", apitypes.StatusSucceeded, apitypes.StatusFailed, perr},
+		{"to non-terminal", apitypes.StatusRunning, apitypes.StatusQueued, nil},
+		{"unknown status", apitypes.StatusRunning, "Approved", nil},
+		{"failed without a problem", apitypes.StatusRunning, apitypes.StatusFailed, nil},
+		{"succeeded with a problem", apitypes.StatusRunning, apitypes.StatusSucceeded, perr},
+	}
+	for _, c := range bad {
+		if _, err := s.CommitTerminal(r.ID, c.from, c.to, nil, c.perr); err == nil || errors.Is(err, ErrStatusConflict) {
+			t.Errorf("%s: err = %v, want a usage error", c.name, err)
+		}
+	}
+	if got, _ := s.Get(r.ID); got.Status != apitypes.StatusRunning {
+		t.Fatalf("a refused commit changed the record: %+v", got)
+	}
+	if _, err := s.CommitTerminal("missing", apitypes.StatusRunning, apitypes.StatusCanceled, nil, nil); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing: %v", err)
+	}
+}
+
+// Of a cancel and a terminal commit racing out of Queued, exactly one wins.
+func TestCommitTerminalRace(t *testing.T) {
+	s := openTemp(t, Options{})
+	for round := range 50 {
+		rec := createAs(t, s, "apt", apitypes.StatusQueued)
+		errs := make([]error, 2)
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		wg.Go(func() {
+			<-start
+			_, errs[0] = s.CompareAndSetStatus(rec.ID, apitypes.StatusQueued, apitypes.StatusCanceled)
+		})
+		wg.Go(func() {
+			<-start
+			_, errs[1] = s.CommitTerminal(rec.ID, apitypes.StatusQueued, apitypes.StatusFailed, nil,
+				problem.New(problem.OutcomeUnknown, "never started"))
+		})
+		close(start)
+		wg.Wait()
+		if (errs[0] == nil) == (errs[1] == nil) {
+			t.Fatalf("round %d: errs %v", round, errs)
+		}
+	}
+}
+
+// ListQuery.Providers restricts the scan to a set of providers: nil means
+// no restriction and a non-nil empty set matches nothing. Page sizes and
+// cursors stay correct because the filter applies inside the scan.
+func TestListProvidersFilter(t *testing.T) {
+	s := openTemp(t, Options{})
+	var fixture []OpRecord
+	for i := range 60 {
+		fixture = append(fixture, createAs(t, s, []string{"docker", "apt", "scripts"}[i%3], apitypes.StatusQueued))
+	}
+	want := func(keep func(OpRecord) bool) []string {
+		var out []string
+		for _, r := range newestFirst(fixture) {
+			if keep(r) {
+				out = append(out, r.ID)
+			}
+		}
+		return out
+	}
+
+	got, sizes := listAll(t, s, ListQuery{Providers: []string{"docker", "scripts"}, Limit: 7})
+	if !slices.Equal(ids(got), want(func(r OpRecord) bool { return r.Provider != "apt" })) {
+		t.Fatalf("docker+scripts = %v", ids(got))
+	}
+	for i, n := range sizes[:len(sizes)-1] {
+		if n != 7 {
+			t.Fatalf("page %d has %d records, want 7", i, n)
+		}
+	}
+	got, _ = listAll(t, s, ListQuery{Providers: []string{"docker", "scripts"}, Provider: "scripts"})
+	if !slices.Equal(ids(got), want(func(r OpRecord) bool { return r.Provider == "scripts" })) {
+		t.Fatalf("scripts within docker+scripts = %v", ids(got))
+	}
+	got, _ = listAll(t, s, ListQuery{Providers: []string{"docker"}, Provider: "apt"})
+	if len(got) != 0 {
+		t.Fatalf("apt outside the allowed set = %v", ids(got))
+	}
+	p, err := s.List(ListQuery{Providers: []string{}})
+	if err != nil || len(p.Records) != 0 || p.NextCursor != "" {
+		t.Fatalf("empty set = %+v %v, want nothing", p, err)
+	}
+	got, _ = listAll(t, s, ListQuery{Providers: nil})
+	if len(got) != len(fixture) {
+		t.Fatalf("nil set = %d records, want %d", len(got), len(fixture))
 	}
 }

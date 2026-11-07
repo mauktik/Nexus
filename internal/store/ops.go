@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -224,6 +225,58 @@ func (s *Store) CompareAndSetStatus(id string, from, to apitypes.OperationStatus
 	return rec, err
 }
 
+// CommitTerminal moves id from from, Queued or Running, to the terminal
+// status to in one write transaction, storing result (Succeeded) or perr
+// (Failed, where it is required) and setting Ended. If the status is no
+// longer from it changes nothing and returns ErrStatusConflict with the
+// record as it currently is. It returns the record as committed.
+func (s *Store) CommitTerminal(id string, from, to apitypes.OperationStatus, result json.RawMessage, perr *problem.Error) (OpRecord, error) {
+	switch {
+	case from != apitypes.StatusQueued && from != apitypes.StatusRunning:
+		return OpRecord{}, fmt.Errorf("commit %q: from must be Queued or Running, got %q", id, from)
+	case !validStatus(to) || !to.Terminal():
+		return OpRecord{}, fmt.Errorf("commit %q: %q is not a terminal status", id, to)
+	case to == apitypes.StatusFailed && perr == nil:
+		return OpRecord{}, fmt.Errorf("commit %q: Failed requires a problem", id)
+	case to != apitypes.StatusFailed && perr != nil:
+		return OpRecord{}, fmt.Errorf("commit %q: only Failed carries a problem", id)
+	}
+	var rec OpRecord
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketOps)
+		v := b.Get([]byte(id))
+		if v == nil {
+			return fmt.Errorf("operation %q: %w", id, ErrNotFound)
+		}
+		cur, err := decodeRecord(v)
+		if err != nil {
+			return err
+		}
+		if cur.Status != from {
+			rec = cur
+			return fmt.Errorf("operation %q is %s, not %s: %w", id, cur.Status, from, ErrStatusConflict)
+		}
+		now := s.nowUTC()
+		cur.Status = to
+		cur.Ended = &now
+		cur.Result = nil
+		if len(result) > 0 {
+			cur.Result = append(json.RawMessage(nil), result...)
+		}
+		cur.Error = perr
+		enc, err := encodeRecord(cur)
+		if err != nil {
+			return err
+		}
+		if err := b.Put([]byte(id), enc); err != nil {
+			return fmt.Errorf("store operation %q: %v", id, err)
+		}
+		rec = cur
+		return nil
+	})
+	return rec, err
+}
+
 func validStatus(s apitypes.OperationStatus) bool {
 	switch s {
 	case apitypes.StatusQueued, apitypes.StatusRunning, apitypes.StatusSucceeded,
@@ -257,12 +310,15 @@ func (s *Store) ListNonTerminal() ([]OpRecord, error) {
 
 // ListQuery selects a page of records. Zero values match everything.
 type ListQuery struct {
-	Status        apitypes.OperationStatus // Exact status
-	Provider      string                   // Exact provider name
-	CreatedAfter  time.Time                // Created strictly after
-	CreatedBefore time.Time                // Created strictly before
-	Limit         int                      // <= 0 means DefaultListLimit; capped at MaxListLimit
-	Cursor        string                   // A previous page's NextCursor
+	Status   apitypes.OperationStatus // Exact status
+	Provider string                   // Exact provider name
+	// Providers restricts the scan to these providers, together with
+	// Provider. Nil means no restriction; non-nil and empty matches nothing.
+	Providers     []string
+	CreatedAfter  time.Time // Created strictly after
+	CreatedBefore time.Time // Created strictly before
+	Limit         int       // <= 0 means DefaultListLimit; capped at MaxListLimit
+	Cursor        string    // A previous page's NextCursor
 }
 
 func (q ListQuery) match(r OpRecord) bool {
@@ -270,6 +326,9 @@ func (q ListQuery) match(r OpRecord) bool {
 		return false
 	}
 	if q.Provider != "" && r.Provider != q.Provider {
+		return false
+	}
+	if q.Providers != nil && !slices.Contains(q.Providers, r.Provider) {
 		return false
 	}
 	if !q.CreatedAfter.IsZero() && !r.Created.After(q.CreatedAfter) {
@@ -307,6 +366,9 @@ func (s *Store) List(q ListQuery) (Page, error) {
 	}
 
 	var page Page
+	if q.Providers != nil && len(q.Providers) == 0 {
+		return page, nil
+	}
 	err := s.db.View(func(tx *bolt.Tx) error {
 		c := tx.Bucket(bucketOps).Cursor()
 		var k, v []byte
