@@ -50,7 +50,10 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	testStateDir = dir
-	testToken, _, err = auth.Create(dir, auth.CreateRequest{Name: "daemon-tests"})
+	// The read scopes of the probe providers: the Dispatcher (2.2) enforces
+	// them on every provider route.
+	testToken, _, err = auth.Create(dir, auth.CreateRequest{Name: "daemon-tests",
+		Scopes: []string{"apt:read", "docker:read", "scripts:read"}})
 	if err == nil {
 		// Helper subprocesses inherit the environment.
 		err = os.Setenv(helperStateEnv, dir)

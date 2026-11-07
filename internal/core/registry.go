@@ -25,6 +25,10 @@ import (
 // dependency cannot hold startup, a refresh or a reload.
 const DefaultPreflightTimeout = 5 * time.Second
 
+// RecheckInterval is how old the last preflight of an unavailable provider
+// must be before a call to it re-runs the preflight (A-54).
+const RecheckInterval = 5 * time.Second
+
 // ProviderConfig is one provider's configuration section.
 type ProviderConfig struct {
 	Enabled bool
@@ -38,8 +42,9 @@ type Options struct {
 	// Providers holds each provider's section by provider name. A provider
 	// without one is disabled.
 	Providers        map[string]ProviderConfig
-	Logger           *slog.Logger  // Nil means slog.Default()
-	PreflightTimeout time.Duration // Zero means DefaultPreflightTimeout
+	Logger           *slog.Logger     // Nil means slog.Default()
+	PreflightTimeout time.Duration    // Zero means DefaultPreflightTimeout
+	Now              func() time.Time // Clock for preflight re-checks; nil means time.Now
 }
 
 // Entry is one binding and the provider that owns it.
@@ -55,6 +60,7 @@ type Registry struct {
 	host, version    string
 	log              *slog.Logger
 	preflightTimeout time.Duration
+	now              func() time.Time
 	providers        []provider.Provider // Sorted by name
 	entries          []Entry             // Sorted by op ID
 
@@ -70,6 +76,7 @@ type snapshot struct {
 type providerState struct {
 	enabled bool            // By configuration
 	status  provider.Status // Last preflight; meaningful only when enabled
+	checked time.Time       // When the last preflight finished
 }
 
 // New builds the registry: it checks the provider set, configures every
@@ -82,6 +89,10 @@ func New(providers []provider.Provider, opts Options) (*Registry, error) {
 		version:          opts.Version,
 		log:              opts.Logger,
 		preflightTimeout: opts.PreflightTimeout,
+		now:              opts.Now,
+	}
+	if r.now == nil {
+		r.now = time.Now
 	}
 	if r.log == nil {
 		r.log = slog.Default()
@@ -147,6 +158,39 @@ func (r *Registry) Available(name string) (bool, provider.Status) {
 		return false, provider.Status{State: apitypes.ProviderDisabled, Reason: disabledReason(name)}
 	}
 	return st.status.State == apitypes.ProviderEnabled, st.status
+}
+
+// availableForCall is Available for a call about to run: when the provider
+// is unavailable and its last preflight is older than RecheckInterval, the
+// preflight is re-run first, so a repaired dependency is noticed without a
+// reload (NFR-3). Concurrent callers share one re-check. A disabled provider
+// is never re-checked: only configuration enables it.
+func (r *Registry) availableForCall(ctx context.Context, name string) (bool, provider.Status) {
+	if ok, st := r.Available(name); ok || !r.stale(r.state.Load(), name) {
+		return ok, st
+	}
+	r.writeMu.Lock()
+	cur := r.state.Load()
+	if r.stale(cur, name) {
+		if i := slices.IndexFunc(r.providers, func(p provider.Provider) bool { return p.Spec().Name == name }); i >= 0 {
+			st := r.preflight(context.WithoutCancel(ctx), r.providers[i])
+			next := &snapshot{providers: maps.Clone(cur.providers)}
+			next.providers[name] = providerState{enabled: true, status: st, checked: r.now()}
+			r.state.Store(next)
+			if st.State == apitypes.ProviderEnabled {
+				r.log.Info("provider available after re-check", "provider", name)
+			}
+		}
+	}
+	r.writeMu.Unlock()
+	return r.Available(name)
+}
+
+// stale reports whether a provider is enabled, unavailable, and last
+// checked more than RecheckInterval ago.
+func (r *Registry) stale(s *snapshot, name string) bool {
+	st, ok := s.providers[name]
+	return ok && st.enabled && st.status.State != apitypes.ProviderEnabled && r.now().Sub(st.checked) > RecheckInterval
 }
 
 func disabledReason(name string) string {
@@ -218,7 +262,7 @@ func (r *Registry) preflightAll(ctx context.Context, cfgs map[string]ProviderCon
 		wg.Go(func() {
 			st := r.preflight(ctx, p)
 			mu.Lock()
-			next.providers[name] = providerState{enabled: true, status: st}
+			next.providers[name] = providerState{enabled: true, status: st, checked: r.now()}
 			mu.Unlock()
 		})
 	}

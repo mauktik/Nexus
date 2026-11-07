@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,10 +16,10 @@ import (
 	"time"
 
 	"github.com/mauktik/nexus/internal/apitypes"
+	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/core"
 	"github.com/mauktik/nexus/internal/def"
 	"github.com/mauktik/nexus/internal/problem"
-	"github.com/mauktik/nexus/internal/provider"
 )
 
 // APIPrefix is the path prefix of every catalog route.
@@ -107,8 +108,10 @@ func wildcards(path string) []string {
 }
 
 // registerREST registers one route per binding in the registry, and records
-// each registration.
+// each registration. Every route calls the one Dispatcher built here: it is
+// the only path from a route to a handler.
 func (s *Server) registerREST() error {
+	disp := core.NewDispatcher(s.reg, core.DispatcherOptions{Logger: s.log})
 	for _, e := range s.reg.Entries() {
 		op := e.Binding.Op()
 		rt, err := RouteFor(op)
@@ -122,7 +125,7 @@ func (s *Server) registerREST() error {
 				return fmt.Errorf("op %q: route wildcard {%s} is not an input field", op.ID, n)
 			}
 		}
-		if err := handle(s.mux, rt.Method+" "+rt.Path, s.opHandler(e, names, fields)); err != nil {
+		if err := handle(s.mux, rt.Method+" "+rt.Path, s.opHandler(disp, op, names, fields)); err != nil {
 			return fmt.Errorf("op %q: %w", op.ID, err)
 		}
 		s.routes = append(s.routes, rt)
@@ -142,42 +145,35 @@ func handle(mux *http.ServeMux, pattern string, h http.Handler) (err error) {
 	return nil
 }
 
-// opHandler serves one binding: availability, input assembly and decoding,
-// then the call. Authorization and schema validation arrive with the
-// Dispatcher (2.2), which this handler then calls instead.
-func (s *Server) opHandler(e core.Entry, names []string, fields map[string]reflect.Type) http.Handler {
-	op := e.Binding.Op()
+// opHandler serves one route: it assembles the op's input from the request
+// and calls the Dispatcher, which alone authorizes, checks availability,
+// validates and runs the handler. Nothing here decides whether a call may
+// proceed.
+func (s *Server) opHandler(disp *core.Dispatcher, op def.Op, names []string, fields map[string]reflect.Type) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if ok, st := s.reg.Available(e.Provider); !ok {
-			writeProblem(s.log, w, r, problem.New(problem.CapabilityUnavailable,
-				fmt.Sprintf("provider %s is %s", e.Provider, st.State)).
-				With("provider", e.Provider).With("reason", st.Reason))
+		// A request without a principal cannot pass the authentication
+		// middleware; if one ever did, the Dispatcher refuses the zero value.
+		caller, _ := auth.PrincipalFrom(r.Context())
+		raw, inputErr, tooLarge := buildInput(r, names, fields)
+		if tooLarge != nil {
+			writeProblem(s.log, w, r, tooLarge)
 			return
 		}
-		raw, perr := buildInput(r, names, fields)
-		if perr != nil {
-			writeProblem(s.log, w, r, perr)
-			return
+		var target string
+		if len(names) > 0 {
+			target = r.PathValue(names[0])
 		}
-		in, err := e.Binding.Decode(raw)
-		if err != nil {
-			writeProblem(s.log, w, r, problem.New(problem.ValidationFailed, err.Error()))
-			return
-		}
-		switch e.Binding.Kind() {
-		case provider.BindSync:
-			out, err := e.Binding.CallSync(r.Context(), in)
-			if err != nil {
-				s.writeError(w, r, op, err)
-				return
-			}
-			s.writeJSON(w, r, op, http.StatusOK, out)
-		case provider.BindStream:
-			s.stream(w, r, e.Binding, in)
+		res, err := disp.Invoke(r.Context(), core.InvokeRequest{
+			Caller: caller, Surface: core.SurfaceREST, Op: op, Target: target,
+			Input: raw, InputError: inputErr,
+		})
+		switch {
+		case err != nil:
+			s.writeError(w, r, op, err)
+		case res.Stream != nil:
+			s.stream(w, r, op, res.Stream)
 		default:
-			// Long-running bindings run through the operation manager (3.2).
-			s.log.Error("no operation manager for a long-running op", "op", op.ID)
-			writeProblem(s.log, w, r, problem.New(problem.InternalError, "the server failed to handle the request"))
+			s.writeJSON(w, r, op, res.Status, res.Body)
 		}
 	})
 }
@@ -205,11 +201,11 @@ func (s *Server) writeJSON(w http.ResponseWriter, r *http.Request, op def.Op, st
 	s.writeBody(w, r, body)
 }
 
-// stream serves a ModeStream binding as NDJSON, one apitypes.Frame per line.
+// stream serves a ModeStream result as NDJSON, one apitypes.Frame per line.
 // Before each write it extends the write deadline, so the server's
 // WriteTimeout never cuts a live follow while a stalled client is dropped.
-func (s *Server) stream(w http.ResponseWriter, r *http.Request, b provider.Binding, in any) {
-	op := b.Op()
+func (s *Server) stream(w http.ResponseWriter, r *http.Request, op def.Op,
+	run func(context.Context, func(apitypes.Frame) error) error) {
 	rc := http.NewResponseController(w)
 	started := false
 	start := func() error {
@@ -239,7 +235,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, b provider.Bindi
 		}
 		return nil
 	}
-	err := b.CallStream(r.Context(), in, emit)
+	err := run(r.Context(), emit)
 	switch {
 	case err != nil && !started:
 		s.writeError(w, r, op, err)
@@ -256,61 +252,74 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, b provider.Bindi
 }
 
 // buildInput assembles an op's JSON input: query parameters for GET, the JSON
-// object body for POST, and the route wildcards, which name input fields.
-func buildInput(r *http.Request, names []string, fields map[string]reflect.Type) (json.RawMessage, *problem.Error) {
+// object body for POST, and the route wildcards, which name input fields. It
+// does not refuse anything except an oversize body: an input it cannot
+// assemble comes back as inputErr for the Dispatcher to report at its
+// validation step, after the scope and capability checks. The wildcards are
+// always present in raw, so the Dispatcher can authorize by target.
+func buildInput(r *http.Request, names []string, fields map[string]reflect.Type) (raw json.RawMessage, inputErr, tooLarge *problem.Error) {
 	obj := map[string]any{}
 	switch r.Method {
 	case http.MethodGet:
 		for key, vals := range r.URL.Query() {
 			t, ok := fields[key]
 			if !ok || slices.Contains(names, key) {
-				return nil, invalid("unknown query parameter %q", key)
+				inputErr = invalid(key, "unknown query parameter")
+				continue
 			}
 			v, err := queryValue(t, vals)
 			if err != nil {
-				return nil, invalid("query parameter %q: %v", key, err)
+				inputErr = invalid(key, err.Error())
+				continue
 			}
 			obj[key] = v
 		}
 	default:
 		if r.URL.RawQuery != "" {
-			return nil, invalid("query parameters are not accepted on %s; send the input as a JSON body", r.Method)
+			inputErr = invalid("", fmt.Sprintf("query parameters are not accepted on %s; send the input as a JSON body", r.Method))
 		}
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			var mbe *http.MaxBytesError
 			if errors.As(err, &mbe) {
-				return nil, payloadTooLarge(mbe.Limit)
+				return nil, nil, payloadTooLarge(mbe.Limit)
 			}
-			return nil, invalid("cannot read the request body")
+			inputErr = invalid("", "cannot read the request body")
+			body = nil
 		}
 		if len(bytes.TrimSpace(body)) > 0 {
 			dec := json.NewDecoder(bytes.NewReader(body))
 			dec.UseNumber()
 			if err := dec.Decode(&obj); err != nil || obj == nil {
-				return nil, invalid("the request body must be a JSON object")
-			}
-			if _, err := dec.Token(); !errors.Is(err, io.EOF) {
-				return nil, invalid("the request body must hold a single JSON object")
+				obj, inputErr = map[string]any{}, invalid("", "the request body must be a JSON object")
+			} else if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+				obj, inputErr = map[string]any{}, invalid("", "the request body must hold a single JSON object")
 			}
 		}
 	}
 	for _, n := range names {
 		v := r.PathValue(n)
 		if prev, ok := obj[n]; ok && prev != v {
-			return nil, invalid("%q in the body differs from the path", n)
+			inputErr = invalid(n, "differs from the path")
 		}
 		obj[n] = v
 	}
 	raw, err := json.Marshal(obj)
 	if err != nil {
-		return nil, invalid("cannot encode the input")
+		return nil, invalid("", "cannot encode the input"), nil
 	}
-	return raw, nil
+	return raw, inputErr, nil
 }
 
-func invalid(format string, args ...any) *problem.Error {
-	return problem.New(problem.ValidationFailed, fmt.Sprintf(format, args...))
+// invalid is a validation failure of one input field; an empty field means
+// the input as a whole. The message never quotes a value.
+func invalid(field, msg string) *problem.Error {
+	path := ""
+	if field != "" {
+		path = "/" + strings.NewReplacer("~", "~0", "/", "~1").Replace(field)
+	}
+	return problem.New(problem.ValidationFailed, "the input is invalid").
+		With("errors", []problem.FieldError{{Path: path, Message: msg}})
 }
 
 // inputFields maps each JSON field name of an input type to its Go type.
