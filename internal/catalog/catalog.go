@@ -1,0 +1,22 @@
+// Package catalog lists every operation declaration compiled into Nexus: each
+// provider's spec package and, from 1.5, internal/systemspec. It is the
+// composition root for the CLI and the documentation generator, so it must
+// import declarations only, never implementations (CON-5, D-1). Adding a
+// provider adds one line to All.
+package catalog
+
+import "github.com/mauktik/nexus/internal/def"
+
+// All returns every provider's declarations.
+func All() []def.ProviderSpec {
+	return []def.ProviderSpec{}
+}
+
+// Ops returns every declared operation across all providers.
+func Ops() []def.Op {
+	var ops []def.Op
+	for _, spec := range All() {
+		ops = append(ops, spec.Ops...)
+	}
+	return ops
+}

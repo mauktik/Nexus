@@ -1,0 +1,145 @@
+package problem
+
+import (
+	"slices"
+	"strings"
+)
+
+// Slug names a problem type. Its type URI is urn:nexus:problem:<slug>.
+type Slug string
+
+// HTTP-level problem types.
+const (
+	ValidationFailed      Slug = "validation-failed"
+	Unauthorized          Slug = "unauthorized"
+	Forbidden             Slug = "forbidden"
+	NotFound              Slug = "not-found"
+	RouteNotFound         Slug = "route-not-found"
+	MethodNotAllowed      Slug = "method-not-allowed"
+	Conflict              Slug = "conflict"
+	NotCancelable         Slug = "not-cancelable"
+	PayloadTooLarge       Slug = "payload-too-large"
+	NotUpdatable          Slug = "not-updatable"
+	ScriptIntegrityFailed Slug = "script-integrity-failed"
+	ComposeFilesMissing   Slug = "compose-files-missing"
+	IdempotencyKeyReused  Slug = "idempotency-key-reused"
+	RateLimited           Slug = "rate-limited"
+	InternalError         Slug = "internal-error"
+	CapabilityUnavailable Slug = "capability-unavailable"
+	ComposePluginMissing  Slug = "compose-plugin-missing"
+	DependencyUnavailable Slug = "dependency-unavailable"
+	AuditUnavailable      Slug = "audit-unavailable"
+	StorageLimitReached   Slug = "storage-limit-reached"
+)
+
+// Operation-level problem types: they appear only inside operation.error.
+const (
+	OutcomeUnknown       Slug = "outcome-unknown"
+	PackageManagerBusy   Slug = "package-manager-busy"
+	PackageManagerBroken Slug = "package-manager-broken"
+	AptFailed            Slug = "apt-failed"
+	ScriptFailed         Slug = "script-failed"
+	ScriptTimeout        Slug = "script-timeout"
+	UpdateHealthFailed   Slug = "update-health-failed"
+)
+
+// Type is one registered problem type. Problem types are part of the
+// versioned API contract (FR-8).
+type Type struct {
+	Slug           Slug
+	Title          string
+	Status         int      // HTTP status; 0 for operation-level types
+	Exit           int      // CLI exit code
+	Extensions     []string // Body members beyond the RFC 9457 standard ones
+	OperationLevel bool     // Appears only inside operation.error
+}
+
+// URI is the type's stable identifier, with no dependency on a domain (CON-9).
+func (t Type) URI() string { return TypePrefix + string(t.Slug) }
+
+// TypePrefix is the URN namespace of every problem type.
+const TypePrefix = "urn:nexus:problem:"
+
+// registry is the problem types table from architecture.md (Interfaces,
+// Problem types). It is the single place a problem type may be defined: New
+// refuses any slug not listed here.
+var registry = []Type{
+	{Slug: ValidationFailed, Title: "Validation failed", Status: 400, Exit: 2, Extensions: []string{"errors"}},
+	{Slug: Unauthorized, Title: "Unauthorized", Status: 401, Exit: 3},
+	{Slug: Forbidden, Title: "Forbidden", Status: 403, Exit: 3, Extensions: []string{"requiredScope"}},
+	{Slug: NotFound, Title: "Not found", Status: 404, Exit: 4},
+	{Slug: RouteNotFound, Title: "Route not found", Status: 404, Exit: 4},
+	{Slug: MethodNotAllowed, Title: "Method not allowed", Status: 405, Exit: 2},
+	{Slug: Conflict, Title: "Conflict", Status: 409, Exit: 1, Extensions: []string{"blockingOperationId"}},
+	{Slug: NotCancelable, Title: "Not cancelable", Status: 409, Exit: 1, Extensions: []string{"operationId"}},
+	{Slug: PayloadTooLarge, Title: "Payload too large", Status: 413, Exit: 2},
+	{Slug: NotUpdatable, Title: "Not updatable", Status: 422, Exit: 1, Extensions: []string{"reason", "hint"}},
+	{Slug: ScriptIntegrityFailed, Title: "Script integrity check failed", Status: 422, Exit: 1, Extensions: []string{"check", "path"}},
+	{Slug: ComposeFilesMissing, Title: "Compose files missing", Status: 422, Exit: 1, Extensions: []string{"path"}},
+	{Slug: IdempotencyKeyReused, Title: "Idempotency key reused", Status: 422, Exit: 1, Extensions: []string{"operationId"}},
+	// rate-limited carries Retry-After as a response header, not a body member.
+	{Slug: RateLimited, Title: "Rate limited", Status: 429, Exit: 3},
+	{Slug: InternalError, Title: "Internal error", Status: 500, Exit: 1},
+	{Slug: CapabilityUnavailable, Title: "Capability unavailable", Status: 503, Exit: 4, Extensions: []string{"provider", "reason"}},
+	{Slug: ComposePluginMissing, Title: "Compose plugin missing", Status: 503, Exit: 4, Extensions: []string{"provider"}},
+	{Slug: DependencyUnavailable, Title: "Dependency unavailable", Status: 503, Exit: 1, Extensions: []string{"provider"}},
+	{Slug: AuditUnavailable, Title: "Audit unavailable", Status: 503, Exit: 1},
+	{Slug: StorageLimitReached, Title: "Storage limit reached", Status: 507, Exit: 1},
+
+	// An operation that fails makes the CLI exit 1.
+	{Slug: OutcomeUnknown, Title: "Outcome unknown", Exit: 1, OperationLevel: true},
+	{Slug: PackageManagerBusy, Title: "Package manager busy", Exit: 1, OperationLevel: true},
+	{Slug: PackageManagerBroken, Title: "Package manager broken", Exit: 1, OperationLevel: true},
+	{Slug: AptFailed, Title: "Apt failed", Exit: 1, OperationLevel: true},
+	{Slug: ScriptFailed, Title: "Script failed", Exit: 1, OperationLevel: true},
+	{Slug: ScriptTimeout, Title: "Script timed out", Exit: 1, OperationLevel: true},
+	{Slug: UpdateHealthFailed, Title: "Update health check failed", Exit: 1, OperationLevel: true},
+}
+
+var bySlug = func() map[Slug]Type {
+	m := make(map[Slug]Type, len(registry))
+	for _, t := range registry {
+		if _, dup := m[t.Slug]; dup {
+			panic("problem: duplicate slug " + string(t.Slug))
+		}
+		m[t.Slug] = t
+	}
+	return m
+}()
+
+// Lookup returns the registered type for slug.
+func Lookup(slug Slug) (Type, bool) {
+	t, ok := bySlug[slug]
+	return t, ok
+}
+
+// LookupURI returns the registered type for a type URI.
+func LookupURI(uri string) (Type, bool) {
+	slug, ok := strings.CutPrefix(uri, TypePrefix)
+	if !ok {
+		return Type{}, false
+	}
+	return Lookup(Slug(slug))
+}
+
+// All returns every registered type in table order.
+func All() []Type { return cloneTypes(registry) }
+
+// HTTP returns the HTTP-level types.
+func HTTP() []Type {
+	return slices.DeleteFunc(All(), func(t Type) bool { return t.OperationLevel })
+}
+
+// OperationLevel returns the types that appear only inside operation.error.
+func OperationLevel() []Type {
+	return slices.DeleteFunc(All(), func(t Type) bool { return !t.OperationLevel })
+}
+
+func cloneTypes(ts []Type) []Type {
+	out := make([]Type, len(ts))
+	for i, t := range ts {
+		t.Extensions = slices.Clone(t.Extensions)
+		out[i] = t
+	}
+	return out
+}
