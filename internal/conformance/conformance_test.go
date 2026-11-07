@@ -36,6 +36,7 @@ import (
 	"github.com/mauktik/nexus/internal/ops"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
+	docker "github.com/mauktik/nexus/internal/providers/docker/spec"
 	scripts "github.com/mauktik/nexus/internal/providers/scripts/spec"
 	"github.com/mauktik/nexus/internal/server"
 	"github.com/mauktik/nexus/internal/store"
@@ -48,6 +49,13 @@ const module = "github.com/mauktik/nexus"
 // adds one entry here, built with testprovider.NewStub and the spy helpers
 // (testprovider.Sync, Stream, InProcess), one binding per op.
 var catalogStubs = map[string]func(*testprovider.Spy) provider.Provider{
+	docker.Name: func(s *testprovider.Spy) provider.Provider {
+		return testprovider.NewStub(docker.Spec(),
+			testprovider.Sync(s, docker.List),
+			testprovider.Sync(s, docker.Get),
+			testprovider.Stream(s, docker.Logs),
+		)
+	},
 	scripts.Name: func(s *testprovider.Spy) provider.Provider {
 		return testprovider.NewStub(scripts.Spec(),
 			testprovider.Sync(s, scripts.List),

@@ -72,18 +72,21 @@ type Options struct {
 
 // Daemon is one nexusd serve process.
 type Daemon struct {
-	cfg    *config.Config // As started: listener-level settings stay as they were
-	path   string
-	log    *slog.Logger
-	reg    *core.Registry
-	audit  *audit.Log
-	store  *store.Store
-	ops    *ops.Manager
-	acct   *storage.Accountant
-	tick   <-chan time.Time // Nil: an hourly ticker made by Run
-	srv    *server.Server
-	notify *notifier
-	ready  chan struct{}
+	cfg *config.Config // As started: listener-level settings stay as they were
+	// applied is the configuration whose provider sections are in force:
+	// cfg, then each reload that succeeded. Only the Run loop touches it.
+	applied *config.Config
+	path    string
+	log     *slog.Logger
+	reg     *core.Registry
+	audit   *audit.Log
+	store   *store.Store
+	ops     *ops.Manager
+	acct    *storage.Accountant
+	tick    <-chan time.Time // Nil: an hourly ticker made by Run
+	srv     *server.Server
+	notify  *notifier
+	ready   chan struct{}
 
 	// binding finds an op's binding by ID, for restart recovery.
 	binding func(opID string) (provider.Binding, bool)
@@ -108,7 +111,7 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 	}
 	providers := opts.Providers
 	if providers == nil {
-		providers = builtinProviders(cfg.Host.Name)
+		providers = builtinProviders(cfg.Host.Name, log)
 	}
 	// The audit log opens first: no request is served without it, and a
 	// directory it cannot use stops startup rather than every mutation.
@@ -207,18 +210,19 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 		bindings[e.Binding.Op().ID] = e.Binding
 	}
 	return &Daemon{
-		cfg:    cfg,
-		path:   path,
-		log:    log,
-		reg:    reg,
-		audit:  auditLog,
-		store:  db,
-		ops:    mgr,
-		acct:   acct,
-		tick:   opts.StorageTick,
-		srv:    srv,
-		notify: newNotifier(os.Getenv("NOTIFY_SOCKET")),
-		ready:  make(chan struct{}),
+		cfg:     cfg,
+		applied: cfg,
+		path:    path,
+		log:     log,
+		reg:     reg,
+		audit:   auditLog,
+		store:   db,
+		ops:     mgr,
+		acct:    acct,
+		tick:    opts.StorageTick,
+		srv:     srv,
+		notify:  newNotifier(os.Getenv("NOTIFY_SOCKET")),
+		ready:   make(chan struct{}),
 
 		binding: func(id string) (provider.Binding, bool) {
 			b, ok := bindings[id]

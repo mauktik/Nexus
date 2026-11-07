@@ -429,7 +429,9 @@ func applicableProblems(op def.Op, hasTarget bool) []problem.Slug {
 		slugs = append(slugs, problem.NotFound)
 	}
 	if op.Provider != def.SystemProvider {
-		slugs = append(slugs, problem.CapabilityUnavailable)
+		// A provider's dependency (the Docker Engine, apt, systemd) can be
+		// down while its preflight last passed (NFR-3).
+		slugs = append(slugs, problem.CapabilityUnavailable, problem.DependencyUnavailable)
 	}
 	if op.Mutating() {
 		slugs = append(slugs, problem.AuditUnavailable)

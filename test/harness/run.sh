@@ -99,8 +99,11 @@ collect_and_remove() {
 trap collect_and_remove EXIT
 
 say "starting container $name"
+# Anonymous volumes, not bind mounts, for both stores of the nested Engine:
+# Docker 29 keeps images and snapshots in containerd's store, and overlayfs
+# refuses an upper directory on the container's own overlay root.
 container=$(docker run -d --name "$name" --privileged --cgroupns=host \
-	--tmpfs /run --tmpfs /run/lock -v /var/lib/docker "$tag")
+	--tmpfs /run --tmpfs /run/lock -v /var/lib/docker -v /var/lib/containerd "$tag")
 
 mounts=$(docker inspect -f '{{range .Mounts}}{{.Type}}:{{.Destination}} {{end}}' "$container")
 say "mounts: ${mounts:-none}"

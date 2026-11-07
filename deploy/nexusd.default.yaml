@@ -38,12 +38,17 @@ mcp:
   allowedOrigins: []
 
 providers:
+  # Existing containers on this host's Docker Engine, through its local Unix
+  # socket only (API version negotiated): a TCP address or URL is refused,
+  # and the socket is never exposed. Every Engine call is bounded at 30s, so
+  # an Engine that is down or hung makes only this provider answer
+  # dependency-unavailable; nexusd recovers when it returns, with no restart.
   docker:
     enabled: false
-    socket: /run/docker.sock
-    configDir: /root/.docker
-    updateHealthTimeout: 60s
-    updateMaxRuntime: 1h
+    socket: /run/docker.sock   # Absolute path of the Engine's Unix socket
+    configDir: /root/.docker   # Registry credentials: only `auths` in config.json is read
+    updateHealthTimeout: 60s   # How long an updated container may take to become healthy
+    updateMaxRuntime: 1h       # Bound on one container update
 
   apt:
     enabled: false

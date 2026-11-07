@@ -33,6 +33,8 @@ import (
 	"github.com/mauktik/nexus/internal/ops"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
+	"github.com/mauktik/nexus/internal/providers/docker"
+	dockerspec "github.com/mauktik/nexus/internal/providers/docker/spec"
 	"github.com/mauktik/nexus/internal/providers/scripts"
 	scriptspec "github.com/mauktik/nexus/internal/providers/scripts/spec"
 	"github.com/mauktik/nexus/internal/server"
@@ -192,7 +194,22 @@ type stack struct {
 
 func enabledAll() map[string]core.ProviderConfig {
 	return map[string]core.ProviderConfig{"tp": {Enabled: true}, "tq": {Enabled: true},
-		scriptspec.Name: {Enabled: true, Decode: scriptsSection}}
+		scriptspec.Name: {Enabled: true, Decode: scriptsSection},
+		dockerspec.Name: {Enabled: true, Decode: dockerSection}}
+}
+
+// dockerSection points the real docker provider at a socket that does not
+// exist, so its calls answer dependency-unavailable.
+func dockerSection(into any) error {
+	into.(*config.DockerConfig).Socket = "/nonexistent/nexus-contract-test/docker.sock"
+	return nil
+}
+
+// dockerProvider is the real docker provider, with its preflight forced
+// enabled because T0 hosts have no Docker Engine.
+func dockerProvider() provider.Provider {
+	return docker.New(docker.Options{Host: "testhost", Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Preflight: func(context.Context) provider.Status { return provider.Status{State: apitypes.ProviderEnabled} }})
 }
 
 // scriptsSection is the real scripts provider's configuration in the stack:
@@ -231,14 +248,15 @@ func newStack(t *testing.T) *stack {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reg, err := core.New([]provider.Provider{tp{}, tq{}, scriptsProvider()}, core.Options{
+	reg, err := core.New([]provider.Provider{tp{}, tq{}, scriptsProvider(), dockerProvider()}, core.Options{
 		Host: "testhost", Version: "v0.0.0-test", Logger: log, Audit: alog, Ops: mgr, Providers: enabledAll(),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	full, _, err := auth.Create(stateDir, auth.CreateRequest{Name: "full",
-		Scopes: []string{"tp:read", "tp:write", "tp:run", "tq:read", "audit:read", "scripts:read", "scripts:run"}})
+		Scopes: []string{"tp:read", "tp:write", "tp:run", "tq:read", "audit:read", "scripts:read", "scripts:run",
+			dockerspec.ReadScope}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,6 +411,8 @@ func TestDocumentMatchesRoutes(t *testing.T) {
 		"GET /v1/providers/tq/items/{name}",
 		"GET /v1/providers/scripts/scripts", "GET /v1/providers/scripts/scripts/{name}",
 		"POST /v1/providers/scripts/scripts/{name}/invoke",
+		"GET /v1/providers/docker/containers", "GET /v1/providers/docker/containers/{name}",
+		"GET /v1/providers/docker/containers/{name}/logs",
 	} {
 		if _, ok := document[want]; !ok {
 			t.Errorf("document lacks %s", want)
@@ -777,6 +797,11 @@ func TestResponsesMatchTheDocument(t *testing.T) {
 	check(http.MethodGet, "/v1/providers/scripts/scripts", s.full, "", 200)
 	check(http.MethodGet, "/v1/providers/scripts/scripts/deploy", s.full, "", 200)
 	check(http.MethodGet, "/v1/providers/scripts/scripts/nope", s.full, "", 404)
+	// No Docker Engine at the configured socket: dependency-unavailable.
+	check(http.MethodGet, "/v1/providers/docker/containers", s.full, "", 503)
+	check(http.MethodGet, "/v1/providers/docker/containers/web", s.full, "", 503)
+	check(http.MethodGet, "/v1/providers/docker/containers/web/logs?tail=5", s.full, "", 503)
+	check(http.MethodGet, "/v1/providers/docker/containers/..%2Fx", s.full, "", 400)
 	check(http.MethodGet, "/v1/operations", s.full, "", 200)
 	check(http.MethodGet, "/v1/audit", s.full, "", 200)
 	check(http.MethodGet, "/v1/providers/tp/things/a", s.scopeFree, "", 403)
@@ -805,7 +830,8 @@ func TestDocumentIsDeterministicAndTracksEnablement(t *testing.T) {
 		t.Fatal("two fetches differ")
 	}
 	again, err := openapi.Build(entriesOps(s.reg), openapi.Options{Version: "v0.0.0-test",
-		ReadScopes: map[string]string{"tp": "tp:read", "tq": "tq:read", scriptspec.Name: scriptspec.ReadScope}})
+		ReadScopes: map[string]string{"tp": "tp:read", "tq": "tq:read", scriptspec.Name: scriptspec.ReadScope,
+			dockerspec.Name: dockerspec.ReadScope}})
 	if err != nil {
 		t.Fatal(err)
 	}

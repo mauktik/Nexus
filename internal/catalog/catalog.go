@@ -7,6 +7,7 @@ package catalog
 
 import (
 	"github.com/mauktik/nexus/internal/def"
+	docker "github.com/mauktik/nexus/internal/providers/docker/spec"
 	scripts "github.com/mauktik/nexus/internal/providers/scripts/spec"
 	"github.com/mauktik/nexus/internal/systemspec"
 )
@@ -15,6 +16,7 @@ import (
 func All() []def.ProviderSpec {
 	return []def.ProviderSpec{
 		systemspec.Spec(),
+		docker.Spec(),
 		scripts.Spec(),
 	}
 }

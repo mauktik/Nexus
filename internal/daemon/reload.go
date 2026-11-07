@@ -11,8 +11,11 @@ import (
 // reload re-reads and validates the configuration on SIGHUP. A file that
 // fails to load or validate, or a section a provider rejects, is logged and
 // the running configuration stays. On success provider enablement is swapped
-// atomically. Settings fixed at startup, such as the listen addresses, are
-// not applied: each changed one is logged as needing a restart.
+// atomically. A reload is all or nothing across providers: providers are
+// configured one by one, so when one refuses its section, any that accepted
+// theirs are configured again from the sections in force. Settings fixed at
+// startup, such as the listen addresses, are not applied: each changed one
+// is logged as needing a restart.
 func (d *Daemon) reload(ctx context.Context) {
 	d.log.Info("reloading configuration", "path", d.path)
 	next, err := config.Load(d.path)
@@ -28,8 +31,12 @@ func (d *Daemon) reload(ctx context.Context) {
 	if err := d.reg.Apply(ctx, providerConfigs(next)); err != nil {
 		d.log.Error("configuration reload failed; keeping the current configuration",
 			"path", d.path, "error", err.Error())
+		if rerr := d.reg.Apply(ctx, providerConfigs(d.applied)); rerr != nil {
+			d.log.Error("restoring the provider sections in force failed", "path", d.path, "error", rerr.Error())
+		}
 		return
 	}
+	d.applied = next
 	d.log.Info("configuration reloaded", "path", d.path)
 }
 
