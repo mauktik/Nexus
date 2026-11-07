@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/core"
 	"github.com/mauktik/nexus/internal/provider"
@@ -37,6 +38,8 @@ type Options struct {
 	ConfigPath string
 	// Logger receives every log record. Nil means slog JSON on stdout.
 	Logger *slog.Logger
+	// StateDir holds tokens.json. Empty means auth.DefaultStateDir.
+	StateDir string
 }
 
 // Daemon is one nexusd serve process.
@@ -77,7 +80,12 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 	if err != nil {
 		return nil, fmt.Errorf("providers: %w", err)
 	}
-	srv, err := server.New(reg, server.Options{MaxBodyBytes: cfg.Limits.MaxBodyBytes, Logger: log})
+	stateDir := opts.StateDir
+	if stateDir == "" {
+		stateDir = auth.DefaultStateDir
+	}
+	authn := auth.New(stateDir, auth.Options{FailureLimitPerMinute: cfg.Auth.FailureLimitPerMinute, Logger: log})
+	srv, err := server.New(reg, server.Options{MaxBodyBytes: cfg.Limits.MaxBodyBytes, Logger: log, Auth: authn})
 	if err != nil {
 		return nil, fmt.Errorf("server: %w", err)
 	}

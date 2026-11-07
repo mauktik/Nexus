@@ -49,5 +49,9 @@ func restartRequired(running, next *config.Config) []string {
 	if running.Limits != next.Limits {
 		keys = append(keys, "limits")
 	}
+	// The authenticator and its rate limiter are built once at startup.
+	if running.Auth != next.Auth {
+		keys = append(keys, "auth")
+	}
 	return keys
 }

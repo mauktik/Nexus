@@ -123,6 +123,9 @@ func startServer(t *testing.T, opts server.Options) *testServer {
 		t.Fatalf("core.New: %v", err)
 	}
 	opts.Logger = log
+	if opts.Auth == nil {
+		opts.Auth = sharedAuth
+	}
 	srv, err := server.New(reg, opts)
 	if err != nil {
 		t.Fatalf("server.New: %v", err)
@@ -149,15 +152,23 @@ func startServer(t *testing.T, opts server.Options) *testServer {
 
 var client = &http.Client{Timeout: 10 * time.Second}
 
+// do sends a request authenticated with the shared test token.
 func do(t *testing.T, method, url string, body io.Reader) (*http.Response, []byte) {
 	t.Helper()
 	req, err := http.NewRequest(method, url, body)
 	if err != nil {
 		t.Fatal(err)
 	}
+	req.Header.Set("Authorization", "Bearer "+sharedToken)
+	return send(t, req)
+}
+
+// send sends req as is and returns the response with its whole body.
+func send(t *testing.T, req *http.Request) (*http.Response, []byte) {
+	t.Helper()
 	resp, err := client.Do(req)
 	if err != nil {
-		t.Fatalf("%s %s: %v", method, url, err)
+		t.Fatalf("%s %s: %v", req.Method, req.URL, err)
 	}
 	defer resp.Body.Close()
 	b, err := io.ReadAll(resp.Body)

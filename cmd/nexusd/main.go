@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/daemon"
 	"github.com/mauktik/nexus/internal/version"
@@ -27,6 +28,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return validateConfig(args[1:], stdout, stderr)
 		case "serve":
 			return serve(args[1:], stderr)
+		case "token":
+			return auth.TokenCommand(name, args[1:], stdout, stderr)
 		}
 	}
 
@@ -34,7 +37,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	showVersion := fs.Bool("version", false, "print the version and exit")
 	fs.Usage = func() {
-		fmt.Fprintf(stderr, "Usage:\n  %s -version\n  %s serve [--config path]\n  %s validate-config [--config path]\n\nFlags:\n", name, name, name)
+		fmt.Fprintf(stderr, "Usage:\n  %[1]s -version\n  %[1]s serve [--config path] [--state-dir dir]\n  %[1]s validate-config [--config path]\n  %[1]s token create|list|revoke ...\n\nFlags:\n", name)
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -85,6 +88,7 @@ func serve(args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet(name+" serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	path := fs.String("config", config.DefaultPath, "configuration file")
+	stateDir := fs.String("state-dir", auth.DefaultStateDir, "state directory (tokens.json, state.db)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -100,7 +104,7 @@ func serve(args []string, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	d, err := daemon.New(cfg, daemon.Options{ConfigPath: *path})
+	d, err := daemon.New(cfg, daemon.Options{ConfigPath: *path, StateDir: *stateDir})
 	if err != nil {
 		fmt.Fprintf(stderr, "%s: %v\n", name, err)
 		return 1

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/mauktik/nexus/internal/apitypes"
+	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/core"
 	"github.com/mauktik/nexus/internal/def"
 	"github.com/mauktik/nexus/internal/provider"
@@ -95,10 +96,18 @@ func enabled(context.Context) provider.Status {
 	return provider.Status{State: apitypes.ProviderEnabled}
 }
 
+// capsToken authenticates getCapabilities.
+var capsToken string
+
 func getCapabilities(t *testing.T, url string) apitypes.Capabilities {
 	t.Helper()
 	c := &http.Client{Timeout: 10 * time.Second}
-	resp, err := c.Get(url)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+capsToken)
+	resp, err := c.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +158,12 @@ func TestCapabilitiesReportEveryProviderState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("core.New: %v", err)
 	}
-	srv, err := server.New(reg, server.Options{Logger: log})
+	stateDir := t.TempDir()
+	capsToken, _, err = auth.Create(stateDir, auth.CreateRequest{Name: "caps"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, err := server.New(reg, server.Options{Logger: log, Auth: auth.New(stateDir, auth.Options{Logger: log})})
 	if err != nil {
 		t.Fatal(err)
 	}

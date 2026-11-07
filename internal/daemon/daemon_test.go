@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/mauktik/nexus/internal/apitypes"
+	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/def"
 	"github.com/mauktik/nexus/internal/provider"
@@ -33,13 +34,35 @@ import (
 const (
 	helperEnv       = "NEXUS_DAEMON_TEST_HELPER"
 	helperConfigEnv = "NEXUS_DAEMON_TEST_CONFIG"
+	helperStateEnv  = "NEXUS_DAEMON_TEST_STATE"
 )
+
+// testStateDir holds the token every daemon under test accepts, testToken.
+var testStateDir, testToken string
 
 func TestMain(m *testing.M) {
 	if os.Getenv(helperEnv) == "1" {
 		os.Exit(helperMain(os.Getenv(helperConfigEnv)))
 	}
-	os.Exit(m.Run())
+	dir, err := os.MkdirTemp("", "nexus-daemon-test-")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	testStateDir = dir
+	testToken, _, err = auth.Create(dir, auth.CreateRequest{Name: "daemon-tests"})
+	if err == nil {
+		// Helper subprocesses inherit the environment.
+		err = os.Setenv(helperStateEnv, dir)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		_ = os.RemoveAll(dir)
+		os.Exit(1)
+	}
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
 }
 
 func helperMain(path string) int {
@@ -48,7 +71,7 @@ func helperMain(path string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	d, err := New(cfg, Options{Providers: helperProviders(), ConfigPath: path})
+	d, err := New(cfg, Options{Providers: helperProviders(), ConfigPath: path, StateDir: os.Getenv(helperStateEnv)})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -279,10 +302,21 @@ func (h *helperProc) stop(t *testing.T) {
 	}
 }
 
+// authed is a GET request carrying testToken.
+func authed(t *testing.T, url string) *http.Request {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	return req
+}
+
 func capabilities(t *testing.T, base string) map[string]apitypes.ProviderCapability {
 	t.Helper()
 	c := &http.Client{Timeout: 10 * time.Second}
-	resp, err := c.Get(base + "/v1/capabilities")
+	resp, err := c.Do(authed(t, base+"/v1/capabilities"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -468,6 +502,7 @@ func TestNoPollingAtIdle(t *testing.T) {
 		Providers:  []provider.Provider{p},
 		ConfigPath: cfgPath,
 		Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		StateDir:   testStateDir,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -484,7 +519,7 @@ func TestNoPollingAtIdle(t *testing.T) {
 		t.Fatal("not ready")
 	}
 	c := &http.Client{Timeout: 5 * time.Second}
-	resp, err := c.Get("http://" + listen + "/v1/providers/apt/probes/p1")
+	resp, err := c.Do(authed(t, "http://"+listen+"/v1/providers/apt/probes/p1"))
 	if err != nil {
 		t.Fatal(err)
 	}

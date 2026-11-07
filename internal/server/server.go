@@ -1,6 +1,6 @@
-// Package server is the HTTP transport of nexusd: timeouts, body limit, panic
-// containment, problem+json for unmatched requests, /healthz, and the REST
-// routes derived from the core registry.
+// Package server is the HTTP transport of nexusd: timeouts, bearer
+// authentication, body limit, panic containment, problem+json for unmatched
+// requests, /healthz, and the REST routes derived from the core registry.
 package server
 
 import (
@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/core"
 )
 
@@ -35,6 +36,9 @@ const DefaultMaxBodyBytes = 1 << 20
 type Options struct {
 	MaxBodyBytes int64        // Zero means DefaultMaxBodyBytes
 	Logger       *slog.Logger // Nil means slog.Default()
+	// Auth authenticates every request except GET /healthz. It is required:
+	// there is no configuration in which the API is open.
+	Auth *auth.Authenticator
 }
 
 // Server serves the REST API and /healthz.
@@ -50,6 +54,9 @@ type Server struct {
 
 // New builds the server and registers every route the registry implies.
 func New(reg *core.Registry, opts Options) (*Server, error) {
+	if opts.Auth == nil {
+		return nil, errors.New("no authenticator: every route except /healthz requires a token")
+	}
 	if opts.MaxBodyBytes <= 0 {
 		opts.MaxBodyBytes = DefaultMaxBodyBytes
 	}
@@ -67,8 +74,12 @@ func New(reg *core.Registry, opts Options) (*Server, error) {
 		return nil, err
 	}
 
+	// Authentication, with its rate limit, runs before the body is touched
+	// or a route is matched, so an unauthenticated client learns nothing
+	// about routes and cannot make the server read a body.
 	var h http.Handler = http.HandlerFunc(s.dispatch)
 	h = limitBody(s.log, opts.MaxBodyBytes, h)
+	h = opts.Auth.Middleware(h)
 	h = recoverPanics(s.log, h)
 	s.http = &http.Server{
 		Handler:           h,
