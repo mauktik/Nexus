@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"sync"
 	"syscall"
 	"time"
@@ -88,6 +89,23 @@ func (l *local) state(_ context.Context, unit string) (detach.UnitState, error) 
 		return absent, nil
 	}
 	return active, nil
+}
+
+func (l *local) units(ctx context.Context) ([]string, error) {
+	l.mu.Lock()
+	names := make([]string, 0, len(l.procs))
+	for unit := range l.procs {
+		names = append(names, unit)
+	}
+	l.mu.Unlock()
+	var loaded []string
+	for _, unit := range names {
+		if st, err := l.state(ctx, unit); err == nil && st.LoadState != "not-found" {
+			loaded = append(loaded, unit)
+		}
+	}
+	sort.Strings(loaded)
+	return loaded, nil
 }
 
 func (l *local) signal(_ context.Context, unit string, sig syscall.Signal) error {

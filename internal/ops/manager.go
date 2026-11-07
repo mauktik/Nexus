@@ -45,6 +45,7 @@ type Store interface {
 	CompareAndSetStatus(id string, from, to apitypes.OperationStatus) (store.OpRecord, error)
 	CommitTerminal(id string, from, to apitypes.OperationStatus, result json.RawMessage, perr *problem.Error) (store.OpRecord, error)
 	List(q store.ListQuery) (store.Page, error)
+	ListNonTerminal() ([]store.OpRecord, error)
 }
 
 // Auditor writes one audit record durably. *audit.Log implements it.
@@ -72,6 +73,9 @@ type Options struct {
 	// Detach launches, signals and watches detached operations. Nil fails
 	// every detached operation with an internal error.
 	Detach *detach.Launcher
+	// RecoveryDeadline bounds restart classification. Zero means
+	// RecoveryDeadline.
+	RecoveryDeadline time.Duration
 }
 
 // Manager runs long-running operations. It is safe for concurrent use and
@@ -88,14 +92,26 @@ type Manager struct {
 	now      func() time.Time
 	detach   *detach.Launcher
 
-	base context.Context // Canceled by Shutdown
+	// base is the context of in-process operations. Shutdown cancels it
+	// only when its grace period ends.
+	base context.Context
 	stop context.CancelFunc
-	wg   sync.WaitGroup
+	// halt is the context of detached work in this process: Prepare, the
+	// wait for the watcher, and restart recovery. Shutdown cancels it at
+	// once; the units themselves are never touched.
+	halt     context.Context
+	haltStop context.CancelFunc
+	wg       sync.WaitGroup
 
-	mu     sync.Mutex
-	closed bool
-	lanes  map[string]*lane
-	live   map[string]*entry // Admitted in this process and not yet finished
+	deadline time.Duration // Of restart classification
+	calls    chan struct{} // Restart recovery's UnitState calls in flight
+
+	mu         sync.Mutex
+	closed     bool
+	lanes      map[string]*lane
+	live       map[string]*entry // Admitted in this process, or restored, and not yet finished
+	restored   bool              // Restore ran
+	recovering []*entry          // Restored, for Recover
 }
 
 // New returns a manager over opts.Store.
@@ -109,8 +125,11 @@ func New(opts Options) (*Manager, error) {
 	m := &Manager{
 		store: opts.Store, audit: opts.Audit, dir: opts.Dir, host: opts.Host,
 		capBytes: opts.OutputCapBytes, poll: opts.PollInterval, log: opts.Logger, now: opts.Now,
-		detach: opts.Detach,
-		lanes:  map[string]*lane{}, live: map[string]*entry{},
+		detach: opts.Detach, deadline: opts.RecoveryDeadline, calls: make(chan struct{}, recoveryCalls),
+		lanes: map[string]*lane{}, live: map[string]*entry{},
+	}
+	if m.deadline <= 0 {
+		m.deadline = RecoveryDeadline
 	}
 	if m.log == nil {
 		m.log = slog.Default()
@@ -122,6 +141,7 @@ func New(opts Options) (*Manager, error) {
 		m.poll = oplog.DefaultPollInterval
 	}
 	m.base, m.stop = context.WithCancel(context.Background())
+	m.halt, m.haltStop = context.WithCancel(context.Background())
 	return m, nil
 }
 
@@ -216,7 +236,11 @@ func (a *Admission) Create(rec store.OpRecord, idem store.IdempotencyKey, w Work
 	rec.ID = res.ID
 	rec.Status = apitypes.StatusQueued
 	e := &entry{id: res.ID, rec: rec, work: w, lane: a.lane, done: make(chan struct{})}
-	e.ctx, e.cancel = context.WithCancel(m.base)
+	parent := m.base
+	if w.Detached != nil {
+		parent = m.halt
+	}
+	e.ctx, e.cancel = context.WithCancel(parent)
 
 	// The Queued record precedes the Running record the worker writes, so
 	// it is written before the operation can start.
@@ -285,14 +309,19 @@ func (m *Manager) stateChange(e *entry, to apitypes.OperationStatus, perr *probl
 // outputDir is where operation id's output log lives.
 func (m *Manager) outputDir(id string) string { return filepath.Join(m.dir, id, "output") }
 
-// Shutdown stops starting operations, cancels the context of every running
-// one, and waits for them until ctx ends. Queued operations stay Queued in
-// the store for restart recovery.
+// Shutdown stops starting operations and gives in-process operations until
+// ctx ends to finish (FR-37); only then is their context canceled, and one
+// still running is outcome-unknown after the restart. Detached work stops
+// at once and leaves its units alone: a Prepare in progress is canceled,
+// the record of a launched operation stays Running for restart recovery,
+// and no unit is signaled or stopped. Queued operations stay Queued in the
+// store for restart recovery.
 func (m *Manager) Shutdown(ctx context.Context) error {
 	m.mu.Lock()
 	m.closed = true
 	m.mu.Unlock()
-	m.stop()
+	m.haltStop()
+	defer m.stop()
 	done := make(chan struct{})
 	go func() {
 		m.wg.Wait()
@@ -341,7 +370,7 @@ func (m *Manager) runDetached(e *entry) {
 	}
 	spec, perr := m.prepare(e, d, r)
 	if perr != nil {
-		if m.base.Err() != nil {
+		if m.halt.Err() != nil {
 			// Shutdown canceled Prepare: the record stays Queued for
 			// restart recovery.
 			return
@@ -361,6 +390,7 @@ func (m *Manager) runDetached(e *entry) {
 	m.stateChange(e, apitypes.StatusRunning, nil)
 
 	maxRuntime := spec.MaxRuntime
+	m.writeMaxRuntime(e.id, maxRuntime)
 	lerr := m.detach.Start(context.WithoutCancel(m.base), e.id, spec)
 	// spec.json holds the sensitive values from here on; memory does not.
 	spec, d.In = detach.Spec{}, nil
@@ -387,10 +417,10 @@ func (m *Manager) runDetached(e *entry) {
 		started = *rec.Started
 	}
 	select {
-	case o := <-m.detach.Watch(m.base, e.id, started, maxRuntime):
+	case o := <-m.detach.Watch(m.halt, e.id, started, maxRuntime):
 		to, result, perr := m.detachedEnd(e, d, r, o)
 		m.commitEnd(e, to, result, perr)
-	case <-m.base.Done():
+	case <-m.halt.Done():
 	}
 }
 

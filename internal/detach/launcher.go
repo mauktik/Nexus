@@ -117,6 +117,9 @@ type Options struct {
 	// Signal sends sig to a unit's main process; CancelRunning calls it.
 	// Nil runs systemctl kill --kill-whom=main --signal=<sig>.
 	Signal func(ctx context.Context, unit string, sig syscall.Signal) error
+	// ListUnits lists the operation units systemd has loaded, by name, for
+	// restart recovery's orphan check. Nil runs systemctl list-units.
+	ListUnits func(ctx context.Context) ([]string, error)
 	// Now is the clock of MaxRuntime. Nil means time.Now.
 	Now func() time.Time
 }
@@ -130,6 +133,7 @@ type Launcher struct {
 	launch    func(context.Context, Invocation) error
 	unitState func(context.Context, string) (UnitState, error)
 	signal    func(context.Context, string, syscall.Signal) error
+	listUnits func(context.Context) ([]string, error)
 	now       func() time.Time
 	real      bool
 
@@ -146,7 +150,7 @@ func New(cfg Config, opts Options) (*Launcher, error) {
 	}
 	l := &Launcher{
 		opsDir: cfg.OpsDir, exe: cfg.Executable, log: cfg.Logger,
-		launch: opts.Launch, unitState: opts.UnitState, signal: opts.Signal, now: opts.Now,
+		launch: opts.Launch, unitState: opts.UnitState, signal: opts.Signal, listUnits: opts.ListUnits, now: opts.Now,
 		watched: map[string]*watched{},
 	}
 	if l.exe == "" {
@@ -167,6 +171,9 @@ func New(cfg Config, opts Options) (*Launcher, error) {
 	}
 	if l.signal == nil {
 		l.signal = systemctlKill
+	}
+	if l.listUnits == nil {
+		l.listUnits = systemctlListUnits
 	}
 	if l.now == nil {
 		l.now = time.Now
@@ -238,6 +245,20 @@ func (l *Launcher) State(ctx context.Context, id string) (Liveness, error) {
 	return st.Liveness()
 }
 
+// Units lists the loaded operation units with the StateTimeout bound.
+func (l *Launcher) Units(ctx context.Context) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, StateTimeout)
+	defer cancel()
+	units, err := l.listUnits(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return units, nil
+}
+
 // systemdRun is the real launcher: it runs inv.Argv.
 func systemdRun(ctx context.Context, inv Invocation) error {
 	out, err := exec.CommandContext(ctx, inv.Argv[0], inv.Argv[1:]...).CombinedOutput()
@@ -276,6 +297,38 @@ func systemctlShow(ctx context.Context, unit string) (UnitState, error) {
 		return UnitState{}, fmt.Errorf("systemctl show %s: no state in %q", unit, out)
 	}
 	return st, nil
+}
+
+// systemctlListUnits is the real unit lister. list-units --all shows every
+// unit systemd has in memory whose primary name matches the glob, and
+// --plain omits the bullet circles; any header or footer line is skipped
+// because no field of it is an operation unit name. A host without systemd
+// has no units.
+func systemctlListUnits(ctx context.Context) ([]string, error) {
+	if !SystemdAvailable().Available {
+		return nil, nil
+	}
+	out, err := exec.CommandContext(ctx, Systemctl, "list-units", "--all", "--plain", "--full", "--", UnitPrefix+"*").Output()
+	if err != nil {
+		return nil, fmt.Errorf("systemctl list-units: %w", err)
+	}
+	return unitNames(out), nil
+}
+
+var unitName = regexp.MustCompile(`^` + UnitPrefix + `[A-Za-z0-9][A-Za-z0-9-]*\.service$`)
+
+// unitNames picks the operation unit names out of list-units output.
+func unitNames(out []byte) []string {
+	var units []string
+	for line := range strings.Lines(string(out)) {
+		for _, f := range strings.Fields(line) {
+			if unitName.MatchString(f) {
+				units = append(units, f)
+				break
+			}
+		}
+	}
+	return units
 }
 
 // systemctlKill is the real signal: it reaches only the unit's main

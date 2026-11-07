@@ -72,6 +72,9 @@ type Daemon struct {
 	notify *notifier
 	ready  chan struct{}
 
+	// binding finds an op's binding by ID, for restart recovery.
+	binding func(opID string) (provider.Binding, bool)
+
 	mu    sync.Mutex
 	addrs []net.Addr
 }
@@ -163,6 +166,10 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 	if err != nil {
 		return fail(fmt.Errorf("server: %w", err))
 	}
+	bindings := map[string]provider.Binding{}
+	for _, e := range reg.Entries() {
+		bindings[e.Binding.Op().ID] = e.Binding
+	}
 	return &Daemon{
 		cfg:    cfg,
 		path:   path,
@@ -174,6 +181,11 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 		srv:    srv,
 		notify: newNotifier(os.Getenv("NOTIFY_SOCKET")),
 		ready:  make(chan struct{}),
+
+		binding: func(id string) (provider.Binding, bool) {
+			b, ok := bindings[id]
+			return b, ok
+		},
 	}, nil
 }
 
@@ -198,7 +210,14 @@ func (d *Daemon) Run(ctx context.Context) error {
 	signal.Notify(sigs, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGINT)
 	defer signal.Stop(sigs)
 
-	listeners, err := d.listen(ctx)
+	// Restart recovery, synchronous stage: lanes and queues are rebuilt from
+	// state.db before the first request, with no systemctl or provider call
+	// (Data Flow, Restart recovery).
+	err := d.ops.Restore(d.binding)
+	var listeners []net.Listener
+	if err == nil {
+		listeners, err = d.listen(ctx)
+	}
 	if err != nil {
 		if cerr := d.store.Close(); cerr != nil {
 			err = errors.Join(err, cerr)
@@ -227,6 +246,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if err := d.notify.notify("READY=1"); err != nil {
 		d.log.Warn("readiness notification failed", "error", err.Error())
 	}
+	// Classification runs after readiness; its 30-second deadline does not
+	// delay the listener.
+	d.ops.Recover()
 
 	var runErr error
 loop:
@@ -295,8 +317,10 @@ func (d *Daemon) shutdown() {
 	if err := d.srv.Shutdown(ctx); err != nil {
 		d.log.Warn("graceful shutdown incomplete; remaining connections closed", "error", err.Error())
 	}
-	// After the server, so no request admits an operation meanwhile. Queued
-	// operations stay queued in state.db for restart recovery.
+	// After the server, so no request admits an operation meanwhile.
+	// In-process operations get the rest of the deadline; detached units are
+	// never touched. Queued operations stay queued in state.db for restart
+	// recovery.
 	if err := d.ops.Shutdown(ctx); err != nil {
 		d.log.Warn("operations still running at shutdown", "error", err.Error())
 	}
