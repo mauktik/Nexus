@@ -16,13 +16,11 @@ import (
 )
 
 // TC-93 (second-state): integrity runs on every invocation, through the
-// Dispatcher into Admit. A clean script passes it; after chmod o+w the next
-// invocation is 422 script-integrity-failed and no operation is recorded.
+// Dispatcher into Admit. A clean script passes it and is accepted with 202;
+// after chmod o+w the next invocation is 422 script-integrity-failed and no
+// operation is recorded.
 //
-// Execution is stubbed: until the runner (5.3) replaces it, Admit refuses
-// every script that passes integrity with 503 capability-unavailable, "the
-// script runner is not built in". That refusal is this test's "accepted":
-// it is only reachable past the integrity check. 5.3 turns it into 202.
+// Execution goes through detachtest.Local, since T0 has no systemd.
 func TestIntegrityRunsOnEveryInvocation(t *testing.T) {
 	u, err := user.Current()
 	if err != nil {
@@ -60,11 +58,14 @@ func TestIntegrityRunsOnEveryInvocation(t *testing.T) {
 	passes := func(step string) {
 		t.Helper()
 		r := invoke()
-		p := r.problem(t)
-		if r.status != http.StatusServiceUnavailable || p.Slug() != problem.CapabilityUnavailable ||
-			p.Extensions["reason"] != "the script runner is not built in" {
-			t.Fatalf("%s: %d %s, want the integrity check passed (the 5.3 placeholder refusal)", step, r.status, r.body)
+		if r.status != http.StatusAccepted {
+			t.Fatalf("%s: %d %s, want 202: the integrity check passed", step, r.status, r.body)
 		}
+		var op apitypes.Operation
+		if err := json.Unmarshal(r.body, &op); err != nil || op.ID == "" {
+			t.Fatalf("%s: not an operation: %v %s", step, err, r.body)
+		}
+		n.waitTerminal(t, op.ID)
 	}
 
 	passes("clean script")

@@ -571,6 +571,12 @@ func extensionSchema(name string) *jsonschema.Schema {
 			},
 		}
 	}
+	switch name {
+	case "exitCode":
+		return &jsonschema.Schema{Type: "integer", Description: "The script's exit code; -1 when a signal ended it or it never started."}
+	case "durationSeconds":
+		return &jsonschema.Schema{Type: "number", Description: "How long the script ran."}
+	}
 	return &jsonschema.Schema{Type: "string"}
 }
 

@@ -179,6 +179,12 @@ func TestValidationRules(t *testing.T) {
 		{"string parameter without pattern", scriptsYAML("{name: branch, type: string, arg: --branch}"), "providers.scripts.catalog[0].parameters[0].pattern", "required"},
 		{"sensitive without env", scriptsYAML("{name: k, type: string, pattern: '^a$', sensitive: true, arg: --k}"), "providers.scripts.catalog[0].parameters[0].env", "sensitive"},
 		{"pattern does not compile", scriptsYAML("{name: k, type: string, pattern: '(', arg: --k}"), "providers.scripts.catalog[0].parameters[0].pattern", "regular expression"},
+		// A misspelled or missing type would otherwise skip the string rule.
+		{"misspelled parameter type", scriptsYAML("{name: branch, type: strnig, arg: --branch}"), "providers.scripts.catalog[0].parameters[0].type", "must be one of string, integer or boolean"},
+		{"missing parameter type", scriptsYAML("{name: branch, arg: --branch}"), "providers.scripts.catalog[0].parameters[0].type", "required"},
+		{"enum value of the wrong type", scriptsYAML("{name: n, type: integer, enum: ['1', two], arg: --n}"), "providers.scripts.catalog[0].parameters[0].enum[1]", "integer"},
+		{"enum value failing the pattern", scriptsYAML("{name: e, type: string, pattern: '^[a-z]+$', enum: [prod, Dev], arg: --e}"), "providers.scripts.catalog[0].parameters[0].enum[1]", "pattern"},
+		{"duplicate enum value", scriptsYAML("{name: e, type: string, enum: [prod, prod], arg: --e}"), "providers.scripts.catalog[0].parameters[0].enum[1]", "duplicate"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -200,7 +206,8 @@ func TestValidationRules(t *testing.T) {
 	}
 
 	t.Run("valid catalog passes", func(t *testing.T) {
-		y := scriptsYAML("{name: branch, type: string, pattern: '^[a-z]+$', arg: --branch}", "{name: apiKey, type: string, pattern: '^[A-Za-z0-9]+$', sensitive: true, env: API_KEY}")
+		y := scriptsYAML("{name: branch, type: string, pattern: '^[a-z]+$', arg: --branch}", "{name: apiKey, type: string, pattern: '^[A-Za-z0-9]+$', sensitive: true, env: API_KEY}",
+			"{name: stage, type: string, enum: [prod, staging]}", "{name: count, type: integer, arg: --count}", "{name: dry, type: boolean, env: DRY}")
 		if _, err := Parse([]byte(y), "c.yaml"); err != nil {
 			t.Fatalf("Parse: %v", err)
 		}

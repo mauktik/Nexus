@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -38,12 +39,15 @@ type Parameter struct {
 	Name      string
 	Type      string
 	Pattern   string
+	Enum      []string // Nil: any value of the type
 	Sensitive bool
 	Arg       string
 	Env       string
 	// Position is the 1-based position among the positional parameters, the
 	// ones with neither Arg nor Env, in declared order. Zero otherwise.
 	Position int
+
+	re *regexp.Regexp // Pattern, compiled; nil when there is none
 }
 
 // EnvNames returns the script's environment variable names, sorted. The
@@ -57,6 +61,9 @@ func (s Script) EnvNames() []string {
 func (s Script) clone() Script {
 	s.Env = maps.Clone(s.Env)
 	s.Parameters = slices.Clone(s.Parameters)
+	for i := range s.Parameters {
+		s.Parameters[i].Enum = slices.Clone(s.Parameters[i].Enum)
+	}
 	return s
 }
 
@@ -98,7 +105,12 @@ func NewCatalog(entries []config.Script) (*Catalog, error) {
 		}
 		positional := 0
 		for _, p := range e.Parameters {
-			prm := Parameter{Name: p.Name, Type: p.Type, Pattern: p.Pattern, Sensitive: p.Sensitive, Arg: p.Arg, Env: p.Env}
+			prm := Parameter{Name: p.Name, Type: p.Type, Pattern: p.Pattern, Enum: slices.Clone(p.Enum),
+				Sensitive: p.Sensitive, Arg: p.Arg, Env: p.Env}
+			if p.Pattern != "" {
+				// CheckCatalog compiled it already.
+				prm.re = regexp.MustCompile(p.Pattern)
+			}
 			if p.Arg == "" && p.Env == "" {
 				positional++
 				prm.Position = positional

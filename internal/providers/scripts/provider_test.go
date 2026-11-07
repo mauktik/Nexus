@@ -23,6 +23,7 @@ import (
 	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/daemon"
 	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/detach/detachtest"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/providers/scripts"
@@ -32,9 +33,11 @@ import (
 // node is a real nexusd: daemon.New and Run in this process, with real
 // listeners, configuration file, SIGHUP handling, Dispatcher and audit log.
 type node struct {
-	base    string
-	cfgPath string
-	tokens  map[string]string // Scope set name -> token
+	base     string
+	cfgPath  string
+	stateDir string
+	auditDir string
+	tokens   map[string]string // Scope set name -> token
 }
 
 // enabled is the test seam that stands in for systemd on T0, where there is
@@ -75,7 +78,7 @@ func start(t *testing.T, providers []provider.Provider, catalog string) *node {
 	t.Helper()
 	dir := t.TempDir()
 	stateDir, auditDir := filepath.Join(dir, "state"), filepath.Join(dir, "audit")
-	n := &node{cfgPath: filepath.Join(dir, "nexusd.yaml"), tokens: map[string]string{}}
+	n := &node{cfgPath: filepath.Join(dir, "nexusd.yaml"), stateDir: stateDir, auditDir: auditDir, tokens: map[string]string{}}
 	for name, scopes := range map[string][]string{
 		"read": {spec.ReadScope},
 		"run":  {spec.RunScope},
@@ -94,8 +97,9 @@ func start(t *testing.T, providers []provider.Provider, catalog string) *node {
 	if err != nil {
 		t.Fatalf("config: %v", err)
 	}
+	// Detached runs go through detachtest.Local: T0 has no systemd.
 	d, err := daemon.New(cfg, daemon.Options{Providers: providers, ConfigPath: n.cfgPath, StateDir: stateDir,
-		AuditDir: auditDir, Logger: slog.New(slog.NewJSONHandler(io.Discard, nil))})
+		AuditDir: auditDir, Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), Detach: detachtest.Local()})
 	if err != nil {
 		t.Fatalf("daemon.New: %v", err)
 	}

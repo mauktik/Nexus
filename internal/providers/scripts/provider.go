@@ -11,7 +11,6 @@ package scripts
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"regexp"
 	"sync/atomic"
 
@@ -36,11 +35,12 @@ type Provider struct {
 	host      string
 	preflight func(context.Context) provider.Status
 	catalog   atomic.Pointer[Catalog]
+	machine   machine // Run-as accounts and the filesystem the runner reads
 }
 
 // New returns the provider with an empty catalog until Configure.
 func New(opts Options) *Provider {
-	p := &Provider{host: opts.Host, preflight: opts.Preflight}
+	p := &Provider{host: opts.Host, preflight: opts.Preflight, machine: realMachine}
 	if p.preflight == nil {
 		p.preflight = systemdPreflight
 	}
@@ -78,15 +78,18 @@ func systemdPreflight(context.Context) provider.Status {
 	return provider.Status{State: apitypes.ProviderEnabled}
 }
 
-// Bindings binds the read operations and invoke.
+// Bindings binds the read operations and invoke, which runs the script in
+// a transient unit (run.go).
 func (p *Provider) Bindings() []provider.Binding {
 	return []provider.Binding{
 		provider.Sync(spec.List, p.list),
 		provider.Sync(spec.Get, p.get),
 		provider.Detached(spec.Invoke, provider.DetachedSpec[spec.InvokeInput, spec.InvokeResult]{
-			Admit:    p.admitInvoke,
-			Prepare:  prepareInvoke,
-			Finalize: finalizeInvoke,
+			Admit:      p.admitInvoke,
+			Lane:       p.invokeLane,
+			Prepare:    p.prepareInvoke,
+			Finalize:   finalizeInvoke,
+			LostDetail: lostDetail,
 		}),
 	}
 }
@@ -142,7 +145,7 @@ func (p *Provider) resource(s Script) spec.Script {
 		w := spec.Parameter{Name: prm.Name, Type: prm.Type, Sensitive: prm.Sensitive, Arg: prm.Arg, Env: prm.Env,
 			Position: prm.Position}
 		if !prm.Sensitive {
-			w.Pattern = prm.Pattern
+			w.Pattern, w.Enum = prm.Pattern, prm.Enum
 		}
 		props.Parameters[i] = w
 	}
@@ -150,35 +153,6 @@ func (p *Provider) resource(s Script) spec.Script {
 }
 
 var idRE = regexp.MustCompile(spec.IDPattern)
-
-// errNoRunner is returned by Prepare and Finalize, which admitInvoke keeps
-// from ever being reached until the runner exists.
-var errNoRunner = errors.New("scripts: the script runner is not built in")
-
-// admitInvoke refuses an unknown script with not-found, and a script that
-// fails the integrity check (FR-20) with script-integrity-failed, before an
-// operation exists. Script execution (5.3) replaces the rest of this
-// binding; until then every invocation that passes integrity is refused
-// here, so nothing can start.
-func (p *Provider) admitInvoke(_ context.Context, in spec.InvokeInput) error {
-	s, ok := p.catalog.Load().Get(in.Name)
-	if !ok {
-		return notFound()
-	}
-	if _, err := hostIntegrity.check(s.Path, s.RunAs); err != nil {
-		return err
-	}
-	return problem.New(problem.CapabilityUnavailable, "this nexusd cannot run scripts").
-		With("provider", spec.Name).With("reason", "the script runner is not built in")
-}
-
-func prepareInvoke(context.Context, spec.InvokeInput, *provider.Run) (detach.Spec, error) {
-	return detach.Spec{}, errNoRunner
-}
-
-func finalizeInvoke(context.Context, spec.InvokeInput, detach.Exit, *provider.Run) (spec.InvokeResult, error) {
-	return spec.InvokeResult{}, errNoRunner
-}
 
 func notFound() *problem.Error {
 	return problem.New(problem.NotFound, "no script with that ID is in the catalog")

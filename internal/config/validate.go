@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -176,15 +177,43 @@ func CheckCatalog(entries []Script, fail func(path, msg string)) {
 				failf(pp+".name", "duplicate parameter name %q", prm.Name)
 			}
 			params[prm.Name] = true
-			// The catalog author decides about leading dashes and
-			// metacharacters, so a string parameter must say what it accepts.
-			if prm.Type == "string" && prm.Pattern == "" {
-				fail(pp+".pattern", "required for a string parameter")
+			typeOK := true
+			switch prm.Type {
+			case ParamString, ParamInteger, ParamBoolean:
+			case "":
+				fail(pp+".type", "required: one of string, integer or boolean")
+				typeOK = false
+			default:
+				failf(pp+".type", "must be one of string, integer or boolean, got %q", prm.Type)
+				typeOK = false
 			}
+			// The catalog author decides about leading dashes and
+			// metacharacters, so a string parameter must say what it accepts:
+			// a pattern, or the list of its values.
+			if prm.Type == ParamString && prm.Pattern == "" && len(prm.Enum) == 0 {
+				fail(pp+".pattern", "required for a string parameter without an enum")
+			}
+			var re *regexp.Regexp
+			patternOK := true
 			if prm.Pattern != "" {
-				if _, err := regexp.Compile(prm.Pattern); err != nil {
+				var err error
+				if re, err = regexp.Compile(prm.Pattern); err != nil {
 					failf(pp+".pattern", "not a valid regular expression: %v", err)
+					patternOK = false
 				}
+			}
+			values := map[string]bool{}
+			for k, v := range prm.Enum {
+				ep := fmt.Sprintf("%s.enum[%d]", pp, k)
+				switch {
+				case values[v]:
+					fail(ep, "duplicate enum value")
+				case typeOK && patternOK:
+					if msg := CheckParameterValue(prm.Type, re, nil, v); msg != "" {
+						fail(ep, msg)
+					}
+				}
+				values[v] = true
 			}
 			if prm.Env != "" && !envNameRE.MatchString(prm.Env) {
 				failf(pp+".env", "must match %s, got %q", EnvNamePattern, prm.Env)
@@ -198,6 +227,51 @@ func CheckCatalog(entries []Script, fail func(path, msg string)) {
 			}
 		}
 	}
+}
+
+// Parameter types a script catalog may declare.
+const (
+	ParamString  = "string"
+	ParamInteger = "integer"
+	ParamBoolean = "boolean"
+)
+
+var integerRE = regexp.MustCompile(`^-?[0-9]+$`)
+
+// CheckParameterValue reports why v is not a value of a parameter of type
+// typ, with the declared enum (nil: any) and the compiled pattern re (nil:
+// none), or "" when it is. validate-config checks enum values with it, and
+// the scripts provider every invocation, so the two cannot disagree. The
+// message never quotes v, the pattern or the enum: the parameter may be
+// sensitive.
+func CheckParameterValue(typ string, re *regexp.Regexp, enum []string, v string) string {
+	// argv and environment entries are C strings.
+	if strings.IndexByte(v, 0) >= 0 {
+		return "must not contain a NUL byte"
+	}
+	switch typ {
+	case ParamInteger:
+		if !integerRE.MatchString(v) {
+			return "must be an integer in decimal digits"
+		}
+		if _, err := strconv.ParseInt(v, 10, 64); err != nil {
+			return "must be an integer that fits in 64 bits"
+		}
+	case ParamBoolean:
+		if v != "true" && v != "false" {
+			return "must be true or false"
+		}
+	case ParamString:
+	default:
+		return fmt.Sprintf("has an unknown declared type %q", typ)
+	}
+	if enum != nil && !slices.Contains(enum, v) {
+		return "is not one of the declared values"
+	}
+	if re != nil && !re.MatchString(v) {
+		return "does not match the declared pattern"
+	}
+	return ""
 }
 
 type validator struct {

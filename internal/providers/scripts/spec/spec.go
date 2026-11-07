@@ -92,12 +92,14 @@ type ScriptProperties struct {
 type Parameter struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
-	// Pattern is the regular expression a value must match. It is omitted for
-	// a sensitive parameter, whose pattern may describe the secret.
-	Pattern   string `json:"pattern,omitempty"`
-	Sensitive bool   `json:"sensitive"`
-	Arg       string `json:"arg,omitempty"` // The value follows this argument
-	Env       string `json:"env,omitempty"` // The value is passed in this environment variable
+	// Pattern is the regular expression a value must match, and Enum the
+	// values it may take. Both are omitted for a sensitive parameter, whose
+	// pattern or values may describe the secret.
+	Pattern   string   `json:"pattern,omitempty"`
+	Enum      []string `json:"enum,omitempty"`
+	Sensitive bool     `json:"sensitive"`
+	Arg       string   `json:"arg,omitempty"` // The value follows this argument
+	Env       string   `json:"env,omitempty"` // The value is passed in this environment variable
 	// Position is the 1-based position of a positional parameter, one with
 	// neither arg nor env, among the positional arguments. Zero otherwise.
 	Position int `json:"position,omitempty"`

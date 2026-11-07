@@ -122,6 +122,7 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 		AggregateWindow: auth.FailureWindow,
 		Now:             opts.Now,
 		Logger:          log,
+		SensitivePaths:  sensitivePaths(providers),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("audit: %w", err)

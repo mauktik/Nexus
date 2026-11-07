@@ -127,12 +127,13 @@ type Script struct {
 // Parameter is one declared script parameter. With neither Arg nor Env it is
 // positional, in declared order.
 type Parameter struct {
-	Name      string `yaml:"name"`
-	Type      string `yaml:"type"`
-	Pattern   string `yaml:"pattern"`
-	Sensitive bool   `yaml:"sensitive"`
-	Arg       string `yaml:"arg"`
-	Env       string `yaml:"env"`
+	Name      string   `yaml:"name"`
+	Type      string   `yaml:"type"` // ParamString, ParamInteger or ParamBoolean
+	Pattern   string   `yaml:"pattern"`
+	Enum      []string `yaml:"enum"` // When set, a value must be one of these
+	Sensitive bool     `yaml:"sensitive"`
+	Arg       string   `yaml:"arg"`
+	Env       string   `yaml:"env"`
 }
 
 // Section is a provider's configuration: the settings decoded with defaults

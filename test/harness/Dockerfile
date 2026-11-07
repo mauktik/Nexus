@@ -13,7 +13,7 @@ RUN apt-get update \
  && compose="$(apt-cache show docker-compose-v2 >/dev/null 2>&1 && echo docker-compose-v2)" \
  && apt-get install -y --no-install-recommends \
       systemd systemd-sysv dbus needrestart docker.io ${compose} dpkg-dev ca-certificates \
-      iproute2 procps util-linux \
+      iproute2 procps util-linux git \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 

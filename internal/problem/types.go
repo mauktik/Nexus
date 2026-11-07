@@ -91,8 +91,9 @@ var registry = []Type{
 	{Slug: PackageManagerBusy, Title: "Package manager busy", Exit: 1, OperationLevel: true},
 	{Slug: PackageManagerBroken, Title: "Package manager broken", Exit: 1, OperationLevel: true},
 	{Slug: AptFailed, Title: "Apt failed", Exit: 1, OperationLevel: true},
-	{Slug: ScriptFailed, Title: "Script failed", Exit: 1, OperationLevel: true},
-	{Slug: ScriptTimeout, Title: "Script timed out", Exit: 1, OperationLevel: true},
+	// A script's outcome carries how it ended (WI 5.3).
+	{Slug: ScriptFailed, Title: "Script failed", Exit: 1, OperationLevel: true, Extensions: []string{"exitCode", "signal", "durationSeconds"}},
+	{Slug: ScriptTimeout, Title: "Script timed out", Exit: 1, OperationLevel: true, Extensions: []string{"exitCode", "signal", "durationSeconds"}},
 	{Slug: UpdateHealthFailed, Title: "Update health check failed", Exit: 1, OperationLevel: true},
 }
 

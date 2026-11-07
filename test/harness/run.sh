@@ -133,13 +133,15 @@ for u in $REQUIRED_UNITS; do
 done
 say "versions: $(docker exec "$container" sh -c 'systemctl --version | head -1; needrestart --version 2>&1 | head -1; . /etc/os-release; echo "$PRETTY_NAME"' | xargs)"
 
-say "copying binaries, unit and lib.sh in with docker cp"
+say "copying binaries, unit, lib.sh and fixtures in with docker cp"
 docker exec "$container" mkdir -p /harness/deploy
 docker cp "$OUT/nexusd" "$container:/usr/local/bin/nexusd"
 docker cp "$OUT/opsd" "$container:/usr/local/bin/opsd"
 docker cp "$OUT/integration.test" "$container:/harness/integration.test"
 docker cp deploy/nexusd.service "$container:/harness/deploy/nexusd.service"
 docker cp test/harness/lib.sh "$container:/harness/lib.sh"
+# Script fixtures (WI 5.3); tests install them root-owned where they run.
+docker cp test/harness/fixtures "$container:/harness/fixtures"
 docker exec "$container" sh -c 'chown root:root /usr/local/bin/nexusd /usr/local/bin/opsd /harness/integration.test /harness/lib.sh /harness/deploy/nexusd.service && chmod 0755 /usr/local/bin/nexusd /usr/local/bin/opsd /harness/integration.test /harness/lib.sh'
 
 say "running tests"
