@@ -155,13 +155,18 @@ var idRE = regexp.MustCompile(spec.IDPattern)
 // from ever being reached until the runner exists.
 var errNoRunner = errors.New("scripts: the script runner is not built in")
 
-// admitInvoke refuses an unknown script with not-found. Script execution
-// (5.3) replaces the rest of this binding; until then every invocation of a
-// cataloged script is refused here, before an operation exists, so nothing
-// can start.
+// admitInvoke refuses an unknown script with not-found, and a script that
+// fails the integrity check (FR-20) with script-integrity-failed, before an
+// operation exists. Script execution (5.3) replaces the rest of this
+// binding; until then every invocation that passes integrity is refused
+// here, so nothing can start.
 func (p *Provider) admitInvoke(_ context.Context, in spec.InvokeInput) error {
-	if _, ok := p.catalog.Load().Get(in.Name); !ok {
+	s, ok := p.catalog.Load().Get(in.Name)
+	if !ok {
 		return notFound()
+	}
+	if _, err := hostIntegrity.check(s.Path, s.RunAs); err != nil {
+		return err
 	}
 	return problem.New(problem.CapabilityUnavailable, "this nexusd cannot run scripts").
 		With("provider", spec.Name).With("reason", "the script runner is not built in")
