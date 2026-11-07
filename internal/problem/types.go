@@ -82,7 +82,9 @@ var registry = []Type{
 	{Slug: InternalError, Title: "Internal error", Status: 500, Exit: 1},
 	{Slug: CapabilityUnavailable, Title: "Capability unavailable", Status: 503, Exit: 4, Extensions: []string{"provider", "reason"}},
 	{Slug: ComposePluginMissing, Title: "Compose plugin missing", Status: 503, Exit: 4, Extensions: []string{"provider"}},
-	{Slug: DependencyUnavailable, Title: "Dependency unavailable", Status: 503, Exit: 1, Extensions: []string{"provider"}},
+	// A failed container update also carries rolledBack and its digests (WI 6.4, FR-13).
+	{Slug: DependencyUnavailable, Title: "Dependency unavailable", Status: 503, Exit: 1,
+		Extensions: []string{"provider", "rolledBack", "previousDigest", "newDigest"}},
 	{Slug: AuditUnavailable, Title: "Audit unavailable", Status: 503, Exit: 1},
 	{Slug: StorageLimitReached, Title: "Storage limit reached", Status: 507, Exit: 1},
 
@@ -94,7 +96,8 @@ var registry = []Type{
 	// A script's outcome carries how it ended (WI 5.3).
 	{Slug: ScriptFailed, Title: "Script failed", Exit: 1, OperationLevel: true, Extensions: []string{"exitCode", "signal", "durationSeconds"}},
 	{Slug: ScriptTimeout, Title: "Script timed out", Exit: 1, OperationLevel: true, Extensions: []string{"exitCode", "signal", "durationSeconds"}},
-	{Slug: UpdateHealthFailed, Title: "Update health check failed", Exit: 1, OperationLevel: true},
+	{Slug: UpdateHealthFailed, Title: "Update health check failed", Exit: 1, OperationLevel: true,
+		Extensions: []string{"rolledBack", "previousDigest", "newDigest"}},
 }
 
 var bySlug = func() map[Slug]Type {

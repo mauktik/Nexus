@@ -155,6 +155,11 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 		}
 	}
 	opsDir := filepath.Join(stateDir, "ops")
+	for _, p := range providers {
+		if u, ok := p.(provider.OpsDirUser); ok {
+			u.UseOpsDir(opsDir)
+		}
+	}
 	launcher, err := detach.New(detach.Config{OpsDir: opsDir, Logger: log}, opts.Detach)
 	if err != nil {
 		return fail(fmt.Errorf("operations: %w", err))

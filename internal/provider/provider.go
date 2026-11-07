@@ -37,6 +37,14 @@ type KVUser interface {
 	UseKV(KV)
 }
 
+// OpsDirUser is a provider whose detached operations keep files of their
+// own in the operation's directory, <dir>/<operation id>, beside spec.json
+// and exit.json (the docker update helper's input.json and result.json).
+// The daemon calls UseOpsDir once, before serving any request.
+type OpsDirUser interface {
+	UseOpsDir(dir string)
+}
+
 // Status is a provider's preflight result.
 type Status struct {
 	State   apitypes.ProviderState

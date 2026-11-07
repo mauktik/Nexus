@@ -12,6 +12,7 @@ package docker
 import (
 	"context"
 	"log/slog"
+	"os"
 	"sync/atomic"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/def"
+	"github.com/mauktik/nexus/internal/detach"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/providers/docker/spec"
 )
@@ -43,6 +45,11 @@ type Provider struct {
 	preflight func(context.Context) provider.Status
 	engine    atomic.Pointer[engine]
 	kv        atomic.Pointer[provider.KV] // Stored update checks; memKV until UseKV
+	opsDir    atomic.Pointer[string]      // Operations' directories; set by UseOpsDir
+	// systemd and executable are the update's seams: whether this host can
+	// run a transient unit, and the nexusd binary the unit runs.
+	systemd    func() detach.Availability
+	executable func() (string, error)
 }
 
 // engine is one configuration's settings and client. A reload builds a new
@@ -54,7 +61,8 @@ type engine struct {
 
 // New returns the provider; it has no client until Configure.
 func New(opts Options) *Provider {
-	p := &Provider{host: opts.Host, log: opts.Logger, timeout: opts.CallTimeout, preflight: opts.Preflight}
+	p := &Provider{host: opts.Host, log: opts.Logger, timeout: opts.CallTimeout, preflight: opts.Preflight,
+		systemd: detach.SystemdAvailable, executable: os.Executable}
 	if p.log == nil {
 		p.log = slog.Default()
 	}
@@ -125,12 +133,12 @@ func (p *Provider) Preflight(ctx context.Context) provider.Status {
 	}}
 }
 
-// Bindings binds the read operations, the lifecycle actions and the update
-// check.
+// Bindings binds the read operations, the lifecycle actions, the update,
+// which always runs detached (helper.go), and the update check.
 func (p *Provider) Bindings() []provider.Binding {
 	return append(append([]provider.Binding{
 		provider.Sync(spec.List, p.list),
 		provider.Sync(spec.Get, p.get),
 		provider.Stream(spec.Logs, p.logs),
-	}, p.lifecycleBindings()...), p.checkBinding())
+	}, p.lifecycleBindings()...), p.updateBinding(), p.checkBinding())
 }

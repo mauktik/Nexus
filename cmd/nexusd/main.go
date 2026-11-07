@@ -18,6 +18,7 @@ import (
 	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/daemon"
 	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/providers/docker"
 	"github.com/mauktik/nexus/internal/tlsutil"
 	"github.com/mauktik/nexus/internal/version"
 )
@@ -42,6 +43,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		case "op-supervise":
 			// Hidden: the main process of an operation's unit (FR-6).
 			return opSupervise(args[1:], stderr)
+		case docker.HelperCommand:
+			// Hidden: a container update, run by op-supervise in the
+			// operation's unit (D-8). Its progress goes to stdout, which
+			// the supervisor frames into the operation's output.
+			return docker.UpdateHelper(args[1:], stdout, stderr)
 		}
 	}
 
