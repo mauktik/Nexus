@@ -10,16 +10,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/mauktik/nexus/internal/apitypes"
+	"github.com/mauktik/nexus/internal/catalog"
 	"github.com/mauktik/nexus/internal/client"
 	"github.com/mauktik/nexus/internal/clientconfig"
+	"github.com/mauktik/nexus/internal/def"
 	"github.com/mauktik/nexus/internal/version"
 )
 
@@ -59,20 +59,33 @@ type app struct {
 	host    string // --host
 	verbose bool   // --verbose
 	target  string // The host name an error message should name
+	// specs are the declarations the command tree is generated from; nil
+	// means catalog.All().
+	specs     []def.ProviderSpec
+	generated map[*cobra.Command]*opCommand
 }
 
 // Run executes args and returns the process exit code.
 func Run(args []string, env Env) int {
+	return runWithSpecs(args, env, catalog.All())
+}
+
+// runWithSpecs is Run with the tree generated from specs; tests add specs.
+func runWithSpecs(args []string, env Env, specs []def.ProviderSpec) int {
 	if env.Getenv == nil {
 		env.Getenv = func(string) string { return "" }
 	}
 	if env.Stdin == nil {
 		env.Stdin = strings.NewReader("")
 	}
-	a := &app{env: env}
-	root := a.newRoot()
+	a := &app{env: env, specs: specs}
+	root, err := a.buildRoot()
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "%s: %v\n", programName, err)
+		return ExitFailure
+	}
 	root.SetArgs(args)
-	err := root.Execute()
+	err = root.Execute()
 	if err == nil {
 		return ExitOK
 	}
@@ -113,11 +126,29 @@ func noVerb(cmd *cobra.Command, args []string) error {
 	return &runError{err: usagef("%s needs a command", cmd.CommandPath())}
 }
 
+// newRoot is buildRoot for declarations known to be valid; it panics
+// otherwise, as def.Define does for a bad declaration.
 func (a *app) newRoot() *cobra.Command {
+	root, err := a.buildRoot()
+	if err != nil {
+		panic(err)
+	}
+	return root
+}
+
+// buildRoot builds the command tree: the hand-written commands, then one
+// command per op in a.specs (9.2).
+func (a *app) buildRoot() (*cobra.Command, error) {
+	if a.specs == nil {
+		a.specs = catalog.All()
+	}
+	a.generated = map[*cobra.Command]*opCommand{}
 	root := &cobra.Command{
-		Use:           programName,
-		Short:         "Manage Nexus hosts",
-		Long:          "nexus manages containers, packages and scripts on hosts running nexusd.\nCommands take the form: nexus <noun> <verb> [args]",
+		Use:   programName,
+		Short: "Manage Nexus hosts",
+		Long: "nexus manages containers, packages and scripts on hosts running nexusd.\n" +
+			"Commands take the form: nexus <noun> <verb> [args]\n" +
+			"`nexus command get` lists them; `nexus help <noun> <verb>` shows one's usage and examples.",
 		Version:       version.Version,
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -133,31 +164,13 @@ func (a *app) newRoot() *cobra.Command {
 	pf.StringVar(&a.host, "host", "", "target host: a configured name (default: "+clientconfig.EnvHost+", then the default host)")
 	pf.BoolVar(&a.verbose, "verbose", false, "log each request and response status to stderr")
 
-	root.AddCommand(a.hostCommand(), a.capabilityCommand())
-	return root
-}
-
-// capabilityCommand is `nexus capability get`. The generated command tree
-// (9.2) supersedes this hand-written form.
-func (a *app) capabilityCommand() *cobra.Command {
-	noun := &cobra.Command{Use: "capability", Short: "Host capabilities", Args: cobra.ArbitraryArgs, RunE: noVerb}
-	noun.AddCommand(&cobra.Command{
-		Use:   "get",
-		Short: "Show the host's providers and whether each is usable",
-		Args:  cobra.NoArgs,
-		RunE: run(func(cmd *cobra.Command, _ []string) error {
-			c, err := a.client()
-			if err != nil {
-				return err
-			}
-			var caps apitypes.Capabilities
-			if err := c.Do(cmd.Context(), http.MethodGet, "/capabilities", nil, &caps); err != nil {
-				return err
-			}
-			return a.printJSON(caps)
-		}),
-	})
-	return noun
+	help := a.helpCommand()
+	root.SetHelpCommand(help)
+	root.AddCommand(a.hostCommand(), a.commandCommand(), a.completionCommand(), help)
+	if err := a.addGenerated(root); err != nil {
+		return nil, err
+	}
+	return root, nil
 }
 
 // configPath is the client configuration file.

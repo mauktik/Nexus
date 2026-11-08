@@ -172,38 +172,84 @@ func New(o Options) (*Client, error) {
 // HTTPTimeout returns the unary client's overall timeout.
 func (c *Client) HTTPTimeout() time.Duration { return c.http.Timeout }
 
+// Request is one API request.
+type Request struct {
+	Method string
+	Path   string // Under APIPrefix, with each segment already escaped
+	Query  url.Values
+	Header http.Header // Added to the request; Authorization is always the client's
+	Body   any         // Sent as JSON; nil for none
+	Accept string      // Empty means application/json
+}
+
+// Response is a 2xx response, its body read whole.
+type Response struct {
+	Status int
+	Header http.Header
+	Body   []byte
+}
+
 // Do sends method to APIPrefix+path with in as a JSON body (nil for none)
 // and decodes a 2xx JSON response into out (nil to discard). A non-2xx
 // response is returned as a *problem.Error when it carries problem details.
 // A 404 without one is returned as route-not-found: the host's nexusd does
 // not serve that route, so it lacks the capability (NFR-5).
 func (c *Client) Do(ctx context.Context, method, path string, in, out any) error {
+	resp, err := c.Send(ctx, Request{Method: method, Path: path, Body: in})
+	if err != nil {
+		return err
+	}
+	if out == nil || len(resp.Body) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(resp.Body, out); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
+	return nil
+}
+
+// Send sends r and returns a 2xx response. Any other response is an error,
+// as for Do.
+func (c *Client) Send(ctx context.Context, r Request) (*Response, error) {
 	var body io.Reader
-	if in != nil {
-		b, err := json.Marshal(in)
+	if r.Body != nil {
+		b, err := json.Marshal(r.Body)
 		if err != nil {
-			return fmt.Errorf("encode request body: %w", err)
+			return nil, fmt.Errorf("encode request body: %w", err)
 		}
 		body = bytes.NewReader(b)
 	}
-	target := c.base.JoinPath(APIPrefix, path)
-	req, err := http.NewRequestWithContext(ctx, method, target.String(), body)
-	if err != nil {
-		return fmt.Errorf("build request: %w", err)
+	target := c.base.JoinPath(APIPrefix, r.Path)
+	if len(r.Query) > 0 {
+		target.RawQuery = r.Query.Encode()
 	}
-	req.Header.Set("Accept", "application/json, "+problem.ContentType)
-	if in != nil {
+	req, err := http.NewRequestWithContext(ctx, r.Method, target.String(), body)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	for k, vs := range r.Header {
+		for _, v := range vs {
+			req.Header.Add(k, v)
+		}
+	}
+	accept := r.Accept
+	if accept == "" {
+		accept = "application/json"
+	}
+	req.Header.Set("Accept", accept+", "+problem.ContentType)
+	if r.Body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	req.Header.Del("Authorization")
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
-	c.logf("> %s %s", method, target.Redacted())
+	c.logf("> %s %s", r.Method, target.Redacted())
 	start := time.Now()
 	resp, err := c.http.Do(req)
 	if err != nil {
-		c.logf("< %s %s failed after %s", method, target.Redacted(), time.Since(start).Round(time.Millisecond))
-		return &TransportError{Err: err}
+		c.logf("< %s %s failed after %s", r.Method, target.Redacted(), time.Since(start).Round(time.Millisecond))
+		return nil, &TransportError{Err: err}
 	}
 	defer resp.Body.Close()
 	c.logf("< %s (%s)", resp.Status, time.Since(start).Round(time.Millisecond))
@@ -211,25 +257,19 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out any) error
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		data, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
 		if err != nil {
-			return &TransportError{Err: fmt.Errorf("read response: %w", err)}
+			return nil, &TransportError{Err: fmt.Errorf("read response: %w", err)}
 		}
 		if len(data) > maxBodyBytes {
-			return fmt.Errorf("response body exceeds %d bytes", maxBodyBytes)
+			return nil, fmt.Errorf("response body exceeds %d bytes", maxBodyBytes)
 		}
-		if out == nil || len(data) == 0 {
-			return nil
-		}
-		if err := json.Unmarshal(data, out); err != nil {
-			return fmt.Errorf("decode response: %w", err)
-		}
-		return nil
+		return &Response{Status: resp.StatusCode, Header: resp.Header, Body: data}, nil
 	}
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxErrorBytes))
 	if err != nil {
-		return &TransportError{Err: fmt.Errorf("read error response: %w", err)}
+		return nil, &TransportError{Err: fmt.Errorf("read error response: %w", err)}
 	}
-	return responseError(resp.StatusCode, resp.Header.Get("Content-Type"), data)
+	return nil, responseError(resp.StatusCode, resp.Header.Get("Content-Type"), data)
 }
 
 // responseError turns a non-2xx response into an error.

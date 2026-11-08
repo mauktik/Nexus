@@ -47,6 +47,8 @@ func (a *app) hostAddCommand() *cobra.Command {
 			"on the host. A certificate that verifies against system trust is trusted that way instead.\n" +
 			"The token is read from the terminal without echo, or from stdin with --token-stdin;\n" +
 			"it is never accepted as an argument.",
+		Example: "  nexus host add nas --url https://nas.lan:8443\n" +
+			"  nexus host add nas --url https://nas.lan:8443 --fingerprint SHA256 --token-stdin < token.txt",
 		Args: cobra.ExactArgs(1),
 		RunE: run(func(cmd *cobra.Command, args []string) error { return a.hostAdd(cmd, args[0], f) }),
 	}
@@ -215,9 +217,10 @@ type hostView struct {
 func (a *app) hostGetCommand() *cobra.Command {
 	var output string
 	cmd := &cobra.Command{
-		Use:   "get [NAME]",
-		Short: "List configured hosts, or show one",
-		Args:  cobra.MaximumNArgs(1),
+		Use:     "get [NAME]",
+		Short:   "List configured hosts, or show one",
+		Example: "  nexus host get\n  nexus host get nas",
+		Args:    cobra.MaximumNArgs(1),
 		RunE: run(func(_ *cobra.Command, args []string) error {
 			if output != "" && !slices.Contains([]string{"table", "json", "jsonl", "yaml"}, output) {
 				return usagef("-o must be table, json, jsonl or yaml, not %q", output)
@@ -304,9 +307,10 @@ func writeHosts(w io.Writer, format string, views []hostView) error {
 
 func (a *app) hostRemoveCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "remove NAME",
-		Short: "Remove a configured host and its token",
-		Args:  cobra.ExactArgs(1),
+		Use:     "remove NAME",
+		Short:   "Remove a configured host and its token",
+		Example: "  nexus host remove nas",
+		Args:    cobra.ExactArgs(1),
 		RunE: run(func(_ *cobra.Command, args []string) error {
 			path, err := a.configPath()
 			if err != nil {
