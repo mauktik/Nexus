@@ -385,12 +385,12 @@ func (s *stack) records(t *testing.T, q audit.Query) []string {
 }
 
 // TC-82: FR-3 acceptance. The test provider reaches capabilities, the
-// OpenAPI document and the Dispatcher's scope and audit rules through
-// core.New alone; core and the transport import nothing from this suite.
-// The MCP tool list joins this test at 8.1.
+// OpenAPI document, the MCP tool list (8.1) and the Dispatcher's scope and
+// audit rules through core.New alone; core and the transports import
+// nothing from this suite.
 func TestTestProviderNeedsNoCoreOrTransportChange(t *testing.T) {
-	// Setup: core and transport do not depend on the conformance packages.
-	for _, pkg := range []string{"./internal/core", "./internal/server"} {
+	// Setup: core and transports do not depend on the conformance packages.
+	for _, pkg := range []string{"./internal/core", "./internal/server", "./internal/mcpadapter"} {
 		cmd := exec.Command("go", "list", "-deps", pkg)
 		cmd.Dir = filepath.Join("..", "..")
 		out, err := cmd.Output()
@@ -458,6 +458,34 @@ func TestTestProviderNeedsNoCoreOrTransportChange(t *testing.T) {
 		}
 	}
 
+	// Step 1: the MCP tool list has a tool for every op with an MCP
+	// binding, the test provider's included, each with object schemas.
+	tools := s.mcpTools(t, s.none)
+	for _, op := range s.ops() {
+		if op.MCP == nil || op.Mode == def.ModeStream {
+			// Stream tools return one bounded page, added at 8.2.
+			continue
+		}
+		tool, ok := tools[op.MCP.Tool]
+		if !ok {
+			t.Errorf("MCP tool %s of op %s is not listed", op.MCP.Tool, op.ID)
+			continue
+		}
+		if tool.InputSchema["type"] != "object" {
+			t.Errorf("MCP tool %s: inputSchema type %v, want object", op.MCP.Tool, tool.InputSchema["type"])
+		}
+		if tool.OutputSchema != nil && tool.OutputSchema["type"] != "object" {
+			t.Errorf("MCP tool %s: outputSchema type %v, want object", op.MCP.Tool, tool.OutputSchema["type"])
+		}
+	}
+	for _, op := range spec.Ops {
+		if op.MCP != nil && op.Mode != def.ModeStream {
+			if _, ok := tools[op.MCP.Tool]; !ok {
+				t.Errorf("test provider tool %s is not listed", op.MCP.Tool)
+			}
+		}
+	}
+
 	// Step 2: without the scope, 403 naming it and a denial record.
 	restart := testprovider.WidgetsRestart.Op()
 	r = s.call(t, restart, s.none, map[string]any{"name": "w1"})
@@ -483,6 +511,57 @@ func TestTestProviderNeedsNoCoreOrTransportChange(t *testing.T) {
 		TokenName: s.exactName[testprovider.WriteScope]}); len(got) != 1 {
 		t.Errorf("requested records = %v, want 1", got)
 	}
+}
+
+// mcpTool is one tools/list entry.
+type mcpTool struct {
+	Name         string         `json:"name"`
+	InputSchema  map[string]any `json:"inputSchema"`
+	OutputSchema map[string]any `json:"outputSchema"`
+}
+
+// mcpTools lists the MCP tools with a raw 2026-07-28 tools/list.
+func (s *stack) mcpTools(t *testing.T, token string) map[string]mcpTool {
+	t.Helper()
+	body := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{` +
+		`"io.modelcontextprotocol/protocolVersion":"2026-07-28",` +
+		`"io.modelcontextprotocol/clientInfo":{"name":"conformance","version":"1"},` +
+		`"io.modelcontextprotocol/clientCapabilities":{}}}}`)
+	req, err := http.NewRequest(http.MethodPost, s.base+"/mcp", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("MCP-Protocol-Version", "2026-07-28")
+	req.Header.Set("Mcp-Method", "tools/list")
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var msg struct {
+		Result struct {
+			Tools      []mcpTool `json:"tools"`
+			NextCursor string    `json:"nextCursor"`
+		} `json:"result"`
+	}
+	if resp.StatusCode != http.StatusOK || json.Unmarshal(b, &msg) != nil {
+		t.Fatalf("tools/list: %d %.300s", resp.StatusCode, b)
+	}
+	if msg.Result.NextCursor != "" {
+		t.Fatalf("tools/list is paginated; the suite reads one page")
+	}
+	out := map[string]mcpTool{}
+	for _, tool := range msg.Result.Tools {
+		out[tool.Name] = tool
+	}
+	return out
 }
 
 // requiredScope is the scope a call of op needs, and false for an op any

@@ -652,6 +652,12 @@ var wireSchemas = map[reflect.Type]*jsonschema.Schema{
 	reflect.TypeFor[problem.Error]():   problemSchema(),
 }
 
+// WireSchema is the wire schema of an output type as the document gives it:
+// time.Time, json.RawMessage and problem.Error take the shape of their JSON.
+// The MCP adapter (8.1) derives tool output schemas from it, so the two
+// surfaces describe one output the same way.
+func WireSchema(t reflect.Type) (*jsonschema.Schema, error) { return outputSchema(t) }
+
 // outputSchema is the wire schema of an output type.
 func outputSchema(t reflect.Type) (*jsonschema.Schema, error) {
 	if t == nil {

@@ -1,6 +1,7 @@
 // Package server is the HTTP transport of nexusd: timeouts, bearer
 // authentication, body limit, panic containment, problem+json for unmatched
-// requests, /healthz, and the REST routes derived from the core registry.
+// requests, /healthz, the REST routes derived from the core registry, and
+// the MCP endpoint (internal/mcpadapter) behind its Origin guard.
 package server
 
 import (
@@ -15,6 +16,7 @@ import (
 
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/core"
+	"github.com/mauktik/nexus/internal/mcpadapter"
 )
 
 // HTTP server limits (NFR-4, A-54). WriteTimeout bounds every response;
@@ -44,12 +46,17 @@ type Options struct {
 	// raised to MinTLSVersion. Nil serves plain HTTP, which Serve allows on
 	// loopback listeners only.
 	TLS *tls.Config
+	// MCPAllowedOrigins is mcp.allowedOrigins: the only Origin values /mcp
+	// accepts. A request to /mcp with any other Origin header gets 403
+	// before authentication. A request without one is not refused for it.
+	MCPAllowedOrigins []string
 }
 
-// Server serves the REST API and /healthz.
+// Server serves the REST API, /mcp and /healthz.
 type Server struct {
 	http       *http.Server
 	reg        *core.Registry
+	mcp        *mcpadapter.Adapter
 	mux        *http.ServeMux
 	routes     []Route
 	log        *slog.Logger
@@ -79,17 +86,30 @@ func New(reg *core.Registry, opts Options) (*Server, error) {
 	s.base, s.cancelBase = context.WithCancel(context.Background())
 
 	s.mux.HandleFunc("GET /healthz", s.healthz)
-	if err := s.registerREST(); err != nil {
+	// One Dispatcher serves REST and MCP alike.
+	disp := core.NewDispatcher(reg, core.DispatcherOptions{Logger: s.log})
+	if err := s.registerREST(disp); err != nil {
 		s.cancelBase()
 		return nil, err
 	}
+	mcpHandler, err := mcpadapter.New(reg, disp, mcpadapter.Options{
+		MaxBodyBytes: opts.MaxBodyBytes, Logger: s.log, IdempotencyKey: idempotencyKey,
+	})
+	if err != nil {
+		s.cancelBase()
+		return nil, err
+	}
+	s.mcp = mcpHandler
+	s.mux.Handle("POST "+mcpadapter.Path, mcpHandler)
 
 	// Authentication, with its rate limit, runs before the body is touched
 	// or a route is matched, so an unauthenticated client learns nothing
-	// about routes and cannot make the server read a body.
+	// about routes and cannot make the server read a body. The Origin guard
+	// of /mcp runs before it (FR-23).
 	var h http.Handler = http.HandlerFunc(s.dispatch)
 	h = limitBody(s.log, opts.MaxBodyBytes, h)
 	h = opts.Auth.Middleware(h)
+	h = mcpadapter.OriginGuard(opts.MCPAllowedOrigins, s.log, h)
 	h = recoverPanics(s.log, h)
 	s.http = &http.Server{
 		Handler:           h,
@@ -107,6 +127,11 @@ func New(reg *core.Registry, opts Options) (*Server, error) {
 	}
 	return s, nil
 }
+
+// RefreshMCP rebuilds the MCP tool list from the registry's current
+// provider enablement. A reload calls it after applying new provider
+// sections; calls already in flight finish on the list they started with.
+func (s *Server) RefreshMCP() error { return s.mcp.Refresh() }
 
 // HTTP returns the configured *http.Server, for inspection of its limits.
 func (s *Server) HTTP() *http.Server { return s.http }

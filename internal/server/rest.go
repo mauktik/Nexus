@@ -52,10 +52,9 @@ func RouteFor(op def.Op) (Route, error) {
 }
 
 // registerREST registers one route per binding in the registry, and records
-// each registration. Every route calls the one Dispatcher built here: it is
-// the only path from a route to a handler.
-func (s *Server) registerREST() error {
-	disp := core.NewDispatcher(s.reg, core.DispatcherOptions{Logger: s.log})
+// each registration. Every route calls disp, the one Dispatcher New builds:
+// it is the only path from a route to a handler.
+func (s *Server) registerREST(disp *core.Dispatcher) error {
 	for _, e := range s.reg.Entries() {
 		op := e.Binding.Op()
 		rt, err := RouteFor(op)

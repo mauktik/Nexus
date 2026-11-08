@@ -212,7 +212,7 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 	authn := auth.New(stateDir, auth.Options{FailureLimitPerMinute: cfg.Auth.FailureLimitPerMinute, Logger: log,
 		Audit: auditLog})
 	srv, err := server.New(reg, server.Options{MaxBodyBytes: cfg.Limits.MaxBodyBytes, Logger: log, Auth: authn,
-		TLS: opts.TLS})
+		TLS: opts.TLS, MCPAllowedOrigins: cfg.MCP.AllowedOrigins})
 	if err != nil {
 		return fail(fmt.Errorf("server: %w", err))
 	}

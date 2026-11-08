@@ -1,0 +1,55 @@
+{
+  "regenerate": "go test ./internal/mcpadapter -run TestDiscoverMatchesCapture -update",
+  "request": {
+    "headers": {
+      "Accept": "application/json, text/event-stream",
+      "Content-Type": "application/json",
+      "Mcp-Method": "server/discover",
+      "Mcp-Protocol-Version": "2026-07-28"
+    },
+    "body": {
+      "id": "discover-1",
+      "jsonrpc": "2.0",
+      "method": "server/discover",
+      "params": {
+        "_meta": {
+          "io.modelcontextprotocol/clientCapabilities": {},
+          "io.modelcontextprotocol/clientInfo": {
+            "name": "nexus-wire-test",
+            "version": "1.0.0"
+          },
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "id": "discover-1",
+      "jsonrpc": "2.0",
+      "result": {
+        "_meta": {
+          "io.modelcontextprotocol/serverInfo": {
+            "name": "nexusd",
+            "version": "normalized"
+          }
+        },
+        "cacheScope": "public",
+        "capabilities": {
+          "tools": {}
+        },
+        "resultType": "complete",
+        "supportedVersions": [
+          "2026-07-28",
+          "2025-11-25",
+          "2025-06-18",
+          "2025-03-26",
+          "2024-11-05"
+        ],
+        "ttlMs": 0
+      }
+    }
+  }
+}
