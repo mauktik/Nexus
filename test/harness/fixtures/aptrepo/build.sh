@@ -16,6 +16,14 @@
 #                                         without indexing it; prints its path
 #   build.sh index REPO                   regenerate REPO/Packages
 #
+# add and deb take options after VERSION:
+#
+#   --gate FILE    the postinst waits until FILE exists (at most 600 s), so
+#                  dpkg holds its frontend lock mid-postinst until the test
+#                  creates FILE
+#   --conffile     the package ships /etc/NAME.conf as a conffile holding
+#                  "NAME VERSION"
+#
 # NAME and VERSION are used as given; callers pass fixed fixture values.
 set -euo pipefail
 
@@ -26,6 +34,22 @@ die() {
 
 build_deb() {
 	local out=$1 name=$2 version=$3
+	shift 3
+	local gate="" conffile=""
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--gate)
+			[ $# -ge 2 ] || die "--gate needs a file"
+			gate=$2
+			shift 2
+			;;
+		--conffile)
+			conffile=1
+			shift
+			;;
+		*) die "unknown option $1" ;;
+		esac
+	done
 	local work
 	work=$(mktemp -d)
 	# The package's root entry takes this directory's mode.
@@ -42,6 +66,26 @@ Priority: optional
 Description: Nexus apt fixture package $name
  A package built by the Nexus T1 harness. It installs one file.
 EOF
+	if [ -n "$conffile" ]; then
+		install -d -m 0755 "$work/etc"
+		printf '%s %s\n' "$name" "$version" >"$work/etc/$name.conf"
+		chmod 0644 "$work/etc/$name.conf"
+		echo "/etc/$name.conf" >"$work/DEBIAN/conffiles"
+		chmod 0644 "$work/DEBIAN/conffiles"
+	fi
+	if [ -n "$gate" ]; then
+		cat >"$work/DEBIAN/postinst" <<EOF
+#!/bin/sh
+# Holds dpkg mid-postinst until the test creates the gate file.
+i=0
+while [ ! -e '$gate' ] && [ \$i -lt 3000 ]; do
+	sleep 0.2
+	i=\$((i + 1))
+done
+exit 0
+EOF
+		chmod 0755 "$work/DEBIAN/postinst"
+	fi
 	install -d -m 0755 "$out"
 	local deb="$out/${name}_${version}_all.deb"
 	dpkg-deb --root-owner-group --build "$work" "$deb" >/dev/null
@@ -72,12 +116,12 @@ shift
 case $cmd in
 init) [ $# -eq 1 ] || die "usage: init REPO"; init "$1" ;;
 add)
-	[ $# -eq 3 ] || die "usage: add REPO NAME VERSION"
+	[ $# -ge 3 ] || die "usage: add REPO NAME VERSION [options]"
 	[ -d "$1" ] || init "$1"
-	build_deb "$1" "$2" "$3"
+	build_deb "$@"
 	index "$1"
 	;;
-deb) [ $# -eq 3 ] || die "usage: deb OUT NAME VERSION"; build_deb "$1" "$2" "$3" ;;
+deb) [ $# -ge 3 ] || die "usage: deb OUT NAME VERSION [options]"; build_deb "$@" ;;
 index) [ $# -eq 1 ] || die "usage: index REPO"; index "$1" ;;
 *) die "unknown command $cmd" ;;
 esac

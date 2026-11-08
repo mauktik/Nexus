@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/config"
@@ -29,10 +30,6 @@ import (
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/providers/apt/spec"
 )
-
-// LaneKey is the lane every apt mutation queues on, FIFO: one apt
-// operation runs at a time on a host (FR-17).
-const LaneKey = "apt"
 
 // The reboot-required marker and its package list, as Ubuntu maintains
 // them (FR-14).
@@ -74,6 +71,9 @@ type Provider struct {
 	root      string // Prefix of every host file the provider stats or reads; "/" outside tests
 	systemd   func() detach.Availability
 	settings  atomic.Pointer[config.AptConfig]
+	opsDir    atomic.Pointer[string] // Operations' directories; set by UseOpsDir
+	probe     lockProbe              // probeLock outside tests
+	lockPoll  time.Duration          // Between probes of a held lock
 
 	archMu sync.Mutex
 	arch   string // dpkg --print-architecture, once known
@@ -84,7 +84,7 @@ type Provider struct {
 // New returns the provider with the default settings until Configure.
 func New(opts Options) *Provider {
 	p := &Provider{host: opts.Host, log: opts.Logger, preflight: opts.Preflight, run: execRun, root: "/",
-		systemd: detach.SystemdAvailable}
+		systemd: detach.SystemdAvailable, probe: probeLock, lockPoll: lockPoll}
 	if p.log == nil {
 		p.log = slog.Default()
 	}
@@ -109,6 +109,19 @@ func (p *Provider) Configure(decode func(into any) error) error {
 
 // Settings returns the apt section in force, defaults applied.
 func (p *Provider) Settings() config.AptConfig { return *p.settings.Load() }
+
+// UseOpsDir sets the directory of the operations' directories, where
+// Prepare writes pre.json and Finalize reads it and the output. It
+// implements provider.OpsDirUser.
+func (p *Provider) UseOpsDir(dir string) { p.opsDir.Store(&dir) }
+
+func (p *Provider) opDir(id string) (string, error) {
+	dir := p.opsDir.Load()
+	if dir == nil || *dir == "" {
+		return "", errors.New("apt: no operations directory: UseOpsDir was not called")
+	}
+	return filepath.Join(*dir, id), nil
+}
 
 // Preflight checks the fixed binaries, then systemd, which refresh and every
 // later mutation need: there is no fallback to a child of nexusd (CON-4).
@@ -148,17 +161,12 @@ func (p *Provider) Bindings() []provider.Binding {
 		provider.Sync(spec.Get, p.get),
 		provider.Sync(spec.UpgradableList, p.listUpgradable),
 		provider.Detached(spec.Refresh, provider.DetachedSpec[spec.RefreshInput, spec.RefreshResult]{
-			Lane:       aptLane,
+			Lane:       aptLane[spec.RefreshInput],
 			Prepare:    p.prepareRefresh,
-			Finalize:   finalizeRefresh,
+			Finalize:   p.finalizeRefreshBusy,
 			LostDetail: lostRefresh,
 		}),
 	}
-}
-
-// aptLane is the FIFO lane of every apt mutation.
-func aptLane(context.Context, spec.RefreshInput) (provider.Lane, error) {
-	return provider.Lane{Key: LaneKey, Policy: provider.LaneQueue}, nil
 }
 
 // prepareRefresh builds apt-get update's unit. It skips the dpkg lock
@@ -177,6 +185,7 @@ func (p *Provider) prepareRefresh(context.Context, spec.RefreshInput, *provider.
 
 // finalizeRefresh states the outcome from exit.json alone: exit 0 is
 // success, anything else apt-failed with apt-get's status.
+// finalizeRefreshBusy (lane.go) runs first, for a held lock.
 func finalizeRefresh(_ context.Context, _ spec.RefreshInput, x detach.Exit, _ *provider.Run) (spec.RefreshResult, error) {
 	switch {
 	case x.Error != "":
