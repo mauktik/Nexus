@@ -154,7 +154,7 @@ func (p *Provider) Preflight(ctx context.Context) provider.Status {
 	}}
 }
 
-// Bindings binds the read operations and refresh.
+// Bindings binds the read operations, refresh and upgrade.
 func (p *Provider) Bindings() []provider.Binding {
 	return []provider.Binding{
 		provider.Sync(spec.List, p.list),
@@ -166,6 +166,7 @@ func (p *Provider) Bindings() []provider.Binding {
 			Finalize:   p.finalizeRefreshBusy,
 			LostDetail: lostRefresh,
 		}),
+		p.upgradeBinding(),
 	}
 }
 

@@ -1,0 +1,14 @@
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following additional packages will be installed:
+  nxdep
+The following NEW packages will be installed:
+  nxdep
+The following packages will be upgraded:
+  nxnewdep
+1 upgraded, 1 newly installed, 0 to remove and 5 not upgraded.
+Inst nxdep (1.0 localhost [all])
+Inst nxnewdep [1.0] (2.0 localhost [all])
+Conf nxdep (1.0 localhost [all])
+Conf nxnewdep (2.0 localhost [all])

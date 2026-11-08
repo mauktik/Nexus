@@ -136,6 +136,94 @@ type UpgradableProperties struct {
 	Origins  []string `json:"origins"` // The candidate's origins as apt names them, e.g. Ubuntu:26.04/resolute-security
 }
 
+// Upgrade modes (FR-15).
+const (
+	ModeStandard = "standard" // apt-get upgrade: never removes a package
+	ModeFull     = "full"     // apt-get dist-upgrade: may remove packages to resolve dependencies
+)
+
+// Modes are the upgrade modes, ModeStandard first: the default.
+var Modes = []string{ModeStandard, ModeFull}
+
+// MaxUpgradeNames bounds the names of one subset upgrade.
+const MaxUpgradeNames = 500
+
+// UpgradeInput is the input of apt.actions.upgrade.
+type UpgradeInput struct {
+	Mode string `json:"mode,omitempty" jsonschema:"standard (the default) never removes a package; full may remove packages to resolve changed dependencies."`
+	// Names, when present, upgrades only these installed packages. Each
+	// must be installed under exactly that name, or the request is refused
+	// not-found before any operation exists.
+	Names  []string `json:"names,omitempty" jsonschema:"Installed packages to upgrade, each named exactly, optionally with :architecture. Empty or absent upgrades every package."`
+	WhatIf bool     `json:"whatIf,omitempty" jsonschema:"Simulate only: change nothing and return the packages that would be upgraded, installed, removed and held back."`
+}
+
+// EffectiveMode is the mode with the default applied.
+func (in UpgradeInput) EffectiveMode() string {
+	if in.Mode == "" {
+		return ModeStandard
+	}
+	return in.Mode
+}
+
+// PackageChange is one package whose installed version or dpkg status an
+// upgrade changed, read from dpkg's status before and after the run. A
+// version is empty when the package is not installed on that side.
+type PackageChange struct {
+	Package      string `json:"package"`
+	Architecture string `json:"architecture"`
+	OldVersion   string `json:"oldVersion"`
+	NewVersion   string `json:"newVersion"`
+	OldStatus    string `json:"oldStatus"` // dpkg's status word, not-installed for a package dpkg did not know
+	NewStatus    string `json:"newStatus"`
+}
+
+// PreviewPackage is one package of a whatIf preview, from apt-get -s. A
+// version is empty when the package is not installed on that side.
+type PreviewPackage struct {
+	Package      string `json:"package"`
+	Architecture string `json:"architecture"`
+	OldVersion   string `json:"oldVersion"`
+	NewVersion   string `json:"newVersion"`
+}
+
+// HeldBackPackage is an upgradable package the simulated run would not
+// upgrade.
+type HeldBackPackage struct {
+	Package          string `json:"package"`
+	Architecture     string `json:"architecture"`
+	InstalledVersion string `json:"installedVersion"`
+	CandidateVersion string `json:"candidateVersion"`
+}
+
+// UpgradePreview is what a whatIf upgrade would do. HeldBack is computed,
+// not parsed: the upgradable packages (of the named ones, for a subset)
+// that the simulation does not install.
+type UpgradePreview struct {
+	Upgraded  []PreviewPackage  `json:"upgraded"`
+	Installed []PreviewPackage  `json:"installed"`
+	Removed   []PreviewPackage  `json:"removed"`
+	HeldBack  []HeldBackPackage `json:"heldBack"`
+}
+
+// UpgradeResult is the result of apt.actions.upgrade. A whatIf run has
+// Preview and changes nothing; a real run has Changes and the rest.
+type UpgradeResult struct {
+	apitypes.ActionResult
+	Mode    string          `json:"mode"`
+	WhatIf  bool            `json:"whatIf"`
+	Preview *UpgradePreview `json:"preview,omitempty"` // whatIf only
+	Changes []PackageChange `json:"changes"`           // Sorted by package and architecture; empty for whatIf
+	// ConffilesKept are the changed conffiles whose local version dpkg
+	// kept. ConffilesComplete is false when dpkg.log was rotated during the
+	// run, so the list may lack some.
+	ConffilesKept          []string `json:"conffilesKept"`
+	ConffilesComplete      bool     `json:"conffilesComplete"`
+	RebootRequired         string   `json:"rebootRequired"` // true, false or unknown, read after the run
+	RebootRequiredPackages []string `json:"rebootRequiredPackages"`
+	ExitCode               int      `json:"exitCode"` // apt-get's exit status
+}
+
 // RefreshResult is the result of a refresh.
 type RefreshResult struct {
 	apitypes.ActionResult
@@ -160,8 +248,25 @@ func refineName(s *jsonschema.Schema) {
 	}
 }
 
-// The apt read operations and refresh, in the order of the Operation catalog
-// table.
+func refineUpgrade(s *jsonschema.Schema) {
+	if p := s.Properties["mode"]; p != nil {
+		p.Enum = make([]any, len(Modes))
+		for i, m := range Modes {
+			p.Enum[i] = m
+		}
+	}
+	if p := s.Properties["names"]; p != nil {
+		n := MaxUpgradeNames
+		p.MaxItems = &n
+		if p.Items != nil {
+			l := MaxNameLength
+			p.Items.Pattern, p.Items.MaxLength = NamePattern, &l
+		}
+	}
+}
+
+// The apt read operations, refresh and upgrade, in the order of the
+// Operation catalog table.
 var (
 	List = def.Define[ListInput, apitypes.List[Package]](def.Op{
 		ID: Name + ".packages.list", Provider: Name, Kind: def.KindList, ResourceType: ResourceType,
@@ -217,11 +322,36 @@ var (
 		CLI: def.CLIBinding{Noun: "packageindex", Verb: "update"},
 		MCP: &def.MCPBinding{Tool: "refresh_package_index", Description: "Refresh this host's apt package indexes."},
 	})
+
+	Upgrade = def.Define[UpgradeInput, UpgradeResult](def.Op{
+		ID: Name + ".actions.upgrade", Provider: Name, Kind: def.KindProviderAction, Action: "upgrade",
+		Summary: "Upgrade packages",
+		Description: "Upgrades installed packages to their candidate versions from the package indexes as of the " +
+			"last refresh: every package, or only names, each of which must be installed under exactly that name " +
+			"(otherwise 404 not-found, and no operation is created). mode standard (the default) runs apt-get " +
+			"upgrade, or apt-get install --only-upgrade --no-remove for names, and never removes a package; full " +
+			"runs apt-get dist-upgrade, or apt-get install --only-upgrade for names, and may remove packages to " +
+			"resolve dependencies. whatIf true simulates with apt-get -s, changes nothing, does not wait for other " +
+			"apt operations, and returns preview: the packages it would upgrade, newly install and remove, and " +
+			"heldBack, the upgradable packages it would not upgrade. Side effects: installs new versions of " +
+			"packages and runs their maintainer scripts as root, which can restart services, Docker included; " +
+			"never prompts; a changed configuration file keeps the local version and is listed in conffilesKept; " +
+			"never reboots, and reports rebootRequired afterwards. Long-running: answers 202 with an operation, " +
+			"queued in order behind any other apt operation, that first waits up to providers.apt.lockWait for " +
+			"another process's dpkg lock, then fails package-manager-busy; fails package-manager-broken when dpkg " +
+			"reports an interrupted state, which it never repairs; fails apt-failed, naming apt-get's exit " +
+			"status, when apt-get fails. The result lists the packages changed and apt-get's exit status.",
+		Scope: def.Scope{Name: WriteScope}, Risk: def.RiskDestructive, Mode: def.ModeLongRunning, WhatIf: true,
+		CLI: def.CLIBinding{Noun: "package", Verb: "update"},
+		MCP: &def.MCPBinding{Tool: "upgrade_packages",
+			Description: "Upgrade this host's packages, all or named; whatIf previews. Never reboots."},
+		Refine: refineUpgrade,
+	})
 )
 
 // Spec returns the apt provider's declarations for the catalog.
 func Spec() def.ProviderSpec {
 	return def.ProviderSpec{Name: Name, ReadScope: ReadScope, Ops: []def.Op{
-		List.Op(), Get.Op(), UpgradableList.Op(), Refresh.Op(),
+		List.Op(), Get.Op(), UpgradableList.Op(), Refresh.Op(), Upgrade.Op(),
 	}}
 }

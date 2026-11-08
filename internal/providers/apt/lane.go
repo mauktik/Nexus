@@ -3,17 +3,13 @@ package apt
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
-	"io/fs"
 	"math"
-	"path/filepath"
 	"strconv"
 	"time"
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/detach"
-	"github.com/mauktik/nexus/internal/oplog"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/providers/apt/spec"
@@ -116,32 +112,8 @@ const maxStderrBytes = 1 << 20
 // maxStderrBytes from its start: apt's lock errors come before any work.
 // It reads files only, so it works after a restart.
 func (p *Provider) opStderr(id string) ([]byte, error) {
-	dir, err := p.opDir(id)
-	if err != nil {
-		return nil, err
-	}
-	r := oplog.NewReader(filepath.Join(dir, detach.OutputDir))
-	var b bytes.Buffer
-	var offset int64
-	for b.Len() < maxStderrBytes {
-		page, err := r.Read(offset, 256<<10)
-		if errors.Is(err, fs.ErrNotExist) {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("apt: read the output of %s: %w", id, err)
-		}
-		for _, f := range page.Frames {
-			if f.S == apitypes.StreamStderr {
-				b.WriteString(f.D)
-			}
-		}
-		if !page.More || page.Next == offset {
-			break
-		}
-		offset = page.Next
-	}
-	return b.Bytes(), nil
+	b, _, err := p.opOutput(id, apitypes.StreamStderr, maxStderrBytes)
+	return b, err
 }
 
 // exitFailure is aptFailure with stderr read from the operation's log when

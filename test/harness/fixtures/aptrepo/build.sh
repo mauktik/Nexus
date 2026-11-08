@@ -23,6 +23,12 @@
 #                  creates FILE
 #   --conffile     the package ships /etc/NAME.conf as a conffile holding
 #                  "NAME VERSION"
+#   --depends LIST    Depends: LIST (a control field value, e.g. "nxdep")
+#   --conflicts LIST  Conflicts: LIST
+#   --fail-postinst   the postinst exits 1, so configuring the package fails
+#   --reboot-marker   the postinst creates /var/run/reboot-required and adds
+#                     NAME to /var/run/reboot-required.pkgs, as Ubuntu's
+#                     notify-reboot-required does
 #
 # NAME and VERSION are used as given; callers pass fixed fixture values.
 set -euo pipefail
@@ -35,9 +41,27 @@ die() {
 build_deb() {
 	local out=$1 name=$2 version=$3
 	shift 3
-	local gate="" conffile=""
+	local gate="" conffile="" depends="" conflicts="" failpostinst="" reboot=""
 	while [ $# -gt 0 ]; do
 		case $1 in
+		--depends)
+			[ $# -ge 2 ] || die "--depends needs a value"
+			depends=$2
+			shift 2
+			;;
+		--conflicts)
+			[ $# -ge 2 ] || die "--conflicts needs a value"
+			conflicts=$2
+			shift 2
+			;;
+		--fail-postinst)
+			failpostinst=1
+			shift
+			;;
+		--reboot-marker)
+			reboot=1
+			shift
+			;;
 		--gate)
 			[ $# -ge 2 ] || die "--gate needs a file"
 			gate=$2
@@ -66,6 +90,8 @@ Priority: optional
 Description: Nexus apt fixture package $name
  A package built by the Nexus T1 harness. It installs one file.
 EOF
+	[ -z "$depends" ] || echo "Depends: $depends" >>"$work/DEBIAN/control"
+	[ -z "$conflicts" ] || echo "Conflicts: $conflicts" >>"$work/DEBIAN/control"
 	if [ -n "$conffile" ]; then
 		install -d -m 0755 "$work/etc"
 		printf '%s %s\n' "$name" "$version" >"$work/etc/$name.conf"
@@ -73,17 +99,30 @@ EOF
 		echo "/etc/$name.conf" >"$work/DEBIAN/conffiles"
 		chmod 0644 "$work/DEBIAN/conffiles"
 	fi
-	if [ -n "$gate" ]; then
-		cat >"$work/DEBIAN/postinst" <<EOF
-#!/bin/sh
+	if [ -n "$gate$failpostinst$reboot" ]; then
+		echo '#!/bin/sh' >"$work/DEBIAN/postinst"
+		if [ -n "$gate" ]; then
+			cat >>"$work/DEBIAN/postinst" <<EOF
 # Holds dpkg mid-postinst until the test creates the gate file.
 i=0
 while [ ! -e '$gate' ] && [ \$i -lt 3000 ]; do
 	sleep 0.2
 	i=\$((i + 1))
 done
-exit 0
 EOF
+		fi
+		if [ -n "$reboot" ]; then
+			cat >>"$work/DEBIAN/postinst" <<EOF
+# Asks for a reboot as notify-reboot-required does; never reboots.
+touch /var/run/reboot-required
+echo '$name' >>/var/run/reboot-required.pkgs
+EOF
+		fi
+		if [ -n "$failpostinst" ]; then
+			echo 'echo "fixture postinst fails on purpose" >&2; exit 1' >>"$work/DEBIAN/postinst"
+		else
+			echo 'exit 0' >>"$work/DEBIAN/postinst"
+		fi
 		chmod 0755 "$work/DEBIAN/postinst"
 	fi
 	install -d -m 0755 "$out"

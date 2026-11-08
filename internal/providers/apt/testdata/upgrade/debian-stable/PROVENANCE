@@ -1,0 +1,7 @@
+captured: 2026-11-08T00:35:00Z
+image: debian:stable
+image-id: sha256:3f0347f4b50e7a54a91d1beaf6ce6fa5aec392347da6a9184b5bfe4e1b814538
+arch: arm64
+apt: apt 3.0.4 (arm64)
+dpkg: Debian dpkg-query package management program query tool version 1.22.22 (arm64).
+script: internal/providers/apt/testdata/capture-upgrade.sh

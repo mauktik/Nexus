@@ -1,0 +1,15 @@
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Calculating upgrade...
+The following packages have been kept back:
+  nxconfl nxheld nxnewdep
+The following packages will be upgraded:
+  nxconf nxother nxplain
+3 upgraded, 0 newly installed, 0 to remove and 3 not upgraded.
+Inst nxconf [1.0] (2.0 localhost [all])
+Inst nxother [1.0] (2.0 localhost [all])
+Inst nxplain [1.0] (2.0 localhost [all])
+Conf nxconf (2.0 localhost [all])
+Conf nxother (2.0 localhost [all])
+Conf nxplain (2.0 localhost [all])
