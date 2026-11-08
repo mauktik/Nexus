@@ -150,6 +150,10 @@ func filterKeys(fs []def.Filter) []string {
 	return keys
 }
 
+// operationColumns are the table columns of an operation, which every
+// long-running op answers with.
+var operationColumns = []string{"id", "action", "status", "created", "ended"}
+
 // The system operations, in the order of the Operation catalog table.
 var (
 	CapabilitiesGet = def.Define[CapabilitiesGetInput, apitypes.Capabilities](def.Op{
@@ -161,8 +165,9 @@ var (
 			"the reason when not enabled, and its resource types and actions. Read-only. " +
 			"With refresh=true every enabled provider's preflight is re-run first.",
 		Scope: def.Scope{}, Risk: def.RiskReadOnly, Mode: def.ModeSync, Idempotent: true,
-		CLI: def.CLIBinding{Noun: "capability", Verb: "get"},
-		MCP: &def.MCPBinding{Tool: "get_capabilities", Description: "List this host's providers and whether each is usable."},
+		CLI:     def.CLIBinding{Noun: "capability", Verb: "get"},
+		MCP:     &def.MCPBinding{Tool: "get_capabilities", Description: "List this host's providers and whether each is usable."},
+		Columns: []string{"version", "apiVersion", "providers.name", "providers.status"},
 	})
 
 	OperationsList = def.Define[ListInput, apitypes.List[apitypes.Operation]](def.Op{
@@ -176,6 +181,7 @@ var (
 		CLI:     def.CLIBinding{Noun: "operation", Verb: "get"},
 		MCP:     &def.MCPBinding{Tool: "list_operations", Description: "List recent operations and their status."},
 		Refine:  refineList(filterKeys(operationFilters)...),
+		Columns: operationColumns,
 	})
 
 	OperationsGet = def.Define[OperationInput, apitypes.Operation](def.Op{
@@ -185,9 +191,10 @@ var (
 		Description: "Returns one operation with its status, timestamps, result and structured error. " +
 			"Read-only. Requires the read scope of the operation's provider.",
 		Scope: def.Scope{FromTarget: true}, Risk: def.RiskReadOnly, Mode: def.ModeSync, Idempotent: true,
-		CLI:    def.CLIBinding{Noun: "operation", Verb: "get", Positional: "id"},
-		MCP:    &def.MCPBinding{Tool: "get_operation", Description: "Get an operation's status, result and error."},
-		Refine: refineOperationID,
+		CLI:     def.CLIBinding{Noun: "operation", Verb: "get", Positional: "id"},
+		MCP:     &def.MCPBinding{Tool: "get_operation", Description: "Get an operation's status, result and error."},
+		Refine:  refineOperationID,
+		Columns: operationColumns,
 	})
 
 	OperationsLogs = def.Define[OperationLogsInput, apitypes.Frame](def.Op{
@@ -232,6 +239,7 @@ var (
 		Filters: auditFilters,
 		CLI:     def.CLIBinding{Noun: "auditrecord", Verb: "get"},
 		Refine:  refineList(filterKeys(auditFilters)...),
+		Columns: []string{"time", "tokenName", "action", "target", "outcome"},
 	})
 )
 

@@ -17,6 +17,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/mauktik/nexus/internal/catalog"
+	"github.com/mauktik/nexus/internal/cli/output"
 	"github.com/mauktik/nexus/internal/client"
 	"github.com/mauktik/nexus/internal/clientconfig"
 	"github.com/mauktik/nexus/internal/def"
@@ -59,6 +60,9 @@ type app struct {
 	host    string // --host
 	verbose bool   // --verbose
 	target  string // The host name an error message should name
+	// format is the output format of the data command running, once
+	// known; in a machine format its errors are JSON (FR-30).
+	format output.Format
 	// specs are the declarations the command tree is generated from; nil
 	// means catalog.All().
 	specs     []def.ProviderSpec
@@ -95,7 +99,16 @@ func runWithSpecs(args []string, env Env, specs []def.ProviderSpec) int {
 		fmt.Fprintf(env.Stderr, "%s: %v\nRun '%s --help' for usage.\n", programName, err, programName)
 		return ExitUsage
 	}
-	fmt.Fprintf(env.Stderr, "%s: %s\n", programName, Message(re.err, a.target))
+	if a.format.Machine() {
+		host := a.target
+		if host == "" {
+			host = a.host
+		}
+		// Like Fprintf below: a failed write to stderr has nowhere to go.
+		_ = output.WriteLine(env.Stderr, errorObject(re.err, host))
+	} else {
+		fmt.Fprintf(env.Stderr, "%s: %s\n", programName, Message(re.err, a.target))
+	}
 	return ExitCode(re.err)
 }
 

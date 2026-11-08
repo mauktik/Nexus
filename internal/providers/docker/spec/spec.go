@@ -322,6 +322,9 @@ const laneNote = "Answers 409 naming the blocking operation while another start,
 
 // The docker operations, in the order of the Operation catalog table.
 var (
+	// containerColumns are a container's table columns in the CLI.
+	containerColumns = []string{"name", "properties.state", "properties.health", "properties.imageReference", "properties.update.status"}
+
 	List = def.Define[ListInput, apitypes.List[Container]](def.Op{
 		ID: Name + ".containers.list", Provider: Name, Kind: def.KindList, ResourceType: ResourceType,
 		Summary: "List containers",
@@ -335,6 +338,7 @@ var (
 		CLI:     def.CLIBinding{Noun: "container", Verb: "get"},
 		MCP:     &def.MCPBinding{Tool: "list_containers", Description: "List this host's Docker containers, stopped ones included."},
 		Refine:  refineList,
+		Columns: containerColumns,
 	})
 
 	Get = def.Define[ContainerInput, Container](def.Op{
@@ -344,9 +348,10 @@ var (
 			"restart policy, ports, Compose project and service when Compose manages it, and the stored update " +
 			"status from the last check-updates. Read-only.",
 		Scope: def.Scope{Name: ReadScope}, Risk: def.RiskReadOnly, Mode: def.ModeSync, Idempotent: true,
-		CLI:    def.CLIBinding{Noun: "container", Verb: "get", Positional: "name"},
-		MCP:    &def.MCPBinding{Tool: "get_container", Description: "Get one Docker container's state, image and ports."},
-		Refine: refineName,
+		CLI:     def.CLIBinding{Noun: "container", Verb: "get", Positional: "name"},
+		MCP:     &def.MCPBinding{Tool: "get_container", Description: "Get one Docker container's state, image and ports."},
+		Refine:  refineName,
+		Columns: containerColumns,
 	})
 
 	Logs = def.Define[LogsInput, apitypes.Frame](def.Op{

@@ -23,7 +23,11 @@ const (
 )
 
 // --version is the root's own flag, not inherited, so an input may take it.
-var reservedFlags = []string{"help", "host", "verbose", flagIdempotencyKey}
+var reservedFlags = []string{"help", "host", "verbose", flagIdempotencyKey, flagOutput, flagSelect, flagFilter}
+
+// filterField is the input that carries server-side filters. The output
+// layer's --filter fills it with the keys the op declares (9.3).
+const filterField = "filter"
 
 // variadicField is the input field trailing arguments bind to, when an op
 // has no positional binding: `nexus package install curl jq`.
@@ -84,19 +88,12 @@ func newBinding(g *opCommand) (*binding, error) {
 			}
 		}
 		for _, name := range slices.Sorted(maps.Keys(s.Properties)) {
-			if name == op.CLI.Positional {
+			if name == op.CLI.Positional || name == filterField {
 				continue
 			}
 			f, err := fieldOf(name, s.Properties[name])
 			if err != nil {
 				return nil, fmt.Errorf("op %q: %w", op.ID, err)
-			}
-			if name == "filter" && len(op.Filters) > 0 {
-				var keys []string
-				for _, fl := range op.Filters {
-					keys = append(keys, fl.Key)
-				}
-				f.usage = "key=value, repeatable; keys: " + strings.Join(keys, ", ")
 			}
 			if prev, ok := byFlag[f.flag]; ok {
 				if prev.name != f.name || prev.kind != f.kind || !slices.Equal(prev.enum, f.enum) {
@@ -235,10 +232,10 @@ func (b *binding) register(cmd *cobra.Command) {
 	}
 }
 
-// input assembles op's input from the flags set and the arguments, and
-// validates it against the input schema, so a bad value is a usage error
-// and nothing is sent.
-func (b *binding) input(fs *pflag.FlagSet, op def.Op, args []string) (map[string]any, error) {
+// input assembles op's input from the flags set, the arguments and the
+// server-side filters, and validates it against the input schema, so a bad
+// value is a usage error and nothing is sent.
+func (b *binding) input(fs *pflag.FlagSet, op def.Op, args []string, filters []string) (map[string]any, error) {
 	in := map[string]any{}
 	own := b.opFields[op.ID]
 	for _, f := range b.fields {
@@ -282,6 +279,9 @@ func (b *binding) input(fs *pflag.FlagSet, op def.Op, args []string) (map[string
 	if b.variadic && len(args) > 0 {
 		prev, _ := in[variadicField].([]string)
 		in[variadicField] = append(prev, args...)
+	}
+	if len(filters) > 0 {
+		in[filterField] = filters
 	}
 	if err := validateInput(op, in); err != nil {
 		return nil, err

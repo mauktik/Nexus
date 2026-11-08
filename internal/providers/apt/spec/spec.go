@@ -368,9 +368,10 @@ var (
 			"status. Removed packages whose configuration files remain are not listed. Read-only. Paged with " +
 			"limit and cursor.",
 		Scope: def.Scope{Name: ReadScope}, Risk: def.RiskReadOnly, Mode: def.ModeSync, Idempotent: true,
-		CLI:    def.CLIBinding{Noun: "package", Verb: "get"},
-		MCP:    &def.MCPBinding{Tool: "list_packages", Description: "List the packages installed on this host."},
-		Refine: refineList,
+		CLI:     def.CLIBinding{Noun: "package", Verb: "get"},
+		MCP:     &def.MCPBinding{Tool: "list_packages", Description: "List the packages installed on this host."},
+		Refine:  refineList,
+		Columns: []string{"name", "properties.architecture", "properties.installedVersion", "properties.status"},
 	})
 
 	Get = def.Define[PackageInput, PackageDetail](def.Op{
@@ -385,6 +386,7 @@ var (
 		CLI:       def.CLIBinding{Noun: "package", Verb: "get", Positional: "name"},
 		MCP:       &def.MCPBinding{Tool: "get_package", Description: "Get one package's versions and metadata."},
 		Refine:    refineName,
+		Columns:   []string{"name", "properties.installedVersion", "properties.candidateVersion", "properties.upgradable", "properties.summary"},
 	})
 
 	UpgradableList = def.Define[ListInput, apitypes.List[Upgradable]](def.Op{
@@ -399,7 +401,8 @@ var (
 		CLI: def.CLIBinding{Noun: "packageupdate", Verb: "get"},
 		MCP: &def.MCPBinding{Tool: "list_package_updates",
 			Description: "List upgradable packages with versions and security status."},
-		Refine: refineList,
+		Refine:  refineList,
+		Columns: []string{"name", "properties.installedVersion", "properties.candidateVersion", "properties.security"},
 	})
 
 	Refresh = def.Define[RefreshInput, RefreshResult](def.Op{

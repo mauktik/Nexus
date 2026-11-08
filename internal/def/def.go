@@ -81,6 +81,10 @@ type Op struct {
 	// Refine adds what jsonschema.For cannot derive from Go types: enum,
 	// pattern, maxLength. It runs once, on the input schema only.
 	Refine func(*jsonschema.Schema)
+	// Columns are the CLI's table columns: dot paths into one output object
+	// (one item of a list), in order; the host column always comes first.
+	// Empty means those of another op with the same output, else derived.
+	Columns []string
 
 	inputType  reflect.Type // Set by Define
 	outputType reflect.Type // Set by Define

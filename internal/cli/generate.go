@@ -1,22 +1,43 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
 	"net/url"
+	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
 
 	"github.com/spf13/cobra"
 
+	"github.com/mauktik/nexus/internal/apitypes"
+	"github.com/mauktik/nexus/internal/cli/output"
 	"github.com/mauktik/nexus/internal/client"
 	"github.com/mauktik/nexus/internal/def"
 	"github.com/mauktik/nexus/internal/openapi"
+	"github.com/mauktik/nexus/internal/problem"
 )
+
+// Output flags every generated command has (FR-30).
+const (
+	flagOutput = "output"
+	flagSelect = "select"
+	flagFilter = "filter"
+)
+
+// frameText is the field of an apitypes.Frame holding its text.
+const frameText = "d"
+
+// cliTypePrefix types the errors the CLI raises itself, such as a usage or
+// connection error, as problem types are urn:nexus:problem:<slug>.
+const cliTypePrefix = "urn:nexus:cli:"
 
 // nounPattern is what a noun must be: one lower-case word (FR-29).
 var nounPattern = regexp.MustCompile(`^[a-z]+$`)
@@ -26,7 +47,8 @@ var nounPattern = regexp.MustCompile(`^[a-z]+$`)
 // (a List) and one with (a Get). A name argument selects the Get.
 type opCommand struct {
 	noun, verb string
-	ops        []def.Op // When merged: [without positional, with positional]
+	ops        []def.Op                 // When merged: [without positional, with positional]
+	columns    map[string][]output.Path // Op ID -> its table columns
 }
 
 // selectOp is the op args run: the Get of a merged pair when a name is
@@ -118,6 +140,14 @@ func (a *app) newOpCommand(g *opCommand) (*cobra.Command, error) {
 	if err != nil {
 		return nil, err
 	}
+	g.columns = map[string][]output.Path{}
+	for _, op := range g.ops {
+		cols, err := a.columnsFor(op)
+		if err != nil {
+			return nil, fmt.Errorf("op %q: %w", op.ID, err)
+		}
+		g.columns[op.ID] = cols
+	}
 	first := g.ops[0]
 	cmd := &cobra.Command{
 		Use:               g.verb + argsUse(g, b),
@@ -147,7 +177,100 @@ func (a *app) newOpCommand(g *opCommand) (*cobra.Command, error) {
 		cmd.Args = cobra.NoArgs
 	}
 	b.register(cmd)
+	registerOutputFlags(cmd, g)
+	// A wrong flag or argument count is a usage error of a data command,
+	// printed as JSON in a machine format like any other.
+	usage := func(c *cobra.Command, err error) error {
+		a.resolveFormat(c)
+		return &runError{err: &UsageError{Err: err}}
+	}
+	cmd.SetFlagErrorFunc(usage)
+	if check := cmd.Args; check != nil {
+		cmd.Args = func(c *cobra.Command, args []string) error {
+			if err := check(c, args); err != nil {
+				return usage(c, err)
+			}
+			return nil
+		}
+	}
 	return cmd, nil
+}
+
+// registerOutputFlags declares -o, --select and --filter on cmd.
+func registerOutputFlags(cmd *cobra.Command, g *opCommand) {
+	var keys []string
+	for _, op := range g.ops {
+		for _, f := range op.Filters {
+			if !slices.Contains(keys, f.Key) {
+				keys = append(keys, f.Key)
+			}
+		}
+	}
+	formats := make([]string, len(output.Formats))
+	for i, f := range output.Formats {
+		formats[i] = string(f)
+	}
+	fs := cmd.Flags()
+	fs.StringP(flagOutput, "o", "", "output format: "+strings.Join(formats, ", ")+" (default table on a terminal, jsonl otherwise)")
+	fs.StringSlice(flagSelect, nil, "print only these dot paths of each object, comma-separated, such as name,properties.state; host and id are always kept")
+	usage := "key=value, repeatable: print only objects whose dot path has this value; a repeated key matches any of its values"
+	if len(keys) > 0 {
+		usage += "; the host filters by " + strings.Join(keys, ", ")
+	}
+	fs.StringArray(flagFilter, nil, usage)
+	// It fails only for an unknown or already registered flag; as in register.
+	_ = cmd.RegisterFlagCompletionFunc(flagOutput, cobra.FixedCompletions(formats, cobra.ShellCompDirectiveNoFileComp))
+}
+
+var operationType = reflect.TypeFor[apitypes.Operation]()
+
+// itemType is the Go type of one object op prints: the operation a
+// long-running op answers with, one item of a list, or the output itself.
+func itemType(op def.Op) reflect.Type {
+	if op.Mode == def.ModeLongRunning {
+		return operationType
+	}
+	t := op.OutputType()
+	if t == nil {
+		return nil
+	}
+	if f, ok := t.FieldByName("Items"); op.Kind == def.KindList && ok && f.Type.Kind() == reflect.Slice {
+		return f.Type.Elem()
+	}
+	return t
+}
+
+// columnsFor is op's table columns: those it declares, else those of the
+// first op declaring columns for the same output, else derived from it.
+// Every declared column must name a field of the output.
+func (a *app) columnsFor(op def.Op) ([]output.Path, error) {
+	t := itemType(op)
+	if t == nil {
+		return nil, nil
+	}
+	declared := op.Columns
+	for _, spec := range a.specs {
+		for _, o := range spec.Ops {
+			if len(declared) == 0 && len(o.Columns) > 0 && itemType(o) == t {
+				declared = o.Columns
+			}
+		}
+	}
+	if len(declared) == 0 {
+		return output.DeriveColumns(t), nil
+	}
+	cols := make([]output.Path, 0, len(declared))
+	for _, c := range declared {
+		p, err := output.ParsePath(c)
+		if err != nil {
+			return nil, err
+		}
+		if err := output.CheckPath(t, p); err != nil {
+			return nil, err
+		}
+		cols = append(cols, p)
+	}
+	return cols, nil
 }
 
 // argsUse is the argument part of the usage line.
@@ -196,11 +319,15 @@ func lowerFirst(s string) string {
 	return s
 }
 
-// invoke runs the op args select through the API. Its output is the
-// response as JSON; formatting it is the output layer's (9.3).
+// invoke runs the op args select through the API and prints the objects
+// it answers with through the output layer.
 func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string) error {
 	op := g.selectOp(args)
-	in, err := b.input(cmd.Flags(), op, args)
+	opts, server, err := a.outputOptions(cmd, g, op)
+	if err != nil {
+		return err
+	}
+	in, err := b.input(cmd.Flags(), op, args, server)
 	if err != nil {
 		return err
 	}
@@ -223,17 +350,196 @@ func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string
 	if err != nil {
 		return err
 	}
-	if op.Mode == def.ModeStream {
-		_, err := a.env.Stdout.Write(resp.Body)
+	p := output.NewPrinter(a.env.Stdout, opts)
+	if err := a.printResponse(p, op, in, resp.Body); err != nil {
 		return err
 	}
-	if len(resp.Body) == 0 {
+	return p.Close()
+}
+
+var errNotJSON = errors.New("the host answered with a body that is not JSON objects")
+
+// resolveFormat sets the format of the running data command: -o when it
+// is valid, else the default for stdout.
+func (a *app) resolveFormat(cmd *cobra.Command) {
+	a.format = output.DefaultFormat(isTerminal(a.env.Stdout))
+	if fl := cmd.Flags().Lookup(flagOutput); fl != nil && fl.Changed {
+		if f, err := output.ParseFormat(fl.Value.String()); err == nil {
+			a.format = f
+		}
+	}
+}
+
+// outputOptions reads -o, --select and --filter, and returns the filters
+// to send: those whose key op declares (FR-30).
+func (a *app) outputOptions(cmd *cobra.Command, g *opCommand, op def.Op) (output.Options, []string, error) {
+	a.resolveFormat(cmd)
+	fs := cmd.Flags()
+	if fl := fs.Lookup(flagOutput); fl.Changed {
+		if _, err := output.ParseFormat(fl.Value.String()); err != nil {
+			return output.Options{}, nil, &UsageError{Err: err}
+		}
+	}
+	sel, err := fs.GetStringSlice(flagSelect)
+	if err != nil {
+		return output.Options{}, nil, err
+	}
+	paths, err := output.ParsePaths(sel)
+	if err != nil {
+		return output.Options{}, nil, usagef("--%s: %v", flagSelect, err)
+	}
+	raw, err := fs.GetStringArray(flagFilter)
+	if err != nil {
+		return output.Options{}, nil, err
+	}
+	matches, err := output.ParseFilters(raw)
+	if err != nil {
+		return output.Options{}, nil, &UsageError{Err: err}
+	}
+	var keys []string
+	for _, f := range op.Filters {
+		keys = append(keys, f.Key)
+	}
+	server, local := output.SplitFilters(matches, keys)
+	o := output.Options{Format: a.format, Columns: g.columns[op.ID], Select: paths, Filters: local}
+	o.Color = a.format == output.Table && output.ColorEnabled(isTerminal(a.env.Stdout), a.env.Getenv)
+	if op.Mode == def.ModeStream {
+		o.Text = frameText
+	}
+	return o, server, nil
+}
+
+// printResponse prints each object of body, labeled with host and id.
+func (a *app) printResponse(p *output.Printer, op def.Op, in map[string]any, body []byte) error {
+	switch {
+	case op.Mode == def.ModeStream:
+		target, _ := in[op.CLI.Positional].(string)
+		for line := range bytes.Lines(body) {
+			if len(bytes.TrimSpace(line)) == 0 {
+				continue
+			}
+			f, err := output.DecodeObject(line)
+			if err != nil {
+				return errNotJSON
+			}
+			f["id"] = frameLocator(target, f)
+			if err := p.Print(a.label(f)); err != nil {
+				return err
+			}
+		}
+		return nil
+	case len(bytes.TrimSpace(body)) == 0:
+		return nil
+	case op.Kind == def.KindList:
+		var page struct {
+			Items      []json.RawMessage `json:"items"`
+			NextCursor string            `json:"nextCursor"`
+		}
+		if err := json.Unmarshal(body, &page); err != nil {
+			return errNotJSON
+		}
+		for _, raw := range page.Items {
+			obj, err := output.DecodeObject(raw)
+			if err != nil {
+				return errNotJSON
+			}
+			if err := p.Print(a.label(obj)); err != nil {
+				return err
+			}
+		}
+		if page.NextCursor != "" {
+			a.warn("more results: repeat with --cursor "+page.NextCursor, map[string]any{"nextCursor": page.NextCursor})
+		}
 		return nil
 	}
-	if !json.Valid(resp.Body) {
-		return fmt.Errorf("the host answered with a body that is not JSON")
+	obj, err := output.DecodeObject(body)
+	if err != nil {
+		return errNotJSON
 	}
-	return a.printJSON(json.RawMessage(resp.Body))
+	return p.Print(a.label(obj))
+}
+
+// label gives obj the target's name as its host when the host sent none.
+func (a *app) label(obj map[string]any) map[string]any {
+	if h, _ := obj["host"].(string); h == "" {
+		obj["host"] = a.target
+	}
+	return obj
+}
+
+// frameLocator is a log frame's id (Interfaces): <target>@<o> for operation
+// output, <target>@truncated for a truncation marker, and <target>@<t> for
+// a container log line. It locates a frame; it is not a unique key.
+func frameLocator(target string, f map[string]any) string {
+	if t, _ := f["type"].(string); t == apitypes.FrameTypeTruncated {
+		return target + "@truncated"
+	}
+	if o, ok := f["o"].(json.Number); ok {
+		return target + "@" + o.String()
+	}
+	t, _ := f["t"].(string)
+	return target + "@" + t
+}
+
+// warn writes a warning to stderr: a JSON line in a machine format.
+func (a *app) warn(msg string, fields map[string]any) {
+	if !a.format.Machine() {
+		fmt.Fprintf(a.env.Stderr, "%s: warning: host %s: %s\n", programName, hostOr(a.target), msg)
+		return
+	}
+	w := map[string]any{"level": "warning", "host": a.target, "message": msg}
+	maps.Copy(w, fields)
+	// As for Fprintf above: a failed write to stderr has nowhere to go.
+	_ = output.WriteLine(a.env.Stderr, w)
+}
+
+// errorObject is err as a data command prints it in a machine format: the
+// problem details when the host sent them, else a CLI type, with the host,
+// the message and the exit code.
+func errorObject(err error, host string) map[string]any {
+	m := map[string]any{}
+	var prob *problem.Error
+	if errors.As(err, &prob) {
+		// A problem that does not round-trip falls back to the CLI type
+		// below; its message still carries the title and detail.
+		var fields map[string]any
+		if data, e := json.Marshal(prob); e == nil && json.Unmarshal(data, &fields) == nil {
+			m = fields
+		}
+	}
+	if _, ok := m["type"].(string); !ok {
+		m["type"] = cliTypePrefix + errorKind(err)
+	}
+	m["level"] = "error"
+	m["host"] = host
+	m["message"] = Message(err, host)
+	m["exit"] = ExitCode(err)
+	return m
+}
+
+// errorKind names an error the CLI raised itself, by its exit code.
+func errorKind(err error) string {
+	var (
+		pin    *client.PinMismatchError
+		status *client.StatusError
+	)
+	switch {
+	case errors.As(err, &pin):
+		return "certificate-mismatch"
+	case errors.As(err, &status):
+		return "http-status"
+	}
+	switch ExitCode(err) {
+	case ExitUsage:
+		return "usage"
+	case ExitAuth:
+		return "auth"
+	case ExitNotFound:
+		return "not-found"
+	case ExitConnection:
+		return "connection"
+	}
+	return "error"
 }
 
 // buildRequest places op's input as the server reads it: the route

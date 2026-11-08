@@ -146,6 +146,9 @@ func refineInvoke(s *jsonschema.Schema) {
 
 // The scripts operations, in the order of the Operation catalog table.
 var (
+	// scriptColumns are a script's table columns in the CLI.
+	scriptColumns = []string{"name", "properties.description", "properties.runAs", "properties.timeoutSeconds"}
+
 	List = def.Define[ListInput, apitypes.List[Script]](def.Op{
 		ID: Name + ".scripts.list", Provider: Name, Kind: def.KindList, ResourceType: ResourceType,
 		Summary: "List cataloged scripts",
@@ -155,9 +158,10 @@ var (
 			"values are never returned. Read-only. Paged with limit and cursor. Scripts are defined only in " +
 			"the configuration file on the host: no operation adds, changes or removes one.",
 		Scope: def.Scope{Name: ReadScope}, Risk: def.RiskReadOnly, Mode: def.ModeSync, Idempotent: true,
-		CLI:    def.CLIBinding{Noun: "script", Verb: "get"},
-		MCP:    &def.MCPBinding{Tool: "list_scripts", Description: "List the scripts this host allows to be run."},
-		Refine: refineList,
+		CLI:     def.CLIBinding{Noun: "script", Verb: "get"},
+		MCP:     &def.MCPBinding{Tool: "list_scripts", Description: "List the scripts this host allows to be run."},
+		Refine:  refineList,
+		Columns: scriptColumns,
 	})
 
 	Get = def.Define[ScriptInput, Script](def.Op{
@@ -167,9 +171,10 @@ var (
 			"directory, timeout, concurrency limit, termination grace and declared parameters. Environment " +
 			"variables are listed by name only; their values are never returned. Read-only.",
 		Scope: def.Scope{Name: ReadScope}, Risk: def.RiskReadOnly, Mode: def.ModeSync, Idempotent: true,
-		CLI:    def.CLIBinding{Noun: "script", Verb: "get", Positional: "name"},
-		MCP:    &def.MCPBinding{Tool: "get_script", Description: "Get one script's definition and parameters."},
-		Refine: refineName,
+		CLI:     def.CLIBinding{Noun: "script", Verb: "get", Positional: "name"},
+		MCP:     &def.MCPBinding{Tool: "get_script", Description: "Get one script's definition and parameters."},
+		Refine:  refineName,
+		Columns: scriptColumns,
 	})
 
 	Invoke = def.Define[InvokeInput, InvokeResult](def.Op{
