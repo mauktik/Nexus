@@ -21,6 +21,9 @@ const (
 	UpgradableResourceType = "upgradable"
 	ReadScope              = "packages:read"
 	WriteScope             = "packages:write"
+	// InstallScope is install's and remove's: installing a package runs its
+	// maintainer scripts as root, so it is separate from upgrade's (FR-22).
+	InstallScope = "packages:install"
 )
 
 // NamePattern is a Debian binary package name (Debian Policy 5.6.1: lower
@@ -35,6 +38,21 @@ const NamePattern = `^[a-z0-9][a-z0-9+.-]+(:[a-z0-9][a-z0-9-]*)?$`
 
 // MaxNameLength bounds a package name input.
 const MaxNameLength = 255
+
+// DebFilePattern matches a name that ends in ".deb", optionally
+// architecture-qualified. Install and remove names must not match it
+// (FR-16), so no input names a local package file, whatever apt makes of it.
+const DebFilePattern = `\.deb(:[a-z0-9-]*)?$`
+
+// VersionPattern is a Debian version (Debian Policy 5.6.12:
+// [epoch:]upstream_version[-debian_revision], of alphanumerics and ". + ~ -
+// :"), starting with an alphanumeric after the epoch. A leading "-",
+// whitespace, "/", "=", "*" and shell characters never match, so a pin is
+// never an option, a release selector or a version glob to apt.
+const VersionPattern = `^([0-9]+:)?[A-Za-z0-9][A-Za-z0-9.+~:-]*$`
+
+// MaxVersionLength bounds a version input.
+const MaxVersionLength = 128
 
 // List bounds, as for every list operation.
 const (
@@ -224,6 +242,56 @@ type UpgradeResult struct {
 	ExitCode               int      `json:"exitCode"` // apt-get's exit status
 }
 
+// MaxInstallNames bounds the names of one install or remove.
+const MaxInstallNames = 500
+
+// InstallInput is the input of apt.actions.install.
+type InstallInput struct {
+	// Names must each resolve to exactly that package in apt's indexes, or
+	// the request is refused not-found before any operation exists.
+	Names   []string `json:"names" jsonschema:"Packages to install, at least one, each named exactly as apt knows it, optionally with :architecture."`
+	Version string   `json:"version,omitempty" jsonschema:"Install exactly this version of the single package named, e.g. 1.2-1ubuntu1. Only with exactly one name."`
+	WhatIf  bool     `json:"whatIf,omitempty" jsonschema:"Simulate only: change nothing and return the packages that would be installed, upgraded and removed."`
+}
+
+// RemoveInput is the input of apt.actions.remove.
+type RemoveInput struct {
+	// Names must each be installed under exactly that name (or, with Purge,
+	// be left with only its configuration files), or the request is refused
+	// not-found before any operation exists.
+	Names      []string `json:"names" jsonschema:"Installed packages to remove, at least one, each named exactly, optionally with :architecture."`
+	Purge      bool     `json:"purge,omitempty" jsonschema:"Also delete the packages' configuration files. Default false keeps them."`
+	Autoremove bool     `json:"autoremove,omitempty" jsonschema:"Also remove the automatically installed dependencies nothing needs any more. Default false keeps them."`
+	WhatIf     bool     `json:"whatIf,omitempty" jsonschema:"Simulate only: change nothing and return the packages that would be removed."`
+}
+
+// PackagesPreview is what a whatIf install or remove would do, from
+// apt-get -s. Upgraded holds installed packages whose version would change,
+// to the pinned version for a pin.
+type PackagesPreview struct {
+	Installed []PreviewPackage `json:"installed"`
+	Upgraded  []PreviewPackage `json:"upgraded"`
+	Removed   []PreviewPackage `json:"removed"`
+}
+
+// PackagesResult is the result of apt.actions.install and
+// apt.actions.remove. A whatIf run has Preview and changes nothing; a real
+// run has Changes and the rest.
+type PackagesResult struct {
+	apitypes.ActionResult
+	WhatIf  bool             `json:"whatIf"`
+	Preview *PackagesPreview `json:"preview,omitempty"` // whatIf only
+	Changes []PackageChange  `json:"changes"`           // Sorted by package and architecture; empty for whatIf
+	// ConffilesKept are the changed conffiles whose local version dpkg
+	// kept. ConffilesComplete is false when dpkg.log was rotated during the
+	// run, so the list may lack some.
+	ConffilesKept          []string `json:"conffilesKept"`
+	ConffilesComplete      bool     `json:"conffilesComplete"`
+	RebootRequired         string   `json:"rebootRequired"` // true, false or unknown, read after the run
+	RebootRequiredPackages []string `json:"rebootRequiredPackages"`
+	ExitCode               int      `json:"exitCode"` // apt-get's exit status
+}
+
 // RefreshResult is the result of a refresh.
 type RefreshResult struct {
 	apitypes.ActionResult
@@ -265,8 +333,32 @@ func refineUpgrade(s *jsonschema.Schema) {
 	}
 }
 
-// The apt read operations, refresh and upgrade, in the order of the
-// Operation catalog table.
+// refinePackageNames constrains install's and remove's names: the name
+// pattern, never a .deb file name, and the bounds.
+func refinePackageNames(s *jsonschema.Schema) {
+	p := s.Properties["names"]
+	if p == nil {
+		return
+	}
+	n := MaxInstallNames
+	p.MaxItems = &n
+	if p.Items != nil {
+		l := MaxNameLength
+		p.Items.Pattern, p.Items.MaxLength = NamePattern, &l
+		p.Items.Not = &jsonschema.Schema{Pattern: DebFilePattern}
+	}
+}
+
+func refineInstall(s *jsonschema.Schema) {
+	refinePackageNames(s)
+	if p := s.Properties["version"]; p != nil {
+		n := MaxVersionLength
+		p.Pattern, p.MaxLength = VersionPattern, &n
+	}
+}
+
+// The apt read operations, refresh, upgrade, install and remove, in the
+// order of the Operation catalog table.
 var (
 	List = def.Define[ListInput, apitypes.List[Package]](def.Op{
 		ID: Name + ".packages.list", Provider: Name, Kind: def.KindList, ResourceType: ResourceType,
@@ -347,11 +439,60 @@ var (
 			Description: "Upgrade this host's packages, all or named; whatIf previews. Never reboots."},
 		Refine: refineUpgrade,
 	})
+
+	Install = def.Define[InstallInput, PackagesResult](def.Op{
+		ID: Name + ".actions.install", Provider: Name, Kind: def.KindProviderAction, Action: "install",
+		Summary: "Install packages",
+		Description: "Installs packages from the package indexes as of the last refresh with apt-get install " +
+			"--no-remove: names, each of which must be exactly a package apt knows, of the native architecture, " +
+			"all, or the one named after a colon (otherwise 404 not-found, and no operation is created); version " +
+			"pins the single package named to that version. An install that would need to remove any package " +
+			"fails apt-failed, saying so, and changes nothing: run it with whatIf to see the packages, and remove " +
+			"them first. A pin below the installed version fails too: Nexus never downgrades. whatIf true " +
+			"simulates with apt-get -s, changes nothing, does not wait for other apt operations, and returns " +
+			"preview: the packages it would install, upgrade and remove. Side effects: installs packages and " +
+			"their dependencies and runs their maintainer scripts as root, which can start or restart services; " +
+			"never prompts; a changed configuration file keeps the local version and is listed in conffilesKept; " +
+			"never reboots, and reports rebootRequired afterwards. Long-running: answers 202 with an operation, " +
+			"queued in order behind any other apt operation, that first waits up to providers.apt.lockWait for " +
+			"another process's dpkg lock, then fails package-manager-busy; fails package-manager-broken when dpkg " +
+			"reports an interrupted state, which it never repairs; fails apt-failed, naming apt-get's exit " +
+			"status, when apt-get fails, as for a version apt does not have. The result lists the packages " +
+			"changed and apt-get's exit status.",
+		Scope: def.Scope{Name: InstallScope}, Risk: def.RiskMutating, Mode: def.ModeLongRunning, WhatIf: true,
+		CLI: def.CLIBinding{Noun: "package", Verb: "install"},
+		MCP: &def.MCPBinding{Tool: "install_packages",
+			Description: "Install named packages, optionally one pinned version; never removes; whatIf previews."},
+		Refine: refineInstall,
+	})
+
+	Remove = def.Define[RemoveInput, PackagesResult](def.Op{
+		ID: Name + ".actions.remove", Provider: Name, Kind: def.KindProviderAction, Action: "remove",
+		Summary: "Remove packages",
+		Description: "Removes installed packages with apt-get remove: names, each of which must be installed " +
+			"under exactly that name (otherwise 404 not-found, and no operation is created). By default the " +
+			"configuration files and the automatically installed dependencies stay; purge true runs apt-get purge, " +
+			"deleting the configuration files too, and also accepts a package left with only its configuration " +
+			"files; autoremove true also removes the automatically installed dependencies nothing needs any more. " +
+			"Packages that depend on a named one are removed with it. whatIf true simulates with apt-get -s, " +
+			"changes nothing, does not wait for other apt operations, and returns preview: the packages it would " +
+			"remove. Side effects: removes packages and runs their maintainer scripts as root, which can stop " +
+			"services; never prompts; never reboots. Long-running: answers 202 with an operation, queued in order " +
+			"behind any other apt operation, that first waits up to providers.apt.lockWait for another process's " +
+			"dpkg lock, then fails package-manager-busy; fails package-manager-broken when dpkg reports an " +
+			"interrupted state, which it never repairs; fails apt-failed, naming apt-get's exit status, when " +
+			"apt-get fails. The result lists the packages changed and apt-get's exit status.",
+		Scope: def.Scope{Name: InstallScope}, Risk: def.RiskDestructive, Mode: def.ModeLongRunning, WhatIf: true,
+		CLI: def.CLIBinding{Noun: "package", Verb: "remove"},
+		MCP: &def.MCPBinding{Tool: "remove_packages",
+			Description: "Remove installed packages; purge and autoremove are opt-in; whatIf previews."},
+		Refine: refinePackageNames,
+	})
 )
 
 // Spec returns the apt provider's declarations for the catalog.
 func Spec() def.ProviderSpec {
 	return def.ProviderSpec{Name: Name, ReadScope: ReadScope, Ops: []def.Op{
-		List.Op(), Get.Op(), UpgradableList.Op(), Refresh.Op(), Upgrade.Op(),
+		List.Op(), Get.Op(), UpgradableList.Op(), Refresh.Op(), Upgrade.Op(), Install.Op(), Remove.Op(),
 	}}
 }

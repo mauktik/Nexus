@@ -130,9 +130,14 @@ var (
 	// Remv NAME [OLD] and a possible trailing marker. Only an installed
 	// package is removed, so OLD is always there.
 	remvRE = regexp.MustCompile(`^Remv (\S+) \[([^\]]*)\](?: .*)?$`)
+	// Purg NAME [OLD], as apt-get -s purge prints a removal: OLD is absent
+	// for a package left with only its configuration files (captured in
+	// testdata/install, remove-purge-rc).
+	purgRE = regexp.MustCompile(`^Purg (\S+)(?: \[([^\]]*)\])?(?: .*)?$`)
 )
 
-// parseSimulation parses the Inst and Remv lines of apt-get -s output.
+// parseSimulation parses the Inst, Remv and Purg lines of apt-get -s
+// output. A Purg is a removal: its Op is Remv.
 func parseSimulation(b []byte) []simAction {
 	var out []simAction
 	for line := range lines(b) {
@@ -150,6 +155,12 @@ func parseSimulation(b []byte) []simAction {
 		if m := remvRE.FindStringSubmatch(line); m != nil {
 			a := simAction{Op: "Remv", Name: m[1], OldVersion: m[2]}
 			if validSimName(a.Name) && versionRE.MatchString(a.OldVersion) {
+				out = append(out, a)
+			}
+		}
+		if m := purgRE.FindStringSubmatch(line); m != nil {
+			a := simAction{Op: "Remv", Name: m[1], OldVersion: m[2]}
+			if validSimName(a.Name) && (a.OldVersion == "" || versionRE.MatchString(a.OldVersion)) {
 				out = append(out, a)
 			}
 		}

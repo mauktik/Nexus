@@ -70,6 +70,8 @@ var catalogStubs = map[string]func(*testprovider.Spy) provider.Provider{
 			testprovider.Sync(s, apt.UpgradableList),
 			testprovider.InProcess(s, apt.Refresh),
 			testprovider.InProcess(s, apt.Upgrade),
+			testprovider.InProcess(s, apt.Install),
+			testprovider.InProcess(s, apt.Remove),
 		)
 	},
 	scripts.Name: func(s *testprovider.Spy) provider.Provider {

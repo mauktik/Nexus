@@ -1,0 +1,15 @@
+Package: nxg++
+Version: 1.0
+Architecture: all
+Maintainer: Nexus fixtures <fixtures@nexus.invalid>
+Filename: ./nxg++_1.0_all.deb
+Size: 620
+MD5sum: b78ff2eabfa31c1171e38dd4a01f6e86
+SHA1: 6183a1b1e7f75fb93017825a7ebef5e4b855cd70
+SHA256: ec200e065f53c9a1fb9c092819239dae5456c10979a6f9773beeacb399ade7f1
+Section: misc
+Priority: optional
+Description: Nexus apt fixture package nxg++
+ A package built by the Nexus T1 harness. It installs one file.
+Description-md5: 
+

@@ -1,0 +1,75 @@
+Package: nxplain
+Version: 2.0
+Architecture: all
+Maintainer: Nexus fixtures <fixtures@nexus.invalid>
+Filename: ./nxplain_2.0_all.deb
+Size: 828
+MD5sum: c067dd3ccf8c265e786043d23ce7f3c7
+SHA1: b815b1fad65d97f7ab318b995042bccf8d2a4433
+SHA256: 48a42a67c4a9c095a609fa71ed1e2e34e75327696b4d04bf40bfb37a4e75f8cb
+Section: misc
+Priority: optional
+Description: Nexus apt fixture package nxplain
+ A package built by the Nexus T1 harness. It installs one file.
+Description-md5: 
+
+Package: nxplain
+Version: 1.0
+Architecture: all
+Maintainer: Nexus fixtures <fixtures@nexus.invalid>
+Filename: ./nxplain_1.0_all.deb
+Size: 828
+MD5sum: a29606315dae877336671d97fd4338a8
+SHA1: b9d366f99acbf60d143b39dec2f6d0b5a4d69359
+SHA256: 44710a1539ee37948ba768117ef248cb9f56ef7a4569505da92cd35ef4f655ed
+Section: misc
+Priority: optional
+Description: Nexus apt fixture package nxplain
+ A package built by the Nexus T1 harness. It installs one file.
+Description-md5: 
+
+Package: nxg++
+Version: 1.0
+Architecture: all
+Maintainer: Nexus fixtures <fixtures@nexus.invalid>
+Filename: ./nxg++_1.0_all.deb
+Size: 824
+MD5sum: 4cf19a88bb7b31b0b63fca81aa79af5a
+SHA1: 5f1d889bbc77c8ee47a6b6ffacc6f9f836bc232f
+SHA256: ff178c75a084b944bc662d5a2509ad4b50b712a923c650300e51549be121f877
+Section: misc
+Priority: optional
+Description: Nexus apt fixture package nxg++
+ A package built by the Nexus T1 harness. It installs one file.
+Description-md5: 
+
+Package: nxplain
+Version: 2.0
+Architecture: all
+Maintainer: Nexus fixtures <fixtures@nexus.invalid>
+Filename: ./nxplain_2.0_all.deb
+Size: 828
+MD5sum: c067dd3ccf8c265e786043d23ce7f3c7
+SHA1: b815b1fad65d97f7ab318b995042bccf8d2a4433
+SHA256: 48a42a67c4a9c095a609fa71ed1e2e34e75327696b4d04bf40bfb37a4e75f8cb
+Section: misc
+Priority: optional
+Description: Nexus apt fixture package nxplain
+ A package built by the Nexus T1 harness. It installs one file.
+Description-md5: 
+
+Package: nxplain
+Version: 1.0
+Architecture: all
+Maintainer: Nexus fixtures <fixtures@nexus.invalid>
+Filename: ./nxplain_1.0_all.deb
+Size: 828
+MD5sum: a29606315dae877336671d97fd4338a8
+SHA1: b9d366f99acbf60d143b39dec2f6d0b5a4d69359
+SHA256: 44710a1539ee37948ba768117ef248cb9f56ef7a4569505da92cd35ef4f655ed
+Section: misc
+Priority: optional
+Description: Nexus apt fixture package nxplain
+ A package built by the Nexus T1 harness. It installs one file.
+Description-md5: 
+

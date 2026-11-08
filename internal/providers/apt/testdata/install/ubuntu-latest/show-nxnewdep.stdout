@@ -1,0 +1,15 @@
+Package: nxnewdep
+Version: 1.0
+Architecture: all
+Maintainer: Nexus fixtures <fixtures@nexus.invalid>
+Filename: ./nxnewdep_1.0_all.deb
+Size: 620
+MD5sum: bd1961535865ac95f9ca21cee8830c48
+SHA1: 5c8c9456d5b5144c67e389b8551b20573fc93f37
+SHA256: 0c910763d918c53f480c9438599042488410216ab171c5b70b9a2ddb29f7cc2d
+Section: misc
+Priority: optional
+Description: Nexus apt fixture package nxnewdep
+ A package built by the Nexus T1 harness. It installs one file.
+Description-md5: 
+

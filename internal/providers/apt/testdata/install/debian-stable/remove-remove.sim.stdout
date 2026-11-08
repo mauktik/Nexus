@@ -1,0 +1,10 @@
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following package was automatically installed and is no longer required:
+  nxdep
+Use 'apt autoremove' to remove it.
+The following packages will be REMOVED:
+  nxapp
+0 upgraded, 0 newly installed, 1 to remove and 1 not upgraded.
+Remv nxapp [1.0]

@@ -426,6 +426,7 @@ func TestDocumentMatchesRoutes(t *testing.T) {
 		"GET /v1/providers/docker/containers/{name}/logs",
 		"GET /v1/providers/apt/packages", "GET /v1/providers/apt/packages/{name}", "GET /v1/providers/apt/upgradable",
 		"POST /v1/providers/apt/actions/refresh", "POST /v1/providers/apt/actions/upgrade",
+		"POST /v1/providers/apt/actions/install", "POST /v1/providers/apt/actions/remove",
 	} {
 		if _, ok := document[want]; !ok {
 			t.Errorf("document lacks %s", want)

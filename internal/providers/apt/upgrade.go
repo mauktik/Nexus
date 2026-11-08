@@ -207,33 +207,43 @@ func (p *Provider) finalizePreview(in spec.UpgradeInput, x detach.Exit, r *provi
 	if perr := aptFailure("apt-get -s", x, nil); perr != nil {
 		return spec.UpgradeResult{}, perr
 	}
-	dir, err := p.opDir(r.ID())
+	st, acts, err := p.readSimulation(r)
 	if err != nil {
 		return spec.UpgradeResult{}, err
 	}
-	b, err := os.ReadFile(filepath.Join(dir, PreviewFile))
-	if err != nil {
-		return spec.UpgradeResult{}, fmt.Errorf("apt: read %s of %s: %w", PreviewFile, r.ID(), err)
-	}
-	var st previewState
-	if err := json.Unmarshal(b, &st); err != nil {
-		return spec.UpgradeResult{}, fmt.Errorf("apt: decode %s of %s: %w", PreviewFile, r.ID(), err)
-	}
-	stdout, complete, err := p.opOutput(r.ID(), apitypes.StreamStdout, maxPreviewBytes)
-	if err != nil {
-		return spec.UpgradeResult{}, err
-	}
-	if !complete {
-		return spec.UpgradeResult{}, fmt.Errorf("apt: the simulation output of %s was truncated; the preview would "+
-			"be incomplete", r.ID())
-	}
-	preview := buildPreview(parseSimulation(stdout), st)
+	preview := buildPreview(acts, st)
 	reboot, pkgs := p.rebootState()
 	return spec.UpgradeResult{
 		Mode: in.EffectiveMode(), WhatIf: true, Preview: &preview,
 		Changes: []spec.PackageChange{}, ConffilesKept: []string{}, ConffilesComplete: true,
 		RebootRequired: reboot, RebootRequiredPackages: pkgs, ExitCode: x.ExitCode,
 	}, nil
+}
+
+// readSimulation reads a finished whatIf run's preview.json and the
+// actions of its simulation output, files only.
+func (p *Provider) readSimulation(r *provider.Run) (previewState, []simAction, error) {
+	var st previewState
+	dir, err := p.opDir(r.ID())
+	if err != nil {
+		return st, nil, err
+	}
+	b, err := os.ReadFile(filepath.Join(dir, PreviewFile))
+	if err != nil {
+		return st, nil, fmt.Errorf("apt: read %s of %s: %w", PreviewFile, r.ID(), err)
+	}
+	if err := json.Unmarshal(b, &st); err != nil {
+		return st, nil, fmt.Errorf("apt: decode %s of %s: %w", PreviewFile, r.ID(), err)
+	}
+	stdout, complete, err := p.opOutput(r.ID(), apitypes.StreamStdout, maxPreviewBytes)
+	if err != nil {
+		return st, nil, err
+	}
+	if !complete {
+		return st, nil, fmt.Errorf("apt: the simulation output of %s was truncated; the preview would "+
+			"be incomplete", r.ID())
+	}
+	return st, parseSimulation(stdout), nil
 }
 
 // buildPreview classifies the simulation's actions. Remv lines name no
