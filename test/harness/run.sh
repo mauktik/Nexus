@@ -131,7 +131,7 @@ for u in $REQUIRED_UNITS; do
 	done
 	say "required unit $u active"
 done
-say "versions: $(docker exec "$container" sh -c 'systemctl --version | head -1; needrestart --version 2>&1 | head -1; . /etc/os-release; echo "$PRETTY_NAME"' | xargs)"
+say "versions: $(docker exec "$container" sh -c 'systemctl --version | head -1; needrestart --version 2>&1 | head -1; dpkg-query -W -f="apt \${Version} " apt; dpkg-query -W -f="dpkg \${Version}" dpkg; echo; . /etc/os-release; echo "$PRETTY_NAME"' | xargs)"
 
 say "copying binaries, unit, lib.sh and fixtures in with docker cp"
 docker exec "$container" mkdir -p /harness/deploy
