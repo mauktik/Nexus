@@ -19,17 +19,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"reflect"
 	"sync/atomic"
 
-	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/core"
 	"github.com/mauktik/nexus/internal/def"
-	"github.com/mauktik/nexus/internal/openapi"
 	"github.com/mauktik/nexus/internal/problem"
 )
 
@@ -43,18 +40,23 @@ type Options struct {
 	MaxBodyBytes int64
 	Logger       *slog.Logger // Nil means slog.Default()
 	// IdempotencyKey reads the key of a call from its HTTP request headers,
-	// as REST reads Idempotency-Key. Nil means calls carry no key.
+	// as REST reads Idempotency-Key. Nil means calls carry no key. A
+	// mutating tool's idempotencyKey argument is the other way to send it.
 	IdempotencyKey func(http.Header) string
+	// LogPageBytes bounds the text of one page of a log tool. Zero means
+	// DefaultLogPageBytes (A-65).
+	LogPageBytes int
 }
 
 // Adapter is the /mcp handler.
 type Adapter struct {
-	reg     *core.Registry
-	disp    *core.Dispatcher
-	log     *slog.Logger
-	key     func(http.Header) string
-	current atomic.Pointer[mcp.Server]
-	handler http.Handler
+	reg       *core.Registry
+	disp      *core.Dispatcher
+	log       *slog.Logger
+	key       func(http.Header) string
+	pageBytes int
+	current   atomic.Pointer[mcp.Server]
+	handler   http.Handler
 }
 
 // New builds the adapter and its first tool list. disp is the Dispatcher
@@ -63,7 +65,13 @@ func New(reg *core.Registry, disp *core.Dispatcher, opts Options) (*Adapter, err
 	if opts.MaxBodyBytes <= 0 {
 		return nil, errors.New("mcp: no request body limit")
 	}
-	a := &Adapter{reg: reg, disp: disp, log: opts.Logger, key: opts.IdempotencyKey}
+	if opts.LogPageBytes < 0 {
+		return nil, errors.New("mcp: negative log page size")
+	}
+	a := &Adapter{reg: reg, disp: disp, log: opts.Logger, key: opts.IdempotencyKey, pageBytes: opts.LogPageBytes}
+	if a.pageBytes == 0 {
+		a.pageBytes = DefaultLogPageBytes
+	}
 	if a.log == nil {
 		a.log = slog.Default()
 	}
@@ -75,7 +83,7 @@ func New(reg *core.Registry, disp *core.Dispatcher, opts Options) (*Adapter, err
 	}
 	// Stateless: no Mcp-Session-Id is read or minted, so no request can
 	// lean on an earlier one's authentication. JSONResponse is safe because
-	// no tool streams (8.2 bounds ModeStream tools to one page). Older
+	// no tool streams: a ModeStream op's tool returns one page. Older
 	// protocol versions stay negotiable per the SDK default (A-19); they
 	// pass the same middleware and Dispatcher. A closed connection cancels
 	// the call, as the 2026-07-28 binding requires and as a REST request's
@@ -122,106 +130,76 @@ func (a *Adapter) build() (*mcp.Server, error) {
 		// a stateless server has no stream to announce it on.
 		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}},
 	})
+	untrusted := map[string]bool{}
+	for _, e := range a.reg.Entries() {
+		if op := e.Binding.Op(); op.Untrusted {
+			untrusted[op.ID] = true
+		}
+	}
 	owner := map[string]string{}
 	for _, e := range a.reg.Entries() {
 		op := e.Binding.Op()
-		if !enabled[e.Provider] || !exposed(op) {
+		if !enabled[e.Provider] || op.MCP == nil {
 			continue
 		}
-		tool, err := toolFor(op)
+		decl, t, err := newTool(op, a.pageBytes, untrusted)
 		if err != nil {
 			return nil, err
 		}
-		if prev, dup := owner[tool.Name]; dup {
-			return nil, fmt.Errorf("mcp: ops %q and %q are both tool %q", prev, op.ID, tool.Name)
+		if prev, dup := owner[decl.Name]; dup {
+			return nil, fmt.Errorf("mcp: ops %q and %q are both tool %q", prev, op.ID, decl.Name)
 		}
-		owner[tool.Name] = op.ID
-		srv.AddTool(tool, a.call(op))
+		owner[decl.Name] = op.ID
+		srv.AddTool(decl, a.call(t))
 	}
 	return srv, nil
 }
 
-// exposed reports whether op is a tool. An op without an MCP binding is
-// not. A ModeStream op is not yet: its tool returns one bounded page of
-// output (Streaming, A-65), which 8.2 adds.
-func exposed(op def.Op) bool {
-	return op.MCP != nil && op.Mode != def.ModeStream
-}
-
-// toolFor declares op's tool: its MCP name and description, its input
-// schema and its output schema, all from the definition.
-func toolFor(op def.Op) (*mcp.Tool, error) {
-	in, err := op.InputSchema()
-	if err != nil {
-		return nil, fmt.Errorf("mcp tool %q: %w", op.MCP.Tool, err)
-	}
-	if in.Schema().Type != "object" {
-		return nil, fmt.Errorf("mcp tool %q: input schema of op %q is not an object", op.MCP.Tool, op.ID)
-	}
-	out, err := outputSchema(op)
-	if err != nil {
-		return nil, fmt.Errorf("mcp tool %q: %w", op.MCP.Tool, err)
-	}
-	t := &mcp.Tool{Name: op.MCP.Tool, Description: op.MCP.Description, InputSchema: in.Schema()}
-	if out != nil {
-		t.OutputSchema = out
-	}
-	return t, nil
-}
-
-// outputSchema describes the structuredContent of op's successful result:
-// the operation for a long-running op, which answers with it at once, and
-// the output otherwise. It is the wire schema the OpenAPI document uses.
-// MCP revisions before 2026-07-28 require an object schema, and those stay
-// negotiable, so an op whose output is not an object declares none (the
-// field is optional) rather than one an older client rejects.
-func outputSchema(op def.Op) (*jsonschema.Schema, error) {
-	t := op.OutputType()
-	if op.Mode == def.ModeLongRunning {
-		t = reflect.TypeFor[apitypes.Operation]()
-	}
-	s, err := openapi.WireSchema(t)
-	if err != nil {
-		return nil, err
-	}
-	if s.Type != "object" {
-		return nil, nil
-	}
-	return s, nil
-}
-
 // call is a tool's handler: the principal the authentication middleware put
-// in the context, the arguments as the input and the request's key, through
-// the Dispatcher with SurfaceMCP. Nothing else decides anything.
-func (a *Adapter) call(op def.Op) mcp.ToolHandler {
+// in the context, the arguments as the input and the key, through the
+// Dispatcher with SurfaceMCP. The key is the idempotencyKey argument,
+// removed from the input, or else the request's Idempotency-Key header.
+// Nothing else decides anything.
+func (a *Adapter) call(t *tool) mcp.ToolHandler {
+	op := t.op
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		// A call without a principal cannot pass the middleware; if one
 		// ever did, the Dispatcher refuses the zero value.
 		caller, _ := auth.PrincipalFrom(ctx)
 		ireq := core.InvokeRequest{Caller: caller, Surface: core.SurfaceMCP, Op: op}
-		if req.Params != nil {
-			ireq.Input = req.Params.Arguments
-		}
+		header := ""
 		if req.Extra != nil {
-			ireq.IdempotencyKey = a.key(req.Extra.Header)
+			header = a.key(req.Extra.Header)
 		}
+		var args json.RawMessage
+		if req.Params != nil {
+			args = req.Params.Arguments
+		}
+		ireq.Input, ireq.IdempotencyKey, ireq.InputError = t.arguments(args, header)
 		res, err := a.disp.Invoke(ctx, ireq)
 		if err != nil {
 			return a.failure(op, err), nil
 		}
 		if res.Stream != nil {
-			// exposed keeps ModeStream ops off the list.
-			a.log.Error("stream result on a non-stream tool", "op", op.ID)
-			return a.failure(op, problem.New(problem.InternalError, "the server failed to handle the request")), nil
+			if t.pager == noPager {
+				a.log.Error("stream result on a non-stream tool", "op", op.ID)
+				return a.failure(op, problem.New(problem.InternalError, "the server failed to handle the request")), nil
+			}
+			return a.page(ctx, t, ireq.Input, res.Stream), nil
 		}
-		return a.success(op, res.Body), nil
+		return a.success(t, res.Body), nil
 	}
 }
 
 // success carries the result in structuredContent, and its JSON in a text
-// block for clients that read only content (tools: Structured Content).
-func (a *Adapter) success(op def.Op, body any) *mcp.CallToolResult {
+// block for clients that read only content (tools: Structured Content). A
+// result carrying host text is labeled in both.
+func (a *Adapter) success(t *tool, body any) *mcp.CallToolResult {
+	op := t.op
 	b, err := json.Marshal(body)
+	if err == nil && t.untrustedResult(b) {
+		b, err = withContentTrust(b)
+	}
 	if err != nil {
 		a.log.Error("operation failed", "op", op.ID, "error", fmt.Errorf("marshal result: %w", err).Error())
 		return a.failure(op, problem.New(problem.InternalError, "the server failed to handle the request"))

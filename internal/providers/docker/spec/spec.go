@@ -360,8 +360,9 @@ var (
 		Scope: def.Scope{Name: ReadScope}, Risk: def.RiskReadOnly, Mode: def.ModeStream, Idempotent: true,
 		Untrusted: true,
 		CLI:       def.CLIBinding{Noun: "containerlog", Verb: "get", Positional: "name"},
-		MCP:       &def.MCPBinding{Tool: "get_container_logs", Description: "Read a page of a Docker container's logs."},
-		Refine:    refineLogs,
+		MCP: &def.MCPBinding{Tool: "get_container_logs", Description: "Read a page of a Docker container's logs, " +
+			"the last 200 lines unless tail or since is given. Lines logged at the since time may repeat."},
+		Refine: refineLogs,
 	})
 
 	Start = def.Define[ContainerInput, ActionResult](def.Op{

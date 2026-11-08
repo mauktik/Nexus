@@ -460,10 +460,10 @@ func TestTestProviderNeedsNoCoreOrTransportChange(t *testing.T) {
 
 	// Step 1: the MCP tool list has a tool for every op with an MCP
 	// binding, the test provider's included, each with object schemas.
+	// Stream ops are tools too: each returns one bounded page (8.2).
 	tools := s.mcpTools(t, s.none)
 	for _, op := range s.ops() {
-		if op.MCP == nil || op.Mode == def.ModeStream {
-			// Stream tools return one bounded page, added at 8.2.
+		if op.MCP == nil {
 			continue
 		}
 		tool, ok := tools[op.MCP.Tool]
@@ -479,7 +479,7 @@ func TestTestProviderNeedsNoCoreOrTransportChange(t *testing.T) {
 		}
 	}
 	for _, op := range spec.Ops {
-		if op.MCP != nil && op.Mode != def.ModeStream {
+		if op.MCP != nil {
 			if _, ok := tools[op.MCP.Tool]; !ok {
 				t.Errorf("test provider tool %s is not listed", op.MCP.Tool)
 			}

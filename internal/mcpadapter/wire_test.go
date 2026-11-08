@@ -65,6 +65,10 @@ type world struct {
 type worldOpts struct {
 	origins      []string
 	failureLimit int
+	// extra providers are enabled next to the conformance provider, and
+	// the full token also holds extraScopes (8.2).
+	extra       []provider.Provider
+	extraScopes []string
 }
 
 func newWorld(t *testing.T, o worldOpts) *world {
@@ -85,9 +89,14 @@ func newWorld(t *testing.T, o worldOpts) *world {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reg, err := core.New([]provider.Provider{testprovider.New(spy)}, core.Options{
-		Host: "testhost", Version: "v0.0.0-test", Logger: log, Audit: alog, Ops: mgr,
-		Providers: map[string]core.ProviderConfig{testprovider.Name: {Enabled: true}},
+	providers := []provider.Provider{testprovider.New(spy)}
+	enabled := map[string]core.ProviderConfig{testprovider.Name: {Enabled: true}}
+	for _, p := range o.extra {
+		providers = append(providers, p)
+		enabled[p.Spec().Name] = core.ProviderConfig{Enabled: true}
+	}
+	reg, err := core.New(providers, core.Options{
+		Host: "testhost", Version: "v0.0.0-test", Logger: log, Audit: alog, Ops: mgr, Providers: enabled,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +109,7 @@ func newWorld(t *testing.T, o worldOpts) *world {
 		return tok
 	}
 	w := &world{audit: alog, spy: spy,
-		full: mint("full", testprovider.ReadScope, testprovider.WriteScope),
+		full: mint("full", append([]string{testprovider.ReadScope, testprovider.WriteScope}, o.extraScopes...)...),
 		read: mint("read", testprovider.ReadScope),
 		none: mint("none"),
 	}
