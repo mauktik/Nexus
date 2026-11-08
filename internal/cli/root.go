@@ -67,6 +67,7 @@ type app struct {
 	// means catalog.All().
 	specs     []def.ProviderSpec
 	generated map[*cobra.Command]*opCommand
+	cfg       *clientconfig.Config // Read once, by config
 }
 
 // Run executes args and returns the process exit code.
@@ -98,6 +99,14 @@ func runWithSpecs(args []string, env Env, specs []def.ProviderSpec) int {
 		// Errors cobra raises itself: unknown commands, flags and arguments.
 		fmt.Fprintf(env.Stderr, "%s: %v\nRun '%s --help' for usage.\n", programName, err, programName)
 		return ExitUsage
+	}
+	var rep *reportedError
+	if errors.As(re.err, &rep) {
+		// Each host's or line's failure is already on stderr.
+		if !a.format.Machine() {
+			fmt.Fprintf(env.Stderr, "%s: %s\n", programName, rep.summary)
+		}
+		return rep.code
 	}
 	if a.format.Machine() {
 		host := a.target
@@ -174,7 +183,7 @@ func (a *app) buildRoot() (*cobra.Command, error) {
 	root.SetErr(a.env.Stderr)
 	root.CompletionOptions.DisableDefaultCmd = true
 	pf := root.PersistentFlags()
-	pf.StringVar(&a.host, "host", "", "target host: a configured name (default: "+clientconfig.EnvHost+", then the default host)")
+	pf.StringVar(&a.host, "host", "", "target hosts: configured names, comma-separated, or all (default: "+clientconfig.EnvHost+", then the default host)")
 	pf.BoolVar(&a.verbose, "verbose", false, "log each request and response status to stderr")
 
 	help := a.helpCommand()
@@ -195,17 +204,6 @@ func (a *app) loadConfig() (*clientconfig.Config, error) {
 		return nil, err
 	}
 	return clientconfig.Load(path)
-}
-
-// client resolves the target host and builds its client. The configuration
-// is read, and its permissions checked, before anything is sent.
-func (a *app) client() (*client.Client, error) {
-	t, err := clientconfig.Resolve(a.host, a.env.Getenv, a.loadConfig)
-	if err != nil {
-		return nil, err
-	}
-	a.target = t.Name
-	return a.newClient(t.URL, t.Fingerprint, t.Token)
 }
 
 func (a *app) newClient(url, fingerprint, token string) (*client.Client, error) {

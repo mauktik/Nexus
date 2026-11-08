@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -178,6 +179,8 @@ func (a *app) newOpCommand(g *opCommand) (*cobra.Command, error) {
 	}
 	b.register(cmd)
 	registerOutputFlags(cmd, g)
+	registerTargetFlags(cmd, b)
+	registerStdinFlags(cmd, g)
 	// A wrong flag or argument count is a usage error of a data command,
 	// printed as JSON in a machine format like any other.
 	usage := func(c *cobra.Command, err error) error {
@@ -187,6 +190,13 @@ func (a *app) newOpCommand(g *opCommand) (*cobra.Command, error) {
 	cmd.SetFlagErrorFunc(usage)
 	if check := cmd.Args; check != nil {
 		cmd.Args = func(c *cobra.Command, args []string) error {
+			// With --stdin, each input line gives the positional.
+			if flagSet(c, flagStdin) {
+				if len(args) > 0 {
+					return usage(c, fmt.Errorf("--%s gives the %s of each line; arguments %q do not apply", flagStdin, b.positional, args))
+				}
+				return nil
+			}
 			if err := check(c, args); err != nil {
 				return usage(c, err)
 			}
@@ -319,9 +329,16 @@ func lowerFirst(s string) string {
 	return s
 }
 
-// invoke runs the op args select through the API and prints the objects
-// it answers with through the output layer.
+// invoke runs the op args select through the API on every target host
+// (FR-32), or once per line of stdin (FR-31), and prints the objects the
+// hosts answer with through the output layer.
 func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string) error {
+	if flagSet(cmd, flagStdin) {
+		return a.invokeStdin(cmd, g, b)
+	}
+	if flagSet(cmd, flagStopOnError) {
+		return usagef("--%s applies only with --%s", flagStopOnError, flagStdin)
+	}
 	op := g.selectOp(args)
 	opts, server, err := a.outputOptions(cmd, g, op)
 	if err != nil {
@@ -342,19 +359,48 @@ func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string
 	if key != "" {
 		req.Header = http.Header{"Idempotency-Key": []string{key}}
 	}
-	c, err := a.client()
+	targets, err := a.targets(cmd)
 	if err != nil {
 		return err
 	}
-	resp, err := c.Send(cmd.Context(), req)
-	if err != nil {
+	hosts := make([]string, len(targets))
+	for i, t := range targets {
+		hosts[i] = t.Name
+	}
+	if err := a.confirmTargets(cmd, op, hosts); err != nil {
 		return err
 	}
 	p := output.NewPrinter(a.env.Stdout, opts)
-	if err := a.printResponse(p, op, in, resp.Body); err != nil {
+	send := func(ctx context.Context, t hostTarget) ([]byte, error) {
+		c, err := a.targetClient(t)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := c.Send(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		return resp.Body, nil
+	}
+	show := func(t hostTarget, body []byte) error { return a.printResponse(p, t, op, in, body) }
+	if len(targets) == 1 {
+		// One host: its error is the command's, as without fan-out.
+		t := targets[0]
+		a.target = t.Name
+		body, err := send(cmd.Context(), t)
+		if err != nil {
+			return err
+		}
+		if err := show(t, body); err != nil {
+			return err
+		}
+		return p.Close()
+	}
+	ferr := a.fanOut(cmd.Context(), targets, send, show)
+	if err := p.Close(); err != nil {
 		return err
 	}
-	return p.Close()
+	return ferr
 }
 
 var errNotJSON = errors.New("the host answered with a body that is not JSON objects")
@@ -410,7 +456,7 @@ func (a *app) outputOptions(cmd *cobra.Command, g *opCommand, op def.Op) (output
 }
 
 // printResponse prints each object of body, labeled with host and id.
-func (a *app) printResponse(p *output.Printer, op def.Op, in map[string]any, body []byte) error {
+func (a *app) printResponse(p *output.Printer, t hostTarget, op def.Op, in map[string]any, body []byte) error {
 	switch {
 	case op.Mode == def.ModeStream:
 		target, _ := in[op.CLI.Positional].(string)
@@ -423,7 +469,7 @@ func (a *app) printResponse(p *output.Printer, op def.Op, in map[string]any, bod
 				return errNotJSON
 			}
 			f["id"] = frameLocator(target, f)
-			if err := p.Print(a.label(f)); err != nil {
+			if err := p.Print(label(f, t)); err != nil {
 				return err
 			}
 		}
@@ -443,12 +489,12 @@ func (a *app) printResponse(p *output.Printer, op def.Op, in map[string]any, bod
 			if err != nil {
 				return errNotJSON
 			}
-			if err := p.Print(a.label(obj)); err != nil {
+			if err := p.Print(label(obj, t)); err != nil {
 				return err
 			}
 		}
 		if page.NextCursor != "" {
-			a.warn("more results: repeat with --cursor "+page.NextCursor, map[string]any{"nextCursor": page.NextCursor})
+			a.warn(t.Name, "more results: repeat with --cursor "+page.NextCursor, map[string]any{"nextCursor": page.NextCursor})
 		}
 		return nil
 	}
@@ -456,13 +502,16 @@ func (a *app) printResponse(p *output.Printer, op def.Op, in map[string]any, bod
 	if err != nil {
 		return errNotJSON
 	}
-	return p.Print(a.label(obj))
+	return p.Print(label(obj, t))
 }
 
-// label gives obj the target's name as its host when the host sent none.
-func (a *app) label(obj map[string]any) map[string]any {
-	if h, _ := obj["host"].(string); h == "" {
-		obj["host"] = a.target
+// label sets obj's host to the client-side configured name of t, whatever
+// the server called itself, so --stdin binds back to the same host (FR-31,
+// FR-32). A URL target has no configured name: it labels only an object
+// the host sent without one.
+func label(obj map[string]any, t hostTarget) map[string]any {
+	if h, _ := obj["host"].(string); t.configured || h == "" {
+		obj["host"] = t.Name
 	}
 	return obj
 }
@@ -481,13 +530,14 @@ func frameLocator(target string, f map[string]any) string {
 	return target + "@" + t
 }
 
-// warn writes a warning to stderr: a JSON line in a machine format.
-func (a *app) warn(msg string, fields map[string]any) {
+// warn writes a warning about host to stderr: a JSON line in a machine
+// format.
+func (a *app) warn(host, msg string, fields map[string]any) {
 	if !a.format.Machine() {
-		fmt.Fprintf(a.env.Stderr, "%s: warning: host %s: %s\n", programName, hostOr(a.target), msg)
+		fmt.Fprintf(a.env.Stderr, "%s: warning: host %s: %s\n", programName, hostOr(host), msg)
 		return
 	}
-	w := map[string]any{"level": "warning", "host": a.target, "message": msg}
+	w := map[string]any{"level": "warning", "host": host, "message": msg}
 	maps.Copy(w, fields)
 	// As for Fprintf above: a failed write to stderr has nowhere to go.
 	_ = output.WriteLine(a.env.Stderr, w)

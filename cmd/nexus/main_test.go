@@ -370,8 +370,10 @@ func TestHostAddPinsFingerprint(t *testing.T) {
 		if r.code != 0 {
 			t.Fatalf("step 3: capability get --host %s exited %d: %s", h, r.code, r.all())
 		}
+		// Output carries the client-side name (9.4); the one server, alpha,
+		// answers both names over the pinned connection.
 		var caps struct{ ID, Host, APIVersion string }
-		if err := json.Unmarshal([]byte(r.stdout), &caps); err != nil || caps.Host != "alpha" || caps.ID != "/capabilities" {
+		if err := json.Unmarshal([]byte(r.stdout), &caps); err != nil || caps.Host != h || caps.ID != "/capabilities" {
 			t.Errorf("step 3: capabilities %q (%v)", r.stdout, err)
 		}
 	}
@@ -631,27 +633,35 @@ func TestEnvironmentOverrides(t *testing.T) {
 		_ = json.Unmarshal([]byte(r.stdout), &caps)
 		return caps.Host
 	}
+	// host is the output label: a configured host's client-side name (9.4),
+	// or for a URL target, the server's own name. server is the URL the
+	// request went to, from --verbose; exit 0 with a token only that server
+	// accepts, over its pin, proves it answered.
 	for _, tc := range []struct {
-		name string
-		env  []string
-		code int
-		host string
+		name   string
+		env    []string
+		code   int
+		host   string
+		server string
 	}{
-		{"saved token is used", []string{"NEXUS_HOST=a"}, 3, ""},
-		{"NEXUS_HOST=a with NEXUS_TOKEN", []string{"NEXUS_HOST=a", "NEXUS_TOKEN=" + a.token}, 0, "alpha"},
-		{"NEXUS_TOKEN alone, default host", []string{"NEXUS_TOKEN=" + a.token}, 0, "alpha"},
-		{"URL with the right fingerprint", []string{"NEXUS_HOST=" + b.url, "NEXUS_FINGERPRINT=" + b.fp, "NEXUS_TOKEN=" + b.token}, 0, "beta"},
-		{"URL with a wrong fingerprint", []string{"NEXUS_HOST=" + b.url, "NEXUS_FINGERPRINT=" + a.fp, "NEXUS_TOKEN=" + b.token}, 5, ""},
-		{"URL without a fingerprint: system trust", []string{"NEXUS_HOST=" + b.url, "NEXUS_TOKEN=" + b.token}, 5, ""},
-		{"unknown NEXUS_HOST name", []string{"NEXUS_HOST=zz"}, 2, ""},
+		{"saved token is used", []string{"NEXUS_HOST=a"}, 3, "", ""},
+		{"NEXUS_HOST=a with NEXUS_TOKEN", []string{"NEXUS_HOST=a", "NEXUS_TOKEN=" + a.token}, 0, "a", a.url},
+		{"NEXUS_TOKEN alone, default host", []string{"NEXUS_TOKEN=" + a.token}, 0, "a", a.url},
+		{"URL with the right fingerprint", []string{"NEXUS_HOST=" + b.url, "NEXUS_FINGERPRINT=" + b.fp, "NEXUS_TOKEN=" + b.token}, 0, "beta", b.url},
+		{"URL with a wrong fingerprint", []string{"NEXUS_HOST=" + b.url, "NEXUS_FINGERPRINT=" + a.fp, "NEXUS_TOKEN=" + b.token}, 5, "", ""},
+		{"URL without a fingerprint: system trust", []string{"NEXUS_HOST=" + b.url, "NEXUS_TOKEN=" + b.token}, 5, "", ""},
+		{"unknown NEXUS_HOST name", []string{"NEXUS_HOST=zz"}, 2, "", ""},
 	} {
-		r := e.nexus(t, "", tc.env, "capability", "get")
+		r := e.nexus(t, "", tc.env, "capability", "get", "--verbose")
 		if r.code != tc.code {
 			t.Errorf("%s: exit %d, want %d: %s", tc.name, r.code, tc.code, r.all())
 			continue
 		}
 		if tc.host != "" && host(r) != tc.host {
-			t.Errorf("%s: reached host %q, want %q", tc.name, host(r), tc.host)
+			t.Errorf("%s: output host %q, want %q", tc.name, host(r), tc.host)
+		}
+		if tc.server != "" && !strings.Contains(r.stderr, "> GET "+tc.server+"/v1/capabilities") {
+			t.Errorf("%s: request did not go to %s: %s", tc.name, tc.server, r.stderr)
 		}
 	}
 }

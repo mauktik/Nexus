@@ -23,7 +23,8 @@ const (
 )
 
 // --version is the root's own flag, not inherited, so an input may take it.
-var reservedFlags = []string{"help", "host", "verbose", flagIdempotencyKey, flagOutput, flagSelect, flagFilter}
+var reservedFlags = []string{"help", "host", "verbose", flagIdempotencyKey, flagOutput, flagSelect, flagFilter,
+	flagTag, flagYes, flagStdin, flagStopOnError}
 
 // filterField is the input that carries server-side filters. The output
 // layer's --filter fills it with the keys the op declares (9.3).
