@@ -237,7 +237,9 @@ func (h *helper) kill(t *testing.T) {
 // assertRetained reopens dir and checks the helper's record is intact.
 func assertRetained(t *testing.T, dir string, h *helper) {
 	t.Helper()
-	s, err := Open(dir, Options{})
+	// The helper wrote under crashFixtureTime; reopening at the same clock
+	// keeps its idempotency entry unexpired whatever today's date is.
+	s, err := Open(dir, Options{Now: func() time.Time { return crashFixtureTime }})
 	if err != nil {
 		t.Fatalf("reopen after crash: %v", err)
 	}
