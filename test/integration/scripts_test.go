@@ -460,8 +460,18 @@ func TestScriptOutcomes(t *testing.T) {
 	if op.Status != apitypes.StatusSucceeded {
 		t.Fatalf("ok.sh: %s %v", op.Status, op.Error)
 	}
-	if r := result(t, op); r.ExitCode != 0 || r.Signal != "" || r.DurationSeconds <= 0 {
-		t.Errorf("ok.sh result %+v, want exit 0, no signal and a duration", r)
+	// TC-95 requires a duration to be present, not positive: run.go rounds to
+	// the millisecond, so a sub-0.5 ms run reports 0. Check the raw key so a
+	// missing duration still fails, and reject a negative one.
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(op.Result, &raw); err != nil {
+		t.Fatalf("ok.sh result %s: %v", op.Result, err)
+	}
+	if _, has := raw["durationSeconds"]; !has {
+		t.Errorf("ok.sh result %s lacks durationSeconds", op.Result)
+	}
+	if r := result(t, op); r.ExitCode != 0 || r.Signal != "" || r.DurationSeconds < 0 {
+		t.Errorf("ok.sh result %+v, want exit 0, no signal and a non-negative durationSeconds", r)
 	}
 	out := d.logs(op.ID)
 	for _, line := range []string{"ok: starting\n", "ok: step 1 of 2\n", "ok: step 2 of 2\n", "ok: done\n"} {
