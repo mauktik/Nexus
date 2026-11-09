@@ -1,6 +1,8 @@
 # nexusd configuration. Install as /etc/nexus/nexusd.yaml, owned by root:root
 # with mode 0600: running as root, nexusd refuses the file if any group or
 # other permission bit is set, because script env values can be secrets.
+# install.sh writes this file there only when no config exists, and never
+# changes an existing one.
 #
 # Every key is listed with its default. Unknown keys are errors.
 # Check a change with: nexusd validate-config --config /etc/nexus/nexusd.yaml

@@ -6,16 +6,32 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 BUILD_DIR := build
 DIST_DIR  := dist
+# make release writes the tarballs and SHA256SUMS here, and stages their
+# trees in STAGE_DIR.
+RELEASE_DIR := $(DIST_DIR)/release
+STAGE_DIR   := $(BUILD_DIR)/release
 
 VERSION_LDFLAGS := -X $(MODULE)/internal/version.Version=$(VERSION)
 RELEASE_LDFLAGS := -s -w $(VERSION_LDFLAGS)
 RELEASE_BUILD   := CGO_ENABLED=0 go build -trimpath -ldflags='$(RELEASE_LDFLAGS)'
 
+# Everything the nexusd tarball carries besides the binary and the docs.
+NEXUSD_FILES := deploy/nexusd.service deploy/nexusd.default.yaml deploy/install.sh deploy/uninstall.sh
+
+# Tarball entries are owned by root, without extended attributes or macOS
+# metadata, whichever tar builds them.
+ifneq (,$(findstring GNU,$(shell tar --version 2>/dev/null)))
+TAR_FLAGS := --owner=0 --group=0 --numeric-owner --no-xattrs
+else
+TAR_FLAGS := --uid 0 --gid 0 --uname root --gname root --no-xattrs --no-mac-metadata
+endif
+SHA256 := $(shell command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo shasum -a 256)
+
 # Build-system tests that run make skip when this is set, so `make test` never
 # recurses into make.
 export NEXUS_IN_MAKE := 1
 
-.PHONY: build build-release test vet vuln check test-harness
+.PHONY: build build-release test vet vuln check test-harness release release-version nexusd-tree test-emu
 
 # Host-arch binaries for local use.
 build:
@@ -43,8 +59,48 @@ vuln:
 
 check: vet test vuln
 
+# release VERSION=vX.Y.Z[-pre]: the gate (vet, test, govulncheck), the
+# release build, then one tarball per target and SHA256SUMS in dist/release/.
+# A failing step stops the build before any tarball is written.
+release: release-version check build-release
+	rm -rf $(RELEASE_DIR) $(STAGE_DIR)
+	mkdir -p $(RELEASE_DIR) $(STAGE_DIR)
+	$(MAKE) --no-print-directory nexusd-tree TREE_BIN=$(DIST_DIR)/nexusd-linux-amd64 TREE_DIR=$(STAGE_DIR)/nexusd-$(VERSION)-linux-amd64
+	for t in darwin-arm64 linux-amd64; do \
+		d=$(STAGE_DIR)/nexus-$(VERSION)-$$t; \
+		mkdir -p $$d/docs && cp $(DIST_DIR)/nexus-$$t $$d/nexus && cp README.md $$d/ && cp -R docs/. $$d/docs/ && \
+		chmod -R u=rwX,go=rX $$d && chmod 0755 $$d/nexus || exit 1; \
+	done
+	for t in nexusd-$(VERSION)-linux-amd64 nexus-$(VERSION)-darwin-arm64 nexus-$(VERSION)-linux-amd64; do \
+		(cd $(STAGE_DIR) && COPYFILE_DISABLE=1 tar $(TAR_FLAGS) -czf $(CURDIR)/$(RELEASE_DIR)/$$t.tar.gz $$t) || exit 1; \
+	done
+	cd $(RELEASE_DIR) && $(SHA256) *.tar.gz >SHA256SUMS && $(SHA256) -c SHA256SUMS
+
+release-version:
+	@echo '$(VERSION)' | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$$' || \
+		{ echo "release: VERSION='$(VERSION)' is not vMAJOR.MINOR.PATCH[-PRERELEASE]" >&2; exit 1; }
+
+# nexusd-tree TREE_BIN=<binary> TREE_DIR=<dir>: the nexusd release tree
+# (binary, unit, default config, install and uninstall scripts, docs). The
+# release packs it; the T1 harness installs a harness-arch one with install.sh.
+nexusd-tree:
+	@[ -n '$(TREE_BIN)' ] && [ -n '$(TREE_DIR)' ] || { echo "nexusd-tree: set TREE_BIN and TREE_DIR" >&2; exit 2; }
+	rm -rf $(TREE_DIR)
+	mkdir -p $(TREE_DIR)/docs
+	cp $(TREE_BIN) $(TREE_DIR)/nexusd
+	cp $(NEXUSD_FILES) README.md $(TREE_DIR)/
+	cp -R docs/. $(TREE_DIR)/docs/
+	chmod -R u=rwX,go=rX $(TREE_DIR)
+	chmod 0755 $(TREE_DIR)/nexusd $(TREE_DIR)/install.sh $(TREE_DIR)/uninstall.sh
+
 # T1: real systemd in a privileged container on the Docker CLI's current
 # context, native architecture. Test-only binaries go to build/harness/,
 # never dist/. BASE defaults to ubuntu:latest; RUN narrows the tests.
 test-harness:
 	BASE='$(BASE)' RUN='$(RUN)' test/harness/run.sh
+
+# T1-emu (TC-184): the linux/amd64 nexusd from the tarball `make release`
+# wrote, in a plain container under amd64 emulation: no systemd, a smoke test
+# only (A-25).
+test-emu:
+	BASE='$(BASE)' test/harness/run.sh emu
