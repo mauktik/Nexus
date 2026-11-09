@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/mauktik/nexus/internal/client"
 	"github.com/mauktik/nexus/internal/clientconfig"
@@ -110,11 +111,14 @@ func ExitCode(err error) int {
 // Message renders an error for stderr. host names the target, when known.
 func Message(err error, host string) string {
 	var (
-		prob *problem.Error
-		pin  *client.PinMismatchError
-		tr   *client.TransportError
+		prob  *problem.Error
+		pin   *client.PinMismatchError
+		tr    *client.TransportError
+		opErr *operationError
 	)
 	switch {
+	case errors.As(err, &opErr):
+		return fmt.Sprintf("host %s: operation %s: %s", hostOr(host), opErr.id, strings.TrimPrefix(Message(opErr.err, host), "host "+hostOr(host)+": "))
 	case errors.As(err, &pin):
 		return fmt.Sprintf("host %s: TLS certificate fingerprint mismatch: pinned %s, server presented %s. "+
 			"The certificate changed or the connection is intercepted; nothing was sent. "+

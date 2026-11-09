@@ -22,8 +22,14 @@ import (
 )
 
 // Timeout bounds every unary request, connection to last body byte. The
-// --follow stream client (9.5) is separate.
+// --follow stream client is separate: see Stream.
 const Timeout = 30 * time.Second
+
+// Bounds of the --follow stream client, which has no overall Timeout (9.5).
+const (
+	StreamTLSHandshakeTimeout   = 10 * time.Second
+	StreamResponseHeaderTimeout = 30 * time.Second
+)
 
 // APIPrefix is the versioned path every API route lives under.
 const APIPrefix = "/v1"
@@ -52,6 +58,7 @@ type Options struct {
 type Client struct {
 	base    *url.URL
 	http    *http.Client
+	stream  *http.Client // For Stream: no overall Timeout
 	token   string
 	verbose io.Writer
 }
@@ -155,15 +162,22 @@ func New(o Options) (*Client, error) {
 			tr.TLSClientConfig = systemTLS(o.RootCAs)
 		}
 	}
+	// The API never redirects; following one could carry the token
+	// somewhere unverified.
+	noRedirect := func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	// The stream client shares the TLS verification above. It has Timeout 0,
+	// a recorded waiver of go/custom-http-client-timeout: a followed log
+	// stays open as long as the operation or container runs, so any overall
+	// bound would cut a healthy stream. It is bounded instead by the TLS
+	// handshake and response header timeouts here, the dial timeout, and the
+	// caller's no-frame watchdog, which cancels a silent stream (9.5).
+	str := tr.Clone()
+	str.TLSHandshakeTimeout = StreamTLSHandshakeTimeout
+	str.ResponseHeaderTimeout = StreamResponseHeaderTimeout
 	return &Client{
-		base: u,
-		http: &http.Client{
-			Transport: tr,
-			Timeout:   Timeout,
-			// The API never redirects; following one could carry the token
-			// somewhere unverified.
-			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-		},
+		base:    u,
+		http:    &http.Client{Transport: tr, Timeout: Timeout, CheckRedirect: noRedirect},
+		stream:  &http.Client{Transport: str, Timeout: 0, CheckRedirect: noRedirect},
 		token:   o.Token,
 		verbose: o.Verbose,
 	}, nil
@@ -171,6 +185,21 @@ func New(o Options) (*Client, error) {
 
 // HTTPTimeout returns the unary client's overall timeout.
 func (c *Client) HTTPTimeout() time.Duration { return c.http.Timeout }
+
+// StreamSettings are the stream client's bounds, for tests.
+type StreamSettings struct {
+	Timeout, TLSHandshakeTimeout, ResponseHeaderTimeout time.Duration
+}
+
+// StreamSettings returns the stream client's bounds.
+func (c *Client) StreamSettings() StreamSettings {
+	tr, _ := c.stream.Transport.(*http.Transport)
+	s := StreamSettings{Timeout: c.stream.Timeout}
+	if tr != nil {
+		s.TLSHandshakeTimeout, s.ResponseHeaderTimeout = tr.TLSHandshakeTimeout, tr.ResponseHeaderTimeout
+	}
+	return s
+}
 
 // Request is one API request.
 type Request struct {
@@ -211,6 +240,36 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out any) error
 // Send sends r and returns a 2xx response. Any other response is an error,
 // as for Do.
 func (c *Client) Send(ctx context.Context, r Request) (*Response, error) {
+	resp, err := c.do(ctx, c.http, r)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
+	if err != nil {
+		return nil, &TransportError{Err: fmt.Errorf("read response: %w", err)}
+	}
+	if len(data) > maxBodyBytes {
+		return nil, fmt.Errorf("response body exceeds %d bytes", maxBodyBytes)
+	}
+	return &Response{Status: resp.StatusCode, Header: resp.Header, Body: data}, nil
+}
+
+// Stream sends r through the stream client and returns the body of a 2xx
+// response unread, for the caller to read as it arrives and close. Its
+// context is the only bound once the headers are in: the caller cancels it
+// when the stream falls silent. Any other response is an error, as for Do.
+func (c *Client) Stream(ctx context.Context, r Request) (io.ReadCloser, error) {
+	resp, err := c.do(ctx, c.stream, r)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Body, nil
+}
+
+// do sends r through hc and returns a 2xx response with its body unread.
+// It reads and closes any other response, and returns its error.
+func (c *Client) do(ctx context.Context, hc *http.Client, r Request) (*http.Response, error) {
 	var body io.Reader
 	if r.Body != nil {
 		b, err := json.Marshal(r.Body)
@@ -246,25 +305,17 @@ func (c *Client) Send(ctx context.Context, r Request) (*Response, error) {
 	}
 	c.logf("> %s %s", r.Method, target.Redacted())
 	start := time.Now()
-	resp, err := c.http.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		c.logf("< %s %s failed after %s", r.Method, target.Redacted(), time.Since(start).Round(time.Millisecond))
 		return nil, &TransportError{Err: err}
 	}
-	defer resp.Body.Close()
 	c.logf("< %s (%s)", resp.Status, time.Since(start).Round(time.Millisecond))
-
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		data, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
-		if err != nil {
-			return nil, &TransportError{Err: fmt.Errorf("read response: %w", err)}
-		}
-		if len(data) > maxBodyBytes {
-			return nil, fmt.Errorf("response body exceeds %d bytes", maxBodyBytes)
-		}
-		return &Response{Status: resp.StatusCode, Header: resp.Header, Body: data}, nil
+		return resp, nil
 	}
 
+	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxErrorBytes))
 	if err != nil {
 		return nil, &TransportError{Err: fmt.Errorf("read error response: %w", err)}

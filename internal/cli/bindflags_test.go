@@ -71,6 +71,10 @@ func urlEnv(srv *captureServer) Env {
 func runSpecsCLI(env Env, specs []def.ProviderSpec, args ...string) runResult {
 	var stdout, stderr strings.Builder
 	env.Stdout, env.Stderr = &stdout, &stderr
+	if env.OpenTerminal == nil {
+		// In process, the test's own terminal is never asked.
+		env.OpenTerminal = noTerminal
+	}
 	code := runWithSpecs(args, env, specs)
 	return runResult{code, stdout.String(), stderr.String()}
 }
@@ -83,7 +87,7 @@ func TestFlagsFromInputSchemas(t *testing.T) {
 	specs := widgetSpecs()
 
 	r := runSpecsCLI(env, specs, "widget", "update", "--label", "hello world", "--count", "3", "--force",
-		"--color", "green", "--tags", "a", "--tags", "b,c", "--idempotency-key", "K-1")
+		"--color", "green", "--tags", "a", "--tags", "b,c", "--idempotency-key", "K-1", "--no-wait")
 	if r.code != 0 {
 		t.Fatalf("widget update exited %d: %s", r.code, r.stderr)
 	}
@@ -111,7 +115,7 @@ func TestFlagsFromInputSchemas(t *testing.T) {
 	}
 
 	// Unset flags are not sent.
-	if r := runSpecsCLI(env, specs, "widget", "update", "--count", "0"); r.code != 0 {
+	if r := runSpecsCLI(env, specs, "widget", "update", "--count", "0", "--no-wait"); r.code != 0 {
 		t.Fatalf("widget update --count 0 exited %d: %s", r.code, r.stderr)
 	}
 	if reqs := srv.take(); len(reqs) != 1 || string(reqs[0].body) != `{"count":0}` {
@@ -141,7 +145,7 @@ func TestFlagsFromInputSchemas(t *testing.T) {
 		}
 	}
 
-	r = runSpecsCLI(env, specs, "script", "invoke", "x", "--param", "a=1", "--param", "b=2=3", "--idempotency-key", "K")
+	r = runSpecsCLI(env, specs, "script", "invoke", "x", "--param", "a=1", "--param", "b=2=3", "--idempotency-key", "K", "--no-wait", "--yes")
 	if r.code != 0 {
 		t.Fatalf("script invoke exited %d: %s", r.code, r.stderr)
 	}
@@ -174,7 +178,7 @@ func TestFlagsFromInputSchemas(t *testing.T) {
 	}
 
 	// Names bind as arguments where the op takes a names array.
-	r = runSpecsCLI(env, specs, "package", "install", "curl", "jq", "--what-if")
+	r = runSpecsCLI(env, specs, "package", "install", "curl", "jq", "--what-if", "--no-wait")
 	if r.code != 0 {
 		t.Fatalf("package install exited %d: %s", r.code, r.stderr)
 	}

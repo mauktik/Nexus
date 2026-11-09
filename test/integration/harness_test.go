@@ -34,6 +34,7 @@ import (
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/auth"
+	"github.com/mauktik/nexus/internal/cli"
 	"github.com/mauktik/nexus/internal/detach"
 )
 
@@ -49,6 +50,11 @@ const (
 )
 
 func TestMain(m *testing.M) {
+	// As the nexus CLI, so a test can run it as a real process in a shell
+	// pipeline (TC-170).
+	if os.Getenv(asCLIEnv) == "1" {
+		os.Exit(cli.Run(os.Args[1:], cli.OSEnv()))
+	}
 	if os.Getenv("NEXUS_HARNESS") != "1" {
 		fmt.Fprintln(os.Stderr, "test/integration runs only inside the T1 harness container: make test-harness")
 		os.Exit(2)

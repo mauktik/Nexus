@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -68,6 +69,11 @@ type app struct {
 	specs     []def.ProviderSpec
 	generated map[*cobra.Command]*opCommand
 	cfg       *clientconfig.Config // Read once, by config
+	// intr detaches the waits of the data command running on SIGINT.
+	intr *interrupter
+	// multi is set when the data command running targets several hosts,
+	// so text on stderr is labeled with its host.
+	multi bool
 }
 
 // Run executes args and returns the process exit code.
@@ -83,6 +89,9 @@ func runWithSpecs(args []string, env Env, specs []def.ProviderSpec) int {
 	if env.Stdin == nil {
 		env.Stdin = strings.NewReader("")
 	}
+	// Hosts report progress, output and failures concurrently: one write
+	// at a time keeps each line whole.
+	env.Stderr = &lockedWriter{w: env.Stderr}
 	a := &app{env: env, specs: specs}
 	root, err := a.buildRoot()
 	if err != nil {
@@ -249,6 +258,18 @@ func (a *app) openTerminal() (Terminal, error) {
 		return nil, errors.New("/dev/tty is not a terminal")
 	}
 	return &ttyFile{f: f, r: bufio.NewReader(f)}, nil
+}
+
+// lockedWriter serializes writes to w.
+type lockedWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (l *lockedWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(p)
 }
 
 // ttyFile is the real controlling terminal.

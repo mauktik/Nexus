@@ -14,7 +14,6 @@ import (
 	"github.com/mauktik/nexus/internal/cli/output"
 	"github.com/mauktik/nexus/internal/client"
 	"github.com/mauktik/nexus/internal/clientconfig"
-	"github.com/mauktik/nexus/internal/def"
 )
 
 // maxConcurrentHosts bounds how many hosts one command talks to at once
@@ -215,11 +214,6 @@ func (a *app) targetClient(t hostTarget) (*client.Client, error) {
 	return a.newClient(t.URL, t.Fingerprint, t.Token)
 }
 
-// confirmTargets is where confirmation (9.5) decides, once every target is
-// known: for --stdin without --yes, after reading to EOF (A-55). hosts are
-// the distinct hosts the command will send to. It asks nothing yet.
-func (a *app) confirmTargets(_ *cobra.Command, _ def.Op, _ []string) error { return nil }
-
 // fanOut runs send against every target, at most maxConcurrentHosts at
 // once, and prints each host's result as it arrives. A host's failure is
 // reported for that host alone and does not stop the others (FR-32); the
@@ -235,8 +229,12 @@ func (a *app) fanOut(ctx context.Context, targets []hostTarget, send func(contex
 	finish := func(t hostTarget, body []byte, err error) {
 		mu.Lock()
 		defer mu.Unlock()
-		if err == nil {
-			err = show(t, body)
+		// A long-running op that ended badly still has its operation to
+		// print, beside its error.
+		if body != nil {
+			if serr := show(t, body); err == nil {
+				err = serr
+			}
 		}
 		if err != nil {
 			a.reportFailure(t.Name, 0, err)

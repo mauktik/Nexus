@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -164,5 +165,42 @@ func TestProbe(t *testing.T) {
 		if n := tc.srv.requests.Load(); n != 0 {
 			t.Errorf("probe sent %d requests", n)
 		}
+	}
+}
+
+// The --follow stream client verifies exactly as the unary one: a pin
+// mismatch fails before any request, and a matching pin streams.
+func TestStreamClientKeepsPinning(t *testing.T) {
+	srv := startTLS(t, validLeaf(t, nil), nil)
+	wrong := Fingerprint(validLeaf(t, nil).Certificate[0])
+	c, err := New(Options{URL: srv.URL, Fingerprint: wrong, Token: sentinelToken})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.Stream(context.Background(), Request{Method: http.MethodGet, Path: "/capabilities"})
+	var pm *PinMismatchError
+	if !errors.As(err, &pm) {
+		t.Fatalf("Stream = %v, want a *PinMismatchError", err)
+	}
+	if n := srv.requests.Load(); n != 0 || srv.sawHeader(sentinelToken) {
+		t.Errorf("server saw %d requests (token sent: %v), want none", n, srv.sawHeader(sentinelToken))
+	}
+
+	c, err = New(Options{URL: srv.URL, Fingerprint: Fingerprint(srv.Certificate().Raw), Token: sentinelToken})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := c.Stream(context.Background(), Request{Method: http.MethodGet, Path: "/capabilities"})
+	if err != nil {
+		t.Fatalf("pinned stream: %v", err)
+	}
+	defer body.Close()
+	var caps apitypes.Capabilities
+	if err := json.NewDecoder(body).Decode(&caps); err != nil || caps.ID != apitypes.CapabilitiesID {
+		t.Errorf("streamed %+v, %v", caps, err)
+	}
+	if s := c.StreamSettings(); s.Timeout != 0 || s.TLSHandshakeTimeout != StreamTLSHandshakeTimeout ||
+		s.ResponseHeaderTimeout != StreamResponseHeaderTimeout {
+		t.Errorf("stream settings %+v", s)
 	}
 }

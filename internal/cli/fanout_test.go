@@ -99,8 +99,9 @@ func fleetSpec() def.ProviderSpec {
 		Ops: []def.Op{fleetList.Op(), fleetGet.Op(), fleetRestart.Op()}}
 }
 
-// fleetSpecs is the catalog plus the fleet provider: the CLI's tree.
-func fleetSpecs() []def.ProviderSpec { return append(catalog.All(), fleetSpec()) }
+// fleetSpecs is the catalog plus the fleet and gate test providers: the
+// CLI's tree.
+func fleetSpecs() []def.ProviderSpec { return append(catalog.All(), fleetSpec(), gateSpec()) }
 
 // fleet is one server's provider: its things, under the server's own host
 // name, and the restarts admitted, which count the mutations it received.
@@ -187,9 +188,25 @@ type fleetServer struct {
 // provider off, so the host lacks the capability.
 func startFleet(t *testing.T, f *fleet, disabled bool) *fleetServer {
 	t.Helper()
+	s := startProviderServer(t, f.own, f, !disabled, fleetReadScope, fleetWriteScope)
+	return &fleetServer{url: s.url, token: s.token, f: f}
+}
+
+// providerServer is a real nexus server, core.New and server.New over one
+// provider, with its own token store, audit log and operations.
+type providerServer struct {
+	url      string
+	token    string // Holds the scopes it was started with
+	stateDir string // Where more tokens can be created
+}
+
+// startProviderServer serves p under the host name own, with p enabled or
+// not, and a token holding scopes.
+func startProviderServer(t *testing.T, own string, p provider.Provider, enabled bool, scopes ...string) *providerServer {
+	t.Helper()
 	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	stateDir, auditDir := t.TempDir(), t.TempDir()
-	alog, err := audit.Open(audit.Options{Dir: auditDir, Host: f.own, Logger: log})
+	alog, err := audit.Open(audit.Options{Dir: auditDir, Host: own, Logger: log})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,16 +214,16 @@ func startFleet(t *testing.T, f *fleet, disabled bool) *fleetServer {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mgr, err := ops.New(ops.Options{Store: st, Audit: alog, Dir: filepath.Join(stateDir, "ops"), Host: f.own, Logger: log})
+	mgr, err := ops.New(ops.Options{Store: st, Audit: alog, Dir: filepath.Join(stateDir, "ops"), Host: own, Logger: log})
 	if err != nil {
 		t.Fatal(err)
 	}
-	reg, err := core.New([]provider.Provider{f}, core.Options{Host: f.own, Version: "v0.0.0-test", Logger: log,
-		Audit: alog, Ops: mgr, Providers: map[string]core.ProviderConfig{fleetName: {Enabled: !disabled}}})
+	reg, err := core.New([]provider.Provider{p}, core.Options{Host: own, Version: "v0.0.0-test", Logger: log,
+		Audit: alog, Ops: mgr, Providers: map[string]core.ProviderConfig{p.Spec().Name: {Enabled: enabled}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	tok, _, err := auth.Create(stateDir, auth.CreateRequest{Name: "cli", Scopes: []string{fleetReadScope, fleetWriteScope}})
+	tok, _, err := auth.Create(stateDir, auth.CreateRequest{Name: "cli", Scopes: scopes})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +257,7 @@ func startFleet(t *testing.T, f *fleet, disabled bool) *fleetServer {
 			t.Errorf("audit close: %v", err)
 		}
 	})
-	return &fleetServer{url: "http://" + ln.Addr().String(), token: tok, f: f}
+	return &providerServer{url: "http://" + ln.Addr().String(), token: tok, stateDir: stateDir}
 }
 
 // clientHost is one configured host of a test's client configuration.

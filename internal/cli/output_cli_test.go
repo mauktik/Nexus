@@ -150,6 +150,14 @@ func argsFor(c *opCommand, op def.Op) []string {
 	if b, _ := newBinding(c); b != nil && b.variadic && b.required {
 		args = append(args, "curl")
 	}
+	// The fixture server answers with an operation as accepted: print it
+	// without waiting (FR-33), and confirm a destructive op.
+	if op.Mode == def.ModeLongRunning {
+		args = append(args, "--no-wait")
+	}
+	if op.Mutating() {
+		args = append(args, "--yes")
+	}
 	return args
 }
 

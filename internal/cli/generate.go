@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/spf13/cobra"
@@ -181,6 +182,10 @@ func (a *app) newOpCommand(g *opCommand) (*cobra.Command, error) {
 	registerOutputFlags(cmd, g)
 	registerTargetFlags(cmd, b)
 	registerStdinFlags(cmd, g)
+	if err := registerWaitFlags(cmd, g); err != nil {
+		return nil, err
+	}
+	registerWhatIfFlag(cmd, b)
 	// A wrong flag or argument count is a usage error of a data command,
 	// printed as JSON in a machine format like any other.
 	usage := func(c *cobra.Command, err error) error {
@@ -331,16 +336,27 @@ func lowerFirst(s string) string {
 
 // invoke runs the op args select through the API on every target host
 // (FR-32), or once per line of stdin (FR-31), and prints the objects the
-// hosts answer with through the output layer.
+// hosts answer with through the output layer. A long-running op is waited
+// for unless --no-wait (FR-33); a destructive op, or a mutation of more
+// than one host, is confirmed first.
 func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string) error {
+	a.intr = newInterrupter()
+	defer a.intr.close()
 	if flagSet(cmd, flagStdin) {
-		return a.invokeStdin(cmd, g, b)
+		return a.interruptedExit(a.invokeStdin(cmd, g, b))
 	}
 	if flagSet(cmd, flagStopOnError) {
 		return usagef("--%s applies only with --%s", flagStopOnError, flagStdin)
 	}
 	op := g.selectOp(args)
 	opts, server, err := a.outputOptions(cmd, g, op)
+	if err != nil {
+		return err
+	}
+	if err := checkWhatIf(cmd, op); err != nil {
+		return err
+	}
+	w, err := waitOptionsOf(cmd)
 	if err != nil {
 		return err
 	}
@@ -367,40 +383,97 @@ func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string
 	for i, t := range targets {
 		hosts[i] = t.Name
 	}
-	if err := a.confirmTargets(cmd, op, hosts); err != nil {
+	name, _ := in[op.CLI.Positional].(string)
+	if err := a.confirmTargets(cmd, op, hosts, 0, name); err != nil {
 		return err
 	}
-	p := output.NewPrinter(a.env.Stdout, opts)
+	a.multi = len(targets) > 1
+	p := &lockedPrinter{p: output.NewPrinter(a.env.Stdout, opts)}
 	send := func(ctx context.Context, t hostTarget) ([]byte, error) {
 		c, err := a.targetClient(t)
 		if err != nil {
 			return nil, err
 		}
-		resp, err := c.Send(ctx, req)
-		if err != nil {
-			return nil, err
-		}
-		return resp.Body, nil
+		return a.execute(ctx, c, t, op, in, req, w, p)
 	}
-	show := func(t hostTarget, body []byte) error { return a.printResponse(p, t, op, in, body) }
+	show := func(t hostTarget, body []byte) error { return p.response(a, t, op, in, body) }
 	if len(targets) == 1 {
 		// One host: its error is the command's, as without fan-out.
 		t := targets[0]
 		a.target = t.Name
 		body, err := send(cmd.Context(), t)
+		if body != nil {
+			if serr := show(t, body); err == nil {
+				err = serr
+			}
+		}
 		if err != nil {
 			return err
 		}
-		if err := show(t, body); err != nil {
-			return err
-		}
-		return p.Close()
+		return p.close()
 	}
 	ferr := a.fanOut(cmd.Context(), targets, send, show)
-	if err := p.Close(); err != nil {
+	if err := p.close(); err != nil {
 		return err
 	}
-	return ferr
+	return a.interruptedExit(ferr)
+}
+
+// execute sends one request to t and returns what to print: the response,
+// or for a long-running op, the operation once waited for (FR-33). A
+// followed stream op prints its frames as they arrive and returns nil.
+func (a *app) execute(ctx context.Context, c *client.Client, t hostTarget, op def.Op, in map[string]any, req client.Request,
+	w waitOptions, p *lockedPrinter) ([]byte, error) {
+	if follow, _ := in[flagFollow].(bool); follow && op.Mode == def.ModeStream {
+		target, _ := in[op.CLI.Positional].(string)
+		return nil, followFrames(ctx, c, op, in, &resume{lastO: -1}, func(f map[string]any) error {
+			f["id"] = frameLocator(target, f)
+			return p.print(label(f, t))
+		})
+	}
+	resp, err := c.Send(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if op.Mode != def.ModeLongRunning || w.noWait {
+		return resp.Body, nil
+	}
+	return a.await(ctx, c, t, op, w, resp.Body)
+}
+
+// interruptedExit makes the exit of an invocation that SIGINT detached 130
+// (FR-34), even when some hosts or lines had ended before it.
+func (a *app) interruptedExit(err error) error {
+	var rep *reportedError
+	if a.intr.hit() && errors.As(err, &rep) {
+		rep.code = ExitInterrupted
+	}
+	return err
+}
+
+// lockedPrinter serializes printing, as hosts run concurrently and a
+// followed stream prints while they do.
+type lockedPrinter struct {
+	mu sync.Mutex
+	p  *output.Printer
+}
+
+func (l *lockedPrinter) print(obj map[string]any) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.p.Print(obj)
+}
+
+func (l *lockedPrinter) response(a *app, t hostTarget, op def.Op, in map[string]any, body []byte) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return a.printResponse(l.p, t, op, in, body)
+}
+
+func (l *lockedPrinter) close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.p.Close()
 }
 
 var errNotJSON = errors.New("the host answered with a body that is not JSON objects")
@@ -560,6 +633,10 @@ func errorObject(err error, host string) map[string]any {
 	if _, ok := m["type"].(string); !ok {
 		m["type"] = cliTypePrefix + errorKind(err)
 	}
+	var opErr *operationError
+	if errors.As(err, &opErr) {
+		m["operationId"] = opErr.id
+	}
 	m["level"] = "error"
 	m["host"] = host
 	m["message"] = Message(err, host)
@@ -588,6 +665,10 @@ func errorKind(err error) string {
 		return "not-found"
 	case ExitConnection:
 		return "connection"
+	case ExitWaitTimeout:
+		return "wait-timeout"
+	case ExitInterrupted:
+		return "interrupted"
 	}
 	return "error"
 }

@@ -148,7 +148,8 @@ type stdinRun struct {
 	b       *binding
 	op      def.Op
 	server  []string // Server-side filters
-	p       *output.Printer
+	w       waitOptions
+	p       *lockedPrinter
 	clients map[string]*stdinHost
 	token   string // NEXUS_TOKEN, which may apply to one host only
 	first   string // The first host a line bound, when token is set
@@ -179,17 +180,28 @@ func (a *app) invokeStdin(cmd *cobra.Command, g *opCommand, b *binding) error {
 	if fl := cmd.Flags().Lookup(flagIdempotencyKey); fl != nil && fl.Changed {
 		return usagef("--%s cannot be used with --%s: each line is a different request", flagIdempotencyKey, flagStdin)
 	}
-	r := &stdinRun{a: a, cmd: cmd, b: b, op: op, server: server, p: output.NewPrinter(a.env.Stdout, opts),
+	if err := checkWhatIf(cmd, op); err != nil {
+		return err
+	}
+	w, err := waitOptionsOf(cmd)
+	if err != nil {
+		return err
+	}
+	r := &stdinRun{a: a, cmd: cmd, b: b, op: op, server: server, w: w, p: &lockedPrinter{p: output.NewPrinter(a.env.Stdout, opts)},
 		clients: map[string]*stdinHost{}, token: strings.TrimSpace(a.env.Getenv(clientconfig.EnvToken))}
 	stop := flagSet(cmd, flagStopOnError)
 	var tally outcome
 	runOne := func(l stdinLine) bool {
+		// After SIGINT detached a wait, no further line is sent.
+		if a.intr.hit() {
+			return false
+		}
 		err := r.line(cmd.Context(), l)
 		if err != nil {
 			a.reportFailure(l.host, l.n, err)
 		}
 		tally.add(err)
-		return err == nil || !stop
+		return (err == nil || !stop) && !a.intr.hit()
 	}
 
 	sc := bufio.NewScanner(a.env.Stdin)
@@ -212,13 +224,15 @@ func (a *app) invokeStdin(cmd *cobra.Command, g *opCommand, b *binding) error {
 		return stdinLine{}, false
 	}
 
-	if op.Mutating() && !flagSet(cmd, flagYes) {
+	if op.Mutating() && !flagSet(cmd, flagYes) && !flagSet(cmd, flagWhatIf) {
 		var lines []stdinLine
 		for l, ok := next(); ok; l, ok = next() {
 			lines = append(lines, l)
 		}
-		if err := a.confirmTargets(cmd, op, r.distinctHosts(lines)); err != nil {
-			return err
+		if hosts, objects := r.distinctHosts(lines); objects > 0 {
+			if err := a.confirmTargets(cmd, op, hosts, objects, ""); err != nil {
+				return err
+			}
 		}
 		for _, l := range lines {
 			if !runOne(l) {
@@ -232,20 +246,20 @@ func (a *app) invokeStdin(cmd *cobra.Command, g *opCommand, b *binding) error {
 			}
 		}
 	}
-	if err := r.p.Close(); err != nil {
+	if err := r.p.close(); err != nil {
 		return err
 	}
 	return tally.result(fmt.Sprintf("of %d input lines", tally.succeeded+len(tally.codes)))
 }
 
 // distinctHosts names the hosts lines bind, a line without one counting as
-// the target host, for confirmation.
-func (r *stdinRun) distinctHosts(lines []stdinLine) []string {
-	var hosts []string
+// the target host, and counts the lines that bound, for confirmation.
+func (r *stdinRun) distinctHosts(lines []stdinLine) (hosts []string, objects int) {
 	for _, l := range lines {
 		if l.err != nil {
 			continue
 		}
+		objects++
 		h := l.host
 		if h == "" {
 			if t, err := r.a.defaultTarget(); err == nil {
@@ -256,7 +270,7 @@ func (r *stdinRun) distinctHosts(lines []stdinLine) []string {
 			hosts = append(hosts, h)
 		}
 	}
-	return hosts
+	return hosts, objects
 }
 
 // line sends one bound line and prints what its host answers.
@@ -276,11 +290,13 @@ func (r *stdinRun) line(ctx context.Context, l stdinLine) error {
 	if err != nil {
 		return err
 	}
-	resp, err := h.c.Send(ctx, req)
-	if err != nil {
-		return err
+	body, err := r.a.execute(ctx, h.c, h.t, r.op, in, req, r.w, r.p)
+	if body != nil {
+		if perr := r.p.response(r.a, h.t, r.op, in, body); err == nil {
+			err = perr
+		}
 	}
-	return r.a.printResponse(r.p, h.t, r.op, in, resp.Body)
+	return err
 }
 
 // host resolves a line's host: a configured name, the NEXUS_HOST URL
