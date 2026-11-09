@@ -1,6 +1,80 @@
 # MCP tools
 
-`nexusd` serves its operations as MCP tools at `/mcp` over Streamable HTTP. Each tool is derived from one operation declaration (`def.Op`), so the tools, the REST API and the CLI share scopes, validation, audit and idempotency. The client setup example arrives with the rest of the documentation (NFR-9); this page records the tool semantics and the tool budget.
+`nexusd` serves its operations as MCP tools at `/mcp` over Streamable HTTP. Each tool is derived from one operation declaration (`def.Op`), so the tools, the REST API and the CLI share scopes, validation, audit and idempotency. This page covers client setup, the tool semantics and the tool budget.
+
+## Client setup
+
+An MCP client needs three things: the endpoint, a token, and trust in the host's certificate. The first two are configuration; the third is one setup step per client.
+
+### Endpoint and token
+
+- **Endpoint:** `https://<host>:<port>/mcp`, for example `https://nas.lan:7443/mcp`, using the Streamable HTTP transport.
+- **Token:** sent on every request as the header `Authorization: Bearer <token>`. Create one on the host:
+
+  ```
+  sudo nexusd token create --name agent --scope containers:read --scope packages:read --scope scripts:read --scope scripts:run:deploy-api
+  ```
+
+  It is printed once. Scope alone authorizes: there is no approval step, and an agent can do everything its scopes allow. Prefer read scopes plus `scripts:run:<id>` for the scripts the agent may run, and read [security.md](security.md) before granting a mutating scope.
+- **Origin:** a request whose `Origin` header is not listed in `mcp.allowedOrigins` is refused with 403, so a web page cannot call `/mcp`. Clients that are not browsers normally send no `Origin` and are not affected.
+
+### Certificate trust: one step per client
+
+In `tls.mode: auto` the host serves a self-signed certificate. Trust that one certificate in the agent's client only, with the client's own option. Never add it to the operating system's trust store: that is a machine-wide change that every program and user on the machine inherits, when only this client needs it.
+
+1. **Copy the certificate** to the client machine and check it against the fingerprint `nexusd` reports. On the host, print it with `sudo cat /var/lib/nexus/tls/cert.pem` and save the output on the client machine as `nas-cert.pem`; the certificate is public, and the private key stays in `key.pem` on the host. Then compare:
+
+   ```
+   openssl x509 -in nas-cert.pem -noout -fingerprint -sha256   # on the client machine
+   sudo nexusd tls fingerprint                                  # on the host
+   ```
+
+   The two fingerprints must be equal.
+2. **Use a name the certificate covers.** The generated certificate names the host's `host.name` (the OS hostname by default), `localhost`, every non-loopback address the host had when the certificate was generated, and each entry of `tls.extraSANs`. To connect by a DNS name such as `nas.lan`, list it in `tls.extraSANs` before the first start. The certificate is generated once and kept, because clients trust it; to change its names, delete both files in `/var/lib/nexus/tls/`, restart `nexusd`, and set up every client's trust again.
+3. **Configure the trust in the client**, for example:
+   - A Node-based client: start it with `NODE_EXTRA_CA_CERTS=/path/to/nas-cert.pem`.
+   - curl: `--cacert nas-cert.pem`.
+   - A Go client: the certificate in its `tls.Config.RootCAs`.
+   - Any other client: its own CA-certificate option, if it has one.
+
+   The certificate is a plain leaf (`IsCA: false`). curl 8.7.1 with `--cacert`, Node 23.11 with `NODE_EXTRA_CA_CERTS` and Go's `RootCAs` each accept it once given it; other TLS stacks, such as rustls, have not been tested.
+
+Check the endpoint, certificate and token together before configuring the agent:
+
+```
+curl --cacert nas-cert.pem -H "Authorization: Bearer $TOKEN" https://nas.lan:7443/v1/capabilities
+```
+
+Then give the client the endpoint and the header. The shape of the configuration depends on the client; many take something like:
+
+```json
+{
+  "mcpServers": {
+    "nexus": {
+      "type": "http",
+      "url": "https://nas.lan:7443/mcp",
+      "headers": {"Authorization": "Bearer <token>"}
+    }
+  }
+}
+```
+
+For a Node-based client, start it with `NODE_EXTRA_CA_CERTS=/path/to/nas-cert.pem` in its environment, and nothing else is needed.
+
+### Fallback: an agent on the host, over loopback
+
+If the client cannot be given its own trust anchor, or rejects the self-signed leaf, run the agent on the Nexus host itself and serve plain HTTP on loopback, in `/etc/nexus/nexusd.yaml`:
+
+```yaml
+listen: ["127.0.0.1:7443"]
+tls:
+  mode: off
+```
+
+Then restart, since listen addresses and TLS are fixed at startup: `sudo systemctl restart nexusd`. The endpoint is `http://127.0.0.1:7443/mcp`.
+
+- Use the IP `127.0.0.1` (or `[::1]`), not `localhost`: plain HTTP is accepted only on a loopback IP, and `nexusd validate-config` refuses `localhost`.
+- `tls.mode: off` applies to every listen address and is accepted only when every one is a loopback IP, so the host is then reachable from itself only, and `nexus` on other machines cannot reach it.
 
 ## Tool semantics
 

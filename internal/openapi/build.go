@@ -168,7 +168,7 @@ func Build(ops []def.Op, opts Options) ([]byte, error) {
 			Schemas: schemas,
 			SecuritySchemes: map[string]securityScheme{SecurityScheme: {
 				Type: "http", Scheme: "bearer",
-				Description: "A Nexus token, created on the host with nexusd token add: Authorization: Bearer <token>.",
+				Description: "A Nexus token, created on the host with nexusd token create: Authorization: Bearer <token>.",
 			}},
 		},
 		Security: []map[string][]string{{SecurityScheme: {}}},

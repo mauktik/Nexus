@@ -11,6 +11,7 @@ import (
 	"debug/macho"
 	"encoding/hex"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -177,7 +178,14 @@ func TestReleaseTarballs(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		docs, err := filepath.Glob(filepath.Join(root, "docs", "*.md"))
+		// Every file under docs/, the generated docs/cli/ included.
+		var docs []string
+		err = filepath.WalkDir(filepath.Join(root, "docs"), func(p string, d fs.DirEntry, err error) error {
+			if err == nil && d.Type().IsRegular() {
+				docs = append(docs, p)
+			}
+			return err
+		})
 		if err != nil || len(docs) == 0 {
 			t.Fatalf("docs: %v %v", docs, err)
 		}
@@ -201,7 +209,11 @@ func TestReleaseTarballs(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				wantFiles["docs/"+filepath.Base(d)] = string(b)
+				r, err := filepath.Rel(filepath.Join(root, "docs"), d)
+				if err != nil {
+					t.Fatal(err)
+				}
+				wantFiles["docs/"+filepath.ToSlash(r)] = string(b)
 			}
 			for name, content := range wantFiles {
 				e, ok := got[name]

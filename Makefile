@@ -31,7 +31,7 @@ SHA256 := $(shell command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo
 # recurses into make.
 export NEXUS_IN_MAKE := 1
 
-.PHONY: build build-release test vet vuln check test-harness release release-version nexusd-tree test-emu
+.PHONY: build build-release test vet vuln check docs docs-check test-harness release release-version nexusd-tree test-emu
 
 # Host-arch binaries for local use.
 build:
@@ -58,6 +58,15 @@ vuln:
 	go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
 check: vet test vuln
+
+# The CLI reference (docs/cli/) and the API reference (docs/api.md), generated
+# from the operation declarations. Commit the result: `make test` fails while
+# they are stale, and docs-check names each stale file without writing.
+docs:
+	go run ./cmd/nexus-gendocs -dir docs
+
+docs-check:
+	go run ./cmd/nexus-gendocs -dir docs -check
 
 # release VERSION=vX.Y.Z[-pre]: the gate (vet, test, govulncheck), the
 # release build, then one tarball per target and SHA256SUMS in dist/release/.
