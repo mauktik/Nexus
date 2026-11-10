@@ -116,6 +116,17 @@ func waitDpkgInPostinst(t *testing.T, n *nexusdInstance, id string, off int64, p
 	return dpkg, held
 }
 
+// aptVersionAndStatus is pkg's dpkg-query version and status word, or empty
+// and "forgotten" when dpkg no longer knows pkg. The callers expect pkg to be
+// installed, so a forgotten package is their own diagnostic, not a fatal read.
+func aptVersionAndStatus(t *testing.T, pkg string) (version, status string) {
+	t.Helper()
+	if status = aptStatusOrForgotten(t, pkg); status == "forgotten" {
+		return "", status
+	}
+	return aptVersion(t, pkg), status
+}
+
 // TC-139 (FR-6, NFR-7): kill -9 of nexusd while dpkg runs a real apt-get
 // upgrade's gated postinst. dpkg goes on with the same PID, nexusd is
 // restarted while dpkg still runs and reports Running, and once the gate
@@ -201,7 +212,7 @@ func TestAptUpgradeSurvivesNexusdKill9DuringDpkg(t *testing.T) {
 		changes = append(changes, c.Package+" "+c.OldVersion+">"+c.NewVersion)
 	}
 	for _, p := range []string{aptPlain, slow} {
-		if v, st := aptVersion(t, p), aptStatus(t, p); v != want[p][1] || st != "installed" {
+		if v, st := aptVersionAndStatus(t, p); v != want[p][1] || st != "installed" {
 			t.Errorf("dpkg-query %s %s %s, want %s installed", p, v, st, want[p][1])
 		}
 		if !slices.Contains(changes, p+" 1.0>"+want[p][1]) {
@@ -295,7 +306,7 @@ func TestAptSupervisorDeathMidDpkg(t *testing.T) {
 		strings.TrimSpace(log))
 	audit := mustSh(t, apt.Dpkg, "--audit")
 	for _, p := range pkgs {
-		v, st := aptVersion(t, p), aptStatus(t, p)
+		v, st := aptVersionAndStatus(t, p)
 		t.Logf("dpkg-query %s %s %s", p, v, st)
 		if st != "installed" {
 			t.Errorf("A-52 falsified: %s is %s %s after dpkg finished", p, st, v)

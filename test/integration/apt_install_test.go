@@ -113,6 +113,18 @@ func dpkgKnows(pkg string) bool {
 	return err == nil
 }
 
+// aptStatusOrForgotten is dpkg-query's status word of pkg, or "forgotten" when
+// dpkg no longer knows pkg at all: a package with no conffile and no other
+// record naming it leaves no stanza once removed, so dpkg-query exits 1. The
+// status read is fatal (aptStatus), so it must not run on a forgotten package.
+func aptStatusOrForgotten(t *testing.T, pkg string) string {
+	t.Helper()
+	if !dpkgKnows(pkg) {
+		return "forgotten"
+	}
+	return aptStatus(t, pkg)
+}
+
 // activeOpUnits are the ids among ids whose nexus-op unit is active,
 // activating or deactivating now.
 func activeOpUnits(t *testing.T, ids ...string) []string {
@@ -436,8 +448,8 @@ func TestAptRemovePurgeAndAutoremove(t *testing.T) {
 		!slices.Equal(rem, []string{"nxapp:all 1.0>", "nxdep:all 1.0>"}) {
 		t.Errorf("autoremove: preview removed %q, real %q (upgraded %q installed %q)", got, rem, up, ins)
 	}
-	if st := aptStatus(t, "nxdep"); dpkgKnows("nxdep") && st != "not-installed" && st != "config-files" {
-		t.Errorf("nxdep %s after autoremove", aptStatus(t, "nxdep"))
+	if st := aptStatusOrForgotten(t, "nxdep"); st != "forgotten" && st != "not-installed" && st != "config-files" {
+		t.Errorf("nxdep %s after autoremove", st)
 	}
 	t.Logf("autoremove: preview removed %q, real %q; result %s", previewList(pv.Preview.Removed), rem, op.Result)
 	_ = res
@@ -806,7 +818,7 @@ func TestAptPlusNamesRemoveAndSubsetUpgrade(t *testing.T) {
 		!slices.Equal(previewList(pr.Preview.Removed), rem) {
 		t.Errorf("remove nxg++: diff %q %q %q, preview %+v", up, ins, rem, pr.Preview)
 	}
-	if st := aptStatus(t, "nxg++"); dpkgKnows("nxg++") && st != "not-installed" && st != "config-files" {
+	if st := aptStatusOrForgotten(t, "nxg++"); st != "forgotten" && st != "not-installed" && st != "config-files" {
 		t.Errorf("nxg++ is %s after remove", st)
 	}
 }
