@@ -438,3 +438,59 @@ func TestQuoteMakesOneShellWord(t *testing.T) {
 		}
 	}
 }
+
+// The Compose check's account is root, so its refusals must not say "root or
+// root"; a script's refusals keep naming the run-as user beside root.
+func TestIntegrityMessagesNameTheTrustedWriters(t *testing.T) {
+	mine := me(t)
+	root := account{name: "root"}
+	svc := account{name: "svc", uid: mine.uid + 1000, gid: mine.gid}
+
+	// A directory and a script the test user owns are foreign to both accounts.
+	// Running as root, they are made foreign by giving them to another UID.
+	base := cleanBase(t)
+	dir := mkdir(t, filepath.Join(base, "d"), 0o755)
+	f := script(t, filepath.Join(base, "s.sh"), 0o755)
+	if os.Geteuid() == 0 {
+		for _, p := range []string{dir, f} {
+			if err := os.Chown(p, 12345, 12345); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	// A directory group-writable by a group that also holds alice, owned by
+	// the account itself, reaches the group-writable message.
+	shared := mkdir(t, filepath.Join(base, "shared"), 0o775)
+	sharedDB := accounts{group: fmt.Sprintf("shared:x:%d:alice\n", gidOf(t, shared))}
+
+	for _, row := range []struct {
+		name string
+		acct account
+		want string // "not <want>." and "not only <want>."
+		bad  string // a phrase the message must not contain; empty for none
+	}{
+		{"root", root, "root", "root or root"},
+		{"run-as user", svc, "root or svc", ""},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			r := run{integrity: checker(row.acct, accounts{}), acct: row.acct}
+			refusal(t, r.directory(dir), CheckDirectoryOwner, dir, "not "+row.want+". Fix: chown root "+dir)
+			refusal(t, r.file(f), CheckScriptOwner, f, "not "+row.want+". Fix: chown root "+f)
+
+			owned := row.acct
+			owned.uid = mine.uid
+			if os.Geteuid() == 0 {
+				// The shared directory is root's here, which both accounts accept as the owner.
+				owned.uid = 0
+			}
+			g := run{integrity: checker(owned, sharedDB), acct: owned}
+			refusal(t, g.directory(shared), CheckDirectoryGroupWritable, shared, "not only "+row.want+". Fix: chmod g-w "+shared)
+
+			for _, fn := range []func() error{func() error { return r.directory(dir) }, func() error { return r.file(f) }, func() error { return g.directory(shared) }} {
+				if err := fn(); err != nil && row.bad != "" && strings.Contains(err.Error(), row.bad) {
+					t.Errorf("message %q repeats %q", err, row.bad)
+				}
+			}
+		})
+	}
+}

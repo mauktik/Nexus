@@ -240,8 +240,8 @@ func (r *run) file(p string) error {
 			p, fi.Mode(), r.acct.name, fix))
 	}
 	if uid != 0 && uid != r.acct.uid {
-		return refuse(CheckScriptOwner, p, fmt.Sprintf("%s is owned by UID %d, not root or %s. Fix: chown root %s",
-			p, uid, r.acct.name, quote(p)))
+		return refuse(CheckScriptOwner, p, fmt.Sprintf("%s is owned by UID %d, not %s. Fix: chown root %s",
+			p, uid, r.trusted(), quote(p)))
 	}
 	if perm&0o022 != 0 {
 		return refuse(CheckScriptWritable, p, fmt.Sprintf("%s (%s) is %s. Fix: chmod %s %s",
@@ -272,6 +272,16 @@ func (r *run) executable(perm fs.FileMode, uid, gid uint32) (bool, error) {
 	return perm&0o001 != 0, nil
 }
 
+// trusted names who may own and write what the check accepts: root, and the
+// run-as user when that is someone else. The Compose check's account is root,
+// so its messages must not say "root or root".
+func (r *run) trusted() string {
+	if r.acct.name == "root" {
+		return "root"
+	}
+	return "root or " + r.acct.name
+}
+
 func (r *run) directory(d string) error {
 	fi, err := os.Lstat(d)
 	if err != nil {
@@ -282,8 +292,8 @@ func (r *run) directory(d string) error {
 	}
 	uid, gid := owner(fi)
 	if uid != 0 && uid != r.acct.uid {
-		return refuse(CheckDirectoryOwner, d, fmt.Sprintf("directory %s is owned by UID %d, not root or %s. "+
-			"Fix: chown root %s", d, uid, r.acct.name, quote(d)))
+		return refuse(CheckDirectoryOwner, d, fmt.Sprintf("directory %s is owned by UID %d, not %s. "+
+			"Fix: chown root %s", d, uid, r.trusted(), quote(d)))
 	}
 	perm := fi.Mode().Perm()
 	var others []string
@@ -315,7 +325,7 @@ func (r *run) directory(d string) error {
 			who = "it includes " + strings.Join(others, ", ")
 		}
 		return refuse(CheckDirectoryGroupWritable, d, fmt.Sprintf("directory %s (%s) is writable by group %d, "+
-			"and %s, not only root or %s. Fix: chmod g-w %s", d, fi.Mode(), gid, who, r.acct.name, quote(d)))
+			"and %s, not only %s. Fix: chmod g-w %s", d, fi.Mode(), gid, who, r.trusted(), quote(d)))
 	}
 	return r.aclWriters(d, "directory")
 }
@@ -384,7 +394,7 @@ func (r *run) aclWriters(d, kind string) error {
 				continue
 			}
 			return refuse(CheckDirectoryACL, d, fmt.Sprintf("%s %s has a POSIX ACL entry that lets UID %d write to it, "+
-				"and that user is not root or %s. Fix: setfacl -x u:%d %s", kind, d, e.id, r.acct.name, e.id, quote(d)))
+				"and that user is not %s. Fix: setfacl -x u:%d %s", kind, d, e.id, r.trusted(), e.id, quote(d)))
 		case aclGroup:
 			db, err := r.accounts()
 			if err != nil {
@@ -399,7 +409,7 @@ func (r *run) aclWriters(d, kind string) error {
 				who = "it includes " + strings.Join(others, ", ")
 			}
 			return refuse(CheckDirectoryACL, d, fmt.Sprintf("%s %s has a POSIX ACL entry that lets group %d write to it, "+
-				"and %s, not only root or %s. Fix: setfacl -x g:%d %s", kind, d, e.id, who, r.acct.name, e.id, quote(d)))
+				"and %s, not only %s. Fix: setfacl -x g:%d %s", kind, d, e.id, who, r.trusted(), e.id, quote(d)))
 		}
 	}
 	return nil
