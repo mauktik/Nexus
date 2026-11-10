@@ -234,7 +234,9 @@ type UpgradeResult struct {
 	Changes []PackageChange `json:"changes"`           // Sorted by package and architecture; empty for whatIf
 	// ConffilesKept are the changed conffiles whose local version dpkg
 	// kept. ConffilesComplete is false when dpkg.log was rotated during the
-	// run, so the list may lack some.
+	// run, and when a package the run left installed has a file ucf manages:
+	// ucf keeps its local version without a dpkg.log line, so the list may
+	// lack some.
 	ConffilesKept          []string `json:"conffilesKept"`
 	ConffilesComplete      bool     `json:"conffilesComplete"`
 	RebootRequired         string   `json:"rebootRequired"` // true, false or unknown, read after the run
@@ -284,7 +286,9 @@ type PackagesResult struct {
 	Changes []PackageChange  `json:"changes"`           // Sorted by package and architecture; empty for whatIf
 	// ConffilesKept are the changed conffiles whose local version dpkg
 	// kept. ConffilesComplete is false when dpkg.log was rotated during the
-	// run, so the list may lack some.
+	// run, and when a package the run left installed has a file ucf manages:
+	// ucf keeps its local version without a dpkg.log line, so the list may
+	// lack some.
 	ConffilesKept          []string `json:"conffilesKept"`
 	ConffilesComplete      bool     `json:"conffilesComplete"`
 	RebootRequired         string   `json:"rebootRequired"` // true, false or unknown, read after the run

@@ -344,6 +344,36 @@ func TestFinalizeMutationReadsTheOutcome(t *testing.T) {
 	}
 }
 
+// CR-26: a file ucf manages is kept without a dpkg.log line, so a run that
+// leaves a package with such a file installed cannot list every kept
+// conffile. A registry naming only other packages leaves it complete.
+func TestFinalizeMutationWithUcfManagedFiles(t *testing.T) {
+	f, r := finalizeFixture(t)
+	f.put(UcfRegistry, []byte("openssh-server \t /etc/ssh/sshd_config\ngrub-pc \t /etc/default/grub\n"))
+	out, err := f.p.FinalizeMutation(r, detach.Exit{})
+	if err != nil || !out.ConffilesComplete {
+		t.Fatalf("registry of other packages: complete %v, %v", out.ConffilesComplete, err)
+	}
+	f.put(UcfRegistry, []byte("openssh-server \t /etc/ssh/sshd_config\nnxconf \t /etc/nxconf.d/ucf.conf\n"))
+	out, err = f.p.FinalizeMutation(r, detach.Exit{})
+	if err != nil || out.ConffilesComplete || !slices.Equal(out.Conffiles, []string{"/etc/nxconf.conf"}) {
+		t.Errorf("registry naming a changed package: %q complete %v, %v", out.Conffiles, out.ConffilesComplete, err)
+	}
+	if err := os.Remove(f.p.hostPath(UcfRegistry)); err != nil {
+		t.Fatal(err)
+	}
+	if out, err = f.p.FinalizeMutation(r, detach.Exit{}); err != nil || !out.ConffilesComplete {
+		t.Errorf("no registry: complete %v, %v", out.ConffilesComplete, err)
+	}
+	// A registry that cannot be read rules nothing out.
+	if err := os.MkdirAll(f.p.hostPath(UcfRegistry), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err = f.p.FinalizeMutation(r, detach.Exit{}); err != nil || out.ConffilesComplete {
+		t.Errorf("unreadable registry: complete %v, %v", out.ConffilesComplete, err)
+	}
+}
+
 // A dpkg.log rotated since Prepare leaves the conffiles incomplete.
 func TestFinalizeMutationAfterRotation(t *testing.T) {
 	f, r := finalizeFixture(t)

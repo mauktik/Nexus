@@ -226,6 +226,9 @@ func (p *Provider) finalizeMutation(r *provider.Run, x detach.Exit,
 	}
 	out.Changes = diffPackages(pre.Packages, parseStatusFile(status))
 	out.Conffiles, out.ConffilesComplete = p.keptConffiles(pre.DpkgLog)
+	if out.ConffilesComplete && p.ucfManaged(out.Changes) {
+		out.ConffilesComplete = false
+	}
 	out.RebootRequired, out.RebootPackages = p.rebootState()
 	if perr := failure("apt-get", x, r); perr != nil {
 		return out, perr
@@ -339,6 +342,39 @@ func (p *Provider) keptConffiles(pos logPosition) (paths []string, complete bool
 		}
 	}
 	return paths, complete
+}
+
+// UcfRegistry lists the configuration files that ucf manages, one per line:
+// the package name, whitespace, then the file's absolute path (ucfr(1);
+// written by ucfr in the ucf package).
+const UcfRegistry = "/var/lib/ucf/registry"
+
+// ucfManaged reports whether a package the run left installed has a file
+// ucf manages. dpkg's --force-conf options do not govern such a file: ucf
+// keeps the local version unless told otherwise, and dpkg.log never records
+// it, so kept conffiles cannot be listed in full (CR-26). A registry that
+// cannot be read counts as ucf-managed, since nothing can be ruled out.
+func (p *Provider) ucfManaged(changes []PackageChange) bool {
+	b, err := os.ReadFile(p.hostPath(UcfRegistry))
+	if errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+	if err != nil {
+		p.log.Warn("cannot read the ucf registry; the kept conffiles may be incomplete", "error", err.Error())
+		return true
+	}
+	managed := map[string]bool{}
+	for line := range lines(b) {
+		if f := strings.Fields(line); len(f) >= 2 {
+			managed[f[0]] = true
+		}
+	}
+	for _, c := range changes {
+		if c.NewStatus != "not-installed" && managed[c.Package] {
+			return true
+		}
+	}
+	return false
 }
 
 // parseConffileKeeps returns the paths of dpkg.log's "<date> <time>
