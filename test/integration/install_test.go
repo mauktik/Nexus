@@ -562,6 +562,11 @@ func TestUninstallRetentionAndPurge(t *testing.T) {
 	if !strings.Contains(out, "warning: operation units still running: "+unit) {
 		t.Fatalf("uninstall.sh did not warn about %s", unit)
 	}
+	// CR-82: operation units refuse a manual stop (RefuseManualStop), so the
+	// advice must be the signal command docs/install.md gives.
+	if strings.Contains(out, "systemctl stop UNIT") || !strings.Contains(out, "systemctl kill --kill-whom=main --signal=SIGTERM") {
+		t.Fatalf("uninstall.sh advises a stop command systemd refuses for %s:\n%s", unit, out)
+	}
 	if exists(nexusdBin) || exists(installedUnit) {
 		t.Fatalf("binary or unit left: %v %v", exists(nexusdBin), exists(installedUnit))
 	}

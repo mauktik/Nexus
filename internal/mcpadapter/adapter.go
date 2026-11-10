@@ -13,6 +13,7 @@
 package mcpadapter
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -196,7 +197,7 @@ func (a *Adapter) call(t *tool) mcp.ToolHandler {
 // result carrying host text is labeled in both.
 func (a *Adapter) success(t *tool, body any) *mcp.CallToolResult {
 	op := t.op
-	b, err := json.Marshal(body)
+	b, err := marshal(body)
 	if err == nil && t.untrustedResult(b) {
 		b, err = withContentTrust(b)
 	}
@@ -208,6 +209,18 @@ func (a *Adapter) success(t *tool, body any) *mcp.CallToolResult {
 		Content:           []mcp.Content{&mcp.TextContent{Text: string(b)}},
 		StructuredContent: json.RawMessage(b),
 	}
+}
+
+// marshal is json.Marshal without HTML escaping. A result is not HTML, and
+// escaping makes every <, > and & six bytes (CR-23).
+func marshal(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }
 
 // failure turns a problem into a tool execution error, so the model sees

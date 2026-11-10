@@ -410,3 +410,35 @@ func TestInvalidInputsAreErrors(t *testing.T) {
 		t.Error("Open of a log ending in a corrupt line succeeded")
 	}
 }
+
+// CR-22: a cap below the default segment size is honoured to within its own
+// size, not to 1 MiB.
+func TestSmallCapIsHonouredBelowTheSegmentSize(t *testing.T) {
+	const cap = 4096
+	dir := t.TempDir()
+	w := openWriter(t, dir, oplog.Options{CapBytes: cap})
+	chunk := strings.Repeat("x", 100)
+	for range 20000 {
+		write(t, w, out, chunk)
+	}
+	closeWriter(t, w)
+	if sz := dirSize(t, dir); sz > 2*cap {
+		t.Fatalf("on-disk size %d with a cap of %d, want at most %d", sz, cap, 2*cap)
+	}
+}
+
+// CR-22: HTML-significant characters are stored as one byte, so they do not
+// shrink the output a cap keeps sixfold.
+func TestHTMLCharactersAreNotEscapedOnDisk(t *testing.T) {
+	dir := t.TempDir()
+	w := openWriter(t, dir, oplog.Options{})
+	const raw = 64 << 10
+	write(t, w, out, strings.Repeat("<&>", raw/3))
+	closeWriter(t, w)
+	if sz := dirSize(t, dir); sz > raw+raw/10 {
+		t.Fatalf("on-disk size %d for %d raw bytes of < & >; want close to the raw size", sz, raw)
+	}
+	if got := concat(t, readPage(t, dir, 0).Frames); got != strings.Repeat("<&>", raw/3) {
+		t.Fatalf("read back %d bytes that differ from what was written", len(got))
+	}
+}

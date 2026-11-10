@@ -3,9 +3,13 @@ package mcpadapter
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/mauktik/nexus/internal/apitypes"
 )
@@ -119,5 +123,93 @@ func TestPageStopsStream(t *testing.T) {
 	want := []apitypes.Frame{apitypes.DataFrame(0, time.Time{}, "out", "ab"), apitypes.DataFrame(2, time.Time{}, "out", "ab")}
 	if emitted != 2 || !reflect.DeepEqual(p.Frames, want) || p.NextOffset != 4 || !p.Truncated {
 		t.Errorf("emitted %d, page %+v", emitted, p)
+	}
+}
+
+// CR-5: with an inclusive since, a line that does not fit after a line that
+// does must not return the same page forever. The loop below stands in for
+// Docker: each call returns the lines at or after since.
+func TestSincePagingAlwaysAdvances(t *testing.T) {
+	t0 := time.Date(2026, 1, 2, 3, 4, 5, 6, time.UTC)
+	lines := []apitypes.Frame{
+		{T: t0, S: "out", D: "small"},
+		{T: t0.Add(time.Second), S: "out", D: "a-line-that-does-not-fit-the-page"},
+		{T: t0.Add(2 * time.Second), S: "out", D: "tail"},
+	}
+	since := ""
+	var got []string
+	for pages := 0; ; pages++ {
+		if pages > 6 {
+			t.Fatalf("paging did not end after %d pages: %q", pages, got)
+		}
+		in := json.RawMessage(`{}`)
+		if since != "" {
+			in = json.RawMessage(`{"since":"` + since + `"}`)
+		}
+		b := newPageBuilder(sincePager, 10, in)
+		from, _ := time.Parse(time.RFC3339Nano, since)
+		for _, f := range lines {
+			if f.T.Before(from) {
+				continue
+			}
+			if !b.add(f) {
+				break
+			}
+		}
+		p := b.page().(sincePage)
+		for _, f := range p.Frames {
+			got = append(got, f.D)
+		}
+		if !p.Truncated {
+			break
+		}
+		if p.NextOffset == since {
+			t.Fatalf("page %d did not advance past since %q: %+v", pages, since, p)
+		}
+		since = p.NextOffset
+	}
+	want := []string{"small", "small", "a-lin", "tail"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("lines %q, want %q (small repeats once: the since is inclusive)", got, want)
+	}
+}
+
+// CR-23: the page limit counts the bytes the text takes on the wire, where a
+// control character is six, and HTML characters are one.
+func TestPageLimitCountsEncodedBytes(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want int
+	}{
+		{"abc", 3}, {"<>&", 3}, {"\x1b", 6}, {"\n", 2}, {`"\`, 4}, {"é", 2}, {" ", 6}, {"�", 3}, {"a\xffb", 8},
+	} {
+		if got := encodedLen(tc.in); got != tc.want {
+			t.Errorf("encodedLen(%q) = %d, want %d", tc.in, got, tc.want)
+		}
+		raw, err := marshal(tc.in)
+		if err != nil || len(raw)-2 != tc.want {
+			t.Errorf("marshal(%q) = %s (%v): %d bytes inside the quotes, encodedLen says %d", tc.in, raw, err, len(raw)-2, tc.want)
+		}
+	}
+	if got := encodedPrefix("ab\x1b\x1bc", 13); got != "ab\x1b" {
+		t.Errorf("encodedPrefix = %q, want ab and one ESC", got)
+	}
+
+	t0 := time.Date(2026, 1, 2, 3, 4, 5, 6, time.UTC)
+	b := newPageBuilder(offsetPager, 13, nil)
+	if b.add(apitypes.DataFrame(0, t0, "out", "\x1b\x1b\x1b\x1b")) {
+		t.Fatal("24 encoded bytes fit a 13-byte page")
+	}
+	p := b.page().(offsetPage)
+	if len(p.Frames) != 1 || p.Frames[0].D != "\x1b\x1b" || p.NextOffset != 2 || !p.Truncated {
+		t.Errorf("page %+v, want two ESC bytes and nextOffset 2", p)
+	}
+}
+
+func TestResultsAreNotHTMLEscaped(t *testing.T) {
+	a := &Adapter{log: slog.New(slog.NewJSONHandler(io.Discard, nil))}
+	res := a.success(&tool{}, map[string]string{"d": "<a href=\"x\">&"})
+	if got := res.Content[0].(*mcp.TextContent).Text; got != `{"d":"<a href=\"x\">&"}` {
+		t.Fatalf("result text %s", got)
 	}
 }

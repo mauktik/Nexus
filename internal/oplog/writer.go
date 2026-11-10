@@ -38,11 +38,15 @@ var ErrClosed = errors.New("output log closed")
 
 // Options configures Open.
 type Options struct {
-	// CapBytes bounds the total size of the segment files. Zero means
+	// CapBytes bounds the total size of the segment files as stored: the
+	// JSON-encoded frames, which are larger than the raw output (control
+	// bytes cost up to six bytes each). The active segment is never dropped,
+	// so the log can exceed the cap by up to one segment. Zero means
 	// DefaultCapBytes.
 	CapBytes int64
 	// SegmentBytes is the size at which a new segment starts. Zero means
-	// DefaultSegmentBytes.
+	// DefaultSegmentBytes, or a quarter of the cap when that is smaller, so
+	// a small cap is honoured to within a quarter of itself plus one frame.
 	SegmentBytes int64
 	Now          func() time.Time // Frame timestamps; nil means time.Now
 }
@@ -115,7 +119,7 @@ func Open(dir string, opts Options) (*Writer, error) {
 		w.capBytes = DefaultCapBytes
 	}
 	if w.segBytes == 0 {
-		w.segBytes = DefaultSegmentBytes
+		w.segBytes = min(DefaultSegmentBytes, w.capBytes/4)
 	}
 	if w.now == nil {
 		w.now = time.Now
@@ -313,11 +317,14 @@ func (w *Writer) appendFrame(stream string, raw []byte, t time.Time) error {
 	} else {
 		df.B = raw
 	}
-	line, err := json.Marshal(df)
-	if err != nil {
+	// HTML escaping is for HTML: without it < > & cost one byte, not six.
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(df); err != nil { // Encode ends the line
 		return w.fail(err)
 	}
-	line = append(line, '\n')
+	line := buf.Bytes()
 	if w.f == nil || (w.segs[len(w.segs)-1].size > 0 && w.segs[len(w.segs)-1].size+int64(len(line)) > w.segBytes) {
 		if err := w.roll(); err != nil {
 			return err

@@ -52,7 +52,7 @@ running=$(systemctl list-units --all --type=service --no-legend --plain 'nexus-o
 	awk '$3 != "inactive" && $3 != "failed" { print $1 }' | xargs)
 if [ -n "$running" ]; then
 	echo "uninstall.sh: warning: operation units still running: $running" >&2
-	echo "uninstall.sh: warning: they are not stopped and run to completion; stop one with: systemctl stop UNIT" >&2
+	echo "uninstall.sh: warning: they are not stopped and run to completion; stop one with: nexus operation cancel ID, or systemctl kill --kill-whom=main --signal=SIGTERM UNIT (systemctl stop is refused)" >&2
 	if [ $purge -eq 1 ]; then
 		echo "uninstall.sh: warning: --purge deletes their records and output while they run" >&2
 	else
