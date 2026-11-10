@@ -101,11 +101,17 @@ func (b *pageBuilder) add(f apitypes.Frame) bool {
 			b.since = formatTime(b.lastT)
 			break
 		}
-		// One line that does not fit and cannot be left for the next page:
-		// either it is first, or only lines at the time the page started
-		// (which the inclusive since repeats) precede it, so continuing from
-		// their time would return this same page forever. Take its start,
-		// and let the next page start after it.
+		// Only lines at the time the page started, which the inclusive since
+		// repeats, precede f, so continuing from their time would return
+		// this same page forever. A line that fits a page by itself is left
+		// whole for the next page, which starts at its own time (CR-92).
+		if encodedLen(f.D) <= b.limit && f.T.After(b.startT) {
+			b.since = formatTime(f.T)
+			break
+		}
+		// One line that cannot be left for the next page: it is larger than
+		// a page, or stamped the time the page started. Take its start, and
+		// let the next page start after it.
 		if g := f; room > 0 {
 			g.D = encodedPrefix(f.D, room)
 			if g.D != "" {

@@ -126,16 +126,11 @@ func TestPageStopsStream(t *testing.T) {
 	}
 }
 
-// CR-5: with an inclusive since, a line that does not fit after a line that
-// does must not return the same page forever. The loop below stands in for
-// Docker: each call returns the lines at or after since.
-func TestSincePagingAlwaysAdvances(t *testing.T) {
-	t0 := time.Date(2026, 1, 2, 3, 4, 5, 6, time.UTC)
-	lines := []apitypes.Frame{
-		{T: t0, S: "out", D: "small"},
-		{T: t0.Add(time.Second), S: "out", D: "a-line-that-does-not-fit-the-page"},
-		{T: t0.Add(2 * time.Second), S: "out", D: "tail"},
-	}
+// sincePages pages lines with a page limit of limit, standing in for
+// Docker: each call returns the lines at or after since. It returns the
+// text of every frame of every page.
+func sincePages(t *testing.T, lines []apitypes.Frame, limit int) []string {
+	t.Helper()
 	since := ""
 	var got []string
 	for pages := 0; ; pages++ {
@@ -146,7 +141,7 @@ func TestSincePagingAlwaysAdvances(t *testing.T) {
 		if since != "" {
 			in = json.RawMessage(`{"since":"` + since + `"}`)
 		}
-		b := newPageBuilder(sincePager, 10, in)
+		b := newPageBuilder(sincePager, limit, in)
 		from, _ := time.Parse(time.RFC3339Nano, since)
 		for _, f := range lines {
 			if f.T.Before(from) {
@@ -161,16 +156,55 @@ func TestSincePagingAlwaysAdvances(t *testing.T) {
 			got = append(got, f.D)
 		}
 		if !p.Truncated {
-			break
+			return got
 		}
 		if p.NextOffset == since {
 			t.Fatalf("page %d did not advance past since %q: %+v", pages, since, p)
 		}
 		since = p.NextOffset
 	}
+}
+
+// CR-5: with an inclusive since, a line that does not fit after a line that
+// does must not return the same page forever.
+func TestSincePagingAlwaysAdvances(t *testing.T) {
+	t0 := time.Date(2026, 1, 2, 3, 4, 5, 6, time.UTC)
+	lines := []apitypes.Frame{
+		{T: t0, S: "out", D: "small"},
+		{T: t0.Add(time.Second), S: "out", D: "a-line-that-does-not-fit-the-page"},
+		{T: t0.Add(2 * time.Second), S: "out", D: "tail"},
+	}
+	got := sincePages(t, lines, 10)
 	want := []string{"small", "small", "a-lin", "tail"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("lines %q, want %q (small repeats once: the since is inclusive)", got, want)
+	}
+}
+
+// CR-92: a line that fits a page by itself is never cut, even when the lines
+// the inclusive since repeats leave too little room for it: the page ends
+// before it, and the next page starts at its time.
+func TestSincePagingKeepsALineThatFitsAPage(t *testing.T) {
+	t0 := time.Date(2026, 1, 2, 3, 4, 5, 6, time.UTC)
+	for _, tc := range []struct {
+		name  string
+		first string
+	}{
+		{"room left", "small"},
+		{"no room left", "exactly10!"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lines := []apitypes.Frame{
+				{T: t0, S: "out", D: tc.first},
+				{T: t0.Add(time.Second), S: "out", D: "1234567"},
+				{T: t0.Add(2 * time.Second), S: "out", D: "tail"},
+			}
+			got := sincePages(t, lines, 10)
+			want := []string{tc.first, tc.first, "1234567", "tail"}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("lines %q, want %q", got, want)
+			}
+		})
 	}
 }
 
