@@ -81,13 +81,21 @@ func paused(c container.InspectResponse) bool { return c.State != nil && c.State
 
 func displayName(c container.InspectResponse) string { return strings.TrimPrefix(c.Name, "/") }
 
-// actionError is engineError for a state-changing call: the Engine's 409,
-// such as removing a running container, is a conflict with detail.
+// actionError is engineError for a state-changing call. The Engine's 409,
+// such as removing a running container, is a conflict with detail. Any other
+// answer the Engine gave, such as a port already allocated or a missing bind
+// source, is a refusal that retrying will not change: a conflict that quotes
+// the Engine's text, which is untrusted. Only an Engine that cannot be
+// reached, or does not answer in time, is dependency-unavailable (CR-30).
 func (p *Provider) actionError(ctx context.Context, err error, what, detail string) error {
-	if cerrdefs.IsConflict(err) {
+	switch {
+	case cerrdefs.IsConflict(err):
 		return problem.New(problem.Conflict, detail)
+	case cerrdefs.IsNotFound(err), ctx.Err() != nil, unreachable(err):
+		return p.engineError(ctx, err, what, notFound())
 	}
-	return p.engineError(ctx, err, what, notFound())
+	p.log.Warn("Docker Engine refused the call", "provider", spec.Name, "call", what, "error", err.Error())
+	return problem.New(problem.Conflict, fmt.Sprintf("the Docker Engine refused to %s: %s", what, registryText(err.Error())))
 }
 
 func say(r *provider.Run, format string, args ...any) {

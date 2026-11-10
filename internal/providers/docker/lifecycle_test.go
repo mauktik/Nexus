@@ -37,6 +37,7 @@ type lifecycleEngine struct {
 	calls      []string
 	containers map[string]map[string]any // Name -> inspect body
 	volumes    map[string]int            // Volume -> status DELETE answers
+	refuse     string                    // When set, start, stop, restart and remove answer 500 with it
 }
 
 func newLifecycleEngine(t *testing.T) *lifecycleEngine {
@@ -127,11 +128,21 @@ func (f *lifecycleEngine) serve(w http.ResponseWriter, r *http.Request) {
 			noSuch()
 			return
 		}
+		if f.refuse != "" {
+			w.WriteHeader(http.StatusInternalServerError)
+			writeJSON(w, map[string]string{"message": f.refuse})
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 	case r.Method == http.MethodDelete && isContainer && action == "":
 		c, ok := f.byRef(ref)
 		if !ok {
 			noSuch()
+			return
+		}
+		if f.refuse != "" {
+			w.WriteHeader(http.StatusInternalServerError)
+			writeJSON(w, map[string]string{"message": f.refuse})
 			return
 		}
 		if c["State"].(map[string]any)["Running"] == true {
@@ -294,6 +305,37 @@ func TestLifecycleCallsReachTheEngine(t *testing.T) {
 
 	if _, err := p.restart(ctx, spec.StopInput{Name: "gone"}, r); slugOf(err) != problem.NotFound {
 		t.Errorf("restart unknown: %v, want not-found", err)
+	}
+}
+
+// CR-30: an Engine that answers a lifecycle call with a failure, such as a
+// port already allocated, has refused it for good: the error is a conflict
+// that quotes the Engine's text, not a transient dependency-unavailable. An
+// Engine that cannot be reached still is dependency-unavailable.
+func TestEngineRefusalsAreConflictsWithTheirReason(t *testing.T) {
+	f := newLifecycleEngine(t)
+	f.refuse = "driver failed programming external connectivity: Bind for 0.0.0.0:80 failed: port is already allocated"
+	f.add("up", "aaa111", true, nil, nil)
+	f.add("down", "bbb222", false, nil, nil)
+	p := newProvider(t, f.socket, 5*time.Second)
+	ctx := context.Background()
+	r, _ := newRun()
+	calls := map[string]func() error{
+		"start":   func() error { _, err := p.start(ctx, spec.ContainerInput{Name: "down"}, r); return err },
+		"stop":    func() error { _, err := p.stop(ctx, spec.StopInput{Name: "up"}, r); return err },
+		"restart": func() error { _, err := p.restart(ctx, spec.StopInput{Name: "up"}, r); return err },
+		"remove":  func() error { _, err := p.remove(ctx, spec.RemoveInput{Name: "down"}, r); return err },
+	}
+	for name, call := range calls {
+		err := call()
+		if slugOf(err) != problem.Conflict || !strings.Contains(err.Error(), "port is already allocated") {
+			t.Errorf("%s: %v, want a conflict quoting the Engine's reason", name, err)
+		}
+	}
+
+	gone := newProvider(t, filepath.Join(filepath.Dir(f.socket), "absent.sock"), time.Second)
+	if _, err := gone.start(ctx, spec.ContainerInput{Name: "down"}, r); slugOf(err) != problem.DependencyUnavailable {
+		t.Errorf("unreachable Engine: %v, want dependency-unavailable", err)
 	}
 }
 

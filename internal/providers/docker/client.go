@@ -89,10 +89,16 @@ func describe(err error, timeout time.Duration) string {
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
 		return fmt.Sprintf("the Docker Engine did not answer within %s", timeout)
-	case client.IsErrConnectionFailed(err), isDialError(err):
+	case unreachable(err):
 		return "the Docker Engine is not reachable"
 	}
 	return "the Docker Engine failed the request"
+}
+
+// unreachable reports whether err means the Engine could not be reached or
+// did not answer in time, rather than that it answered with a failure.
+func unreachable(err error) bool {
+	return errors.Is(err, context.DeadlineExceeded) || client.IsErrConnectionFailed(err) || isDialError(err)
 }
 
 func isDialError(err error) bool {

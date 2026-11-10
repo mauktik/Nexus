@@ -333,6 +333,19 @@ func TestUpdateHelperStopsOnAnUnreadableResult(t *testing.T) {
 	}
 }
 
+// CR-39, FR-28: list and get carry UpdateCheck.Detail, which can quote a
+// registry's error text, so both are labeled Untrusted.
+func TestContainerReadsAreUntrusted(t *testing.T) {
+	for _, op := range []def.Op{spec.List.Op(), spec.Get.Op()} {
+		if !op.Untrusted {
+			t.Errorf("%s is not Untrusted", op.ID)
+		}
+		if !strings.Contains(op.Description, "registry") || !strings.Contains(op.Description, "data") {
+			t.Errorf("%s: description does not warn about registry text: %q", op.ID, op.Description)
+		}
+	}
+}
+
 // A-35: the new container is the old one's create configuration with the
 // image's own defaults dropped, a generated hostname cleared, anonymous
 // volumes remounted by name, and each network's configured endpoint.
