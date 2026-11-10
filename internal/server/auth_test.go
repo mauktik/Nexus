@@ -22,12 +22,16 @@ import (
 	"github.com/mauktik/nexus/internal/server"
 )
 
-// sharedAuth and sharedToken authenticate every test server started without
-// its own authenticator; do sends sharedToken.
+// sharedDir holds the token sharedToken names; every test server started
+// without its own authenticator gets a fresh one over it (freshAuth), so no
+// rate-limit state carries from one test, or one run under -count=N, to the
+// next. do sends sharedToken.
 var (
-	sharedAuth  *auth.Authenticator
+	sharedDir   string
 	sharedToken string
 )
+
+func freshAuth() *auth.Authenticator { return auth.New(sharedDir, auth.Options{Logger: discardLog}) }
 
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "nexus-server-test-")
@@ -35,13 +39,13 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	sharedDir = dir
 	sharedToken, _, err = auth.Create(dir, auth.CreateRequest{Name: "server-tests", Scopes: []string{"gadgets:read"}})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		_ = os.RemoveAll(dir)
 		os.Exit(1)
 	}
-	sharedAuth = auth.New(dir, auth.Options{Logger: discardLog})
 	code := m.Run()
 	_ = os.RemoveAll(dir)
 	os.Exit(code)

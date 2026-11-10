@@ -71,7 +71,7 @@ func (r *Registry) cancelPolicy(action string) def.Cancel {
 
 // auditList is system.audit.list: audit records newest first, across the
 // live and rotated files, with the declared filters.
-func (r *Registry) auditList(_ context.Context, in systemspec.ListInput) (apitypes.List[systemspec.AuditRecord], error) {
+func (r *Registry) auditList(ctx context.Context, in systemspec.ListInput) (apitypes.List[systemspec.AuditRecord], error) {
 	var none apitypes.List[systemspec.AuditRecord]
 	if r.audit == nil {
 		return none, problem.New(problem.AuditUnavailable, "the audit log is not available")
@@ -80,7 +80,7 @@ func (r *Registry) auditList(_ context.Context, in systemspec.ListInput) (apityp
 	if perr != nil {
 		return none, perr
 	}
-	page, err := r.audit.Query(q)
+	page, err := r.audit.QueryContext(ctx, q)
 	if errors.Is(err, audit.ErrBadCursor) {
 		return none, invalidInput(problem.FieldError{Path: "/cursor", Message: "is not a cursor this server issued"})
 	}

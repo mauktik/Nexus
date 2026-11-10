@@ -28,6 +28,12 @@ import (
 // dependency cannot hold startup, a refresh or a reload.
 const DefaultPreflightTimeout = 5 * time.Second
 
+// DefaultStartupPreflightTimeout bounds each provider's preflight in New,
+// which runs before the listeners open and READY=1 (NFR-1: under 2 s). A
+// provider that has not answered by then starts unavailable, and the
+// call-time re-check (RecheckInterval) notices when its dependency answers.
+const DefaultStartupPreflightTimeout = time.Second
+
 // RecheckInterval is how old the last preflight of an unavailable provider
 // must be before a call to it re-runs the preflight (A-54).
 const RecheckInterval = 5 * time.Second
@@ -45,9 +51,13 @@ type Options struct {
 	// Providers holds each provider's section by provider name. A provider
 	// without one is disabled.
 	Providers        map[string]ProviderConfig
-	Logger           *slog.Logger     // Nil means slog.Default()
-	PreflightTimeout time.Duration    // Zero means DefaultPreflightTimeout
-	Now              func() time.Time // Clock for preflight re-checks; nil means time.Now
+	Logger           *slog.Logger  // Nil means slog.Default()
+	PreflightTimeout time.Duration // Zero means DefaultPreflightTimeout
+	// StartupPreflightTimeout bounds each preflight in New. Zero means
+	// DefaultStartupPreflightTimeout, or PreflightTimeout when that is
+	// shorter.
+	StartupPreflightTimeout time.Duration
+	Now                     func() time.Time // Clock for preflight re-checks; nil means time.Now
 	// Audit is the audit log the Dispatcher writes and system.audit.list
 	// reads. Nil means none: mutating requests then fail closed with
 	// audit-unavailable.
@@ -81,8 +91,12 @@ type Registry struct {
 	providers        []provider.Provider // Sorted by name
 	entries          []Entry             // Sorted by op ID
 
-	writeMu sync.Mutex // Serializes Refresh and Apply
+	writeMu sync.Mutex // Serializes Refresh and Apply, and the swap of a re-check's result
 	state   atomic.Pointer[snapshot]
+
+	// recheck serializes the call-time re-checks of one provider, so a hung
+	// dependency delays only the callers of its own provider.
+	recheck map[string]*sync.Mutex // By provider name; read-only after New
 }
 
 // snapshot is the availability of every provider at one moment.
@@ -120,6 +134,12 @@ func New(providers []provider.Provider, opts Options) (*Registry, error) {
 	if r.preflightTimeout <= 0 {
 		r.preflightTimeout = DefaultPreflightTimeout
 	}
+	startupTimeout := opts.StartupPreflightTimeout
+	if startupTimeout <= 0 {
+		startupTimeout = DefaultStartupPreflightTimeout
+	}
+	startupTimeout = min(startupTimeout, r.preflightTimeout)
+	r.recheck = map[string]*sync.Mutex{}
 
 	seenProvider := map[string]bool{def.SystemProvider: true}
 	seenOp := map[string]bool{}
@@ -144,6 +164,7 @@ func New(providers []provider.Provider, opts Options) (*Registry, error) {
 			r.entries = append(r.entries, Entry{Provider: spec.Name, Binding: b})
 		}
 		r.providers = append(r.providers, p)
+		r.recheck[spec.Name] = &sync.Mutex{}
 	}
 	for _, b := range r.systemBindings() {
 		r.entries = append(r.entries, Entry{Provider: def.SystemProvider, Binding: b})
@@ -154,7 +175,10 @@ func New(providers []provider.Provider, opts Options) (*Registry, error) {
 	if err := r.configure(opts.Providers); err != nil {
 		return nil, err
 	}
+	fullTimeout := r.preflightTimeout
+	r.preflightTimeout = startupTimeout
 	r.state.Store(r.preflightAll(context.Background(), opts.Providers))
+	r.preflightTimeout = fullTimeout
 	return r, nil
 }
 
@@ -199,20 +223,34 @@ func (r *Registry) availableForCall(ctx context.Context, name string) (bool, pro
 	if ok, st := r.Available(name); ok || !r.stale(r.state.Load(), name) {
 		return ok, st
 	}
+	mu := r.recheck[name]
+	if mu == nil {
+		return r.Available(name)
+	}
+	// The preflight runs under the provider's own lock, not writeMu: a hung
+	// dependency must not hold up other providers' re-checks, Refresh or
+	// Apply. Only the swap of the result takes writeMu.
+	mu.Lock()
+	defer mu.Unlock()
+	if !r.stale(r.state.Load(), name) {
+		return r.Available(name) // Another caller re-checked while this one waited
+	}
+	i := slices.IndexFunc(r.providers, func(p provider.Provider) bool { return p.Spec().Name == name })
+	if i < 0 {
+		return r.Available(name)
+	}
+	st := r.preflight(context.WithoutCancel(ctx), r.providers[i])
+	checked := r.now()
 	r.writeMu.Lock()
-	cur := r.state.Load()
-	if r.stale(cur, name) {
-		if i := slices.IndexFunc(r.providers, func(p provider.Provider) bool { return p.Spec().Name == name }); i >= 0 {
-			st := r.preflight(context.WithoutCancel(ctx), r.providers[i])
-			next := &snapshot{providers: maps.Clone(cur.providers)}
-			next.providers[name] = providerState{enabled: true, status: st, checked: r.now()}
-			r.state.Store(next)
-			if st.State == apitypes.ProviderEnabled {
-				r.log.Info("provider available after re-check", "provider", name)
-			}
-		}
+	if cur := r.state.Load(); cur.providers[name].enabled {
+		next := &snapshot{providers: maps.Clone(cur.providers)}
+		next.providers[name] = providerState{enabled: true, status: st, checked: checked}
+		r.state.Store(next)
 	}
 	r.writeMu.Unlock()
+	if st.State == apitypes.ProviderEnabled {
+		r.log.Info("provider available after re-check", "provider", name)
+	}
 	return r.Available(name)
 }
 
@@ -262,8 +300,16 @@ func (r *Registry) Apply(ctx context.Context, cfgs map[string]ProviderConfig) er
 // configure hands each provider its section, enabled or not, so a bad
 // section of a disabled provider is still reported.
 func (r *Registry) configure(cfgs map[string]ProviderConfig) error {
+	return ValidateProviders(r.providers, cfgs)
+}
+
+// ValidateProviders hands each provider its section, enabled or not, the way
+// startup and reload do, and returns every rejection. It runs no preflight
+// and starts nothing: it is how validate-config applies the checks a
+// provider makes on its own section, which the config loader cannot know.
+func ValidateProviders(providers []provider.Provider, cfgs map[string]ProviderConfig) error {
 	var errs []error
-	for _, p := range r.providers {
+	for _, p := range providers {
 		name := p.Spec().Name
 		decode := cfgs[name].Decode
 		if decode == nil {

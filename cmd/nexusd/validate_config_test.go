@@ -338,3 +338,30 @@ func TestValidateConfigCatalogRules(t *testing.T) {
 		})
 	}
 }
+
+// CR-9: validate-config applies the checks the providers make on their own
+// sections, so a file it accepts cannot make nexusd exit at boot. The docker
+// section is checked even while the provider is disabled, as at startup.
+func TestValidateConfigRunsProviderConfigureChecks(t *testing.T) {
+	for _, tc := range []struct {
+		name, socket string
+	}{
+		{"path longer than sun_path", "/" + strings.Repeat("a", 200) + ".sock"},
+		{"url inside an absolute path", "/run/docker.sock://x"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeConfig(t, "docker.yaml", fmt.Sprintf("providers:\n  docker:\n    enabled: false\n    socket: %q\n", tc.socket))
+			out, code := runNexusd(t, "validate-config", "--config", path)
+			if code == 0 || strings.Contains(out, "configuration is valid") {
+				t.Fatalf("validate-config exited %d for an unusable socket:\n%s", code, out)
+			}
+			if !strings.Contains(out, "docker") {
+				t.Errorf("output does not name the provider:\n%s", out)
+			}
+			// Startup must refuse the same file.
+			if sout, scode := runNexusd(t, "serve", "--config", path, "--state-dir", t.TempDir(), "--audit-dir", t.TempDir()); scode == 0 {
+				t.Errorf("serve accepted what validate-config rejects:\n%s", sout)
+			}
+		})
+	}
+}

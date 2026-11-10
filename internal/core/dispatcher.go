@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
 
@@ -68,6 +69,11 @@ type DispatcherOptions struct {
 	// Audit, when non-nil, replaces the registry's audit log for every
 	// record the Dispatcher writes.
 	Audit AuditWriter
+	// NoteLimitPerMinute bounds the denied and pre-request refused records
+	// one token writes per minute (SEC-2); the rest of its window collapses
+	// into one aggregate record. Zero means DefaultNoteLimitPerMinute.
+	NoteLimitPerMinute int
+	Now                func() time.Time // The limiter's clock; nil means time.Now
 }
 
 // InvokeRequest is one call of an operation, from any transport.
@@ -124,11 +130,13 @@ type Dispatcher struct {
 	loadTarget TargetLoader
 	entries    map[string]Entry
 	validators sync.Map // op ID -> *validator
+	notes      *noteLimiter
 }
 
 // NewDispatcher returns the Dispatcher over every binding in reg.
 func NewDispatcher(reg *Registry, opts DispatcherOptions) *Dispatcher {
-	d := &Dispatcher{reg: reg, log: opts.Logger, ops: reg.ops, loadTarget: opts.LoadTarget, entries: map[string]Entry{}}
+	d := &Dispatcher{reg: reg, log: opts.Logger, ops: reg.ops, loadTarget: opts.LoadTarget, entries: map[string]Entry{},
+		notes: newNoteLimiter(opts.NoteLimitPerMinute, opts.Now)}
 	if d.log == nil {
 		d.log = slog.Default()
 	}
@@ -281,7 +289,21 @@ func (d *Dispatcher) forbid(op def.Op, req InvokeRequest, need string) *problem.
 func (d *Dispatcher) denied(op def.Op, req InvokeRequest, slug problem.Slug, need string) {
 	d.log.Info("request denied", "op", op.ID, "tokenId", req.Caller.TokenID, "tokenName", req.Caller.Name,
 		"surface", string(req.Surface), "problem", string(slug), "requiredScope", need)
-	d.note(d.record(op, req, audit.OutcomeDenied, slug), nil)
+	d.noteLimited(req, d.record(op, req, audit.OutcomeDenied, slug))
+}
+
+// noteLimited is note for a record any valid token can make the server
+// write by failing a check (SEC-2). Past the token's allowance for the
+// window the record is counted into one aggregate instead, so the audit
+// log's growth from refusals is bounded per token, not per request.
+func (d *Dispatcher) noteLimited(req InvokeRequest, rec systemspec.AuditRecord) {
+	if d.notes.allow(req.Caller.TokenID) {
+		d.note(rec, nil)
+		return
+	}
+	if rl, ok := d.audit.(interface{ RateLimited(source, surface string) }); ok {
+		rl.RateLimited("token:"+req.Caller.TokenID, string(req.Surface))
+	}
 }
 
 // refuse records a mutating call refused after authorization and returns
@@ -306,7 +328,11 @@ func (d *Dispatcher) refuseAfter(op def.Op, req InvokeRequest, perr *problem.Err
 	if perr.Slug() == problem.ValidationFailed {
 		rec.InvalidFields = fieldPaths(perr)
 	}
-	d.note(rec, nil)
+	if requestID == "" {
+		d.noteLimited(req, rec)
+	} else {
+		d.note(rec, nil) // Tied to a requested record the call already wrote
+	}
 	return perr
 }
 

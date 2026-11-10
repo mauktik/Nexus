@@ -559,12 +559,15 @@ var refRE = regexp.MustCompile(`^#/components/schemas/(.+)$`)
 func problemRefs(t *testing.T, where string, schema map[string]any) []problem.Slug {
 	t.Helper()
 	refs := []any{schema}
-	if one, ok := schema["oneOf"].([]any); ok {
-		refs = one
+	if any, ok := schema["anyOf"].([]any); ok {
+		refs = any
 	}
 	var slugs []problem.Slug
 	for _, r := range refs {
 		ref, _ := obj(r)["$ref"].(string)
+		if ref == "#/components/schemas/Problem" {
+			continue // The generic problem every status allows besides its listed types
+		}
 		m := refRE.FindStringSubmatch(ref)
 		if m == nil {
 			t.Fatalf("%s: problem schema %v is not a component reference", where, r)
@@ -811,6 +814,7 @@ func TestResponsesMatchTheDocument(t *testing.T) {
 	check(http.MethodGet, "/v1/providers/scripts/scripts", s.full, "", 200)
 	check(http.MethodGet, "/v1/providers/scripts/scripts/deploy", s.full, "", 200)
 	check(http.MethodGet, "/v1/providers/scripts/scripts/nope", s.full, "", 404)
+	check(http.MethodPost, "/v1/providers/scripts/scripts/deploy/invoke", s.full, `{}`, 422)
 	// No Docker Engine at the configured socket: dependency-unavailable.
 	check(http.MethodGet, "/v1/providers/docker/containers", s.full, "", 503)
 	check(http.MethodGet, "/v1/providers/docker/containers/web", s.full, "", 503)

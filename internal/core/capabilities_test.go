@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -58,14 +59,31 @@ type testProvider struct {
 	calls     atomic.Int64
 }
 
+// testOps are the declarations of one provider name. def.Define registers
+// globally, so they are made once per name and reused by every test (and by
+// every run under -count=N).
+type testOps struct {
+	list, restart, refresh def.Typed[itemIn, itemOut]
+}
+
+var (
+	testOpsMu sync.Mutex
+	testOpsBy = map[string]testOps{}
+)
+
 func newTestProvider(name string, preflight func(context.Context) provider.Status) *testProvider {
-	return &testProvider{
-		name:      name,
-		list:      def.Define[itemIn, itemOut](itemOp(name, name+".things.list", def.KindList, "things", "")),
-		restart:   def.Define[itemIn, itemOut](itemOp(name, name+".things.restart", def.KindResourceAction, "things", "restart")),
-		refresh:   def.Define[itemIn, itemOut](itemOp(name, name+".actions.refresh", def.KindProviderAction, "", "refresh")),
-		preflight: preflight,
+	testOpsMu.Lock()
+	defer testOpsMu.Unlock()
+	o, ok := testOpsBy[name]
+	if !ok {
+		o = testOps{
+			list:    def.Define[itemIn, itemOut](itemOp(name, name+".things.list", def.KindList, "things", "")),
+			restart: def.Define[itemIn, itemOut](itemOp(name, name+".things.restart", def.KindResourceAction, "things", "restart")),
+			refresh: def.Define[itemIn, itemOut](itemOp(name, name+".actions.refresh", def.KindProviderAction, "", "refresh")),
+		}
+		testOpsBy[name] = o
 	}
+	return &testProvider{name: name, list: o.list, restart: o.restart, refresh: o.refresh, preflight: preflight}
 }
 
 func (p *testProvider) Spec() def.ProviderSpec {

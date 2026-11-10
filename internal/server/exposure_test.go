@@ -51,7 +51,7 @@ func newGadgetServer(t *testing.T, opts server.Options) *server.Server {
 	}
 	opts.Logger = discardLog
 	if opts.Auth == nil {
-		opts.Auth = sharedAuth
+		opts.Auth = freshAuth()
 	}
 	srv, err := server.New(reg, opts)
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
 
@@ -166,5 +167,48 @@ func TestRequestedIsWrittenBeforeTheHandlerAndFailsClosed(t *testing.T) {
 	p := problemOf(t, call(d, cancel, recID, "audits:write"), http.StatusServiceUnavailable)
 	if p.Slug() != problem.AuditUnavailable || handled.n != 2 {
 		t.Fatalf("after an audit failure: %v, handled %d; want audit-unavailable and no handler call", p, handled.n)
+	}
+}
+
+// SEC-2: the denied and refused records one token can cause are bounded per
+// window; the rest collapse into one rate-limited aggregate, and other
+// tokens and later windows are unaffected.
+func TestDeniedRecordsPerTokenAreBoundedAndAggregated(t *testing.T) {
+	d, lg, _ := auditFixture(t, apitypes.ProviderEnabled)
+	now := time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)
+	d.notes = newNoteLimiter(5, func() time.Time { return now })
+	flood := auth.Principal{TokenID: "a1b2c3d4e5f6", Name: "agent", Scopes: []string{"audits:read"}}
+	other := auth.Principal{TokenID: "ffffffffffff", Name: "other", Scopes: []string{"audits:read"}}
+	invoke := func(p auth.Principal, input string) error {
+		_, err := d.Invoke(context.Background(), InvokeRequest{Caller: p, Surface: SurfaceREST,
+			Op: auditedRestart.Op(), Input: json.RawMessage(input)})
+		return err
+	}
+	for range 20 {
+		problemOf(t, invoke(flood, `{"name":"web-1"}`), http.StatusForbidden)
+	}
+	problemOf(t, invoke(other, `{"name":"web-1"}`), http.StatusForbidden)
+	now = now.Add(2 * time.Minute)
+	problemOf(t, invoke(flood, `{"name":"web-1"}`), http.StatusForbidden)
+
+	if err := lg.Close(); err != nil { // Writes the open aggregate
+		t.Fatal(err)
+	}
+	var denied, aggregates, counted int
+	for _, r := range records(t, lg) {
+		switch {
+		case r.Problem == string(problem.RateLimited):
+			aggregates++
+			counted += r.Count
+			if r.Source != "token:a1b2c3d4e5f6" || r.Outcome != audit.OutcomeDenied {
+				t.Fatalf("aggregate = %+v", r)
+			}
+		case r.Outcome == audit.OutcomeDenied && r.Problem == string(problem.Forbidden):
+			denied++
+		}
+	}
+	// 5 + 1 (the other token) + 1 (the flooder's next window), 15 collapsed.
+	if denied != 7 || aggregates != 1 || counted != 15 {
+		t.Fatalf("denied records %d, aggregates %d covering %d; want 7, 1 covering 15", denied, aggregates, counted)
 	}
 }

@@ -124,7 +124,7 @@ func startServer(t *testing.T, opts server.Options) *testServer {
 	}
 	opts.Logger = log
 	if opts.Auth == nil {
-		opts.Auth = sharedAuth
+		opts.Auth = freshAuth()
 	}
 	srv, err := server.New(reg, opts)
 	if err != nil {

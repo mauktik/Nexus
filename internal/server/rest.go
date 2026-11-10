@@ -229,16 +229,25 @@ func (s *Server) writeJSON(w http.ResponseWriter, r *http.Request, op def.Op, st
 }
 
 // stream serves a ModeStream result as NDJSON, one apitypes.Frame per line.
-// Before each write it extends the write deadline, so the server's
-// WriteTimeout never cuts a live follow while a stalled client is dropped.
+// The write deadline is armed only around each write and flush and cleared
+// while the handler waits for output, including the wait for the first
+// frame: under HTTP/2 an armed deadline resets the stream when it fires
+// whether or not a write is pending, which would cut a follow that goes
+// quiet. A stalled client is still dropped, by the deadline on the write.
 func (s *Server) stream(w http.ResponseWriter, r *http.Request, op def.Op,
 	run func(context.Context, func(apitypes.Frame) error) error) {
 	rc := http.NewResponseController(w)
+	// Best effort: a writer without deadlines fails at the first arm below.
+	_ = rc.SetWriteDeadline(time.Time{})
 	started := false
-	start := func() error {
+	arm := func() error {
 		if err := rc.SetWriteDeadline(time.Now().Add(StreamWriteDeadline)); err != nil {
 			return fmt.Errorf("extend write deadline: %w", err)
 		}
+		return nil
+	}
+	disarm := func() { _ = rc.SetWriteDeadline(time.Time{}) }
+	start := func() error {
 		if !started {
 			w.Header().Set("Content-Type", "application/x-ndjson")
 			w.WriteHeader(http.StatusOK)
@@ -251,6 +260,9 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, op def.Op,
 		if err != nil {
 			return fmt.Errorf("marshal frame: %w", err)
 		}
+		if err := arm(); err != nil {
+			return err
+		}
 		if err := start(); err != nil {
 			return err
 		}
@@ -260,9 +272,13 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, op def.Op,
 		if err := rc.Flush(); err != nil {
 			return fmt.Errorf("flush frame: %w", err)
 		}
+		disarm()
 		return nil
 	}
 	err := run(r.Context(), emit)
+	if err := arm(); err != nil {
+		s.log.Debug("stream end: cannot arm the write deadline", "op", op.ID, "error", err.Error())
+	}
 	switch {
 	case err != nil && !started:
 		s.writeError(w, r, op, err)

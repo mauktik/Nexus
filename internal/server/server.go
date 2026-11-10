@@ -20,17 +20,22 @@ import (
 )
 
 // HTTP server limits (NFR-4, A-54). WriteTimeout bounds every response;
-// a streaming handler extends its own deadline before each write
-// (StreamWriteDeadline), so a live follow is not cut while a stalled client is
-// still dropped.
+// a streaming handler takes the deadline off while it waits for output and
+// sets it around each write (StreamWriteDeadline), so a live follow is not
+// cut while a stalled client is still dropped. Under HTTP/2 a write deadline
+// is a timer that resets the stream when it fires, even with no write
+// pending, which is why it must not stay armed between frames.
 const (
-	ReadHeaderTimeout   = 5 * time.Second
-	ReadTimeout         = 30 * time.Second
-	WriteTimeout        = 60 * time.Second
-	IdleTimeout         = 120 * time.Second
-	MaxHeaderBytes      = 64 << 10
-	StreamWriteDeadline = 30 * time.Second
+	ReadHeaderTimeout = 5 * time.Second
+	ReadTimeout       = 30 * time.Second
+	WriteTimeout      = 60 * time.Second
+	IdleTimeout       = 120 * time.Second
+	MaxHeaderBytes    = 64 << 10
 )
+
+// StreamWriteDeadline bounds one frame's write and flush. It is a variable
+// so a test can shorten it.
+var StreamWriteDeadline = 30 * time.Second
 
 // DefaultMaxBodyBytes is the request body limit when Options leaves it zero.
 const DefaultMaxBodyBytes = 1 << 20
@@ -50,6 +55,10 @@ type Options struct {
 	// accepts. A request to /mcp with any other Origin header gets 403
 	// before authentication. A request without one is not refused for it.
 	MCPAllowedOrigins []string
+	// NoteLimitPerMinute is core.DispatcherOptions.NoteLimitPerMinute: the
+	// denied and refused audit records one token can cause per minute. Zero
+	// means core.DefaultNoteLimitPerMinute.
+	NoteLimitPerMinute int
 }
 
 // Server serves the REST API, /mcp and /healthz.
@@ -87,7 +96,7 @@ func New(reg *core.Registry, opts Options) (*Server, error) {
 
 	s.mux.HandleFunc("GET /healthz", s.healthz)
 	// One Dispatcher serves REST and MCP alike.
-	disp := core.NewDispatcher(reg, core.DispatcherOptions{Logger: s.log})
+	disp := core.NewDispatcher(reg, core.DispatcherOptions{Logger: s.log, NoteLimitPerMinute: opts.NoteLimitPerMinute})
 	if err := s.registerREST(disp); err != nil {
 		s.cancelBase()
 		return nil, err

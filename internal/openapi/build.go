@@ -416,7 +416,8 @@ func scopeOf(op def.Op, readScopes map[string]string) requiredScope {
 
 // applicableProblems lists the problem types op can answer with, beyond
 // the ones every route can: the Dispatcher pipeline decides which apply.
-// Anything a handler adds is covered by the default response.
+// Anything a handler adds is covered by the generic Problem each status
+// allows besides the listed types.
 func applicableProblems(op def.Op, hasTarget bool) []problem.Slug {
 	slugs := []problem.Slug{
 		problem.ValidationFailed, problem.Unauthorized, problem.RouteNotFound, problem.MethodNotAllowed,
@@ -513,10 +514,12 @@ func responses(op def.Op, hasTarget bool) (map[string]response, error) {
 			refs = append(refs, ref(ProblemSchemaName(t.Slug)))
 			slugs = append(slugs, string(t.Slug))
 		}
-		schema := refs[0]
-		if len(refs) > 1 {
-			schema = &jsonschema.Schema{OneOf: refs}
-		}
+		// The generic Problem is always allowed too: a handler reports
+		// problems of its own at these statuses (script-integrity-failed at
+		// 422, compose-plugin-missing at 503), and the listed types are
+		// documentation, not a closed set. The types are subsets of Problem,
+		// so this is anyOf, not oneOf.
+		schema := &jsonschema.Schema{AnyOf: append(refs, ref(problemName))}
 		out[fmt.Sprint(status)] = response{
 			Description: "Problem: " + strings.Join(slugs, ", ") + ".",
 			Headers:     problemHeaders[status],
