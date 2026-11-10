@@ -163,8 +163,14 @@ func Open(opts Options) (*Log, error) {
 // observePersisted seeds the ID generator past the largest ID the newest
 // non-empty audit file holds, so records written after a restart sort after
 // those before it even if the clock stepped back meanwhile (Query's cursor
-// relies on that order).
+// relies on that order). File order is ID order, so the live file's last
+// record is enough; only when it cannot be read is every record of the
+// newest non-empty file parsed (CR-94).
 func (l *Log) observePersisted() {
+	if id := l.lastLiveID(); id != "" {
+		opid.Observe(id)
+		return
+	}
 	srcs, err := l.sources()
 	if err != nil {
 		l.log.Warn("cannot read the audit log to seed record IDs", "error", err.Error())
@@ -186,6 +192,47 @@ func (l *Log) observePersisted() {
 			return
 		}
 	}
+}
+
+// maxTailBytes bounds the backward read for the live file's last line.
+const maxTailBytes = 1 << 20
+
+// lastLiveID is the ID of the record on the live file's last line, read
+// backwards from the end. openLive has ended a line a crash cut short, so
+// the file ends in a newline. It is "" when the file is empty or the line
+// is not a record with an ID.
+func (l *Log) lastLiveID() string {
+	f, err := os.Open(filepath.Join(l.dir, FileName))
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = f.Close() }() // Read-only
+	fi, err := f.Stat()
+	if err != nil {
+		return ""
+	}
+	const step = 4 << 10
+	var tail []byte
+	for off := fi.Size(); off > 0 && len(tail) < maxTailBytes; {
+		n := min(step, off)
+		off -= n
+		buf := make([]byte, n, int(n)+len(tail))
+		if _, err := f.ReadAt(buf, off); err != nil {
+			return ""
+		}
+		tail = append(buf, tail...)
+		body := bytes.TrimRight(tail, "\n")
+		i := bytes.LastIndexByte(body, '\n')
+		if i < 0 && off > 0 {
+			continue
+		}
+		var rec systemspec.AuditRecord
+		if json.Unmarshal(body[i+1:], &rec) != nil {
+			return ""
+		}
+		return rec.ID
+	}
+	return ""
 }
 
 // openLive opens audit.jsonl for appending with mode 0600, and ends a final

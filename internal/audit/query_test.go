@@ -247,3 +247,46 @@ func TestHugeRetentionDaysKeepsRecentRotatedFiles(t *testing.T) {
 }
 
 func newTextLogger(w *bytes.Buffer) *slog.Logger { return slog.New(slog.NewTextHandler(w, nil)) }
+
+// CR-94: Open seeds IDs from the live file's last record, which holds the
+// largest ID (file order is ID order), without parsing the rest of the
+// file; a last line that does not parse falls back to reading every record.
+func TestOpenSeedsIDsFromTheLastLiveRecord(t *testing.T) {
+	ahead := uint64(time.Now().Add(2 * time.Hour).UnixMilli())
+	rec := func(n int) systemspec.AuditRecord {
+		return systemspec.AuditRecord{ID: fixtureID(ahead, n), Time: time.Now().UTC(), Outcome: "requested", Action: "t.op.go"}
+	}
+	for _, tc := range []struct {
+		name    string
+		body    []byte
+		max     string
+		skipped bool // Open logs an unparsable line: it read the whole file
+	}{
+		{"last line", append([]byte("not a record\n"), fixtureLines(t, []systemspec.AuditRecord{rec(1), rec(2)})...),
+			fixtureID(ahead, 2), false},
+		{"last line longer than one read", append([]byte("not a record\n"), fixtureLines(t, []systemspec.AuditRecord{rec(5),
+			func() systemspec.AuditRecord { r := rec(6); r.Action = strings.Repeat("a", 10_000); return r }()})...),
+			fixtureID(ahead, 6), false},
+		{"last line cut short", append(fixtureLines(t, []systemspec.AuditRecord{rec(3), rec(4)}), `{"id":"`...),
+			fixtureID(ahead, 4), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, audit.FileName), tc.body, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var logs bytes.Buffer
+			l := open(t, audit.Options{Dir: dir, Logger: slog.New(slog.NewJSONHandler(&logs, nil))})
+			if skipped := strings.Contains(logs.String(), "skipping unparsable audit line"); skipped != tc.skipped {
+				t.Fatalf("Open parsed every line: %v, want %v\n%s", skipped, tc.skipped, logs.String())
+			}
+			id, err := l.Write(systemspec.AuditRecord{Outcome: "requested", Action: "t.op.go"}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if id <= tc.max {
+				t.Fatalf("new ID %s is not above the persisted maximum %s", id, tc.max)
+			}
+		})
+	}
+}
