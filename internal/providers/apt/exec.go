@@ -74,6 +74,11 @@ func cmdPkgNames(prefix string) command {
 	return newCommand(AptCache, slices.Concat(noCacheFiles, []string{"pkgnames", "--", prefix})...)
 }
 
+// cmdPkgNamesAll lists every package name apt knows, one per line.
+func cmdPkgNamesAll() command {
+	return newCommand(AptCache, slices.Concat(noCacheFiles, []string{"pkgnames"})...)
+}
+
 // cmdPolicy reads Installed and Candidate of names that resolved exactly.
 func cmdPolicy(names ...string) command {
 	return newCommand(AptCache, slices.Concat(noCacheFiles, []string{"policy", "--"}, names)...)

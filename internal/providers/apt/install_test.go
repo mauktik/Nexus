@@ -135,6 +135,22 @@ func showFake(t *testing.T, base, dpkgCapture string) (*Provider, *[][]string) {
 		switch {
 		case c.Argv[0] == Dpkg:
 			return result{Stdout: capture(t, base, "print-architecture.txt")}, nil
+		case c.Argv[0] == AptCache && slices.Contains(c.Argv, "pkgnames") && i < 0:
+			// Every package name of the captures: a capture whose record's
+			// Package: is its own name. A name that only regex-matched
+			// others (nxplai., nxg+) is not one.
+			var out []string
+			files, _ := filepath.Glob(filepath.Join("testdata", base, "show-*.stdout"))
+			for _, f := range files {
+				name := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(f), "show-"), ".stdout")
+				for _, st := range parseStanzas(capture(t, base, "show-"+name+".stdout")) {
+					if st["Package"] == name {
+						out = append(out, name)
+						break
+					}
+				}
+			}
+			return result{Stdout: []byte(strings.Join(out, "\n") + "\n")}, nil
 		case c.Argv[0] == AptCache && i > 0 && c.Argv[i-1] == "show":
 			var out []byte
 			for _, n := range c.Argv[i+1:] {
@@ -235,6 +251,27 @@ func TestResolveAvailableRejectsHostileNames(t *testing.T) {
 	}
 }
 
+// CR-25: a name that is not exactly a package never reaches apt-cache show,
+// which would read it as a regular expression: "nxg+" matches nxg++ and
+// others in the capture, "nxplai." matches nxplain. The names come from one
+// apt-cache pkgnames, and only members are shown.
+func TestResolveAvailableNeverShowsAnUnknownName(t *testing.T) {
+	for _, base := range installBases {
+		for _, names := range [][]string{{"nxg+"}, {"nxplai."}, {"nxplain", "nxg+"}, {"nxnone"}} {
+			p, calls := showFake(t, base, "names")
+			_, err := p.resolveAvailable(context.Background(), names)
+			if slugOf(t, err) != problem.NotFound {
+				t.Errorf("%s %q: %v, want not-found", base, names, err)
+			}
+			for _, c := range *calls {
+				if slices.Contains(c, "show") {
+					t.Errorf("%s %q ran %q", base, names, c)
+				}
+			}
+		}
+	}
+}
+
 // Exact names resolve, "+" kept; a qualifier of the native architecture
 // or all names the bare package; the result has no duplicates.
 func TestResolveAvailableExactNames(t *testing.T) {
@@ -247,7 +284,7 @@ func TestResolveAvailableExactNames(t *testing.T) {
 		}
 		shows := 0
 		for _, c := range *calls {
-			if c[0] == AptCache {
+			if c[0] == AptCache && slices.Contains(c, "show") {
 				shows++
 				if !slices.Equal(c, cmdShowAll([]string{"nxg++", "nxplain", "nxplain:" + native, "nxplain:all", "nxnewdep"}).Argv) {
 					t.Errorf("%s: %q", base, c)
@@ -419,6 +456,18 @@ func newInstallFake(t *testing.T, lockWait time.Duration) *installFake {
 	f.p.run = func(ctx context.Context, c command) (result, error) {
 		resolve := slices.Contains(c.Argv, "--") && (c.Argv[0] == DpkgQuery || c.Argv[0] == AptCache)
 		switch {
+		case c.Argv[0] == AptCache && slices.Contains(c.Argv, "pkgnames"):
+			// The list of package names is part of a resolution that
+			// apt-cache show completes, so it is not counted; once the
+			// packages are gone it lists none.
+			f.mu.Lock()
+			gone := f.gone && f.resolutions >= 1
+			f.calls = append(f.calls, slices.Clone(c.Argv))
+			f.mu.Unlock()
+			if gone {
+				return result{}, nil
+			}
+			return names.run(ctx, c)
 		case resolve:
 			f.mu.Lock()
 			f.resolutions++

@@ -151,7 +151,24 @@ func (p *Provider) resolveAvailable(ctx context.Context, names []string) ([]stri
 	if err != nil {
 		return nil, unavailable(err.Error())
 	}
-	res, err := p.run(ctx, cmdShowAll(names))
+	// apt-cache show reads a name that is not exactly a package as a regular
+	// expression, and a typo such as "c++" then matches most of the archive:
+	// 128 MiB of records, and a 503 for a name that is only unknown. So
+	// only names apt lists as packages reach it (CR-25).
+	res, err := p.run(ctx, cmdPkgNamesAll())
+	if err != nil || res.ExitCode != 0 {
+		return nil, p.failed("apt-cache pkgnames", res, err)
+	}
+	known := map[string]bool{}
+	for _, n := range parsePkgNames(res.Stdout) {
+		known[n] = true
+	}
+	for _, n := range names {
+		if base, _, _ := strings.Cut(n, ":"); !known[base] {
+			return nil, notAvailable(n)
+		}
+	}
+	res, err = p.run(ctx, cmdShowAll(names))
 	switch {
 	case err != nil:
 		return nil, p.failed("apt-cache show", res, err)
@@ -177,8 +194,7 @@ func (p *Provider) resolveAvailable(ctx context.Context, names []string) ([]stri
 			}
 		}
 		if found == "" {
-			return nil, problem.New(problem.NotFound, fmt.Sprintf("apt knows no package of exactly the name %q; "+
-				"install names packages in the package indexes only, and nothing was started", n))
+			return nil, notAvailable(n)
 		}
 		name := qualifiedName(base, found, native)
 		if !seen[name] {
@@ -187,6 +203,12 @@ func (p *Provider) resolveAvailable(ctx context.Context, names []string) ([]stri
 		}
 	}
 	return out, nil
+}
+
+// notAvailable is not-found for an install name apt has no package for.
+func notAvailable(n string) error {
+	return problem.New(problem.NotFound, fmt.Sprintf("apt knows no package of exactly the name %q; "+
+		"install names packages in the package indexes only, and nothing was started", n))
 }
 
 // cmdShowAll reads every version's record of names that passed the name
