@@ -18,10 +18,23 @@ func newClock() *fakeClock {
 	return &fakeClock{t: time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)}
 }
 
+// fail records n failed attempts from a through Begin.
 func fail(l *Limiter, a netip.Addr, n int) {
 	for range n {
-		l.Fail(a)
+		if end, ok, _ := l.Begin(a); ok {
+			end(true)
+		}
 	}
+}
+
+// allow is Begin for an attempt that does not fail: whether a may be
+// evaluated, and if not, how long until its window ends.
+func allow(l *Limiter, a netip.Addr) (bool, time.Duration) {
+	end, ok, retry := l.Begin(a)
+	if ok {
+		end(false)
+	}
+	return ok, retry
 }
 
 // TC-E4: IPv6 sources group by /64 and limiter memory is bounded.
@@ -34,17 +47,17 @@ func TestLimiterGroupsIPv6By64(t *testing.T) {
 
 	fail(l, a1, 2)
 	fail(l, a2, 1)
-	if ok, _ := l.Allow(a1); ok {
+	if ok, _ := allow(l, a1); ok {
 		t.Fatal("three failures across one /64 should block that /64")
 	}
-	if ok, _ := l.Allow(a2); ok {
+	if ok, _ := allow(l, a2); ok {
 		t.Fatal("the second address in the same /64 shares the count")
 	}
-	if ok, _ := l.Allow(other); !ok {
+	if ok, _ := allow(l, other); !ok {
 		t.Fatal("a different /64 must not share the count")
 	}
 	fail(l, other, 2)
-	if ok, _ := l.Allow(other); !ok {
+	if ok, _ := allow(l, other); !ok {
 		t.Fatal("two failures in the other /64 are under the limit")
 	}
 	if l.Len() != 2 {
@@ -55,11 +68,11 @@ func TestLimiterGroupsIPv6By64(t *testing.T) {
 func TestLimiterIPv4IsPerAddressAndMappedIsIPv4(t *testing.T) {
 	clk := newClock()
 	l := NewLimiter(1, clk.Now)
-	l.Fail(netip.MustParseAddr("192.0.2.1"))
-	if ok, _ := l.Allow(netip.MustParseAddr("::ffff:192.0.2.1")); ok {
+	fail(l, netip.MustParseAddr("192.0.2.1"), 1)
+	if ok, _ := allow(l, netip.MustParseAddr("::ffff:192.0.2.1")); ok {
 		t.Fatal("an IPv4-mapped IPv6 address is the same IPv4 source")
 	}
-	if ok, _ := l.Allow(netip.MustParseAddr("192.0.2.2")); !ok {
+	if ok, _ := allow(l, netip.MustParseAddr("192.0.2.2")); !ok {
 		t.Fatal("IPv4 sources are not grouped")
 	}
 }
@@ -68,13 +81,13 @@ func TestLimiterIsBoundedAndEvictsLeastRecentlyUsed(t *testing.T) {
 	clk := newClock()
 	l := NewLimiter(1, clk.Now)
 	first := netip.AddrFrom4([4]byte{10, 0, 0, 0})
-	l.Fail(first)
+	fail(l, first, 1)
 	for i := 1; i < 5000; i++ {
 		// Keep the first source recently used throughout.
 		if i%1000 == 0 {
-			l.Fail(first)
+			fail(l, first, 1)
 		}
-		l.Fail(netip.AddrFrom4([4]byte{10, byte(i >> 16), byte(i >> 8), byte(i)}))
+		fail(l, netip.AddrFrom4([4]byte{10, byte(i >> 16), byte(i >> 8), byte(i)}), 1)
 		if n := l.Len(); n > LimiterCapacity {
 			t.Fatalf("tracker holds %d entries after %d sources, capacity %d", n, i+1, LimiterCapacity)
 		}
@@ -82,14 +95,14 @@ func TestLimiterIsBoundedAndEvictsLeastRecentlyUsed(t *testing.T) {
 	if l.Len() != LimiterCapacity {
 		t.Fatalf("tracker holds %d entries, want exactly %d", l.Len(), LimiterCapacity)
 	}
-	if ok, _ := l.Allow(first); ok {
+	if ok, _ := allow(l, first); ok {
 		t.Fatal("the recently used source was evicted")
 	}
 	// Source 1 was touched once, long ago: it is least recently used.
-	if ok, _ := l.Allow(netip.AddrFrom4([4]byte{10, 0, 0, 1})); !ok {
+	if ok, _ := allow(l, netip.AddrFrom4([4]byte{10, 0, 0, 1})); !ok {
 		t.Fatal("the least recently used source was not evicted")
 	}
-	if ok, _ := l.Allow(netip.AddrFrom4([4]byte{10, 0, 0x13, 0x87})); ok {
+	if ok, _ := allow(l, netip.AddrFrom4([4]byte{10, 0, 0x13, 0x87})); ok {
 		t.Fatal("the most recent source (4999) was evicted")
 	}
 }
@@ -100,7 +113,7 @@ func TestLimiterWindowAndRetryAfter(t *testing.T) {
 	a := netip.MustParseAddr("192.0.2.9")
 	fail(l, a, 2)
 	clk.Advance(20*time.Second + 300*time.Millisecond)
-	ok, retry := l.Allow(a)
+	ok, retry := allow(l, a)
 	if ok {
 		t.Fatal("limit reached but allowed")
 	}
@@ -108,7 +121,7 @@ func TestLimiterWindowAndRetryAfter(t *testing.T) {
 		t.Fatalf("retry after %v, want 40s (rounded up to whole seconds)", retry)
 	}
 	clk.Advance(39*time.Second + 700*time.Millisecond)
-	if ok, _ := l.Allow(a); !ok {
+	if ok, _ := allow(l, a); !ok {
 		t.Fatal("still blocked after the window ended")
 	}
 }
@@ -157,8 +170,8 @@ func TestLimiterBeginIsAtomicUnderABurst(t *testing.T) {
 	if got := allowed.Load(); got != limit {
 		t.Fatalf("%d of %d concurrent attempts passed, want exactly %d", got, burst, limit)
 	}
-	if ok, retry := l.Allow(a); ok || retry <= 0 {
-		t.Fatalf("Allow after the burst = %v, %v; want refused", ok, retry)
+	if ok, retry := allow(l, a); ok || retry <= 0 {
+		t.Fatalf("an attempt after the burst = %v, %v; want refused", ok, retry)
 	}
 }
 

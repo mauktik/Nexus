@@ -264,7 +264,7 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 		src := SourceAddr(r)
 		// Attempts from one source are evaluated one at a time (Begin), so a
 		// concurrent burst cannot outrun the limit.
-		end, ok, retry := a.limiter.Begin(src)
+		begun, ok, retry := a.limiter.Begin(src)
 		if !ok {
 			if a.audit != nil {
 				a.audit.RateLimited(sourceGroup(src), surfaceOf(r))
@@ -273,6 +273,19 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 			a.write(w, r, problem.New(problem.RateLimited, "too many failed authentication attempts from this source; retry later"))
 			return
 		}
+		// end is called exactly once. A panic before it is counted as a
+		// failure and still releases the source's gate, which would
+		// otherwise block every later request from the source (CR-96).
+		ended := false
+		end := func(failed bool) {
+			ended = true
+			begun(failed)
+		}
+		defer func() {
+			if !ended {
+				begun(true)
+			}
+		}()
 		tok, present := bearer(r.Header)
 		if !present {
 			end(true)

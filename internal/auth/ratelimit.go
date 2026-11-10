@@ -80,28 +80,6 @@ func NewLimiter(limit int, now func() time.Time) *Limiter {
 	return &Limiter{limit: limit, now: now, lru: list.New(), sources: make(map[netip.Prefix]*list.Element)}
 }
 
-// Allow reports whether a request from a may be evaluated. When it may not,
-// it also returns how long until the source's window ends, rounded up to
-// whole seconds and at least one second.
-func (l *Limiter) Allow(a netip.Addr) (bool, time.Duration) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	w := l.current(sourceKey(a))
-	if w == nil || w.failures < l.limit {
-		return true, 0
-	}
-	left := w.start.Add(FailureWindow).Sub(l.now())
-	secs := (left + time.Second - 1) / time.Second
-	return false, max(secs, 1) * time.Second
-}
-
-// Fail records an authentication failure from a.
-func (l *Limiter) Fail(a netip.Addr) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.count(sourceKey(a))
-}
-
 // Begin starts one authentication attempt from a. Attempts from one source
 // are evaluated one at a time, so the check against the limit and the
 // recording of the attempt's failure are one step: a concurrent burst of bad
@@ -109,10 +87,16 @@ func (l *Limiter) Fail(a netip.Addr) {
 // evaluation is microseconds, so valid concurrent requests from one source
 // queue only briefly and are never counted against it.
 //
-// When the source is over its limit, ok is false, retry is as for Allow and
-// end is nil. Otherwise the caller evaluates the credentials and calls end
-// exactly once, with whether the attempt counts as a failure, before doing
-// anything else with the request.
+// When the source is over its limit, ok is false, retry is how long until
+// the source's window ends, rounded up to whole seconds and at least one
+// second, and end is nil. Otherwise the caller evaluates the credentials and
+// calls end exactly once, with whether the attempt counts as a failure,
+// before doing anything else with the request.
+//
+// Around a window's end up to twice the limit can pass: attempts already
+// waiting on the expired window's gate are evaluated against that window,
+// which restarts and admits up to the limit, while a later attempt finds it
+// expired and registers a new window that admits its own limit.
 func (l *Limiter) Begin(a netip.Addr) (end func(failed bool), ok bool, retry time.Duration) {
 	key := sourceKey(a)
 	l.mu.Lock()
@@ -178,19 +162,6 @@ func (l *Limiter) register(w *window) *window {
 		delete(l.sources, oldest.Value.(*window).key)
 		l.lru.Remove(oldest)
 	}
-	return w
-}
-
-// count adds one failure to key's live window, opening it when there is
-// none, and returns the window.
-func (l *Limiter) count(key netip.Prefix) *window {
-	w := l.current(key)
-	if w == nil {
-		w = l.register(&window{key: key, start: l.now()})
-	} else if w.start.IsZero() {
-		w.start = l.now()
-	}
-	w.failures++
 	return w
 }
 

@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"slices"
 	"testing"
+	"time"
 )
 
 func TestMiddlewarePassesPrincipalAndExemptsOnlyHealthz(t *testing.T) {
@@ -81,5 +82,37 @@ func TestMiddlewareBurstOfBadTokensIsLimitedExactly(t *testing.T) {
 	}
 	if count[http.StatusUnauthorized] != limit || count[http.StatusTooManyRequests] != burst-limit {
 		t.Fatalf("status counts %v, want %d x 401 and %d x 429", count, limit, burst-limit)
+	}
+}
+
+// CR-96: a panic while a request is evaluated does not leave its source
+// locked out: the next request from the source is answered.
+func TestMiddlewarePanicDoesNotLockOutTheSource(t *testing.T) {
+	dir := t.TempDir()
+	tok, _ := mustCreate(t, dir, CreateRequest{Name: "p", TTL: time.Hour})
+	a := New(dir, Options{Logger: quietLog()})
+	a.now = func() time.Time { panic("evaluation failed") }
+	h := a.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	serve := func(authz string) (code int, panicked bool) {
+		defer func() { panicked = recover() != nil }()
+		r := httptest.NewRequest(http.MethodGet, "/v1/capabilities", nil)
+		r.RemoteAddr = "192.0.2.88:1234"
+		r.Header.Set("Authorization", authz)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w.Code, false
+	}
+	if _, panicked := serve("Bearer " + tok); !panicked {
+		t.Fatal("the staged panic did not happen")
+	}
+	got := make(chan int, 1)
+	go func() { code, _ := serve("Bearer not-a-token"); got <- code }()
+	select {
+	case code := <-got:
+		if code != http.StatusUnauthorized {
+			t.Fatalf("next request from the source: %d, want 401", code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the next request from the source is still waiting on its gate")
 	}
 }
