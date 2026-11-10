@@ -718,8 +718,14 @@ func auditDirectives(t *testing.T) {
 // TC-182: under the exact unit, installed by install.sh with no drop-in,
 // every catalog operation of docker, apt and scripts, plus the core
 // operation reads and cancel, reaches its expected outcome through REST,
-// with scripts and Compose files in a home directory (ProtectHome=read-only),
-// and nothing is denied; then the directive audit.
+// with scripts in a home directory and a Compose project under /home
+// (ProtectHome=read-only), and nothing is denied; then the directive audit.
+//
+// The scripts are in deploy's own home, which the run-as-user ancestor rule
+// accepts. A Compose project's every ancestor must be root-owned (SEC-1;
+// the account is root), so its working project sits in a root-owned
+// directory directly under /home, and a project under deploy's home is
+// asserted to be refused.
 func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 	freshHost(t)
 	ensureUsers(t)
@@ -765,9 +771,13 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 	// home directory.
 	lcRun(t, lc, nil, []string{"sh", "-c", "echo nx-tc182-log; trap 'exit 0' TERM; while :; do sleep 0.2; done"})
 	_, _, updNew := staged(t, regOpen, "nx/tc182", upd, nil, updPlain, updPlain)
-	c := newComposeProject(t, "nxc182", "/home/deploy/nx-tc182-compose", regOpen, updPlain)
+	c := newComposeProject(t, "nxc182", "/home/nx-tc182-compose", regOpen, updPlain)
 	appNew := c.pushApp(t, updPlain)
 	app := c.container("app")
+	// A root-owned project whose parent, deploy's home, deploy owns.
+	uh := newComposeProject(t, "nxc182uh", "/home/deploy/nx-tc182-uh", regOpen, updPlain)
+	uhApp := uh.container("app")
+	uhID := containerID(t, uhApp)
 
 	dmesgBefore := kernelLines(t)
 	since := time.Now().Add(-time.Second)
@@ -843,6 +853,18 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 		t.Fatalf("check-updates: %s %+v, %s %+v", upd, chk.updates[upd], app, chk.updates[app])
 	}
 	ok("docker.actions.check-updates", "%s and %s updateAvailable", upd, app)
+	// SEC-1: deploy owns /home/deploy, so the project in it is refused before
+	// an operation exists, naming that directory, and nothing is recreated.
+	code, b := n.act(uhApp, "update", "{}")
+	rp := refused(t, code, b, http.StatusUnprocessableEntity, problem.ComposeFilesMissing, 1)
+	if rp.Extensions["path"] != "/home/deploy" || !strings.Contains(rp.Detail, "chown root /home/deploy") {
+		t.Fatalf("refusal path %v detail %q, want /home/deploy and its chown", rp.Extensions["path"], rp.Detail)
+	}
+	if now := containerID(t, uhApp); now != uhID || len(composeProcs()) != 0 {
+		t.Fatalf("%s is %s (was %s), compose processes %v", uhApp, now, uhID, composeProcs())
+	}
+	noUpdateOps(t, n)
+	ok("docker.containers.update", "refused 422 compose-files-missing at %s (owned by deploy), no operation", rp.Extensions["path"])
 	res := wantSucceeded(t, n.waitOp(n.startAction(upd, "update", "{}").ID, 3*time.Minute))
 	if got := repoDigest(t, dockerInspectField(t, upd, "{{.Image}}"), regOpen+"/nx/tc182"); !res.Changed || got != updNew {
 		t.Fatalf("update %s: result %+v, inspect digest %s, registry %s", upd, res, got, updNew)
