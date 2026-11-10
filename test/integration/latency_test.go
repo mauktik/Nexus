@@ -71,23 +71,16 @@ func nfrAcks(t *testing.T, n *nexusdInstance, label, op string, samples int, at 
 	t.Helper()
 	d := make([]time.Duration, 0, samples)
 	var ids []string
-	laneRaces := 0
 	for i := range samples {
 		took, code, b := n.timed(http.MethodPost, at(i), body)
-		// The previous operation reads Succeeded before its lane slot is
-		// freed (ops.Manager commits the terminal status, then finish
-		// releases the slot): a 409 naming it is that window, counted and
-		// reported, not an acknowledgement. Retried until the slot is free.
-		for attempt := 0; code == http.StatusConflict && len(ids) > 0 &&
-			strings.Contains(string(b), `"blockingOperationId":"`+ids[len(ids)-1]+`"`) && attempt < 100; attempt++ {
-			if laneRaces == 0 {
-				prev := n.operation(ids[len(ids)-1])
-				t.Logf("NFR %s %s: 409 naming the previous operation %s, which reads %s (ended %v): %s",
-					label, op, prev.ID, prev.Status, prev.Ended, b)
-			}
-			laneRaces++
-			time.Sleep(10 * time.Millisecond)
-			took, code, b = n.timed(http.MethodPost, at(i), body)
+		// The previous operation already reads Succeeded, so it no longer
+		// holds its lane: a 409 naming it is the ops-lane-release-race
+		// regression, never retried.
+		if code == http.StatusConflict && len(ids) > 0 &&
+			strings.Contains(string(b), `"blockingOperationId":"`+ids[len(ids)-1]+`"`) {
+			prev := n.operation(ids[len(ids)-1])
+			t.Fatalf("%s %s: sample %d: 409 naming the previous operation %s, which reads %s (ended %v): %s",
+				label, op, i, prev.ID, prev.Status, prev.Ended, b)
 		}
 		var ref opRef
 		if err := json.Unmarshal(b, &ref); err != nil || code != http.StatusAccepted || ref.ID == "" {
@@ -106,9 +99,6 @@ func nfrAcks(t *testing.T, n *nexusdInstance, label, op string, samples int, at 
 		t.Errorf("%s: %s acknowledgement p95 %sms, want under 500 ms", label, op, ms(s.p95))
 	}
 	t.Logf("NFR %s ack  %-26s %s (target p95<500ms: %s)", label, op, s, verdict)
-	if laneRaces > 0 {
-		t.Logf("NFR %s ack  %s: %d 409s naming an operation that already read Succeeded (lane slot not yet freed)", label, op, laneRaces)
-	}
 	return s, ids
 }
 

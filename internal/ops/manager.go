@@ -246,6 +246,12 @@ func (a *Admission) Create(rec store.OpRecord, idem store.IdempotencyKey, w Work
 	// it is written before the operation can start.
 	m.stateChange(e, apitypes.StatusQueued, nil)
 
+	// A holder already terminal in the store frees its slot before e is
+	// placed, so on a LaneQueue lane e starts at once rather than after
+	// that holder's finish.
+	if a.lane != nil {
+		m.retireTerminal(a.lane)
+	}
 	m.mu.Lock()
 	m.live[e.id] = e
 	if m.closed {

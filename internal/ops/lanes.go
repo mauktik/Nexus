@@ -21,8 +21,11 @@ type lane struct {
 
 	admit sync.Mutex
 
-	refs   int      // Admissions holding or waiting for admit
-	active []*entry // Holding a slot, in ID order
+	refs int // Admissions holding or waiting for admit
+	// active holds a slot each, in ID order. An entry stays here until its
+	// worker's finish, but one whose record already reads terminal no
+	// longer holds the lane: admission retires it (retireTerminal).
+	active []*entry
 	queue  []*entry // Waiting for a slot (LaneQueue), in ID order
 }
 
@@ -69,11 +72,14 @@ func (m *Manager) Admit(l provider.Lane) *Admission {
 }
 
 // Blocker reports the operation that keeps a LaneReject lane at its limit:
-// the oldest one holding it. A LaneQueue lane and NoLane never block.
+// the oldest one holding it. Holders whose record reads terminal are
+// retired first, so a lane never blocks on an operation any client already
+// sees as finished. A LaneQueue lane and NoLane never block.
 func (a *Admission) Blocker() (string, bool) {
 	if a.lane == nil || a.lane.policy != provider.LaneReject {
 		return "", false
 	}
+	a.m.retireTerminal(a.lane)
 	a.m.mu.Lock()
 	defer a.m.mu.Unlock()
 	if a.lane.occupied() < a.lane.limit {
@@ -162,8 +168,59 @@ func (m *Manager) dequeue(e *entry) bool {
 	return true
 }
 
-// releaseSlot frees e's slot and starts the next queued operation; m.mu is
-// held.
+// retireTerminal removes from l.active every holder whose stored record
+// reads terminal, when l is at its limit; m.mu is not held, and the caller
+// holds l.admit, so no other admission places an operation on l meanwhile.
+//
+// The record is the authority on whether an operation is finished: every
+// client reads it, and it becomes readable before CommitTerminal (or a
+// cancel's CompareAndSetStatus) returns to the worker, which frees the slot
+// only later in finish. Retiring on what the record reads closes that
+// window. It never retires an operation before its end is committed: a
+// holder whose record reads Running or Queued stays. Its worker's finish
+// still runs releaseSlot, which then finds nothing to remove.
+//
+// Crash safety: a record reads terminal once bbolt has written its meta
+// page, and bbolt keeps its writer lock until that commit's fdatasync is
+// done. The next operation's records are later write transactions, so none
+// is durable before the end of the holder it replaced.
+//
+// The records are read without m.mu, so a slow read never stalls the
+// manager, and only holders still present once m.mu is retaken are
+// removed.
+func (m *Manager) retireTerminal(l *lane) {
+	m.mu.Lock()
+	if len(l.active) < l.limit {
+		m.mu.Unlock()
+		return
+	}
+	held := slices.Clone(l.active)
+	m.mu.Unlock()
+	var done []*entry
+	for _, e := range held {
+		rec, err := m.store.Get(e.id)
+		if err != nil {
+			// Unknown is not terminal: the holder keeps its slot.
+			continue
+		}
+		if rec.Status.Terminal() {
+			done = append(done, e)
+		}
+	}
+	if len(done) == 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, e := range done {
+		if i := slices.Index(l.active, e); i >= 0 {
+			l.active = slices.Delete(l.active, i, i+1)
+		}
+	}
+}
+
+// releaseSlot frees e's slot, unless admission already retired it, and
+// starts the next queued operation; m.mu is held.
 func (m *Manager) releaseSlot(e *entry) {
 	if e.lane == nil {
 		return
