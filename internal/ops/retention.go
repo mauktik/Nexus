@@ -92,6 +92,7 @@ func (r *Retention) Prune() error {
 			errs = append(errs, fmt.Errorf("remove the directory of operation %s: %w", id, err))
 		}
 	}
+	errs = append(errs, r.sweepOrphans()...)
 	purged, err := r.store.PurgeExpiredIdempotency()
 	if err != nil {
 		errs = append(errs, fmt.Errorf("purge idempotency keys: %w", err))
@@ -100,6 +101,36 @@ func (r *Retention) Prune() error {
 		r.log.Info("retention removed expired state", "operations", len(ids), "idempotencyKeys", purged)
 	}
 	return errors.Join(errs...)
+}
+
+// sweepOrphans removes the ops directories that no record owns: records go
+// first and directories second, so a failed removal or a stop between the
+// two leaves a directory no later pass would name. This is safe because a
+// record is always created before its directory. A directory whose lookup
+// fails for any other reason is left alone.
+func (r *Retention) sweepOrphans() []error {
+	entries, err := os.ReadDir(r.dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return []error{fmt.Errorf("sweep operation directories: %w", err)}
+	}
+	var errs []error
+	for _, e := range entries {
+		if !e.IsDir() || !isOpID(e.Name()) {
+			continue
+		}
+		if _, err := r.store.Get(e.Name()); !errors.Is(err, store.ErrNotFound) {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(r.dir, e.Name())); err != nil {
+			errs = append(errs, fmt.Errorf("remove the orphaned directory of operation %s: %w", e.Name(), err))
+			continue
+		}
+		r.log.Warn("retention removed the directory of an operation with no record", "operationId", e.Name())
+	}
+	return errs
 }
 
 // EvictOutput removes the output of terminal operations, oldest first,

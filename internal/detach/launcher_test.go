@@ -1,11 +1,16 @@
 package detach_test
 
 import (
+	"context"
+	"errors"
+	"io/fs"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -109,5 +114,74 @@ func TestSystemdAvailabilityRefusesSilentDowngrade(t *testing.T) {
 	}
 	if a.Reason == "" {
 		t.Fatal("unavailable without a reason")
+	}
+}
+
+// CR-20: a launch that timed out or was killed says nothing of the job PID 1
+// holds. While the unit may exist Start succeeds and keeps spec.json for the
+// supervisor; only a definite absent answer is a failed launch.
+func TestStartAfterLaunchTimeoutReconcilesWithTheUnit(t *testing.T) {
+	const id = "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"
+	spec := detach.Spec{
+		Argv: []string{"/bin/true"}, KillMode: detach.KillProcess, MaxRuntime: time.Hour, Grace: time.Second,
+	}
+	for _, tc := range []struct {
+		name     string
+		state    detach.UnitState
+		stateErr error
+		wantErr  bool
+	}{
+		{"active", detach.UnitState{ActiveState: "active", LoadState: "loaded"}, nil, false},
+		{"activating", detach.UnitState{ActiveState: "activating", LoadState: "loaded"}, nil, false},
+		{"unknown", detach.UnitState{}, errors.New("systemctl hung"), false},
+		{"absent", detach.UnitState{ActiveState: "inactive", LoadState: "not-found"}, nil, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			l, err := detach.New(detach.Config{OpsDir: dir}, detach.Options{
+				Launch: func(ctx context.Context, _ detach.Invocation) error {
+					<-ctx.Done() // systemd-run killed at the deadline
+					return ctx.Err()
+				},
+				UnitState: func(context.Context, string) (detach.UnitState, error) { return tc.state, tc.stateErr },
+				Signal:    func(context.Context, string, syscall.Signal) error { return nil },
+				ListUnits: func(context.Context) ([]string, error) { return nil, nil },
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+			defer cancel()
+			err = l.Start(ctx, id, spec)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("Start error %v, want error %v", err, tc.wantErr)
+			}
+			_, serr := os.Stat(filepath.Join(dir, id, detach.SpecFile))
+			if tc.wantErr != errors.Is(serr, fs.ErrNotExist) {
+				t.Fatalf("spec.json stat error %v with Start error %v: it stays exactly when the unit may run", serr, err)
+			}
+		})
+	}
+}
+
+// CR-20: a launch that fails for its own reasons (systemd-run exits
+// non-zero) is a failed launch whatever the unit says.
+func TestStartLaunchErrorWithoutTimeoutFailsWithoutAsking(t *testing.T) {
+	dir := t.TempDir()
+	l, err := detach.New(detach.Config{OpsDir: dir}, detach.Options{
+		Launch: func(context.Context, detach.Invocation) error { return errors.New("exit status 1") },
+		UnitState: func(context.Context, string) (detach.UnitState, error) {
+			t.Error("UnitState asked after a launch that failed by itself")
+			return detach.UnitState{ActiveState: "active", LoadState: "loaded"}, nil
+		},
+		Signal:    func(context.Context, string, syscall.Signal) error { return nil },
+		ListUnits: func(context.Context) ([]string, error) { return nil, nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := detach.Spec{Argv: []string{"/bin/true"}, KillMode: detach.KillProcess, MaxRuntime: time.Hour}
+	if err := l.Start(context.Background(), "abc-1", spec); err == nil {
+		t.Fatal("Start succeeded after a failed launch")
 	}
 }

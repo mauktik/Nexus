@@ -146,6 +146,11 @@ func takeSpec(dir string) (Spec, error) {
 	if err := os.Remove(path); err != nil {
 		return Spec{}, fmt.Errorf("unlink %s: %w", path, err)
 	}
+	// A crash after this must not bring spec.json back: a restarted unit
+	// would run the operation again, and its sensitive values would stay.
+	if err := syncDir(dir); err != nil {
+		return Spec{}, fmt.Errorf("sync %s after unlinking %s: %w", dir, path, err)
+	}
 	var f specFile
 	if err := json.Unmarshal(b, &f); err != nil {
 		return Spec{}, fmt.Errorf("decode %s: %w", path, err)

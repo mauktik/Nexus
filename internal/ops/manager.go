@@ -389,8 +389,21 @@ func (m *Manager) runDetached(e *entry) {
 	}
 	m.stateChange(e, apitypes.StatusRunning, nil)
 
+	if spec.OutputCapBytes == 0 {
+		// No provider sets a cap; limits.outputCapBytes applies to every
+		// operation, detached ones included.
+		spec.OutputCapBytes = m.capBytes
+	}
 	maxRuntime := spec.MaxRuntime
-	m.writeMaxRuntime(e.id, maxRuntime)
+	if werr := m.writeMaxRuntime(e.id, maxRuntime); werr != nil {
+		// Without the file a reattached operation would have no MaxRuntime
+		// backstop after a restart (A-63), so nothing is launched.
+		spec, d.In = detach.Spec{}, nil
+		m.log.Error("cannot record the operation's maximum runtime", "operationId", e.id, "error", werr.Error())
+		m.commitEnd(e, apitypes.StatusFailed, nil,
+			problem.New(problem.InternalError, "the operation could not be launched"))
+		return
+	}
 	lerr := m.detach.Start(context.WithoutCancel(m.base), e.id, spec)
 	// spec.json holds the sensitive values from here on; memory does not.
 	spec, d.In = detach.Spec{}, nil
@@ -489,6 +502,7 @@ func (m *Manager) commitEnd(e *entry, to apitypes.OperationStatus, result json.R
 // the unit.
 func (m *Manager) detachedEnd(e *entry, d *DetachedWork, r *provider.Run, o detach.Outcome) (
 	to apitypes.OperationStatus, result json.RawMessage, perr *problem.Error) {
+	m.dropSpec(e.id)
 	unit := detach.Unit(e.id)
 	switch {
 	case o.Exit != nil && o.Exit.Canceled:

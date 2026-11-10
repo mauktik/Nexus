@@ -75,7 +75,8 @@ func TestRetentionPruneRemovesPrunedDirectories(t *testing.T) {
 		}
 	}
 	now := time.Date(2026, 11, 7, 0, 0, 0, 0, time.UTC)
-	f := &fakeRetentionStore{prune: []string{id1, id3, "../escape"}}
+	f := &fakeRetentionStore{prune: []string{id1, id3, "../escape"},
+		recs: map[string]store.OpRecord{id2: {ID: id2, Status: apitypes.StatusSucceeded}}}
 	r, err := ops.NewRetention(ops.RetentionOptions{Store: f, Dir: dir, Now: func() time.Time { return now }, Logger: quietLog()})
 	if err != nil {
 		t.Fatal(err)
@@ -168,5 +169,41 @@ func TestOnTerminalNotifiesAfterTerminalCommits(t *testing.T) {
 	// A failed commit notifies nothing.
 	if _, err := s.CommitTerminal(b, apitypes.StatusRunning, apitypes.StatusSucceeded, json.RawMessage(`{}`), nil); err == nil || n != 2 {
 		t.Fatalf("conflicting commit: %v, %d notifications", err, n)
+	}
+}
+
+// CR-16: the directory of an operation whose record is already gone (a
+// failed RemoveAll, or a stop between the two steps) is removed by a later
+// Prune; a directory with a record, and anything that is not an operation
+// ID, stays.
+func TestRetentionPruneSweepsDirectoriesNoRecordOwns(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{id1, id2, "not-an-op"} {
+		p := filepath.Join(dir, name, "output", "000001.seg")
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, make([]byte, 4096), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f := &fakeRetentionStore{recs: map[string]store.OpRecord{id2: {ID: id2, Status: apitypes.StatusSucceeded}}}
+	r, err := ops.NewRetention(ops.RetentionOptions{Store: f, Dir: dir, Logger: quietLog()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Prune(); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	if !slices.Equal(names, []string{id2, "not-an-op"}) {
+		t.Fatalf("remaining %v, want only %s and not-an-op", names, id2)
 	}
 }

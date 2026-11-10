@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -372,6 +373,7 @@ func (m *Manager) commitRecovered(e *entry, o detach.Outcome) {
 		m.commitEnd(e, to, result, perr)
 		return
 	}
+	m.dropSpec(e.id)
 	unit := detach.Unit(e.id)
 	detail := fmt.Sprintf("unit %s ended without reporting an outcome", unit)
 	switch {
@@ -405,22 +407,53 @@ func (m *Manager) reattach(e *entry) {
 	}()
 }
 
+// fallbackMaxRuntime is the backstop of a reattached operation whose
+// max-runtime file is missing or unreadable: a watcher with no maximum would
+// let a hung unit hold its lane forever (A-63), so a generous fixed ceiling
+// stands in. Passing it only reports outcome-unknown; it never signals the
+// unit.
+const fallbackMaxRuntime = 24 * time.Hour
+
 // writeMaxRuntime records a detached operation's MaxRuntime before its
-// launch. A failure only loses the backstop after a restart, so it is
-// logged.
-func (m *Manager) writeMaxRuntime(id string, d time.Duration) {
+// launch, through a temporary file, fsync, rename and a directory fsync, so
+// a reader sees no file or a complete one. A failure is returned: the caller
+// must not launch an operation whose backstop would be lost on restart.
+func (m *Manager) writeMaxRuntime(id string, d time.Duration) (err error) {
 	dir := m.detach.Dir(id)
-	err := os.MkdirAll(dir, 0o700)
-	if err == nil {
-		err = os.WriteFile(filepath.Join(dir, maxRuntimeFile), []byte(d.String()), 0o600)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
 	}
+	f, err := os.CreateTemp(dir, "."+maxRuntimeFile+".*.tmp")
 	if err != nil {
-		m.log.Error("cannot record the operation's maximum runtime", "operationId", id, "error", err.Error())
+		return err
 	}
+	tmp := f.Name()
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, os.Remove(tmp))
+		}
+	}()
+	if _, err := f.WriteString(d.String()); err != nil {
+		return errors.Join(err, f.Close())
+	}
+	if err := f.Sync(); err != nil {
+		return errors.Join(err, f.Close())
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, filepath.Join(dir, maxRuntimeFile)); err != nil {
+		return err
+	}
+	df, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	return errors.Join(df.Sync(), df.Close())
 }
 
-// readMaxRuntime is the MaxRuntime writeMaxRuntime recorded; zero, which
-// the watcher treats as none, when it is missing.
+// readMaxRuntime is the MaxRuntime writeMaxRuntime recorded; when it is
+// missing or unreadable, fallbackMaxRuntime, never none.
 func (m *Manager) readMaxRuntime(id string) time.Duration {
 	b, err := os.ReadFile(filepath.Join(m.detach.Dir(id), maxRuntimeFile))
 	if err == nil {
@@ -430,8 +463,22 @@ func (m *Manager) readMaxRuntime(id string) time.Duration {
 		}
 		err = perr
 	}
-	m.log.Warn("no maximum runtime recorded for a reattached operation", "operationId", id, "error", fmt.Sprint(err))
-	return 0
+	m.log.Warn("no maximum runtime recorded for a reattached operation; using the fallback",
+		"operationId", id, "fallback", fallbackMaxRuntime.String(), "error", fmt.Sprint(err))
+	return fallbackMaxRuntime
+}
+
+// dropSpec removes operation id's spec.json, which can hold sensitive
+// values and is normally unlinked by the supervisor. It is still there when
+// the supervisor died before reading it (A-66), and an operation that has
+// ended needs it no more.
+func (m *Manager) dropSpec(id string) {
+	if m.detach == nil {
+		return
+	}
+	if err := os.Remove(filepath.Join(m.detach.Dir(id), detach.SpecFile)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		m.log.Error("cannot remove the operation's spec.json", "operationId", id, "error", err.Error())
+	}
 }
 
 // orphans logs the operation units that no recovered record owns. They are

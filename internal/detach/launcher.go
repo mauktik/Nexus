@@ -193,7 +193,8 @@ var validID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*$`)
 // Start writes spec as the operation's 0600 spec.json and launches its
 // unit. The caller commits Running first, so a unit never exists without a
 // Running record, and drops its copy of spec afterwards. On failure no unit
-// was started and spec.json is gone.
+// was started and spec.json is gone. A launch that timed out is not a
+// failure while its unit may exist (see mayHaveStarted).
 func (l *Launcher) Start(ctx context.Context, id string, spec Spec) error {
 	if !validID.MatchString(id) {
 		return fmt.Errorf("detach: invalid operation id %q", id)
@@ -208,11 +209,20 @@ func (l *Launcher) Start(ctx context.Context, id string, spec Spec) error {
 	if err := WriteSpec(dir, spec); err != nil {
 		return err
 	}
+	parent := ctx
 	ctx, cancel := context.WithTimeout(ctx, LaunchTimeout)
 	defer cancel()
 	inv := Invocation{ID: id, Unit: Unit(id), Dir: dir, Argv: Argv(id, l.exe, l.opsDir, spec)}
 	if err := l.launch(ctx, inv); err != nil {
 		err = fmt.Errorf("detach: launch %s: %w", inv.Unit, err)
+		if ctx.Err() != nil && l.mayHaveStarted(parent, id) {
+			// A systemd-run that timed out or was killed says nothing of
+			// the job PID 1 holds, so the unit may run: the caller watches
+			// it, and spec.json stays for the supervisor to read.
+			l.log.Warn("launch did not report; the unit may be running, so it is watched",
+				"operationId", id, "unit", inv.Unit, "error", err.Error())
+			return nil
+		}
 		// The spec may hold sensitive values and nothing will read it.
 		if rerr := os.Remove(filepath.Join(dir, SpecFile)); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
 			err = errors.Join(err, rerr)
@@ -220,6 +230,19 @@ func (l *Launcher) Start(ctx context.Context, id string, spec Spec) error {
 		return err
 	}
 	return nil
+}
+
+// mayHaveStarted reports whether operation id's unit may exist after a
+// launch that did not finish: its exit.json is there, its state is anything
+// but definitely absent (a unit that already ended counts: the watcher
+// reports it), or its state is unknown. Only a definite absent
+// answer is a failed launch.
+func (l *Launcher) mayHaveStarted(ctx context.Context, id string) bool {
+	if _, ok, err := ReadExit(l.Dir(id)); ok || err != nil {
+		return true
+	}
+	lv, err := l.State(context.WithoutCancel(ctx), id)
+	return err != nil || lv != Absent
 }
 
 // Cancel sends SIGTERM, the supervisor's cancel signal, to operation id's

@@ -485,7 +485,10 @@ func (w *world) open() {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w.disp = core.NewDispatcher(w.reg, core.DispatcherOptions{Logger: w.log, Audit: w.aud})
+	// These tests count one refused record per refused request from a single
+	// token; the per-token allowance of SEC-2 (core's own tests) is out of
+	// their way.
+	w.disp = core.NewDispatcher(w.reg, core.DispatcherOptions{Logger: w.log, Audit: w.aud, NoteLimitPerMinute: 1 << 20})
 }
 
 func (w *world) closeState() {
@@ -635,7 +638,7 @@ func (w *world) countOps() int {
 func (w *world) serve(configure ...func(*http.Server)) {
 	t := w.t
 	t.Helper()
-	srv, err := server.New(w.reg, server.Options{Logger: w.log, Auth: auth.New(w.tokDir, auth.Options{Logger: w.log, Audit: w.alog})})
+	srv, err := server.New(w.reg, server.Options{Logger: w.log, Auth: auth.New(w.tokDir, auth.Options{Logger: w.log, Audit: w.alog}), NoteLimitPerMinute: 1 << 20})
 	if err != nil {
 		t.Fatal(err)
 	}
