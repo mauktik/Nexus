@@ -31,7 +31,7 @@ SHA256 := $(shell command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo
 # recurses into make.
 export NEXUS_IN_MAKE := 1
 
-.PHONY: build build-release test vet vuln check docs docs-check test-harness release release-version nexusd-tree test-emu
+.PHONY: build build-release test vet vuln check docs docs-check test-harness release release-version nexusd-tree test-emu nfr nfr-sizes
 
 # Host-arch binaries for local use.
 build:
@@ -113,3 +113,17 @@ test-harness:
 # only (A-25).
 test-emu:
 	BASE='$(BASE)' test/harness/run.sh emu
+
+# NFR measurements (WI 10.3): the release binaries' sizes (NFR-1: each under
+# 40 MiB), then the T1 measurement tests, TC-187 to TC-192, with 50 real
+# containers. Record the numbers in docs/verification/measurements.md.
+NFR_MAX_BYTES := 41943040
+nfr: nfr-sizes
+	$(MAKE) --no-print-directory test-harness RUN='^TestNFR'
+
+nfr-sizes: build-release
+	@for f in $(DIST_DIR)/nexusd-linux-amd64 $(DIST_DIR)/nexus-darwin-arm64 $(DIST_DIR)/nexus-linux-amd64; do \
+		s=$$(wc -c <$$f | tr -d ' '); \
+		echo "nfr: $$f $$s bytes ($$(awk -v s=$$s 'BEGIN { printf "%.2f", s / 1048576 }' </dev/null) MiB)"; \
+		[ $$s -lt $(NFR_MAX_BYTES) ] || { echo "nfr: $$f is not under 40 MiB" >&2; exit 1; }; \
+	done
