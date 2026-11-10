@@ -211,8 +211,10 @@ func (a *Adapter) success(t *tool, body any) *mcp.CallToolResult {
 	}
 }
 
-// marshal is json.Marshal without HTML escaping. A result is not HTML, and
-// escaping makes every <, > and & six bytes (CR-23).
+// marshal is json.Marshal without HTML escaping, so the text block reads as
+// the result's JSON. It does not change the bytes sent for <, > and &: the
+// SDK's CallToolResult.MarshalJSON escapes them again, and the page limit
+// counts them as the six bytes they take on the wire (runeCost, CR-93).
 func marshal(v any) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)

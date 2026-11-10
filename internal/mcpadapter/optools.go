@@ -154,25 +154,28 @@ func rawLen(d string) int64 {
 	return int64(len(d) - 2*strings.Count(d, string(utf8.RuneError)))
 }
 
-// runeCost is the bytes r takes inside a JSON string as the adapter encodes
-// it (HTML escaping off, see marshal): width is its width in the Go string,
-// which tells a stray invalid byte (width 1, sent as \ufffd) from a real
-// U+FFFD.
+// runeCost is the bytes r takes inside a JSON string as the SDK sends a
+// result: width is its width in the Go string, which tells a stray invalid
+// byte (width 1, sent as \ufffd) from a real U+FFFD. <, > and & are six
+// bytes whatever marshal does: CallToolResult.MarshalJSON calls json.Marshal,
+// which escapes them in the text and in structuredContent (go-sdk v1.8.0
+// mcp/protocol.go), and the transport's encoder cannot undo that (CR-93).
 func runeCost(r rune, width int) int {
 	switch {
 	case r == utf8.RuneError && width == 1:
 		return 6
 	case r == '"' || r == '\\' || r == '\n' || r == '\r' || r == '\t' || r == '\b' || r == '\f':
 		return 2
-	case r < 0x20 || r == '\u2028' || r == '\u2029':
+	case r < 0x20 || r == '\u2028' || r == '\u2029' || r == '<' || r == '>' || r == '&':
 		return 6
 	}
 	return width
 }
 
-// encodedLen is the bytes of s inside a JSON string. The page limit counts
-// these, not the decoded text: a control character costs six, so a page of
-// them would otherwise be sixfold the size the tool states.
+// encodedLen is the bytes of s inside a JSON string on the wire. The page
+// limit counts these, not the decoded text: a control character or an HTML
+// character costs six, so a page of them would otherwise be sixfold the size
+// the tool states.
 func encodedLen(s string) int {
 	n := 0
 	for i := 0; i < len(s); {

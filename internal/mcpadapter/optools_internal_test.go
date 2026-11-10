@@ -1,6 +1,7 @@
 package mcpadapter
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -208,21 +209,59 @@ func TestSincePagingKeepsALineThatFitsAPage(t *testing.T) {
 	}
 }
 
-// CR-23: the page limit counts the bytes the text takes on the wire, where a
-// control character is six, and HTML characters are one.
+// wireBytes encodes res as the SDK sends it: jsonrpc2's encoder (HTML
+// escaping off) over CallToolResult.MarshalJSON, which calls json.Marshal
+// and so escapes <, > and & again (go-sdk v1.8.0 mcp/protocol.go,
+// internal/jsonrpc2/messages.go jsonMarshal).
+func wireBytes(t *testing.T, res *mcp.CallToolResult) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(res); err != nil {
+		t.Fatal(err)
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n")
+}
+
+// wireText is the bytes of each "d" member of structuredContent's frames
+// as sent, without the quotes.
+func wireText(t *testing.T, res *mcp.CallToolResult) []string {
+	t.Helper()
+	var msg struct {
+		StructuredContent struct {
+			Frames []map[string]json.RawMessage `json:"frames"`
+		} `json:"structuredContent"`
+	}
+	if err := json.Unmarshal(wireBytes(t, res), &msg); err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, f := range msg.StructuredContent.Frames {
+		if d := f["d"]; len(d) >= 2 {
+			out = append(out, string(d[1:len(d)-1]))
+		}
+	}
+	return out
+}
+
+// CR-23, CR-93: the page limit counts the bytes the text takes on the wire,
+// where a control character is six, and so are <, > and &, which the SDK
+// escapes whatever the adapter's own encoder does.
 func TestPageLimitCountsEncodedBytes(t *testing.T) {
+	a := &Adapter{log: slog.New(slog.NewJSONHandler(io.Discard, nil))}
 	for _, tc := range []struct {
 		in   string
 		want int
 	}{
-		{"abc", 3}, {"<>&", 3}, {"\x1b", 6}, {"\n", 2}, {`"\`, 4}, {"é", 2}, {" ", 6}, {"�", 3}, {"a\xffb", 8},
+		{"abc", 3}, {"<>&", 18}, {"\x1b", 6}, {"\n", 2}, {`"\`, 4}, {"é", 2}, {"\u2028", 6}, {"\ufffd", 3}, {"a\xffb", 8},
 	} {
 		if got := encodedLen(tc.in); got != tc.want {
 			t.Errorf("encodedLen(%q) = %d, want %d", tc.in, got, tc.want)
 		}
-		raw, err := marshal(tc.in)
-		if err != nil || len(raw)-2 != tc.want {
-			t.Errorf("marshal(%q) = %s (%v): %d bytes inside the quotes, encodedLen says %d", tc.in, raw, err, len(raw)-2, tc.want)
+		res := a.success(&tool{}, offsetPage{Frames: []apitypes.Frame{{D: tc.in}}})
+		if got := wireText(t, res); len(got) != 1 || len(got[0]) != tc.want {
+			t.Errorf("%q is %q on the wire, encodedLen says %d bytes", tc.in, got, tc.want)
 		}
 	}
 	if got := encodedPrefix("ab\x1b\x1bc", 13); got != "ab\x1b" {
@@ -240,10 +279,24 @@ func TestPageLimitCountsEncodedBytes(t *testing.T) {
 	}
 }
 
-func TestResultsAreNotHTMLEscaped(t *testing.T) {
-	a := &Adapter{log: slog.New(slog.NewJSONHandler(io.Discard, nil))}
-	res := a.success(&tool{}, map[string]string{"d": "<a href=\"x\">&"})
-	if got := res.Content[0].(*mcp.TextContent).Text; got != `{"d":"<a href=\"x\">&"}` {
-		t.Fatalf("result text %s", got)
+// CR-93: a page of output heavy in <, > and & holds at most the page limit
+// of text as the SDK sends it.
+func TestPageLimitHoldsOnTheWire(t *testing.T) {
+	const limit = 64
+	a := &Adapter{pageBytes: limit, log: slog.New(slog.NewJSONHandler(io.Discard, nil))}
+	res := a.page(context.Background(), &tool{pager: offsetPager}, nil,
+		func(ctx context.Context, emit func(apitypes.Frame) error) error {
+			for i := int64(0); ; i += 16 {
+				if err := emit(apitypes.DataFrame(i, time.Time{}, "out", "<a href=x>&amp;")); err != nil {
+					return err
+				}
+			}
+		})
+	n := 0
+	for _, d := range wireText(t, res) {
+		n += len(d)
+	}
+	if n == 0 || n > limit {
+		t.Fatalf("the page holds %d bytes of text on the wire, limit %d", n, limit)
 	}
 }
