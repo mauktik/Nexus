@@ -798,3 +798,56 @@ func TestDockerUpdateNoShellString(t *testing.T) {
 		t.Fatalf("%s exists: a shell ran the directory name", pwnedMarker)
 	}
 }
+
+// CR-29 (FR-12): a service whose definition was edited after its container
+// was created is not updated: docker compose up would deploy the edit with
+// the new image. The update ends Failed not-updatable naming the change,
+// before anything is pulled or recreated.
+func TestDockerComposeUpdateRefusesAnEditedDefinition(t *testing.T) {
+	c := newComposeProject(t, "nxcr29", filepath.Join(composeRoot, "tcr29"), regOpen, updPlain)
+	app := c.container("app")
+	id := containerID(t, app)
+	c.pushApp(t, updPlain)
+	b, err := os.ReadFile(c.file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := strings.Replace(string(b), "stop_grace_period: 3s", "stop_grace_period: 4s", 1)
+	if edited == string(b) {
+		t.Fatal("the fixture has no stop_grace_period to edit")
+	}
+	if err := os.WriteFile(c.file, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	n := upNexusd(t, "tcr29", "")
+	op := wantOp(t, n, app)
+	wantFailed(t, op, problem.NotUpdatable)
+	if containerID(t, app) != id {
+		t.Fatalf("app was recreated: %s, was %s", containerID(t, app), id)
+	}
+	if logs := n.opLogs(op.ID); strings.Contains(logs, `"up"`) {
+		t.Fatalf("docker compose up ran:\n%s", logs)
+	}
+}
+
+// SEC-1 (CWE-829): a Compose project that someone other than root owns is
+// refused before an operation exists, since root would run docker compose
+// on files that user can rewrite.
+func TestDockerComposeRefusesAProjectNotOwnedByRoot(t *testing.T) {
+	c := newComposeProject(t, "nxsec1", filepath.Join(composeRoot, "tsec1"), regOpen, updPlain)
+	app := c.container("app")
+	id := containerID(t, app)
+	if err := os.Chown(c.file, 12345, 12345); err != nil {
+		t.Fatal(err)
+	}
+	n := upNexusd(t, "tsec1", "")
+	code, b := n.act(app, "update", "{}")
+	p := refused(t, code, b, http.StatusUnprocessableEntity, problem.ComposeFilesMissing, 1)
+	if p.Extensions["path"] != c.file || !strings.Contains(p.Detail, "chown root") {
+		t.Fatalf("path %v detail %q, want %s and the chown", p.Extensions["path"], p.Detail, c.file)
+	}
+	if containerID(t, app) != id || len(composeProcs()) != 0 {
+		t.Fatalf("app %s (was %s), compose processes %v", containerID(t, app), id, composeProcs())
+	}
+	noUpdateOps(t, n)
+}

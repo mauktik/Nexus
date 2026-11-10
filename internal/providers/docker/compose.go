@@ -24,6 +24,7 @@ import (
 
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/providers/docker/spec"
+	"github.com/mauktik/nexus/internal/providers/scripts"
 )
 
 // Compose-managed container update (WI 6.5, FR-12, CON-6, A-34). A
@@ -220,7 +221,63 @@ func composeTargetOf(c container.InspectResponse) (composeTarget, error) {
 			return t, err
 		}
 	}
+	if err := checkComposeTrust(t); err != nil {
+		return t, err
+	}
 	return t, nil
+}
+
+// composeTrust judges one path of a Compose project: a script-integrity
+// walk with root as the user, so that only root can write the path or any
+// directory above it. It is a variable so that T0 tests can stage projects
+// without root.
+var composeTrust = scripts.CheckRootOwned
+
+// checkComposeTrust refuses a Compose project that someone other than root
+// can change (SEC-1, CWE-829). The helper runs docker compose as root, and
+// Compose reads the project's files when it runs, so a file or directory an
+// unprivileged user can write decides what root creates: privileged mode, a
+// bind mount of /, and so on. It checks the working directory and its
+// ancestors, every -f and --env-file file, and the .env file Compose reads
+// from the working directory. Files that include: or extends: name are not
+// known from the labels, so they are not checked; they sit under the
+// working directory, whose owner and mode are.
+func checkComposeTrust(t composeTarget) error {
+	type item struct {
+		kind, path string
+		dir        bool
+	}
+	items := []item{{"working directory", t.WorkingDir, true}}
+	for _, f := range t.ConfigFiles {
+		items = append(items, item{"configuration file", f, false})
+	}
+	for _, f := range t.EnvFiles {
+		items = append(items, item{"environment file", f, false})
+	}
+	if dotenv := filepath.Join(t.WorkingDir, ".env"); !slices.Contains(t.EnvFiles, dotenv) {
+		if _, err := os.Lstat(dotenv); err == nil {
+			items = append(items, item{"environment file", dotenv, false})
+		}
+	}
+	for _, it := range items {
+		err := composeTrust(it.path, it.dir)
+		if err == nil {
+			continue
+		}
+		detail, path := err.Error(), it.path
+		var pe *problem.Error
+		if errors.As(err, &pe) {
+			detail = pe.Detail
+			if v, ok := pe.Extensions["path"].(string); ok {
+				path = v
+			}
+		}
+		return problem.New(problem.ComposeFilesMissing, fmt.Sprintf("Compose project %q's %s %s is not trusted: %s. "+
+			"Nexus runs docker compose as root on the project's files, so a path that anyone but root can write "+
+			"would decide what root creates. Fix the ownership and mode as stated, or update the project with "+
+			"docker compose by hand; nothing was changed", t.Project, it.kind, it.path, detail)).With("path", path)
+	}
+	return nil
 }
 
 // existingFiles splits a label's comma-joined absolute paths (as Compose
@@ -409,6 +466,10 @@ func (u *updater) runCompose(ctx context.Context) helperResult {
 	}
 	u.res.PreviousDigest = current[0]
 
+	if detail := u.composeChanged(ctx, tools.Docker, t, c); detail != "" {
+		return u.fail(problem.NotUpdatable, detail+"; nothing was changed")
+	}
+
 	u.say("pulling the image of service %s of Compose project %s (%s)", t.Service, t.Project, ref)
 	if err := u.compose(ctx, tools.Docker, t, "pull"); err != nil {
 		return u.fail(problem.DependencyUnavailable, err.Error()+"; nothing was changed")
@@ -430,6 +491,15 @@ func (u *updater) runCompose(ctx context.Context) helperResult {
 		return u.res
 	}
 
+	// The project's files are read again by up, after the pull has taken
+	// time: they must still be ones only root can write.
+	if err := checkComposeTrust(t); err != nil {
+		var pe *problem.Error
+		if errors.As(err, &pe) {
+			return u.fail(pe.Slug(), pe.Detail)
+		}
+		return u.fail(problem.InternalError, err.Error())
+	}
 	u.say("recreating service %s with the pulled image (%s)", t.Service, u.res.NewDigest)
 	if !running(c) {
 		u.say("container %s was not running; docker compose up starts the service's new container", name)
@@ -456,6 +526,75 @@ func (u *updater) runCompose(ctx context.Context) helperResult {
 	u.res.Changed = true
 	u.say("updated service %s of Compose project %s to %s", t.Service, t.Project, u.res.NewDigest)
 	return u.res
+}
+
+// composeHashLabel is the hash of the service definition that Compose
+// recorded on the container when it created it.
+const composeHashLabel = "com.docker.compose.config-hash"
+
+// composeChanged returns why the project's definition of t's service is no
+// longer the one c was created from, or "" when it is the same or cannot be
+// compared (CR-29). docker compose up recreates the service from the files
+// as they are now, in the helper's minimal environment, so an edit made
+// since, or a ${VAR} the original deploy shell supplied, would be deployed
+// along with the new image. `docker compose config --hash SERVICE` prints
+// the service's current hash, the value Compose stores in the label
+// (docs.docker.com/reference/cli/docker/compose/config/, --hash). Output
+// that cannot be read, or a container without the label, is reported and
+// let through: the check refuses only on a hash it has read.
+func (u *updater) composeChanged(ctx context.Context, docker string, t composeTarget, c container.InspectResponse) string {
+	var recorded string
+	if c.Config != nil {
+		recorded = c.Config.Labels[composeHashLabel]
+	}
+	if recorded == "" {
+		u.say("container %s has no %s label; its Compose definition cannot be compared", u.in.Name, composeHashLabel)
+		return ""
+	}
+	// The service is --hash's value: "config --hash SERVICE".
+	out, err := u.composeOutput(ctx, docker, t, "config", "--hash")
+	if err != nil {
+		return err.Error()
+	}
+	current := ""
+	lines := strings.Fields(out)
+	switch {
+	case len(lines) == 1:
+		current = lines[0]
+	case len(lines) == 2 && lines[0] == t.Service:
+		current = lines[1]
+	}
+	if current == "" {
+		u.say("docker compose config --hash did not print a hash for service %s; its definition cannot be compared", t.Service)
+		return ""
+	}
+	if current != recorded {
+		return fmt.Sprintf("the Compose definition of service %s changed since container %s was created (its hash "+
+			"was %s, and is now %s), and an update would deploy the current files, evaluated without the "+
+			"environment of the original deploy, along with the new image. Apply the change with docker compose "+
+			"up -d in %s first", t.Service, u.in.Name, short(recorded), short(current), t.WorkingDir)
+	}
+	return ""
+}
+
+// composeOutput runs a Compose command that only reads, and returns its
+// standard output. Its failure is reported with the tail of its stderr.
+func (u *updater) composeOutput(ctx context.Context, docker string, t composeTarget, verb ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	argv := composeArgv(docker, t, verb...)
+	var stdout bytes.Buffer
+	tail := &tailBuffer{max: composeOutputTail}
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Env, cmd.Dir = composeEnv(u.in.ConfigDir, u.in.Socket), t.WorkingDir
+	cmd.Stdout, cmd.Stderr = &stdout, tail
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = 10 * time.Second
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("docker compose %s failed (%v): %s", strings.Join(verb, " "), err, registryText(tail.String()))
+	}
+	return stdout.String(), nil
 }
 
 // composeContainer is t's container after docker compose up: the

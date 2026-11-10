@@ -123,16 +123,25 @@ func (c integrity) check(path, runAs string) (string, error) {
 	if err := r.file(resolved); err != nil {
 		return "", err
 	}
+	if err := r.ancestors(resolved, linkDirs); err != nil {
+		return "", err
+	}
+	return resolved, nil
+}
+
+// ancestors checks every directory above resolved, up to /, and every
+// directory that held a symlink on the way to it.
+func (r *run) ancestors(resolved string, linkDirs []string) error {
 	seen := map[string]bool{}
 	for _, start := range append([]string{filepath.Dir(resolved)}, linkDirs...) {
 		for dir := start; !seen[dir]; dir = filepath.Dir(dir) {
 			seen[dir] = true
 			if err := r.directory(dir); err != nil {
-				return "", err
+				return err
 			}
 		}
 	}
-	return resolved, nil
+	return nil
 }
 
 // walkLinks resolves path one component at a time, as the kernel does, and
@@ -308,7 +317,7 @@ func (r *run) directory(d string) error {
 		return refuse(CheckDirectoryGroupWritable, d, fmt.Sprintf("directory %s (%s) is writable by group %d, "+
 			"and %s, not only root or %s. Fix: chmod g-w %s", d, fi.Mode(), gid, who, r.acct.name, quote(d)))
 	}
-	return r.directoryACL(d)
+	return r.aclWriters(d, "directory")
 }
 
 // POSIX ACL attribute layout (acl(5), linux/posix_acl_xattr.h): a 4-byte
@@ -322,25 +331,25 @@ const (
 	aclWrite     = 0x02
 )
 
-// directoryACL refuses a directory whose ACL lets a user or group other than
+// aclWriters refuses a directory or file (kind) whose ACL lets a user or group other than
 // root and the run-as user write to it. The mode cannot show this: with an
 // ACL its group bits are the mask. An ACL that cannot be read or parsed
 // refuses, since the directory cannot be vouched for.
-func (r *run) directoryACL(d string) error {
+func (r *run) aclWriters(d, kind string) error {
 	read := r.readACL
 	if read == nil {
 		read = systemACL
 	}
 	raw, err := read(d)
 	if err != nil {
-		return refuse(CheckDirectoryACL, d, fmt.Sprintf("the POSIX ACL of directory %s cannot be read: %v", d, err))
+		return refuse(CheckDirectoryACL, d, fmt.Sprintf("the POSIX ACL of %s %s cannot be read: %v", kind, d, err))
 	}
 	if len(raw) == 0 {
 		return nil
 	}
 	malformed := func() error {
-		return refuse(CheckDirectoryACL, d, fmt.Sprintf("the POSIX ACL of directory %s cannot be parsed. "+
-			"Fix: setfacl -b %s", d, quote(d)))
+		return refuse(CheckDirectoryACL, d, fmt.Sprintf("the POSIX ACL of %s %s cannot be parsed. "+
+			"Fix: setfacl -b %s", kind, d, quote(d)))
 	}
 	if len(raw) < 4 || (len(raw)-4)%aclEntrySize != 0 || binary.LittleEndian.Uint32(raw) != aclVersion {
 		return malformed()
@@ -374,8 +383,8 @@ func (r *run) directoryACL(d string) error {
 			if e.id == 0 || e.id == r.acct.uid {
 				continue
 			}
-			return refuse(CheckDirectoryACL, d, fmt.Sprintf("directory %s has a POSIX ACL entry that lets UID %d write to it, "+
-				"and that user is not root or %s. Fix: setfacl -x u:%d %s", d, e.id, r.acct.name, e.id, quote(d)))
+			return refuse(CheckDirectoryACL, d, fmt.Sprintf("%s %s has a POSIX ACL entry that lets UID %d write to it, "+
+				"and that user is not root or %s. Fix: setfacl -x u:%d %s", kind, d, e.id, r.acct.name, e.id, quote(d)))
 		case aclGroup:
 			db, err := r.accounts()
 			if err != nil {
@@ -389,8 +398,8 @@ func (r *run) directoryACL(d string) error {
 			if len(others) > 0 {
 				who = "it includes " + strings.Join(others, ", ")
 			}
-			return refuse(CheckDirectoryACL, d, fmt.Sprintf("directory %s has a POSIX ACL entry that lets group %d write to it, "+
-				"and %s, not only root or %s. Fix: setfacl -x g:%d %s", d, e.id, who, r.acct.name, e.id, quote(d)))
+			return refuse(CheckDirectoryACL, d, fmt.Sprintf("%s %s has a POSIX ACL entry that lets group %d write to it, "+
+				"and %s, not only root or %s. Fix: setfacl -x g:%d %s", kind, d, e.id, who, r.acct.name, e.id, quote(d)))
 		}
 	}
 	return nil
