@@ -108,8 +108,12 @@ func NewCatalog(entries []config.Script) (*Catalog, error) {
 			prm := Parameter{Name: p.Name, Type: p.Type, Pattern: p.Pattern, Enum: slices.Clone(p.Enum),
 				Sensitive: p.Sensitive, Arg: p.Arg, Env: p.Env}
 			if p.Pattern != "" {
-				// CheckCatalog compiled it already.
-				prm.re = regexp.MustCompile(p.Pattern)
+				// The pattern decides the whole value, not a substring of it:
+				// an unanchored one would let "--upload-pack=x" through a
+				// pattern meant to keep out leading dashes. CheckCatalog
+				// compiled it already, and a valid pattern stays valid when
+				// wrapped. Pattern stays as declared, for the reads.
+				prm.re = regexp.MustCompile(anchored(p.Pattern))
 			}
 			if p.Arg == "" && p.Env == "" {
 				positional++
@@ -125,6 +129,10 @@ func NewCatalog(entries []config.Script) (*Catalog, error) {
 	}
 	return c, nil
 }
+
+// anchored is the pattern that matches only a value the whole of which
+// matches pattern.
+func anchored(pattern string) string { return "^(?:" + pattern + ")$" }
 
 // decodeCatalog strictly decodes a scripts section and builds its catalog.
 // An absent section is an empty catalog.

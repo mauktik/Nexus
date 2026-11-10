@@ -144,3 +144,37 @@ func fieldErrors(t *testing.T, err error) []problem.FieldError {
 	}
 	return fe
 }
+
+// SEC-3: a pattern decides the whole value. Go's MatchString succeeds on any
+// substring, so an unanchored [A-Za-z0-9._/-]+ would admit a value that
+// starts with a dash and holds a shell character.
+func TestParameterPatternsMatchTheWholeValue(t *testing.T) {
+	c, err := NewCatalog([]config.Script{{
+		ID: "deploy", Description: "Deploy", Path: "/opt/deploy.sh", RunAs: "deploy", WorkingDirectory: "/opt",
+		Parameters: []config.Parameter{
+			{Name: "ref", Type: "string", Pattern: `[A-Za-z0-9._/-]+`},
+			{Name: "branch", Type: "string", Pattern: `main|develop`, Arg: "--branch"},
+			{Name: "anchored", Type: "string", Pattern: `^[a-z]+$`, Env: "X"},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _ := c.Get("deploy")
+	if _, _, err := s.arguments(map[string]string{"ref": "v1.2/rc-1", "branch": "main", "anchored": "abc"}); err != nil {
+		t.Fatalf("valid values refused: %v", err)
+	}
+	for _, v := range []map[string]string{
+		{"ref": "--upload-pack=touch /tmp/pwn", "branch": "main", "anchored": "abc"},
+		{"ref": "x; anything", "branch": "main", "anchored": "abc"},
+		{"ref": "ok", "branch": "main; id", "anchored": "abc"},
+		{"ref": "ok", "branch": "xdevelop", "anchored": "abc"},
+		{"ref": "ok", "branch": "main", "anchored": "abc\n"},
+	} {
+		_, _, err := s.arguments(v)
+		var p *problem.Error
+		if !errors.As(err, &p) || p.Slug() != problem.ValidationFailed {
+			t.Errorf("%v: got %v, want validation-failed", v, err)
+		}
+	}
+}

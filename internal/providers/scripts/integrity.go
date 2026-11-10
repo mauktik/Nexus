@@ -3,6 +3,7 @@ package scripts
 import (
 	"bufio"
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -30,6 +31,7 @@ const (
 	CheckDirectoryOwner         = "directory-owner"
 	CheckDirectoryWorldWritable = "directory-world-writable"
 	CheckDirectoryGroupWritable = "directory-group-writable"
+	CheckDirectoryACL           = "directory-acl"
 	CheckGroupDatabase          = "group-database"
 )
 
@@ -50,16 +52,20 @@ type account struct {
 }
 
 // integrity is the FR-20 check. Its fields are the host seams: the run-as
-// lookup, and the reader of the account databases. The filesystem is always
-// the real one; ownership by another user cannot be staged without root, so
-// T0 tests point lookupUser at a different UID instead.
+// lookup, the reader of the account databases and the reader of a
+// directory's POSIX ACL. The filesystem is always the real one; ownership by
+// another user cannot be staged without root, so T0 tests point lookupUser
+// at a different UID instead.
 type integrity struct {
 	lookupUser func(name string) (account, error)
 	readFile   func(path string) ([]byte, error)
+	// readACL returns the raw system.posix_acl_access attribute of a
+	// directory, nil when it has none. Nil reads the real one.
+	readACL func(path string) ([]byte, error)
 }
 
 // hostIntegrity checks against this host's accounts.
-var hostIntegrity = integrity{lookupUser: lookupAccount, readFile: os.ReadFile}
+var hostIntegrity = integrity{lookupUser: lookupAccount, readFile: os.ReadFile, readACL: systemACL}
 
 func lookupAccount(name string) (account, error) {
 	u, err := user.Lookup(name)
@@ -85,7 +91,9 @@ func lookupAccount(name string) (account, error) {
 // by root or runAs and must not be world-writable, sticky or not. A
 // group-writable directory passes only when its group is private: every
 // member, listed in /etc/group or holding it as primary group in
-// /etc/passwd, is root or runAs (A-59).
+// /etc/passwd, is root or runAs (A-59). A POSIX ACL is judged the same way:
+// with one, the group bits of the mode are only its mask, so a named user or
+// group entry that can write is checked on its own.
 //
 // Each component is examined with lstat after resolution, so a symlink
 // swapped in during the check fails it rather than being followed. The
@@ -299,6 +307,91 @@ func (r *run) directory(d string) error {
 		}
 		return refuse(CheckDirectoryGroupWritable, d, fmt.Sprintf("directory %s (%s) is writable by group %d, "+
 			"and %s, not only root or %s. Fix: chmod g-w %s", d, fi.Mode(), gid, who, r.acct.name, quote(d)))
+	}
+	return r.directoryACL(d)
+}
+
+// POSIX ACL attribute layout (acl(5), linux/posix_acl_xattr.h): a 4-byte
+// version, then 8-byte entries of tag, permissions and id, little-endian.
+const (
+	aclVersion   = 2
+	aclEntrySize = 8
+	aclUser      = 0x02
+	aclGroup     = 0x08
+	aclMask      = 0x10
+	aclWrite     = 0x02
+)
+
+// directoryACL refuses a directory whose ACL lets a user or group other than
+// root and the run-as user write to it. The mode cannot show this: with an
+// ACL its group bits are the mask. An ACL that cannot be read or parsed
+// refuses, since the directory cannot be vouched for.
+func (r *run) directoryACL(d string) error {
+	read := r.readACL
+	if read == nil {
+		read = systemACL
+	}
+	raw, err := read(d)
+	if err != nil {
+		return refuse(CheckDirectoryACL, d, fmt.Sprintf("the POSIX ACL of directory %s cannot be read: %v", d, err))
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+	malformed := func() error {
+		return refuse(CheckDirectoryACL, d, fmt.Sprintf("the POSIX ACL of directory %s cannot be parsed. "+
+			"Fix: setfacl -b %s", d, quote(d)))
+	}
+	if len(raw) < 4 || (len(raw)-4)%aclEntrySize != 0 || binary.LittleEndian.Uint32(raw) != aclVersion {
+		return malformed()
+	}
+	type entry struct {
+		tag, perm uint16
+		id        uint32
+	}
+	var entries []entry
+	mask, hasMask := uint16(0), false
+	for b := raw[4:]; len(b) > 0; b = b[aclEntrySize:] {
+		e := entry{binary.LittleEndian.Uint16(b), binary.LittleEndian.Uint16(b[2:]), binary.LittleEndian.Uint32(b[4:])}
+		if e.tag == aclMask {
+			mask, hasMask = e.perm, true
+		}
+		entries = append(entries, e)
+	}
+	for _, e := range entries {
+		if e.tag != aclUser && e.tag != aclGroup {
+			continue
+		}
+		if !hasMask {
+			return malformed()
+		}
+		// The mask caps every named entry.
+		if e.perm&mask&aclWrite == 0 {
+			continue
+		}
+		switch e.tag {
+		case aclUser:
+			if e.id == 0 || e.id == r.acct.uid {
+				continue
+			}
+			return refuse(CheckDirectoryACL, d, fmt.Sprintf("directory %s has a POSIX ACL entry that lets UID %d write to it, "+
+				"and that user is not root or %s. Fix: setfacl -x u:%d %s", d, e.id, r.acct.name, e.id, quote(d)))
+		case aclGroup:
+			db, err := r.accounts()
+			if err != nil {
+				return err
+			}
+			others, known := db.otherMembers(e.id, r.acct)
+			if known && len(others) == 0 {
+				continue
+			}
+			who := "it is absent from " + groupFile
+			if len(others) > 0 {
+				who = "it includes " + strings.Join(others, ", ")
+			}
+			return refuse(CheckDirectoryACL, d, fmt.Sprintf("directory %s has a POSIX ACL entry that lets group %d write to it, "+
+				"and %s, not only root or %s. Fix: setfacl -x g:%d %s", d, e.id, who, r.acct.name, e.id, quote(d)))
+		}
 	}
 	return nil
 }
