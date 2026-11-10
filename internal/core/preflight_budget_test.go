@@ -140,3 +140,42 @@ func TestRecheckOfOneProviderDoesNotBlockAnother(t *testing.T) {
 	close(release)
 	<-done
 }
+
+// CR-95: a re-check whose preflight finishes after a Refresh stored a newer
+// result does not overwrite it.
+func TestRecheckDoesNotOverwriteANewerRefresh(t *testing.T) {
+	release := make(chan struct{})
+	entered := make(chan struct{})
+	clk := &steppedClock{t: time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)}
+	p := &probeProvider{name: "p", preflit: func(call int32) provider.Status {
+		switch call {
+		case 2: // The re-check: answers up, but only after the Refresh
+			close(entered)
+			<-release
+			return upStatus
+		default: // Startup and the Refresh
+			return downStatus
+		}
+	}}
+	reg, err := New([]provider.Provider{p}, Options{
+		Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), Now: clk.Now,
+		Providers: map[string]ProviderConfig{"p": {Enabled: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clk.Advance(RecheckInterval + time.Second)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		reg.availableForCall(context.Background(), "p")
+	}()
+	<-entered
+	clk.Advance(time.Second)
+	reg.Refresh(context.Background())
+	close(release)
+	<-done
+	if ok, st := reg.Available("p"); ok || st.State != apitypes.ProviderUnavailable {
+		t.Fatalf("after a re-check that started before the Refresh: %v %+v, want the Refresh's unavailable", ok, st)
+	}
+}

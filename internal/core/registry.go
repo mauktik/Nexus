@@ -239,16 +239,22 @@ func (r *Registry) availableForCall(ctx context.Context, name string) (bool, pro
 	if i < 0 {
 		return r.Available(name)
 	}
+	started := r.now()
 	st := r.preflight(context.WithoutCancel(ctx), r.providers[i])
 	checked := r.now()
 	r.writeMu.Lock()
-	if cur := r.state.Load(); cur.providers[name].enabled {
+	// A Refresh or Apply that stored its result after this preflight began
+	// is at least as fresh: this one is dropped rather than swapped over it
+	// (CR-95).
+	swapped := false
+	if cur := r.state.Load(); cur.providers[name].enabled && !cur.providers[name].checked.After(started) {
 		next := &snapshot{providers: maps.Clone(cur.providers)}
 		next.providers[name] = providerState{enabled: true, status: st, checked: checked}
 		r.state.Store(next)
+		swapped = true
 	}
 	r.writeMu.Unlock()
-	if st.State == apitypes.ProviderEnabled {
+	if swapped && st.State == apitypes.ProviderEnabled {
 		r.log.Info("provider available after re-check", "provider", name)
 	}
 	return r.Available(name)
