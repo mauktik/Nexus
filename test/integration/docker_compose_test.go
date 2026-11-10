@@ -48,8 +48,11 @@ var composePluginDirs = []string{"/usr/local/lib/docker/cli-plugins", "/usr/loca
 	"/usr/lib/docker/cli-plugins", "/usr/libexec/docker/cli-plugins"}
 
 // holdProxy is a reverse proxy to the open registry whose manifest GETs and
-// HEADs wait while it holds, until released, so a pull, or a standalone
-// update's digest check, stays in flight as long as a test needs.
+// HEADs by tag wait while it holds, until released, so a pull, or a
+// standalone update's digest check, stays in flight as long as a test
+// needs. A manifest asked for by digest passes: that is the helpers' check
+// that the registry serves the running image (CR-2, CR-91), which comes
+// before a Compose update's pull.
 type holdProxy struct {
 	mu   sync.Mutex
 	gate chan struct{} // Nil while open
@@ -101,7 +104,8 @@ func startHoldProxy(t *testing.T) *holdProxy {
 		rp := httputil.NewSingleHostReverseProxy(target)
 		p := &holdProxy{}
 		srv := &http.Server{ReadHeaderTimeout: 10 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if strings.Contains(r.URL.Path, "/manifests/") && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+			_, ref, isManifest := strings.Cut(r.URL.Path, "/manifests/")
+			if isManifest && !strings.HasPrefix(ref, "sha256:") && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
 				p.wait(r.Context())
 			}
 			rp.ServeHTTP(w, r)

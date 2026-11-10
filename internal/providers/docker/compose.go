@@ -34,7 +34,8 @@ import (
 // the project's working directory and files that the labels record
 // (compose-files-missing, 422) and the plugin (compose-plugin-missing,
 // 503, for these updates only). The helper, in the same detached unit as a
-// standalone update, runs
+// standalone update, first asks the registry whether it serves the running
+// image, as a standalone update does (CR-2), and then runs
 //
 //	docker compose --project-directory D -f F... [--env-file E...] -p P pull S
 //
@@ -405,6 +406,11 @@ func (u *updater) compose(ctx context.Context, docker string, t composeTarget, v
 	return nil
 }
 
+// helperComposeTools finds the docker CLI and Compose plugin the helper
+// runs. It is a variable so that T0 tests can run the helper's flow with a
+// fake docker CLI.
+var helperComposeTools = findCompose
+
 // runCompose updates the Compose-managed container in, writing progress
 // to out, and returns the result to store.
 func runCompose(ctx context.Context, in helperInput, out io.Writer) helperResult {
@@ -437,7 +443,7 @@ func (u *updater) runCompose(ctx context.Context) helperResult {
 			"not %q %q as when the update was requested; nothing was changed", name, t.Project, t.Service,
 			want.Project, want.Service))
 	}
-	tools := findCompose(u.in.ConfigDir)
+	tools := helperComposeTools(u.in.ConfigDir)
 	if tools.Missing != "" {
 		return u.fail(problem.ComposePluginMissing, tools.Missing+"; nothing was changed")
 	}
@@ -465,6 +471,24 @@ func (u *updater) runCompose(ctx context.Context) helperResult {
 			"this host. %s; nothing was changed", named.Name(), byScript))
 	}
 	u.res.PreviousDigest = current[0]
+
+	// The registry must serve the running image, as for a standalone update
+	// (CR-2): docker compose pull would otherwise replace a local build whose
+	// tag the registry also serves.
+	reg, err := u.registryAccess(named)
+	if err != nil {
+		return u.fail(problem.DependencyUnavailable, err.Error()+"; nothing was changed")
+	}
+	u.say("checking that the registry %s serves the running image of %s", reg.domain, named.Name())
+	if f := u.unserved(ctx, named, current, reg); f != nil {
+		if f.Slug == problem.DependencyUnavailable {
+			// Compose resolves credential helpers when it pulls, but this
+			// check uses only auths (A-61).
+			f.Detail += fmt.Sprintf(". Before a Compose pull, Nexus asks the registry with the credential in auths "+
+				"of %s (providers.docker.configDir) and never runs a credential helper", reg.path)
+		}
+		return u.fail(f.Slug, f.Detail+"; nothing was changed")
+	}
 
 	if detail := u.composeChanged(ctx, tools.Docker, t, c); detail != "" {
 		return u.fail(problem.NotUpdatable, detail+"; nothing was changed")

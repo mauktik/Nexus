@@ -36,6 +36,7 @@ type runCtr struct {
 	id, name, image string
 	running         bool
 	networks        []string
+	labels          map[string]string
 }
 
 type runEngine struct {
@@ -112,6 +113,10 @@ func (c *runCtr) body() map[string]any {
 	if len(c.networks) > 0 {
 		mode = c.networks[0]
 	}
+	labels := c.labels
+	if labels == nil {
+		labels = map[string]string{}
+	}
 	status := "exited"
 	if c.running {
 		status = "running"
@@ -119,7 +124,7 @@ func (c *runCtr) body() map[string]any {
 	return map[string]any{
 		"Id": c.id, "Name": "/" + c.name, "Image": c.image,
 		"State":           map[string]any{"Status": status, "Running": c.running, "StartedAt": "2026-01-01T00:00:00Z"},
-		"Config":          map[string]any{"Image": runTag, "Labels": map[string]string{}},
+		"Config":          map[string]any{"Image": runTag, "Labels": labels},
 		"HostConfig":      map[string]any{"NetworkMode": mode},
 		"NetworkSettings": map[string]any{"Networks": nets},
 	}

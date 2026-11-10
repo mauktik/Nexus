@@ -457,3 +457,58 @@ func TestUpdateHelperComposeMode(t *testing.T) {
 		t.Fatalf("result %+v %v %v", res, ok, err)
 	}
 }
+
+// CR-91: the Compose helper asks the registry about the running digest, as
+// the standalone helper does (CR-2). A local build whose tag the registry
+// also serves is refused before docker compose pull runs, and nothing
+// changes; one the registry serves goes on to the pull.
+func TestComposeUpdateRefusesALocalBuildBehindAServedTag(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		known    map[string]bool
+		slug     problem.Slug
+		detail   string
+		wantPull bool
+	}{
+		{"local build", map[string]bool{}, problem.NotUpdatable, "built or retagged on this host", false},
+		{"served", map[string]bool{digestA: true}, problem.DependencyUnavailable, "the fake pull failed", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newRunEngine(t, true)
+			f.known = tc.known
+			_, labels := composeProjectDir(t, "media")
+			f.ctrs[runOldID].labels = labels
+
+			dir := t.TempDir()
+			calls := filepath.Join(dir, "calls")
+			fake := filepath.Join(dir, "docker")
+			writeExec(t, fake, `#!/bin/sh
+echo "$*" >>`+calls+`
+case "$*" in
+*" pull "*) echo "the fake pull failed" >&2; exit 3 ;;
+esac
+`, 0o755)
+			old := helperComposeTools
+			helperComposeTools = func(string) composeTools { return composeTools{Docker: fake, Plugin: fake} }
+			t.Cleanup(func() { helperComposeTools = old })
+
+			in := f.input()
+			in.Mode, in.ComposeTimeout = ModeCompose, time.Minute
+			in.Compose = &composeTarget{Project: "media", Service: "app"}
+			var out bytes.Buffer
+			res := runCompose(context.Background(), in, &out)
+			if res.Error == nil || res.Error.Slug != tc.slug || res.Changed ||
+				!strings.Contains(res.Error.Detail, tc.detail) || !strings.Contains(res.Error.Detail, "nothing was changed") {
+				t.Fatalf("result %+v %+v\n%s", res, res.Error, out.String())
+			}
+			b, _ := os.ReadFile(calls)
+			if pulled := strings.Contains(string(b), " pull "); pulled != tc.wantPull {
+				t.Fatalf("docker compose pull ran: %v, want %v; calls:\n%s", pulled, tc.wantPull, b)
+			}
+			if got := f.mutations(); len(got) != 0 {
+				t.Errorf("the helper changed the Engine: %v", got)
+			}
+			f.wantState(t, map[string]bool{"app": true})
+		})
+	}
+}

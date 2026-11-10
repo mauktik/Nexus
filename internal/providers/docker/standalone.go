@@ -227,24 +227,19 @@ func (u *updater) run(ctx context.Context) helperResult {
 
 	// The registry's digest for the reference, with the credential from
 	// auths for exactly this registry, or none.
-	domain := strings.ToLower(reference.Domain(named))
-	rc, err := loadRegistryConfig(u.in.ConfigDir)
+	reg, err := u.registryAccess(named)
 	if err != nil {
-		return u.fail(problem.DependencyUnavailable, "the registry credentials could not be read: "+err.Error()+"; nothing was changed")
-	}
-	creds, err := rc.forRegistry(domain)
-	if err != nil {
-		return u.fail(problem.DependencyUnavailable, "the registry credential could not be used: "+err.Error()+"; nothing was changed")
+		return u.fail(problem.DependencyUnavailable, err.Error()+"; nothing was changed")
 	}
 	u.say("checking %s for a newer image", tagged)
 	callCtx, cancel = u.call(ctx)
-	dist, err := u.cli.DistributionInspect(callCtx, tagged.String(), client.DistributionInspectOptions{EncodedRegistryAuth: creds.encoded})
+	dist, err := u.cli.DistributionInspect(callCtx, tagged.String(), client.DistributionInspectOptions{EncodedRegistryAuth: reg.creds.encoded})
 	cancel()
 	if err == nil && dist.Descriptor.Digest.Validate() != nil {
 		err = errors.New("the registry answered without a valid digest")
 	}
 	if err != nil {
-		return u.fail(problem.DependencyUnavailable, registryFailure(err, tagged.String(), domain, creds, rc.path, u.in.CallTimeout)+
+		return u.fail(problem.DependencyUnavailable, registryFailure(err, tagged.String(), reg.domain, reg.creds, reg.path, u.in.CallTimeout)+
 			"; nothing was changed")
 	}
 	latest := dist.Descriptor.Digest.String()
@@ -255,21 +250,12 @@ func (u *updater) run(ctx context.Context) helperResult {
 		return u.res
 	}
 
-	// The registry must also know the running image. On the containerd image
-	// store a local build has a RepoDigest too, and the tag may name another
-	// image in the registry: replacing it would discard the build (CR-2).
-	known, err := registryKnows(ctx, u.cli, u.call, named, current, creds.encoded)
-	switch {
-	case err != nil:
-		return u.fail(problem.DependencyUnavailable, registryFailure(err, tagged.String(), domain, creds, rc.path, u.in.CallTimeout)+
-			"; nothing was changed")
-	case !known:
-		return u.fail(problem.NotUpdatable, fmt.Sprintf("the registry %s has no image with the running digest %s for "+
-			"%s: it was built or retagged on this host. %s; nothing was changed", domain, current[0], named.Name(), byScript))
+	if f := u.unserved(ctx, named, current, reg); f != nil {
+		return u.fail(f.Slug, f.Detail+"; nothing was changed")
 	}
 
 	u.say("pulling %s (%s)", tagged, latest)
-	if err := u.pull(ctx, tagged.String(), creds.encoded); err != nil {
+	if err := u.pull(ctx, tagged.String(), reg.creds.encoded); err != nil {
 		return u.fail(problem.DependencyUnavailable, fmt.Sprintf("pulling %s failed: %s; nothing was changed",
 			tagged, registryText(err.Error())))
 	}
@@ -565,6 +551,48 @@ func waitReady(ctx context.Context, inspect func(context.Context, string) (conta
 }
 
 // registryFailure describes a failed registry digest check for the update.
+// registryAccessInfo is a registry and the credential auths holds for it.
+type registryAccessInfo struct {
+	domain string // reference.Domain, lowercased
+	path   string // The config.json read
+	creds  registryCreds
+}
+
+// registryAccess reads the credential for named's registry from auths of
+// docker.configDir: exactly this registry's, or none.
+func (u *updater) registryAccess(named reference.Named) (registryAccessInfo, error) {
+	reg := registryAccessInfo{domain: strings.ToLower(reference.Domain(named))}
+	rc, err := loadRegistryConfig(u.in.ConfigDir)
+	if err != nil {
+		return reg, fmt.Errorf("the registry credentials could not be read: %w", err)
+	}
+	reg.path = rc.path
+	if reg.creds, err = rc.forRegistry(reg.domain); err != nil {
+		return reg, fmt.Errorf("the registry credential could not be used: %w", err)
+	}
+	return reg, nil
+}
+
+// unserved asks the registry whether it serves the running image: any of
+// current, the image's digests for named's repository. On the containerd
+// image store a local build has a RepoDigest too, and the tag may name
+// another image in the registry: replacing it would discard the build
+// (CR-2). It returns the update's failure, or nil when the registry serves
+// the image. Both the standalone and the Compose helper ask before they
+// pull.
+func (u *updater) unserved(ctx context.Context, named reference.Named, current []string, reg registryAccessInfo) *helperError {
+	known, err := registryKnows(ctx, u.cli, u.call, named, current, reg.creds.encoded)
+	switch {
+	case err != nil:
+		return &helperError{Slug: problem.DependencyUnavailable, Detail: registryFailure(err,
+			reference.TagNameOnly(named).String(), reg.domain, reg.creds, reg.path, u.in.CallTimeout)}
+	case !known:
+		return &helperError{Slug: problem.NotUpdatable, Detail: fmt.Sprintf("the registry %s has no image with the "+
+			"running digest %s for %s: it was built or retagged on this host. %s", reg.domain, current[0], named.Name(), byScript)}
+	}
+	return nil
+}
+
 func registryFailure(err error, ref, domain string, creds registryCreds, path string, timeout time.Duration) string {
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
