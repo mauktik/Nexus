@@ -559,7 +559,7 @@ func problemSchema() *jsonschema.Schema {
 	}
 }
 
-func extensionSchema(name string) *jsonschema.Schema {
+func extensionSchema(slug problem.Slug, name string) *jsonschema.Schema {
 	if name == "errors" {
 		return &jsonschema.Schema{
 			Type:        "array",
@@ -576,7 +576,38 @@ func extensionSchema(name string) *jsonschema.Schema {
 	}
 	switch name {
 	case "exitCode":
+		if slug == problem.AptFailed {
+			return &jsonschema.Schema{Type: "integer", Description: "apt-get's exit status; -1 when a signal ended it or it never started."}
+		}
 		return &jsonschema.Schema{Type: "integer", Description: "The script's exit code; -1 when a signal ended it or it never started."}
+	case "changes":
+		return &jsonschema.Schema{
+			Type:        "array",
+			Description: "The packages the run changed before it failed, sorted by package and architecture.",
+			Items: &jsonschema.Schema{
+				Type: "object",
+				Properties: map[string]*jsonschema.Schema{
+					"package":      {Type: "string"},
+					"architecture": {Type: "string"},
+					"oldVersion":   {Type: "string", Description: "Empty when the package was not installed."},
+					"newVersion":   {Type: "string", Description: "Empty when the package is not installed."},
+					"oldStatus":    {Type: "string", Description: "dpkg's status word; not-installed for a package dpkg did not know."},
+					"newStatus":    {Type: "string"},
+				},
+				Required: []string{"package", "architecture", "oldVersion", "newVersion", "oldStatus", "newStatus"},
+			},
+		}
+	case "conffilesKept":
+		return &jsonschema.Schema{Type: "array", Items: &jsonschema.Schema{Type: "string"},
+			Description: "The configuration files whose local version dpkg kept."}
+	case "conffilesComplete":
+		return &jsonschema.Schema{Type: "boolean", Description: "False when conffilesKept may lack some files."}
+	case "rebootRequired":
+		return &jsonschema.Schema{Type: "string", Enum: []any{"true", "false", "unknown"},
+			Description: "Whether a reboot is required now, read after the run."}
+	case "rebootRequiredPackages":
+		return &jsonschema.Schema{Type: "array", Items: &jsonschema.Schema{Type: "string"},
+			Description: "The packages that asked for the reboot."}
 	case "durationSeconds":
 		return &jsonschema.Schema{Type: "number", Description: "How long the script ran."}
 	case "rolledBack":
@@ -606,7 +637,7 @@ func componentSchemas() (map[string]*jsonschema.Schema, error) {
 			s.Required = append(s.Required, "status")
 		}
 		for _, ext := range t.Extensions {
-			s.Properties[ext] = extensionSchema(ext)
+			s.Properties[ext] = extensionSchema(t.Slug, ext)
 		}
 		m[ProblemSchemaName(t.Slug)] = s
 	}

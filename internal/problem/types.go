@@ -92,7 +92,11 @@ var registry = []Type{
 	{Slug: OutcomeUnknown, Title: "Outcome unknown", Exit: 1, OperationLevel: true},
 	{Slug: PackageManagerBusy, Title: "Package manager busy", Exit: 1, OperationLevel: true},
 	{Slug: PackageManagerBroken, Title: "Package manager broken", Exit: 1, OperationLevel: true},
-	{Slug: AptFailed, Title: "Apt failed", Exit: 1, OperationLevel: true},
+	// A failed apt run still reports what it changed (CR-24, FR-15): the
+	// outcome members are those of the result a successful run returns.
+	{Slug: AptFailed, Title: "Apt failed", Exit: 1, OperationLevel: true,
+		Extensions: []string{"changes", "conffilesKept", "conffilesComplete", "rebootRequired",
+			"rebootRequiredPackages", "exitCode"}},
 	// A script's outcome carries how it ended (WI 5.3).
 	{Slug: ScriptFailed, Title: "Script failed", Exit: 1, OperationLevel: true, Extensions: []string{"exitCode", "signal", "durationSeconds"}},
 	{Slug: ScriptTimeout, Title: "Script timed out", Exit: 1, OperationLevel: true, Extensions: []string{"exitCode", "signal", "durationSeconds"}},

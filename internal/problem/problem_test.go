@@ -208,3 +208,21 @@ func TestValidationFailedCarriesErrors(t *testing.T) {
 		t.Errorf("validation-failed body = %s", b)
 	}
 }
+
+// CR-24: a failed apt run still reports what it changed, so apt-failed
+// declares the members the apt provider attaches.
+func TestAptFailedDeclaresTheOutcomeMembers(t *testing.T) {
+	p := New(AptFailed, "apt-get exited with status 100")
+	for _, k := range []string{"changes", "conffilesKept", "conffilesComplete", "rebootRequired",
+		"rebootRequiredPackages", "exitCode"} {
+		p.With(k, nil)
+	}
+	b, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out Error
+	if err := json.Unmarshal(b, &out); err != nil || len(out.Extensions) != 6 {
+		t.Errorf("round trip %s: %+v %v", b, out, err)
+	}
+}

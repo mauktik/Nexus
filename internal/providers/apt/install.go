@@ -276,12 +276,9 @@ func (p *Provider) finalizePackages(whatIf bool, x detach.Exit, r *provider.Run)
 	}
 	out, err := p.finalizeMutation(r, x, p.packagesFailure)
 	if err != nil {
-		return spec.PackagesResult{}, err
+		return spec.PackagesResult{}, withOutcome(err, out)
 	}
-	changes := make([]spec.PackageChange, len(out.Changes))
-	for i, c := range out.Changes {
-		changes[i] = spec.PackageChange(c)
-	}
+	changes := packageChanges(out.Changes)
 	return spec.PackagesResult{
 		ActionResult:  apitypes.ActionResult{Changed: len(changes) > 0},
 		Changes:       changes,

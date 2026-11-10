@@ -768,6 +768,28 @@ func TestEveryOperationIsFullyDescribed(t *testing.T) {
 	}
 }
 
+// CR-24: apt-failed declares the outcome members a failed apt run carries,
+// each with its wire type, and exitCode there is apt-get's, not a script's.
+func TestAptFailedSchemaDeclaresTheOutcome(t *testing.T) {
+	s := newStack(t)
+	d := parse(t, s.fetch(t))
+	schema := obj(obj(obj(d["components"])["schemas"])[openapi.ProblemSchemaName(problem.AptFailed)])
+	props := obj(schema["properties"])
+	for member, typ := range map[string]string{"changes": "array", "conffilesKept": "array", "conffilesComplete": "boolean",
+		"rebootRequired": "string", "rebootRequiredPackages": "array", "exitCode": "integer"} {
+		if got := obj(props[member])["type"]; got != typ {
+			t.Errorf("apt-failed %s: type %v, want %s", member, got, typ)
+		}
+	}
+	if desc, _ := obj(props["exitCode"])["description"].(string); !strings.Contains(desc, "apt-get") {
+		t.Errorf("apt-failed exitCode description %q does not name apt-get", desc)
+	}
+	script := obj(obj(obj(d["components"])["schemas"])[openapi.ProblemSchemaName(problem.ScriptFailed)])
+	if desc, _ := obj(obj(script["properties"])["exitCode"])["description"].(string); !strings.Contains(desc, "script") {
+		t.Errorf("script-failed exitCode description %q", desc)
+	}
+}
+
 // The schemas describe the wire: real responses of every shape validate
 // against the served document, by the independent validator.
 func TestResponsesMatchTheDocument(t *testing.T) {

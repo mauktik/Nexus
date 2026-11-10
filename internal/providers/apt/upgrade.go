@@ -15,6 +15,7 @@ import (
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/detach"
 	"github.com/mauktik/nexus/internal/oplog"
+	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/providers/apt/spec"
 )
@@ -150,12 +151,9 @@ func (p *Provider) finalizeUpgrade(_ context.Context, in spec.UpgradeInput, x de
 	}
 	out, err := p.FinalizeMutation(r, x)
 	if err != nil {
-		return spec.UpgradeResult{}, err
+		return spec.UpgradeResult{}, withOutcome(err, out)
 	}
-	changes := make([]spec.PackageChange, len(out.Changes))
-	for i, c := range out.Changes {
-		changes[i] = spec.PackageChange(c)
-	}
+	changes := packageChanges(out.Changes)
 	return spec.UpgradeResult{
 		ActionResult: apitypes.ActionResult{Changed: len(changes) > 0},
 		Mode:         in.EffectiveMode(), Changes: changes,
@@ -163,6 +161,41 @@ func (p *Provider) finalizeUpgrade(_ context.Context, in spec.UpgradeInput, x de
 		RebootRequired: out.RebootRequired, RebootRequiredPackages: out.RebootPackages,
 		ExitCode: out.ExitCode,
 	}, nil
+}
+
+// packageChanges is the wire form of a mutation's changes: never nil.
+func packageChanges(in []PackageChange) []spec.PackageChange {
+	changes := make([]spec.PackageChange, len(in))
+	for i, c := range in {
+		changes[i] = spec.PackageChange(c)
+	}
+	return changes
+}
+
+func nonNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
+}
+
+// withOutcome attaches what a failed run still changed to its apt-failed
+// problem (CR-24, FR-15): the operation stores no result when Finalize
+// fails, so the problem carries the members of the result it would have had.
+// Any other error, such as an unreadable pre.json, and a lock failure, which
+// changed nothing, pass through unchanged.
+func withOutcome(err error, out MutationOutcome) error {
+	var perr *problem.Error
+	if !errors.As(err, &perr) || perr.Slug() != problem.AptFailed {
+		return err
+	}
+	return perr.
+		With("changes", packageChanges(out.Changes)).
+		With("conffilesKept", nonNil(out.Conffiles)).
+		With("conffilesComplete", out.ConffilesComplete).
+		With("rebootRequired", out.RebootRequired).
+		With("rebootRequiredPackages", nonNil(out.RebootPackages)).
+		With("exitCode", out.ExitCode)
 }
 
 // finalizePreview turns the simulation's Inst and Remv lines into the

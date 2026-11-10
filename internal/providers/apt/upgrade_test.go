@@ -675,3 +675,62 @@ func TestUpgradeDeclaration(t *testing.T) {
 		t.Error("upgrade is not bound as a detached operation")
 	}
 }
+
+// outcomeMembers are the extension members a failed apt run carries.
+func outcomeMembers(t *testing.T, err error) map[string]any {
+	t.Helper()
+	var perr *problem.Error
+	if !errors.As(err, &perr) || perr.Slug() != problem.AptFailed {
+		t.Fatalf("error %v is not apt-failed", err)
+	}
+	b, jerr := json.Marshal(perr)
+	if jerr != nil {
+		t.Fatal(jerr)
+	}
+	var body map[string]any
+	if jerr := json.Unmarshal(b, &body); jerr != nil {
+		t.Fatal(jerr)
+	}
+	return body
+}
+
+// CR-24: apt-get exited 100 after dpkg had changed packages: the problem
+// carries the changes, kept conffiles, reboot state and exit status, which
+// the operation would otherwise lose along with its result.
+func TestFailedUpgradeCarriesTheOutcome(t *testing.T) {
+	for name, finalize := range map[string]func(*fakeMutation, *provider.Run) error{
+		"upgrade": func(f *fakeMutation, r *provider.Run) error {
+			_, err := f.p.finalizeUpgrade(context.Background(), spec.UpgradeInput{}, detach.Exit{ExitCode: 100}, r)
+			return err
+		},
+		"install": func(f *fakeMutation, r *provider.Run) error {
+			_, err := f.p.finalizeInstall(context.Background(), spec.InstallInput{Names: []string{"nxplain"}},
+				detach.Exit{ExitCode: 100}, r)
+			return err
+		},
+		"remove": func(f *fakeMutation, r *provider.Run) error {
+			_, err := f.p.finalizeRemove(context.Background(), spec.RemoveInput{Names: []string{"nxplain"}},
+				detach.Exit{ExitCode: 100}, r)
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, r := finalizeFixture(t)
+			body := outcomeMembers(t, finalize(f, r))
+			changes, _ := body["changes"].([]any)
+			if len(changes) != 3 {
+				t.Errorf("changes %v, want the 3 packages dpkg changed", body["changes"])
+			}
+			if kept, _ := body["conffilesKept"].([]any); len(kept) != 1 || kept[0] != "/etc/nxconf.conf" {
+				t.Errorf("conffilesKept %v", body["conffilesKept"])
+			}
+			if body["conffilesComplete"] != true || body["rebootRequired"] != spec.RebootUnknown ||
+				body["exitCode"] != float64(100) {
+				t.Errorf("members %v", body)
+			}
+			if pkgs, ok := body["rebootRequiredPackages"].([]any); !ok || len(pkgs) != 0 {
+				t.Errorf("rebootRequiredPackages %v, want []", body["rebootRequiredPackages"])
+			}
+		})
+	}
+}
