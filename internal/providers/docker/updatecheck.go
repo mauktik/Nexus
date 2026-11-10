@@ -342,7 +342,60 @@ func (c *checker) compare(ctx context.Context, ref reference.Named, current []st
 	if slices.Contains(current, latest) {
 		return spec.UpdateCheck{Status: spec.UpdateUpToDate, CurrentDigest: latest, LatestDigest: latest}
 	}
+	// On the containerd image store every tagged image has a RepoDigest, a
+	// local build included, so a digest that differs from the registry's
+	// does not yet mean a newer image: the registry must also know the
+	// running one (CR-2).
+	if u, done := c.runningDigestUnknown(ctx, ref, current); done {
+		return u
+	}
 	return spec.UpdateCheck{Status: spec.UpdateAvailable, CurrentDigest: current[0], LatestDigest: latest}
+}
+
+// runningDigestUnknown asks the registry for the running image's digest
+// and, when it does not know it, classifies the image as built on this host.
+// A manifest the registry has since garbage-collected reads the same way,
+// which is the safe direction: such a container is not replaced. An answer
+// that cannot be had is unknown, so that updateAvailable is only ever
+// reported for an image the registry is known to have served.
+func (c *checker) runningDigestUnknown(ctx context.Context, ref reference.Named, current []string) (spec.UpdateCheck, bool) {
+	domain := strings.ToLower(reference.Domain(ref))
+	creds, err := c.creds.forRegistry(domain)
+	if err != nil {
+		return unknown(spec.ReasonCredentialConfig, "the registry credential could not be used: "+err.Error()), true
+	}
+	known, err := registryKnows(ctx, c.cli, c.p.callCtx, ref, current, creds.encoded)
+	switch {
+	case err != nil && ctx.Err() != nil:
+		return unknown(spec.ReasonRegistryError, "the check was interrupted before the registry answered"), true
+	case err != nil:
+		return unknown(spec.ReasonRegistryError, fmt.Sprintf("the registry check for the running image of %s failed: %s",
+			ref.String(), registryText(err.Error()))), true
+	case !known:
+		return notUpdatable(spec.ReasonLocallyBuilt, fmt.Sprintf("the registry %s has no image with the running digest %s "+
+			"for %s: it was built or retagged on this host. %s", domain, current[0], ref.Name(), byScript)), true
+	}
+	return spec.UpdateCheck{}, false
+}
+
+// registryKnows reports whether the registry serves any of digests, the
+// running image's digests for named's repository. A manifest unknown
+// answer means it does not; any other failure is returned.
+func registryKnows(ctx context.Context, cli *client.Client, call func(context.Context) (context.Context, context.CancelFunc),
+	named reference.Named, digests []string, auth string) (bool, error) {
+	for _, d := range digests {
+		callCtx, cancel := call(ctx)
+		_, err := cli.DistributionInspect(callCtx, reference.TrimNamed(named).Name()+"@"+d,
+			client.DistributionInspectOptions{EncodedRegistryAuth: auth})
+		cancel()
+		switch {
+		case err == nil:
+			return true, nil
+		case !absent(err):
+			return false, err
+		}
+	}
+	return false, nil
 }
 
 // latestOf is the registry's digest for ref, asked once per run.

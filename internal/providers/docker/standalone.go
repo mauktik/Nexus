@@ -255,6 +255,19 @@ func (u *updater) run(ctx context.Context) helperResult {
 		return u.res
 	}
 
+	// The registry must also know the running image. On the containerd image
+	// store a local build has a RepoDigest too, and the tag may name another
+	// image in the registry: replacing it would discard the build (CR-2).
+	known, err := registryKnows(ctx, u.cli, u.call, named, current, creds.encoded)
+	switch {
+	case err != nil:
+		return u.fail(problem.DependencyUnavailable, registryFailure(err, tagged.String(), domain, creds, rc.path, u.in.CallTimeout)+
+			"; nothing was changed")
+	case !known:
+		return u.fail(problem.NotUpdatable, fmt.Sprintf("the registry %s has no image with the running digest %s for "+
+			"%s: it was built or retagged on this host. %s; nothing was changed", domain, current[0], named.Name(), byScript))
+	}
+
 	u.say("pulling %s (%s)", tagged, latest)
 	if err := u.pull(ctx, tagged.String(), creds.encoded); err != nil {
 		return u.fail(problem.DependencyUnavailable, fmt.Sprintf("pulling %s failed: %s; nothing was changed",

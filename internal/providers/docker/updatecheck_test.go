@@ -256,6 +256,9 @@ func TestCheckUpdatesClassifies(t *testing.T) {
 	f.registry[repo+":v1"] = registryAnswer{digest: digestA}
 	f.registry[repo+":latest"] = registryAnswer{digest: digestB}
 	f.registry["other.example/mirror/app:latest"] = registryAnswer{digest: digestB}
+	// A stale image is only reported updateAvailable when the registry also
+	// serves the digest it runs (CR-2).
+	f.registry[repo+"@"+digestA] = registryAnswer{digest: digestA}
 
 	p := updateProvider(t, f, t.TempDir(), nil)
 	got, out := runCheck(t, p)
@@ -285,9 +288,20 @@ func TestCheckUpdatesClassifies(t *testing.T) {
 	if d := got["built"].Detail; !strings.Contains(d, "script") || !strings.Contains(d, "built") {
 		t.Errorf("locally built detail does not point to scripts (ASM-8): %q", d)
 	}
+	// The tag lookups: one per reference. The probes for the running digest
+	// (name@digest, CR-2) are counted apart.
 	refs := map[string]bool{}
+	var tagCalls, probes []string
 	for _, c := range f.calls() {
+		if strings.Contains(c.ref, "@") {
+			probes = append(probes, c.ref)
+			continue
+		}
 		refs[c.ref] = true
+		tagCalls = append(tagCalls, c.ref)
+	}
+	if !slices.Equal(probes, []string{repo + "@" + digestA}) {
+		t.Errorf("running-digest probes %v, want one, for the stale image only", probes)
 	}
 	if d := got["neverpushed"].Detail; !strings.Contains(d, "never pushed") || !strings.Contains(d, "script") {
 		t.Errorf("never-pushed detail: %q", d)
@@ -295,14 +309,40 @@ func TestCheckUpdatesClassifies(t *testing.T) {
 	if !maps(refs, repo+":v1", repo+":latest", "other.example/mirror/app:latest", "reg.example:5000/team/local:dev") {
 		t.Errorf("registry calls %v: want one per checked reference and none for notUpdatable", refs)
 	}
-	if len(f.calls()) != 4 {
-		t.Errorf("registry calls %v: the shared reference must be asked once", f.calls())
+	if len(tagCalls) != 4 {
+		t.Errorf("registry calls %v: the shared reference must be asked once", tagCalls)
 	}
 	if f.imgCalls.Load() > 3 {
 		t.Errorf("%d image inspections for 3 images", f.imgCalls.Load())
 	}
 	if !strings.Contains(out, "stale: updateAvailable") || !strings.Contains(out, "built: notUpdatable (locallyBuilt)") {
 		t.Errorf("progress output:\n%s", out)
+	}
+}
+
+// CR-2: on the containerd image store a local build tagged with a name the
+// registry also serves has a RepoDigest (name@local target) that differs
+// from the registry's digest for the tag. It is not an update: the registry
+// has never served the running digest, so the image is locally built. When
+// the registry cannot say, the status is unknown, never updateAvailable.
+func TestCheckUpdatesLocalBuildBehindAServedTag(t *testing.T) {
+	f := newUpdateEngine(t)
+	const repo = "reg.example:5000/team/app"
+	f.images[imgOne] = []string{repo + "@" + digestA}
+	f.images[imgTwo] = []string{"reg.example:5000/team/flaky@" + digestA}
+	f.add("local", repo+":latest", imgOne, false)
+	f.add("flaky", "reg.example:5000/team/flaky:latest", imgTwo, false)
+	f.registry[repo+":latest"] = registryAnswer{digest: digestB}
+	f.registry[repo+"@"+digestA] = registryAnswer{status: http.StatusNotFound, message: "manifest unknown: manifest unknown"}
+	f.registry["reg.example:5000/team/flaky:latest"] = registryAnswer{digest: digestB}
+	f.registry["reg.example:5000/team/flaky@"+digestA] = registryAnswer{status: http.StatusInternalServerError, message: "registry unavailable"}
+
+	got, _ := runCheck(t, updateProvider(t, f, t.TempDir(), nil))
+	if g := got["local"]; g.Status != spec.UpdateNotUpdatable || g.Reason != spec.ReasonLocallyBuilt || !strings.Contains(g.Detail, "script") {
+		t.Errorf("local build: %+v, want notUpdatable locallyBuilt", g)
+	}
+	if g := got["flaky"]; g.Status != spec.UpdateUnknown || g.Reason != spec.ReasonRegistryError {
+		t.Errorf("unanswered probe: %+v, want unknown registryError", g)
 	}
 }
 
@@ -458,6 +498,7 @@ func TestStoredStatusMergesIntoInventory(t *testing.T) {
 	f.add("d-stale", repo+":latest", imgOne, false)
 	f.registry[repo+":v1"] = registryAnswer{digest: digestA}
 	f.registry[repo+":latest"] = registryAnswer{digest: digestB}
+	f.registry[repo+"@"+digestA] = registryAnswer{digest: digestA}
 	p := updateProvider(t, f, t.TempDir(), nil)
 	ctx := context.Background()
 
@@ -520,6 +561,7 @@ func TestCheckResultsUseTheDaemonStore(t *testing.T) {
 	f.images[imgOne] = []string{"reg.example:5000/a@" + digestA}
 	f.add("web", "reg.example:5000/a:v1", imgOne, false)
 	f.registry["reg.example:5000/a:v1"] = registryAnswer{digest: digestB}
+	f.registry["reg.example:5000/a@"+digestA] = registryAnswer{digest: digestA}
 	kv := &memKV{}
 	p := updateProvider(t, f, t.TempDir(), nil)
 	p.UseKV(kv)
