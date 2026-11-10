@@ -755,3 +755,58 @@ func TestAptInstallUnknownNamesAndVersions(t *testing.T) {
 		t.Error("dpkg's packages changed")
 	}
 }
+
+// CR-27 (S-4): apt-get reads a trailing "+" or "-" on a name as a modifier
+// ("nxplain-" removes), and "nxg++" is both a package and such a name. Remove
+// and a subset upgrade of nxg++ change exactly nxg++: the preview equals the
+// real diff, and nothing else is installed, upgraded or removed.
+func TestAptPlusNamesRemoveAndSubsetUpgrade(t *testing.T) {
+	aptFixture(t, true)
+	aptPurgeAround(t, "nxg++", "nxg+")
+	aptBuild(t, "add", aptRepo, "nxg++", "1.0")
+	mustSh(t, apt.AptGet, "update", "-qq")
+	n := aptdScopes(t, "apt-plus-names", "", allAptScopes...)
+	if op, _ := pkgOp(t, n, installAt, `{"names":["nxg++"]}`, 2*time.Minute); op.Status != apitypes.StatusSucceeded ||
+		aptVersion(t, "nxg++") != "1.0" {
+		t.Fatalf("install nxg++: %+v", op)
+	}
+	aptBuild(t, "add", aptRepo, "nxg++", "2.0")
+	mustSh(t, apt.AptGet, "update", "-qq")
+
+	// Subset upgrade: whatIf changes nothing and predicts the real diff.
+	statusBefore, before := fileHash(t, apt.DpkgStatus), aptDpkgSnapshot(t)
+	op, pv := upgrade(t, n, `{"names":["nxg++"],"whatIf":true}`, 2*time.Minute)
+	if op.Status != apitypes.StatusSucceeded || pv.Preview == nil || fileHash(t, apt.DpkgStatus) != statusBefore ||
+		aptDpkgSnapshot(t) != before {
+		t.Fatalf("whatIf upgrade nxg++: %+v %s", op, op.Result)
+	}
+	op, res := upgrade(t, n, `{"names":["nxg++"]}`, 2*time.Minute)
+	if op.Status != apitypes.StatusSucceeded || !res.Changed {
+		t.Fatalf("upgrade nxg++: %+v", op)
+	}
+	up, ins, rem := dpkgDiff(before, aptDpkgSnapshot(t))
+	if !slices.Equal(up, []string{"nxg++:all 1.0>2.0"}) || len(ins)+len(rem) != 0 ||
+		!slices.Equal(previewList(pv.Preview.Upgraded), []string{"nxg++:all 1.0>2.0"}) {
+		t.Errorf("upgrade nxg++: diff %q %q %q, preview %+v", up, ins, rem, pv.Preview)
+	}
+
+	// Remove: the package named is the one removed.
+	statusBefore, before = fileHash(t, apt.DpkgStatus), aptDpkgSnapshot(t)
+	op, pr := pkgOp(t, n, removeAt, `{"names":["nxg++"],"whatIf":true}`, 2*time.Minute)
+	if op.Status != apitypes.StatusSucceeded || pr.Preview == nil || fileHash(t, apt.DpkgStatus) != statusBefore ||
+		aptDpkgSnapshot(t) != before {
+		t.Fatalf("whatIf remove nxg++: %+v %s", op, op.Result)
+	}
+	op, res2 := pkgOp(t, n, removeAt, `{"names":["nxg++"]}`, 2*time.Minute)
+	if op.Status != apitypes.StatusSucceeded || !res2.Changed {
+		t.Fatalf("remove nxg++: %+v", op)
+	}
+	up, ins, rem = dpkgDiff(before, aptDpkgSnapshot(t))
+	if !slices.Equal(rem, []string{"nxg++:all 2.0>"}) || len(up)+len(ins) != 0 ||
+		!slices.Equal(previewList(pr.Preview.Removed), rem) {
+		t.Errorf("remove nxg++: diff %q %q %q, preview %+v", up, ins, rem, pr.Preview)
+	}
+	if st := aptStatus(t, "nxg++"); dpkgKnows("nxg++") && st != "not-installed" && st != "config-files" {
+		t.Errorf("nxg++ is %s after remove", st)
+	}
+}
