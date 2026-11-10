@@ -111,8 +111,11 @@ Treat any token that holds a mutating scope for `docker`, `apt` or
 
 - Package upgrades and installs run maintainer scripts as root, from
   whatever the configured apt sources serve.
-- A container update recreates a container from the newest image its tag
-  points to, with the container's existing privileges and mounts.
+- A standalone container update recreates a container from the newest image
+  its tag points to, with the container's existing privileges and mounts. A
+  Compose update runs `docker compose` as root on the project's files, so it
+  applies what those files say, not what the old container had; see
+  [Compose projects](#compose-projects-the-files-decide-what-root-creates).
 - A script runs as its run-as user with whatever that user can do, and that
   user can be root.
 
@@ -143,6 +146,42 @@ keep checkouts that hold scripts out of reach of other users, and choose the
 least privileged run-as user that works. Before each run `nexusd` checks the
 script's ownership and permissions, and those of every directory above it;
 [scripts.md](scripts.md) lists the checks and the fix each refusal names.
+
+## Compose projects: the files decide what root creates
+
+Updating a container that Docker Compose manages runs `docker compose pull`
+and `docker compose up -d --no-deps` as root, outside the sandbox. Compose
+reads the project's files when it runs, so whoever can write them decides
+what root creates: `privileged: true`, a bind mount of `/`, another image.
+Before the pull, and again before `up`, `nexusd` therefore refuses the update
+unless the project is root-owned with no other writers (SEC-1). It checks:
+
+- the project's working directory and every directory above it;
+- every `-f` configuration file and every `--env-file`, and the `.env` file
+  in the working directory when there is one.
+
+Each must be owned by root, and neither group-writable nor world-writable,
+unless its group is private to root. A POSIX ACL entry that lets another user
+or group write also fails. Symbolic links are resolved, and the directories
+they pass through are checked too. A failed check is refused with
+`compose-files-missing` (HTTP 422) naming the path and the fix, and nothing
+is changed. Files that a project pulls in with `include:` or `extends:` are
+not named by the container's labels, so they are not checked on their own:
+keep them under the working directory, whose owner and mode are. A project
+in a home directory therefore needs `chown root` on the files and
+directories, or must be updated with `docker compose` by hand.
+
+A Compose update also recreates the service from the files as they are now,
+evaluated in `nexusd`'s minimal environment (`PATH`, `HOME`, `DOCKER_HOST`
+and `DOCKER_CONFIG`), not the shell that first ran `docker compose up`. To
+stop an unrelated edit or a blank `${VAR}` from being deployed with the
+image, the update compares `docker compose config --hash <service>` with the
+`com.docker.compose.config-hash` label that Compose recorded on the
+container, and refuses a service whose definition was edited since `up`
+(CR-29). The refusal is `not-updatable` (HTTP 422) and changes nothing: apply
+the edit with `docker compose up -d` yourself, then update again. A container
+without the label, or output that cannot be read, is let through, and the
+operation log says so.
 
 ## Audit log and its limits
 

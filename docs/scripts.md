@@ -36,7 +36,12 @@ providers:
   (absolute) are required.
 - A parameter's `type` is `string`, `integer` or `boolean`; `enum` limits it
   to listed values. A `string` parameter needs a `pattern`, so you decide
-  about leading dashes and shell characters. A value with `arg` is passed as
+  about leading dashes and shell characters. The pattern must match the
+  whole value, not a part of it: `nexusd` applies it as `^(?:pattern)$`, so
+  `[a-z]+` refuses `Dev`, and `[^-].*` refuses `--upload-pack=x`, which a
+  search for a match anywhere in the value would accept. `validate-config`
+  applies the same rule to `enum` values, so it names an enum value the
+  pattern would refuse at run time. A value with `arg` is passed as
   that option followed by the value, one with `env` as that environment
   variable, and one with neither as a positional argument in declared order.
   Values never pass through a shell.
@@ -130,7 +135,10 @@ the directories they pass through are checked too.
 | `directory-owner` | A directory is owned by someone other than root or the run-as user | `chown root <dir>` |
 | `directory-world-writable` | A directory is world-writable; the sticky bit does not exempt it, so `/tmp` fails | `chmod o-w <dir>`, or `chmod g-w,o-w <dir>` when its group is shared too |
 | `directory-group-writable` | A directory is group-writable and its group is not private | `chmod g-w <dir>` |
+| `directory-acl` | A directory has a POSIX ACL entry that lets a user or group other than root and the run-as user write to it; the mode cannot show this, because with an ACL its group bits are the mask. An ACL that cannot be read or parsed is refused too | `setfacl -x u:<uid> <dir>` or `setfacl -x g:<gid> <dir>` for the entry named, or `setfacl -b <dir>` when it cannot be parsed |
 | `run-as-user` | The run-as user does not exist | Create the user, or correct `runAs` |
+| `path-resolution` | The path cannot be resolved, or a link or file changed while it was checked | Correct `path`, and keep the script and its directories stable while it runs |
+| `group-database` | `/etc/group` cannot be read, so whether a group is private is unknown | Repair `/etc/group` |
 
 **The private-group rule (A-59).** A group-writable directory passes only
 when it belongs to a private group: every member of the group, by the member lists in
