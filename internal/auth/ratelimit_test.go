@@ -3,6 +3,8 @@ package auth
 import (
 	"net/http/httptest"
 	"net/netip"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -128,4 +130,81 @@ func TestSourceAddrIsTheTCPPeerOnly(t *testing.T) {
 	if got := SourceAddr(r); got.IsValid() {
 		t.Fatalf("SourceAddr = %v for an unparsable peer, want the invalid address", got)
 	}
+}
+
+// CR-13: check and count are one step, so a concurrent burst of bad
+// requests from one source gets exactly limit attempts through.
+func TestLimiterBeginIsAtomicUnderABurst(t *testing.T) {
+	const limit, burst = 10, 500
+	l := NewLimiter(limit, newClock().Now)
+	a := netip.MustParseAddr("192.0.2.9")
+	var allowed atomic.Int64
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for range burst {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			if end, ok, _ := l.Begin(a); ok {
+				allowed.Add(1)
+				end(true)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	if got := allowed.Load(); got != limit {
+		t.Fatalf("%d of %d concurrent attempts passed, want exactly %d", got, burst, limit)
+	}
+	if ok, retry := l.Allow(a); ok || retry <= 0 {
+		t.Fatalf("Allow after the burst = %v, %v; want refused", ok, retry)
+	}
+}
+
+// Valid attempts are never counted, however many arrive together, and leave
+// no entry behind.
+func TestLimiterBeginDoesNotCountValidAttempts(t *testing.T) {
+	l := NewLimiter(2, newClock().Now)
+	a := netip.MustParseAddr("192.0.2.10")
+	var wg sync.WaitGroup
+	var refused atomic.Int64
+	for range 100 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			end, ok, _ := l.Begin(a)
+			if !ok {
+				refused.Add(1)
+				return
+			}
+			end(false)
+		}()
+	}
+	wg.Wait()
+	if refused.Load() != 0 || l.Len() != 0 {
+		t.Fatalf("%d valid attempts refused, %d sources tracked; want none of either", refused.Load(), l.Len())
+	}
+}
+
+func TestLimiterBeginWindowsExpireAndFailuresAccumulate(t *testing.T) {
+	clk := newClock()
+	l := NewLimiter(2, clk.Now)
+	a := netip.MustParseAddr("192.0.2.11")
+	for i := range 2 {
+		end, ok, _ := l.Begin(a)
+		if !ok {
+			t.Fatalf("attempt %d refused under the limit", i)
+		}
+		end(true)
+	}
+	if _, ok, retry := l.Begin(a); ok || retry <= 0 {
+		t.Fatalf("third attempt: ok %v retry %v, want refused", ok, retry)
+	}
+	clk.Advance(FailureWindow)
+	end, ok, _ := l.Begin(a)
+	if !ok {
+		t.Fatal("a new window refused its first attempt")
+	}
+	end(false)
 }

@@ -262,7 +262,10 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 			return
 		}
 		src := SourceAddr(r)
-		if ok, retry := a.limiter.Allow(src); !ok {
+		// Attempts from one source are evaluated one at a time (Begin), so a
+		// concurrent burst cannot outrun the limit.
+		end, ok, retry := a.limiter.Begin(src)
+		if !ok {
 			if a.audit != nil {
 				a.audit.RateLimited(sourceGroup(src), surfaceOf(r))
 			}
@@ -272,7 +275,7 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 		}
 		tok, present := bearer(r.Header)
 		if !present {
-			a.limiter.Fail(src)
+			end(true)
 			a.log.Info("authentication failed", "source", src.String(), "reason", "no bearer credentials")
 			a.denied(r, src)
 			w.Header().Set("WWW-Authenticate", `Bearer realm="nexus"`)
@@ -282,11 +285,12 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 		p, err := a.Authenticate(tok)
 		if err != nil {
 			reason := "invalid token"
-			if errors.Is(err, ErrTokenStoreUnavailable) {
-				// Not the client's fault: not counted against the source.
+			// A token store that is unavailable is not the client's fault:
+			// not counted against the source.
+			unavailable := errors.Is(err, ErrTokenStoreUnavailable)
+			end(!unavailable)
+			if unavailable {
 				reason = "token store unavailable"
-			} else {
-				a.limiter.Fail(src)
 			}
 			a.log.Info("authentication failed", "source", src.String(), "reason", reason)
 			a.denied(r, src)
@@ -294,6 +298,7 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 			a.write(w, r, unauthorized())
 			return
 		}
+		end(false)
 		p.Source = src
 		next.ServeHTTP(w, r.WithContext(WithPrincipal(r.Context(), p)))
 	})

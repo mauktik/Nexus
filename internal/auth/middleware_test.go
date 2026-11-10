@@ -53,3 +53,33 @@ func TestMiddlewarePassesPrincipalAndExemptsOnlyHealthz(t *testing.T) {
 		}
 	}
 }
+
+// CR-13: a concurrent burst of bad tokens from one peer reaches token
+// evaluation exactly limit times; the rest are refused with 429 before it.
+func TestMiddlewareBurstOfBadTokensIsLimitedExactly(t *testing.T) {
+	const limit, burst = 10, 500
+	dir := t.TempDir()
+	a := New(dir, Options{Logger: quietLog(), FailureLimitPerMinute: limit})
+	h := a.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	codes := make(chan int, burst)
+	start := make(chan struct{})
+	for range burst {
+		go func() {
+			r := httptest.NewRequest(http.MethodGet, "/v1/capabilities", nil)
+			r.RemoteAddr = "192.0.2.77:1234"
+			r.Header.Set("Authorization", "Bearer not-a-token")
+			w := httptest.NewRecorder()
+			<-start
+			h.ServeHTTP(w, r)
+			codes <- w.Code
+		}()
+	}
+	close(start)
+	count := map[int]int{}
+	for range burst {
+		count[<-codes]++
+	}
+	if count[http.StatusUnauthorized] != limit || count[http.StatusTooManyRequests] != burst-limit {
+		t.Fatalf("status counts %v, want %d x 401 and %d x 429", count, limit, burst-limit)
+	}
+}
