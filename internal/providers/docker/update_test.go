@@ -312,6 +312,27 @@ func TestUpdateHelperUsage(t *testing.T) {
 	}
 }
 
+// CR-7: a result.json that cannot be decoded is not "no result": the helper
+// stops instead of running the update a second time.
+func TestUpdateHelperStopsOnAnUnreadableResult(t *testing.T) {
+	var out, errb strings.Builder
+	dir := t.TempDir()
+	// An empty compose input would run, and fail, if the guard let it by.
+	if err := writeJSONAtomic(dir, inputFile, helperInput{Mode: ModeCompose}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, resultFile), []byte("{truncated"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code := UpdateHelper([]string{"--dir", dir}, &out, &errb)
+	if code != 1 || !strings.Contains(errb.String(), "decode "+resultFile) || !strings.Contains(errb.String(), "not updating") {
+		t.Fatalf("unreadable result: %d %q", code, errb.String())
+	}
+	if out.Len() != 0 {
+		t.Errorf("the update ran: %q", out.String())
+	}
+}
+
 // A-35: the new container is the old one's create configuration with the
 // image's own defaults dropped, a generated hostname cleared, anonymous
 // volumes remounted by name, and each network's configured endpoint.

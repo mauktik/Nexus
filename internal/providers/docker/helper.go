@@ -370,9 +370,14 @@ func UpdateHelper(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "%s: unknown mode %q\n", HelperCommand, hin.Mode)
 		return 1
 	}
-	if _, ok, _ := readResult(*dir); ok {
-		// Never update twice: the supervisor runs the helper once, and a
-		// second start must not repeat a finished update.
+	// Never update twice: the supervisor runs the helper once, and a second
+	// start must not repeat a finished update. A result that exists but
+	// cannot be read or decoded is no proof that no update ran, so it stops
+	// the helper too.
+	if _, ok, err := readResult(*dir); err != nil {
+		fmt.Fprintf(stderr, "%s: %v; not updating again\n", HelperCommand, err)
+		return 1
+	} else if ok {
 		fmt.Fprintf(stderr, "%s: %s already exists; nothing to do\n", HelperCommand, resultFile)
 		return 1
 	}
