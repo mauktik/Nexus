@@ -181,11 +181,17 @@ func TestValidationRules(t *testing.T) {
 		{"string parameter without pattern", scriptsYAML("{name: branch, type: string, arg: --branch}"), "providers.scripts.catalog[0].parameters[0].pattern", "required"},
 		{"sensitive without env", scriptsYAML("{name: k, type: string, pattern: '^a$', sensitive: true, arg: --k}"), "providers.scripts.catalog[0].parameters[0].env", "sensitive"},
 		{"pattern does not compile", scriptsYAML("{name: k, type: string, pattern: '(', arg: --k}"), "providers.scripts.catalog[0].parameters[0].pattern", "regular expression"},
+		// Valid only once wrapped for anchoring: the bare compile refuses it.
+		{"pattern that only compiles when wrapped", scriptsYAML("{name: k, type: string, pattern: 'a)(b', arg: --k}"), "providers.scripts.catalog[0].parameters[0].pattern", "regular expression"},
 		// A misspelled or missing type would otherwise skip the string rule.
 		{"misspelled parameter type", scriptsYAML("{name: branch, type: strnig, arg: --branch}"), "providers.scripts.catalog[0].parameters[0].type", "must be one of string, integer or boolean"},
 		{"missing parameter type", scriptsYAML("{name: branch, arg: --branch}"), "providers.scripts.catalog[0].parameters[0].type", "required"},
 		{"enum value of the wrong type", scriptsYAML("{name: n, type: integer, enum: ['1', two], arg: --n}"), "providers.scripts.catalog[0].parameters[0].enum[1]", "integer"},
 		{"enum value failing the pattern", scriptsYAML("{name: e, type: string, pattern: '^[a-z]+$', enum: [prod, Dev], arg: --e}"), "providers.scripts.catalog[0].parameters[0].enum[1]", "pattern"},
+		// SEC-3: the pattern decides the whole value, so "Dev" does not pass a
+		// pattern that only finds "ev" in it, which the scripts provider
+		// would refuse at run time.
+		{"enum value matching a pattern only in part", scriptsYAML("{name: e, type: string, pattern: '[a-z]+', enum: [prod, Dev], arg: --e}"), "providers.scripts.catalog[0].parameters[0].enum[1]", "pattern"},
 		{"duplicate enum value", scriptsYAML("{name: e, type: string, enum: [prod, prod], arg: --e}"), "providers.scripts.catalog[0].parameters[0].enum[1]", "duplicate"},
 	}
 	for _, tc := range cases {

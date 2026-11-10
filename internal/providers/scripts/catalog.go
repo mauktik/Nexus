@@ -113,7 +113,7 @@ func NewCatalog(entries []config.Script) (*Catalog, error) {
 				// pattern meant to keep out leading dashes. CheckCatalog
 				// compiled it already, and a valid pattern stays valid when
 				// wrapped. Pattern stays as declared, for the reads.
-				prm.re = regexp.MustCompile(anchored(p.Pattern))
+				prm.re = regexp.MustCompile(config.AnchoredPattern(p.Pattern))
 			}
 			if p.Arg == "" && p.Env == "" {
 				positional++
@@ -129,10 +129,6 @@ func NewCatalog(entries []config.Script) (*Catalog, error) {
 	}
 	return c, nil
 }
-
-// anchored is the pattern that matches only a value the whole of which
-// matches pattern.
-func anchored(pattern string) string { return "^(?:" + pattern + ")$" }
 
 // decodeCatalog strictly decodes a scripts section and builds its catalog.
 // An absent section is an empty catalog.

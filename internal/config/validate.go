@@ -114,6 +114,14 @@ var (
 // match: a portable shell name, so it cannot carry "=" or a NUL.
 const EnvNamePattern = `^[A-Za-z_][A-Za-z0-9_]*$`
 
+// AnchoredPattern is the pattern that matches only a value the whole of
+// which matches pattern. A parameter's pattern is applied through it
+// wherever it is applied, here and in the scripts provider: an unanchored
+// one would let "--upload-pack=x" through a pattern meant to keep out
+// leading dashes. Compile pattern alone first: a valid pattern stays valid
+// when wrapped, but "a)(b" only becomes valid by it.
+func AnchoredPattern(pattern string) string { return "^(?:" + pattern + ")$" }
+
 // CheckCatalog applies the validate-config rules for script catalog entries
 // and calls fail once per problem, with the key path under
 // providers.scripts.catalog. validate-config and the scripts provider's
@@ -199,10 +207,15 @@ func CheckCatalog(entries []Script, fail func(path, msg string)) {
 			var re *regexp.Regexp
 			patternOK := true
 			if prm.Pattern != "" {
-				var err error
-				if re, err = regexp.Compile(prm.Pattern); err != nil {
+				// Compiled bare first, so the message quotes the pattern as
+				// written, and because a pattern like "a)(b" is invalid alone
+				// but compiles once wrapped. Then as it is applied, to the
+				// whole value (SEC-3).
+				if _, err := regexp.Compile(prm.Pattern); err != nil {
 					failf(pp+".pattern", "not a valid regular expression: %v", err)
 					patternOK = false
+				} else {
+					re = regexp.MustCompile(AnchoredPattern(prm.Pattern))
 				}
 			}
 			values := map[string]bool{}
