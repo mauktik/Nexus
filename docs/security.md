@@ -194,6 +194,21 @@ value marked sensitive. Query them with `nexus auditrecord get` and a token
 with `audit:read`. The log rotates by size, and records younger than
 `audit.retentionDays` (default 90) are never deleted to make room.
 
+Floods are recorded as aggregates rather than one record each: one record
+per source and per minute, with outcome `denied`, problem `rate-limited` and
+a `count`. Two kinds of flood are collected this way:
+
+- **Rate-limited authentication.** The requests from an address refused
+  with 429 after too many failed authentications. `source` is the address
+  the limiter counts: an IPv4 address or an IPv6 /64.
+- **One token's refusals.** Past 60 a minute, a token's denied requests
+  (a missing scope) and its mutating requests refused before they were
+  recorded as requested (for example `validation-failed` or
+  `storage-limit-reached`). `source` is then `token:<id>`, not an address.
+  These clients received the original refusal, such as 403, 422 or 507,
+  not 429. Read the aggregate as "this token caused `count` more refusals",
+  not as a record that its requests were rate-limited.
+
 The limits (OOS-12):
 
 - The log is append-only by convention. It protects against API callers,
