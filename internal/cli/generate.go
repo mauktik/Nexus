@@ -388,6 +388,7 @@ func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string
 		return err
 	}
 	a.multi = len(targets) > 1
+	opts.HostLabels = a.multi
 	p := &lockedPrinter{p: output.NewPrinter(a.env.Stdout, opts)}
 	send := func(ctx context.Context, t hostTarget) ([]byte, error) {
 		c, err := a.targetClient(t)
@@ -412,11 +413,25 @@ func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string
 		}
 		return p.close()
 	}
-	ferr := a.fanOut(cmd.Context(), targets, send, show)
+	limit := maxConcurrentHosts
+	if followsStream(op, in) {
+		// A followed stream holds its slot until the stream ends, which for
+		// container logs is never: the limit would starve every host after
+		// the eighth.
+		limit = len(targets)
+	}
+	ferr := a.fanOut(cmd.Context(), targets, limit, send, show)
 	if err := p.close(); err != nil {
 		return err
 	}
 	return a.interruptedExit(ferr)
+}
+
+// followsStream reports whether the invocation follows a stream op: it
+// prints frames as they arrive, until the stream ends.
+func followsStream(op def.Op, in map[string]any) bool {
+	follow, _ := in[flagFollow].(bool)
+	return follow && op.Mode == def.ModeStream
 }
 
 // execute sends one request to t and returns what to print: the response,
@@ -424,7 +439,7 @@ func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string
 // followed stream op prints its frames as they arrive and returns nil.
 func (a *app) execute(ctx context.Context, c *client.Client, t hostTarget, op def.Op, in map[string]any, req client.Request,
 	w waitOptions, p *lockedPrinter) ([]byte, error) {
-	if follow, _ := in[flagFollow].(bool); follow && op.Mode == def.ModeStream {
+	if followsStream(op, in) {
 		target, _ := in[op.CLI.Positional].(string)
 		return nil, followFrames(ctx, c, op, in, &resume{lastO: -1}, func(f map[string]any) error {
 			f["id"] = frameLocator(target, f)
@@ -578,14 +593,12 @@ func (a *app) printResponse(p *output.Printer, t hostTarget, op def.Op, in map[s
 	return p.Print(label(obj, t))
 }
 
-// label sets obj's host to the client-side configured name of t, whatever
-// the server called itself, so --stdin binds back to the same host (FR-31,
-// FR-32). A URL target has no configured name: it labels only an object
-// the host sent without one.
+// label sets obj's host to the client-side name of t, whatever the server
+// called itself, so --stdin binds back to the same host (FR-31, FR-32). For
+// a URL target that name is the URL's host, which stdinRun.host maps back
+// to the URL target before it looks at configured hosts.
 func label(obj map[string]any, t hostTarget) map[string]any {
-	if h, _ := obj["host"].(string); t.configured || h == "" {
-		obj["host"] = t.Name
-	}
+	obj["host"] = t.Name
 	return obj
 }
 

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -66,6 +67,10 @@ type Options struct {
 	// Text, in a table without Select, prints this field of each object
 	// verbatim instead of a row: the text of a log frame.
 	Text string
+	// HostLabels prefixes each line printed through Text with its object's
+	// host as "[host] ", so interleaved output of several hosts can be told
+	// apart.
+	HostLabels bool
 }
 
 // Printer writes objects to one writer in one format. jsonl writes each
@@ -91,7 +96,16 @@ func (p *Printer) Print(obj map[string]any) error {
 	case p.o.Format == JSONL:
 		return WriteLine(p.w, obj)
 	case p.o.Format == Table && p.o.Text != "" && len(p.o.Select) == 0:
-		_, err := io.WriteString(p.w, textOf(obj, p.o.Text))
+		text := textOf(obj, p.o.Text)
+		if h, _ := obj["host"].(string); p.o.HostLabels && h != "" {
+			var b strings.Builder
+			for line := range strings.Lines(text) {
+				b.WriteString("[" + Sanitize(h, false) + "] ")
+				b.WriteString(line)
+			}
+			text = b.String()
+		}
+		_, err := io.WriteString(p.w, text)
 		return err
 	}
 	p.objs = append(p.objs, obj)

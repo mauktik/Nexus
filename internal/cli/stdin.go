@@ -43,8 +43,12 @@ func registerStdinFlags(cmd *cobra.Command, g *opCommand) {
 		return
 	}
 	fs := cmd.Flags()
-	fs.Bool(flagStdin, false, fmt.Sprintf("read JSON Lines objects from stdin, such as another command's output, and run once per line: "+
-		"each binds its host and its id or %s; a line without host uses the target host", op.CLI.Positional))
+	binds := "its id"
+	if op.CLI.Positional != "id" {
+		binds += " or " + op.CLI.Positional
+	}
+	fs.Bool(flagStdin, false, "read JSON Lines objects from stdin, such as another command's output, and run once per line: "+
+		"each binds its host and "+binds+"; a line without host uses the target host")
 	fs.Bool(flagStopOnError, false, "with --stdin, stop at the first line that fails")
 }
 

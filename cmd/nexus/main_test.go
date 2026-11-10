@@ -634,7 +634,8 @@ func TestEnvironmentOverrides(t *testing.T) {
 		return caps.Host
 	}
 	// host is the output label: a configured host's client-side name (9.4),
-	// or for a URL target, the server's own name. server is the URL the
+	// or for a URL target, the host of its URL, which --stdin maps back to
+	// that target (CR-32). server is the URL the
 	// request went to, from --verbose; exit 0 with a token only that server
 	// accepts, over its pin, proves it answered.
 	for _, tc := range []struct {
@@ -647,7 +648,7 @@ func TestEnvironmentOverrides(t *testing.T) {
 		{"saved token is used", []string{"NEXUS_HOST=a"}, 3, "", ""},
 		{"NEXUS_HOST=a with NEXUS_TOKEN", []string{"NEXUS_HOST=a", "NEXUS_TOKEN=" + a.token}, 0, "a", a.url},
 		{"NEXUS_TOKEN alone, default host", []string{"NEXUS_TOKEN=" + a.token}, 0, "a", a.url},
-		{"URL with the right fingerprint", []string{"NEXUS_HOST=" + b.url, "NEXUS_FINGERPRINT=" + b.fp, "NEXUS_TOKEN=" + b.token}, 0, "beta", b.url},
+		{"URL with the right fingerprint", []string{"NEXUS_HOST=" + b.url, "NEXUS_FINGERPRINT=" + b.fp, "NEXUS_TOKEN=" + b.token}, 0, "127.0.0.1", b.url},
 		{"URL with a wrong fingerprint", []string{"NEXUS_HOST=" + b.url, "NEXUS_FINGERPRINT=" + a.fp, "NEXUS_TOKEN=" + b.token}, 5, "", ""},
 		{"URL without a fingerprint: system trust", []string{"NEXUS_HOST=" + b.url, "NEXUS_TOKEN=" + b.token}, 5, "", ""},
 		{"unknown NEXUS_HOST name", []string{"NEXUS_HOST=zz"}, 2, "", ""},

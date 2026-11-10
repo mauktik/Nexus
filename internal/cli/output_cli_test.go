@@ -22,7 +22,10 @@ import (
 
 const (
 	fixtureHost = "fixture-host"
-	fixtureOpID = "0190a5d2-7c3e-7f00-8a00-000000000001"
+	// urlTargetHost is what a NEXUS_HOST URL target is called client-side
+	// (CR-32): the host of its URL, whatever the server calls itself.
+	urlTargetHost = "127.0.0.1"
+	fixtureOpID   = "0190a5d2-7c3e-7f00-8a00-000000000001"
 )
 
 var fixtureTime = time.Date(2026, 11, 7, 12, 0, 0, 5, time.UTC)
@@ -195,7 +198,7 @@ func TestEveryObjectHasHostAndID(t *testing.T) {
 			ran[op.ID] = true
 			switch op.ID {
 			case "system.capabilities.get":
-				if objs[0]["id"] != apitypes.CapabilitiesID || objs[0]["host"] != fixtureHost {
+				if objs[0]["id"] != apitypes.CapabilitiesID || objs[0]["host"] != urlTargetHost {
 					t.Errorf("capability get: %v", objs[0])
 				}
 			case "system.operations.logs":
@@ -272,7 +275,7 @@ func TestOutputFormats(t *testing.T) {
 		}
 	}
 	tbl := run("capability", "get", "-o", "table").stdout
-	if !strings.HasPrefix(tbl, "HOST ") || !strings.Contains(tbl, fixtureHost) || json.Valid([]byte(tbl)) {
+	if !strings.HasPrefix(tbl, "HOST ") || !strings.Contains(tbl, urlTargetHost) || json.Valid([]byte(tbl)) {
 		t.Errorf("table = %q", tbl)
 	}
 	if r := runSpecsCLI(env, specs, "capability", "get", "-o", "xml"); r.code != ExitUsage || r.stdout != "" {
@@ -426,7 +429,7 @@ func TestSelectAndFilter(t *testing.T) {
 		t.Fatalf("select printed %d objects", len(objs))
 	}
 	for i, o := range objs {
-		want := map[string]any{"host": fixtureHost, "id": items[i].ID, "name": items[i].Name,
+		want := map[string]any{"host": urlTargetHost, "id": items[i].ID, "name": items[i].Name,
 			"properties": map[string]any{"state": items[i].Properties.State}}
 		if !reflect.DeepEqual(o, want) {
 			t.Errorf("select[%d] = %v, want %v", i, o, want)

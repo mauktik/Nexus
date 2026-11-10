@@ -20,6 +20,10 @@ import (
 // (FR-32).
 const maxConcurrentHosts = 8
 
+// errNotSent is the result of a host SIGINT reached before its request was
+// sent: the mutation did not happen there.
+var errNotSent = &ExitError{Code: ExitInterrupted, Err: errors.New("not sent: interrupted")}
+
 // Flags of every generated command that select its hosts, and --yes.
 const (
 	flagTag = "tag"
@@ -31,10 +35,9 @@ const (
 // hostTarget is one host a command sends to.
 type hostTarget struct {
 	clientconfig.Target
-	// configured means Name is the client-side configured name, which then
-	// replaces the host the server reports in every object printed, so
-	// --stdin binds back to the same host whatever the server calls itself.
-	// It is false for a URL in NEXUS_HOST, which has no configured name.
+	// configured means Name is a configured host name. It is false for a URL
+	// in NEXUS_HOST, whose Name is the URL's host: --stdin resolves that name
+	// to the URL target before it looks at configured hosts.
 	configured bool
 }
 
@@ -136,7 +139,11 @@ func (a *app) targets(cmd *cobra.Command) ([]hostTarget, error) {
 	}
 	configured := slices.Sorted(maps.Keys(cfg.Hosts))
 	var selected []string
-	switch names, _ := hostNames(a.host); {
+	names, err := hostNames(a.host)
+	if err != nil {
+		return nil, err
+	}
+	switch {
 	case len(tags) > 0:
 		for _, n := range configured {
 			if slices.ContainsFunc(cfg.Hosts[n].Tags, func(t string) bool { return slices.Contains(tags, t) }) {
@@ -218,9 +225,13 @@ func (a *app) targetClient(t hostTarget) (*client.Client, error) {
 // once, and prints each host's result as it arrives. A host's failure is
 // reported for that host alone and does not stop the others (FR-32); the
 // hosts are independent, so there is no shared fate to cancel on.
-func (a *app) fanOut(ctx context.Context, targets []hostTarget, send func(context.Context, hostTarget) ([]byte, error),
+//
+// limit is how many hosts run at once. Once SIGINT has detached the waits
+// (a.intr), no further host is sent to: a host not yet contacted is
+// reported as not sent, and the mutation never reaches it.
+func (a *app) fanOut(ctx context.Context, targets []hostTarget, limit int, send func(context.Context, hostTarget) ([]byte, error),
 	show func(hostTarget, []byte) error) error {
-	sem := make(chan struct{}, maxConcurrentHosts)
+	sem := make(chan struct{}, limit)
 	var (
 		wg    sync.WaitGroup
 		mu    sync.Mutex // Guards the printer, stderr and tally
@@ -242,15 +253,29 @@ func (a *app) fanOut(ctx context.Context, targets []hostTarget, send func(contex
 		tally.add(err)
 	}
 	for _, t := range targets {
+		if a.intr.hit() {
+			finish(t, nil, errNotSent)
+			continue
+		}
 		select {
 		case sem <- struct{}{}:
 		case <-ctx.Done():
 			finish(t, nil, ctx.Err())
 			continue
+		case <-a.intr.ctx.Done():
+			finish(t, nil, errNotSent)
+			continue
 		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			// The slot may have freed because SIGINT detached the wait that
+			// held it.
+			if a.intr.hit() {
+				<-sem
+				finish(t, nil, errNotSent)
+				return
+			}
 			body, err := send(ctx, t)
 			<-sem
 			finish(t, body, err)

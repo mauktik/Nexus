@@ -32,7 +32,7 @@ nexus operation get [ID] [flags]
       --limit int            Page size: default 100, maximum 1000.
   -o, --output string        output format: table, json, jsonl, yaml (default table on a terminal, jsonl otherwise)
       --select strings       print only these dot paths of each object, comma-separated, such as name,properties.state; host and id are always kept
-      --stdin                read JSON Lines objects from stdin, such as another command's output, and run once per line: each binds its host and its id or id; a line without host uses the target host
+      --stdin                read JSON Lines objects from stdin, such as another command's output, and run once per line: each binds its host and its id; a line without host uses the target host
       --stop-on-error        with --stdin, stop at the first line that fails
       --tag strings          target every configured host with this tag; comma-separated or repeated for any of several
 ```

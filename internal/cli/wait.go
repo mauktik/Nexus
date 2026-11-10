@@ -440,10 +440,20 @@ type resume struct {
 	lastT  string // Time of the last frame seen, for frames without offset
 	atLast int    // Frames seen at lastT
 	skip   int    // Frames at lastT still to drop on this stream
+
+	// replaying is true from a reopen until the first frame later than lastT
+	// arrives: the window the host repeats. Only there is a frame stamped
+	// before lastT a repeat. On a live stream it is not: Docker stamps stdout
+	// and stderr in separate goroutines, so frames can arrive slightly out of
+	// order, and none may be dropped.
+	replaying bool
 }
 
 // reopen starts a new stream: the frames at lastT come again.
-func (r *resume) reopen() { r.skip = r.atLast }
+func (r *resume) reopen() {
+	r.skip = r.atLast
+	r.replaying = r.lastT != ""
+}
 
 // next reports whether f is new, and records it.
 func (r *resume) next(f map[string]any) bool {
@@ -471,7 +481,10 @@ func (r *resume) next(f map[string]any) bool {
 		switch {
 		case err != nil:
 		case t.Before(last):
-			return false
+			// A repeat while replaying; otherwise a live frame that arrived
+			// out of order. It is new, and lastT stays where it is: the
+			// frames at lastT, not this one, are what a reopen repeats.
+			return !r.replaying
 		case t.Equal(last):
 			if r.skip > 0 {
 				r.skip--
@@ -481,7 +494,7 @@ func (r *resume) next(f map[string]any) bool {
 			return true
 		}
 	}
-	r.lastT, r.atLast, r.skip = ts, 1, 0
+	r.lastT, r.atLast, r.skip, r.replaying = ts, 1, 0, false
 	return true
 }
 

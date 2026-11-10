@@ -57,7 +57,7 @@ func TestOutputDefaultsOnTerminalAndPipe(t *testing.T) {
 
 	tty := e.onTerminal(t, env, "capability", "get")
 	header, rest, _ := strings.Cut(tty, "\n")
-	if !strings.HasPrefix(header, "\x1b[1mHOST ") || !strings.HasPrefix(rest, "ptyhost ") || json.Valid([]byte(strings.TrimSpace(tty))) {
+	if !strings.HasPrefix(header, "\x1b[1mHOST ") || !strings.HasPrefix(rest, "127.0.0.1 ") || json.Valid([]byte(strings.TrimSpace(tty))) {
 		t.Errorf("terminal default is not a bold-headed table:\n%q", tty)
 	}
 	plain := e.onTerminal(t, append(env, "NO_COLOR=1"), "capability", "get")
@@ -68,7 +68,7 @@ func TestOutputDefaultsOnTerminalAndPipe(t *testing.T) {
 	piped := e.nexus(t, "", env, "capability", "get")
 	var caps map[string]any
 	if piped.code != 0 || strings.Count(piped.stdout, "\n") != 1 || json.Unmarshal([]byte(piped.stdout), &caps) != nil ||
-		caps["host"] != "ptyhost" || caps["id"] != "/capabilities" {
+		caps["host"] != "127.0.0.1" || caps["id"] != "/capabilities" {
 		t.Errorf("piped default is not one jsonl object: exit %d %q %s", piped.code, piped.stdout, piped.stderr)
 	}
 	for _, f := range []string{"table", "json", "jsonl", "yaml"} {
