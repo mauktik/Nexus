@@ -68,7 +68,7 @@ func TestComposeTrustChecksEveryPathComposeReads(t *testing.T) {
 }
 
 // SEC-1 with the real check: a project the unprivileged test user owns is
-// refused, as a project in a home directory would be.
+// refused. TC-182 covers a root-owned project under a user-owned home.
 func TestComposeTrustRefusesAProjectNotOwnedByRoot(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("files made by root are root-owned")

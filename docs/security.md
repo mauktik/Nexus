@@ -168,8 +168,11 @@ they pass through are checked too. A failed check is refused with
 is changed. Files that a project pulls in with `include:` or `extends:` are
 not named by the container's labels, so they are not checked on their own:
 keep them under the working directory, whose owner and mode are. A project
-in a home directory therefore needs `chown root` on the files and
-directories, or must be updated with `docker compose` by hand.
+in an ordinary home directory, owned by its user, is therefore refused:
+the home directory is one of the directories above it. Such a project
+works only when every directory above it, the home directory included, is
+root-owned (for example a root-owned directory directly under `/home`).
+Otherwise it must be updated with `docker compose` by hand.
 
 A Compose update also recreates the service from the files as they are now,
 evaluated in `nexusd`'s minimal environment (`PATH`, `HOME`, `DOCKER_HOST`
@@ -306,7 +309,7 @@ Needed by what `nexusd` does:
 - `RestrictAddressFamilies=~AF_(INET|INET6)`: The TCP listener and registry clients.
 - `RestrictAddressFamilies=~AF_UNIX`: The Docker Engine socket, systemd's bus for `systemctl` and `systemd-run`, `sd_notify` and journald.
 - `RestrictAddressFamilies=~AF_NETLINK`: Go's `net.Interfaces` reads the interface addresses over netlink for the generated certificate's names.
-- `ProtectHome=`: Read-only, not inaccessible: scripts and Compose files can live in home directories, and the integrity checks and Compose updates read them.
+- `ProtectHome=`: Read-only, not inaccessible: a script can live in its run-as user's own home directory, and `nexusd`'s integrity checks read it there. A Compose project under `/home` is read the same way, but only a project whose every directory above it is root-owned is admitted, so a project in a home directory owned by its user is refused (see Compose projects).
 - `CapabilityBoundingSet=~CAP_(DAC_*|FOWNER|IPC_OWNER)`: `CAP_DAC_READ_SEARCH` is kept so that root can read scripts, Compose files and registry credentials in other users' private directories. `CAP_DAC_OVERRIDE`, `CAP_FOWNER` and `CAP_IPC_OWNER` are dropped.
 
 Not applied in this release:
