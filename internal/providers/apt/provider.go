@@ -26,7 +26,6 @@ import (
 	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/def"
 	"github.com/mauktik/nexus/internal/detach"
-	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/providers/apt/spec"
 )
@@ -190,14 +189,9 @@ func (p *Provider) prepareRefresh(context.Context, spec.RefreshInput, *provider.
 // success, anything else apt-failed with apt-get's status.
 // finalizeRefreshBusy (lane.go) runs first, for a held lock.
 func finalizeRefresh(_ context.Context, _ spec.RefreshInput, x detach.Exit, _ *provider.Run) (spec.RefreshResult, error) {
-	switch {
-	case x.Error != "":
-		return spec.RefreshResult{}, problem.New(problem.AptFailed, "apt-get update could not be started: "+x.Error)
-	case x.Signal != "":
-		return spec.RefreshResult{}, problem.New(problem.AptFailed, "apt-get update was killed by "+x.Signal)
-	case x.ExitCode != 0:
-		return spec.RefreshResult{}, problem.New(problem.AptFailed,
-			fmt.Sprintf("apt-get update exited with status %d; its output is in the operation log", x.ExitCode))
+	// No stderr: a held lock is finalizeRefreshBusy's, which runs first.
+	if perr := aptFailure("apt-get update", x, nil); perr != nil {
+		return spec.RefreshResult{}, perr
 	}
 	return spec.RefreshResult{ActionResult: apitypes.ActionResult{Changed: true}, ExitCode: 0}, nil
 }

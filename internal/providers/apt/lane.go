@@ -120,15 +120,22 @@ func (p *Provider) opStderr(id string) ([]byte, error) {
 // the status could be a lock's. A log that cannot be read is logged and
 // leaves apt-failed.
 func (p *Provider) exitFailure(what string, x detach.Exit, r *provider.Run) *problem.Error {
-	var stderr []byte
-	if x.ExitCode == aptExitFailure && x.Error == "" && x.Signal == "" && r != nil {
-		var err error
-		if stderr, err = p.opStderr(r.ID()); err != nil {
-			p.log.Warn("cannot read apt's output to tell a held lock from another failure", "operationId", r.ID(),
-				"error", err.Error())
-		}
+	return aptFailure(what, x, p.exitStderr(x, r))
+}
+
+// exitStderr is the operation's stderr when x is apt-get's exit status 100,
+// the only status that can mean a held lock or a refused install, else nil.
+// A log that cannot be read is logged and read as empty.
+func (p *Provider) exitStderr(x detach.Exit, r *provider.Run) []byte {
+	if x.ExitCode != aptExitFailure || x.Error != "" || x.Signal != "" || r == nil {
+		return nil
 	}
-	return aptFailure(what, x, stderr)
+	stderr, err := p.opStderr(r.ID())
+	if err != nil {
+		p.log.Warn("cannot read apt's output to tell a held lock or a refused install from another failure",
+			"operationId", r.ID(), "error", err.Error())
+	}
+	return stderr
 }
 
 // finalizeRefreshBusy is refresh's Finalize: package-manager-busy when

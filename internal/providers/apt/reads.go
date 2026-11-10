@@ -182,10 +182,7 @@ func (p *Provider) installed(ctx context.Context) ([]installedPackage, error) {
 		if !listed(d.Status) {
 			continue
 		}
-		name := d.Package
-		if d.Architecture != native && d.Architecture != "all" {
-			name += ":" + d.Architecture
-		}
+		name := qualifiedName(d.Package, d.Architecture, native)
 		if seen[name] {
 			continue
 		}

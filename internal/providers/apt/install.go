@@ -212,12 +212,15 @@ func (p *Provider) preparePackagesPreview(ctx context.Context, r *provider.Run, 
 	}
 	st := previewState{Upgradable: []spec.HeldBackPackage{}, Architectures: map[string]string{}}
 	for _, d := range parseDpkgQuery(res.Stdout) {
-		name := d.Package
-		if d.Architecture != native && d.Architecture != "all" {
-			name += ":" + d.Architecture
-		}
-		st.Architectures[name] = d.Architecture
+		st.Architectures[qualifiedName(d.Package, d.Architecture, native)] = d.Architecture
 	}
+	return p.writePreviewSpec(r, st, args)
+}
+
+// writePreviewSpec records st as preview.json in the operation's directory
+// and returns the unit of the simulation of args: apt-get -s, which takes
+// no lock and changes nothing.
+func (p *Provider) writePreviewSpec(r *provider.Run, st previewState, args []string) (detach.Spec, error) {
 	dir, err := p.opDir(r.ID())
 	if err != nil {
 		return detach.Spec{}, err
@@ -271,11 +274,8 @@ func (p *Provider) finalizePackages(whatIf bool, x detach.Exit, r *provider.Run)
 			RebootRequired: reboot, RebootRequiredPackages: pkgs, ExitCode: x.ExitCode,
 		}, nil
 	}
-	out, err := p.FinalizeMutation(r, x)
+	out, err := p.finalizeMutation(r, x, p.packagesFailure)
 	if err != nil {
-		if perr := p.packagesFailure("apt-get", x, r); perr != nil && perr.Slug() == problem.AptFailed {
-			return spec.PackagesResult{}, perr
-		}
 		return spec.PackagesResult{}, err
 	}
 	changes := make([]spec.PackageChange, len(out.Changes))
@@ -304,14 +304,9 @@ var (
 // an install because it would need to remove a package (--no-remove, A-51)
 // or to downgrade one.
 func (p *Provider) packagesFailure(what string, x detach.Exit, r *provider.Run) *problem.Error {
-	perr := p.exitFailure(what, x, r)
-	if perr == nil || perr.Slug() != problem.AptFailed || x.ExitCode != aptExitFailure || x.Error != "" ||
-		x.Signal != "" {
-		return perr
-	}
-	stderr, err := p.opStderr(r.ID())
-	if err != nil {
-		p.log.Warn("cannot read apt's output to explain its failure", "operationId", r.ID(), "error", err.Error())
+	stderr := p.exitStderr(x, r)
+	perr := aptFailure(what, x, stderr)
+	if perr == nil || perr.Slug() != problem.AptFailed || len(stderr) == 0 {
 		return perr
 	}
 	for line := range lines(stderr) {

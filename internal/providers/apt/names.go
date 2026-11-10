@@ -90,16 +90,23 @@ func (p *Provider) resolveDpkg(ctx context.Context, names []string, accept func(
 				"%s, and nothing was started", n, why))
 		}
 		// Named as the installed list and apt-get -s name it.
-		name := base
-		if found.Architecture != native && found.Architecture != "all" {
-			name = base + ":" + found.Architecture
-		}
+		name := qualifiedName(base, found.Architecture, native)
 		if !seen[name] {
 			seen[name] = true
 			out = append(out, name)
 		}
 	}
 	return out, nil
+}
+
+// qualifiedName is how apt-get and the installed list name a package of
+// architecture arch on a host whose native architecture is native: the bare
+// name, except for a foreign architecture, which needs name:arch.
+func qualifiedName(name, arch, native string) string {
+	if arch != native && arch != "all" {
+		return name + ":" + arch
+	}
+	return name
 }
 
 // cmdDpkgQueryNames queries names that passed the name pattern.
@@ -173,10 +180,7 @@ func (p *Provider) resolveAvailable(ctx context.Context, names []string) ([]stri
 			return nil, problem.New(problem.NotFound, fmt.Sprintf("apt knows no package of exactly the name %q; "+
 				"install names packages in the package indexes only, and nothing was started", n))
 		}
-		name := base
-		if found != native && found != "all" {
-			name = base + ":" + found
-		}
+		name := qualifiedName(base, found, native)
 		if !seen[name] {
 			seen[name] = true
 			out = append(out, name)

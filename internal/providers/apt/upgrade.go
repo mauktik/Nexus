@@ -15,7 +15,6 @@ import (
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/detach"
 	"github.com/mauktik/nexus/internal/oplog"
-	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/providers/apt/spec"
 )
@@ -101,26 +100,13 @@ func (p *Provider) prepareUpgrade(ctx context.Context, in spec.UpgradeInput, r *
 	if in.WhatIf {
 		return p.preparePreview(ctx, in, r)
 	}
-	names, err := p.resolveInstalled(ctx, in.Names)
-	if err != nil {
-		return detach.Spec{}, err
-	}
-	s, err := p.PrepareMutation(ctx, r, upgradeArgs(in.EffectiveMode(), names))
-	if err != nil {
-		return detach.Spec{}, err
-	}
-	// Resolve again now that the wait is over: a package removed while the
-	// operation queued would otherwise reach apt-get as a name apt reads
+	// The names resolve again once the wait is over: a package removed while
+	// the operation queued would otherwise reach apt-get as a name apt reads
 	// another way.
-	again, err := p.resolveInstalled(ctx, in.Names)
-	if err != nil {
-		return detach.Spec{}, err
-	}
-	if !slices.Equal(again, names) {
-		return detach.Spec{}, problem.New(problem.NotFound, "the named packages changed while the upgrade waited; "+
-			"nothing was started")
-	}
-	return s, nil
+	resolve := func() ([]string, error) { return p.resolveInstalled(ctx, in.Names) }
+	return p.preparePackages(ctx, r, false, resolve, func(names []string) []string {
+		return upgradeArgs(in.EffectiveMode(), names)
+	})
 }
 
 // preparePreview records the upgradable packages (of the named ones, for a
@@ -151,27 +137,7 @@ func (p *Provider) preparePreview(ctx context.Context, in spec.UpgradeInput, r *
 			Architecture: u.Properties.Architecture, InstalledVersion: u.Properties.InstalledVersion,
 			CandidateVersion: u.Properties.CandidateVersion})
 	}
-	dir, err := p.opDir(r.ID())
-	if err != nil {
-		return detach.Spec{}, err
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return detach.Spec{}, fmt.Errorf("apt: create %s: %w", dir, err)
-	}
-	b, err := json.Marshal(st)
-	if err != nil {
-		return detach.Spec{}, fmt.Errorf("apt: encode %s: %w", PreviewFile, err)
-	}
-	if err := writeFileAtomic(dir, PreviewFile, b); err != nil {
-		return detach.Spec{}, err
-	}
-	return detach.Spec{
-		Argv:       previewArgv(upgradeArgs(in.EffectiveMode(), names)),
-		Env:        Env(),
-		Dir:        "/",
-		KillMode:   detach.KillProcess,
-		MaxRuntime: p.Settings().MaxRuntime,
-	}, nil
+	return p.writePreviewSpec(r, st, upgradeArgs(in.EffectiveMode(), names))
 }
 
 // finalizeUpgrade reads files only, so it answers the same after a restart

@@ -199,6 +199,14 @@ func (p *Provider) logPosition() (logPosition, error) {
 // and apt-failed otherwise; the outcome is filled either way, since a
 // failed run can still have changed packages.
 func (p *Provider) FinalizeMutation(r *provider.Run, x detach.Exit) (MutationOutcome, error) {
+	return p.finalizeMutation(r, x, p.exitFailure)
+}
+
+// finalizeMutation is FinalizeMutation with the judge of apt-get's exit:
+// install and remove pass one that also explains a refused install, so the
+// operation's stderr is read once.
+func (p *Provider) finalizeMutation(r *provider.Run, x detach.Exit,
+	failure func(what string, x detach.Exit, r *provider.Run) *problem.Error) (MutationOutcome, error) {
 	out := MutationOutcome{ExitCode: x.ExitCode}
 	dir, err := p.opDir(r.ID())
 	if err != nil {
@@ -219,7 +227,7 @@ func (p *Provider) FinalizeMutation(r *provider.Run, x detach.Exit) (MutationOut
 	out.Changes = diffPackages(pre.Packages, parseStatusFile(status))
 	out.Conffiles, out.ConffilesComplete = p.keptConffiles(pre.DpkgLog)
 	out.RebootRequired, out.RebootPackages = p.rebootState()
-	if perr := p.exitFailure("apt-get", x, r); perr != nil {
+	if perr := failure("apt-get", x, r); perr != nil {
 		return out, perr
 	}
 	return out, nil
