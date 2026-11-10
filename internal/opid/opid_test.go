@@ -142,3 +142,34 @@ func parseMillis(t *testing.T, id string) int64 {
 	}
 	return ms
 }
+
+// CR-12: after Observe(id), every ID is above id even when the clock reads
+// earlier than id's timestamp; Observe never lowers the generator, and
+// ignores what is not a UUIDv7.
+func TestObserveRaisesTheGeneratorPastAPersistedID(t *testing.T) {
+	now := time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)
+	g := &generator{now: func() time.Time { return now }}
+	ahead := format(uint64(now.Add(time.Hour).UnixMilli()), 0xabc, 0x1234)
+	ms, a, b, ok := parse(ahead)
+	if !ok || ms != uint64(now.Add(time.Hour).UnixMilli()) || a != 0xabc || b != 0x1234 {
+		t.Fatalf("parse(%q) = %d %x %x %v", ahead, ms, a, b, ok)
+	}
+	g.observe(ms, a, b)
+	prev := ahead
+	for range 1000 {
+		id := g.next()
+		if id <= prev {
+			t.Fatalf("id %q is not above %q", id, prev)
+		}
+		prev = id
+	}
+	g.observe(uint64(now.UnixMilli()), 1, 1) // Older: no effect
+	if id := g.next(); id <= prev {
+		t.Fatalf("id %q after an older Observe is not above %q", id, prev)
+	}
+	for _, bad := range []string{"", "x", "01a1c3dc-cea2-4321-839c-8e9231d25edf", "01a1c3dc-cea2-7321-039c-8e9231d25edf", "zzzzzzzz-cea2-7321-839c-8e9231d25edf"} {
+		if _, _, _, ok := parse(bad); ok {
+			t.Errorf("parse(%q) accepted a value that is not a UUIDv7", bad)
+		}
+	}
+}

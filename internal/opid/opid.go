@@ -37,6 +37,55 @@ func New() string {
 	return std.next()
 }
 
+// Observe raises the generator past id, an ID this or an earlier process
+// issued and persisted, so every later ID sorts above it even when the wall
+// clock now reads earlier than when id was issued (a clock stepped back
+// across a restart). A value that is not a UUIDv7, or that is not above the
+// generator's last ID, changes nothing. Call it at startup with the largest
+// ID in each persisted store.
+func Observe(id string) {
+	ms, a, b, ok := parse(id)
+	if ok {
+		std.observe(ms, a, b)
+	}
+}
+
+func (g *generator) observe(ms uint64, a uint16, b uint64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if ms > g.ms || (ms == g.ms && (a > g.randA || (a == g.randA && b > g.randB))) {
+		g.ms, g.randA, g.randB = ms, a, b
+	}
+}
+
+// parse reads the fields format lays out.
+func parse(id string) (ms uint64, randA uint16, randB uint64, ok bool) {
+	if len(id) != 36 || id[8] != '-' || id[13] != '-' || id[18] != '-' || id[23] != '-' {
+		return 0, 0, 0, false
+	}
+	var u [16]byte
+	if _, err := hex.Decode(u[0:4], []byte(id[0:8])); err != nil {
+		return 0, 0, 0, false
+	}
+	if _, err := hex.Decode(u[4:6], []byte(id[9:13])); err != nil {
+		return 0, 0, 0, false
+	}
+	if _, err := hex.Decode(u[6:8], []byte(id[14:18])); err != nil {
+		return 0, 0, 0, false
+	}
+	if _, err := hex.Decode(u[8:10], []byte(id[19:23])); err != nil {
+		return 0, 0, 0, false
+	}
+	if _, err := hex.Decode(u[10:16], []byte(id[24:36])); err != nil {
+		return 0, 0, 0, false
+	}
+	hi, lo := binary.BigEndian.Uint64(u[0:8]), binary.BigEndian.Uint64(u[8:16])
+	if hi>>12&0xf != 7 || lo>>62 != 0b10 {
+		return 0, 0, 0, false
+	}
+	return hi >> 16, uint16(hi & randAMask), lo & randBMask, true
+}
+
 func (g *generator) next() string {
 	var seed [16]byte
 	mustRead(seed[:])

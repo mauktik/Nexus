@@ -7,6 +7,7 @@ package audit
 import (
 	"bytes"
 	"container/list"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,8 +33,11 @@ const FileName = "audit.jsonl"
 
 // Tunables (A-54, A-47).
 const (
-	DefaultRotateBytes     = 16 << 20
-	DefaultRetentionDays   = 90
+	DefaultRotateBytes   = 16 << 20
+	DefaultRetentionDays = 90
+	// MaxRetentionDays bounds Options.RetentionDays (100 years): a larger
+	// value is kept as this, which is "forever" for an audit log.
+	MaxRetentionDays       = 36500
 	DefaultAggregateWindow = time.Minute
 	// MaxAggregates bounds the sources with an open aggregate; past it the
 	// oldest is written early (NFR-4).
@@ -122,6 +126,9 @@ func Open(opts Options) (*Log, error) {
 	if days <= 0 {
 		days = DefaultRetentionDays
 	}
+	// A larger count would overflow the Duration and wrap negative, which
+	// puts the retention cutoff in the future and deletes the whole history.
+	days = min(days, MaxRetentionDays)
 	l.retention = time.Duration(days) * 24 * time.Hour
 	if l.rotateBytes <= 0 {
 		l.rotateBytes = DefaultRotateBytes
@@ -144,12 +151,41 @@ func Open(opts Options) (*Log, error) {
 	if err := l.openLive(); err != nil {
 		return nil, err
 	}
+	l.observePersisted()
 	if err := l.Prune(); err != nil {
 		// Retention runs again after every rotation; an old file kept a
 		// little longer loses nothing.
 		l.log.Error("audit retention failed", "dir", l.dir, "error", err.Error())
 	}
 	return l, nil
+}
+
+// observePersisted seeds the ID generator past the largest ID the newest
+// non-empty audit file holds, so records written after a restart sort after
+// those before it even if the clock stepped back meanwhile (Query's cursor
+// relies on that order).
+func (l *Log) observePersisted() {
+	srcs, err := l.sources()
+	if err != nil {
+		l.log.Warn("cannot read the audit log to seed record IDs", "error", err.Error())
+		return
+	}
+	defer func() {
+		for _, s := range srcs {
+			_ = s.f.Close() // Read-only
+		}
+	}()
+	for _, s := range srcs {
+		var newest string
+		if err := l.scan(context.Background(), s, func(r systemspec.AuditRecord) { newest = max(newest, r.ID) }); err != nil {
+			l.log.Warn("cannot read an audit file to seed record IDs", "file", s.name, "error", err.Error())
+			continue
+		}
+		if newest != "" {
+			opid.Observe(newest)
+			return
+		}
+	}
 }
 
 // openLive opens audit.jsonl for appending with mode 0600, and ends a final

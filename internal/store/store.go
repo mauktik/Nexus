@@ -16,6 +16,8 @@ import (
 
 	bolt "go.etcd.io/bbolt"
 	berrors "go.etcd.io/bbolt/errors"
+
+	"github.com/mauktik/nexus/internal/opid"
 )
 
 // FileName is the database file inside the state directory.
@@ -83,6 +85,18 @@ func Open(dir string, opts Options) (*Store, error) {
 	})
 	if err != nil {
 		return nil, closeAfter(db, fmt.Errorf("initialize %s: %v", path, err))
+	}
+	// Operation IDs are scan keys: seed the generator past the largest one on
+	// disk, so a clock that stepped back across a restart cannot order new
+	// operations before old ones (FIFO restore, List cursors).
+	err = db.View(func(tx *bolt.Tx) error {
+		if k, _ := tx.Bucket(bucketOps).Cursor().Last(); k != nil {
+			opid.Observe(string(k))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, closeAfter(db, fmt.Errorf("read %s: %v", path, err))
 	}
 	now := opts.Now
 	if now == nil {

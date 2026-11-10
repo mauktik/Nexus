@@ -81,6 +81,9 @@ func (c *Config) validate(errs *collector) {
 	v.positive("limits.outputCapBytes", c.Limits.OutputCapBytes)
 	v.positive("auth.failureLimitPerMinute", int64(c.Auth.FailureLimitPerMinute))
 	v.positive("audit.retentionDays", int64(c.Audit.RetentionDays))
+	if c.Audit.RetentionDays > MaxAuditRetentionDays {
+		v.failf("audit.retentionDays", "must be at most %d (100 years), got %d", MaxAuditRetentionDays, c.Audit.RetentionDays)
+	}
 
 	docker := c.Providers.Docker.Settings
 	v.absolute("providers.docker.socket", docker.Socket)

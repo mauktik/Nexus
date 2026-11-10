@@ -71,6 +71,10 @@ type Auth struct {
 	FailureLimitPerMinute int `yaml:"failureLimitPerMinute"`
 }
 
+// MaxAuditRetentionDays bounds audit.retentionDays. The retention period is a
+// time.Duration, which wraps negative past about 106,751 days.
+const MaxAuditRetentionDays = 36500
+
 type Audit struct {
 	RetentionDays int `yaml:"retentionDays"`
 }

@@ -175,6 +175,8 @@ func TestValidationRules(t *testing.T) {
 		{"empty listen", "listen: []\n", "listen", "at least one"},
 		{"bad listen address", "listen: [\"nonsense\"]\n", "listen[0]", "host:port"},
 		{"zero failure limit", "auth: {failureLimitPerMinute: 0}\n", "auth.failureLimitPerMinute", "greater than zero"},
+		{"retention days that would overflow a duration", "audit: {retentionDays: 999999}\n", "audit.retentionDays", "at most 36500"},
+		{"retention days just above the bound", "audit: {retentionDays: 36501}\n", "audit.retentionDays", "at most 36500"},
 		{"relative docker socket", "providers: {docker: {socket: docker.sock}}\n", "providers.docker.socket", "absolute"},
 		{"string parameter without pattern", scriptsYAML("{name: branch, type: string, arg: --branch}"), "providers.scripts.catalog[0].parameters[0].pattern", "required"},
 		{"sensitive without env", scriptsYAML("{name: k, type: string, pattern: '^a$', sensitive: true, arg: --k}"), "providers.scripts.catalog[0].parameters[0].env", "sensitive"},
@@ -398,3 +400,14 @@ func (f fakeInfo) Mode() fs.FileMode  { return f.mode }
 func (f fakeInfo) ModTime() time.Time { return time.Time{} }
 func (f fakeInfo) IsDir() bool        { return f.mode.IsDir() }
 func (f fakeInfo) Sys() any           { return f.sys }
+
+// CR-4: the largest accepted audit.retentionDays is 36500.
+func TestRetentionDaysAtTheBoundIsValid(t *testing.T) {
+	cfg, err := Parse([]byte("audit: {retentionDays: 36500}\n"), "c.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Audit.RetentionDays != MaxAuditRetentionDays {
+		t.Fatalf("retentionDays = %d", cfg.Audit.RetentionDays)
+	}
+}
