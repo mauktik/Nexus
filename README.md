@@ -23,10 +23,22 @@ Module path: `github.com/mauktik/nexus`. Go 1.26 is required.
 
 ## Quick start
 
-On the host, from the unpacked `nexusd` release:
+On the host, from a clone of this repository (needs Go; see
+[docs/install.md](docs/install.md#install-from-a-checkout-deploysh)):
+
+```sh
+./deploy.sh                            # as your normal user: builds, then installs with sudo
+```
+
+or from the unpacked `nexusd` release:
 
 ```sh
 sudo ./install.sh
+```
+
+Then:
+
+```sh
 sudo nexusd validate-config            # after enabling providers in /etc/nexus/nexusd.yaml
 sudo systemctl enable --now nexusd.service
 sudo nexusd tls fingerprint

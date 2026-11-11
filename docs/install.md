@@ -95,6 +95,31 @@ Read [security.md](security.md) first: Nexus is for the home LAN only.
    nexusd token revoke NAME` revokes one at once. `--expires 30d` limits a
    token's lifetime.
 
+## Install from a checkout (deploy.sh)
+
+Instead of a release tarball, you can build and install `nexusd` from a
+clone of the repository on the host itself. This needs Go 1.21 or newer
+(`sudo apt install golang-go`, or `sudo snap install go --classic`). Go then
+downloads the exact toolchain that `go.mod` pins.
+
+```
+git clone https://github.com/mauktik/Nexus.git
+cd Nexus
+./deploy.sh
+```
+
+Run it as your normal user, not with `sudo`. It builds `nexusd` as you,
+stages the same files the release tarball carries, and runs
+`deploy/install.sh` with `sudo`, so it asks for your password once. Steps 3
+to 5 above then apply as written.
+
+To upgrade, run `git pull && ./deploy.sh` again. Like `install.sh`, it keeps
+the configuration, tokens, certificate and history, and restarts a running
+`nexusd`. `./deploy.sh --uninstall` removes it again, and `--uninstall
+--purge` also deletes its configuration and state. `./deploy.sh --stage-only
+DIR` only builds and stages the tree for linux/amd64, on any machine with
+Go.
+
 ## Install the nexus client
 
 1. Download `nexus-<version>-darwin-arm64.tar.gz` (Mac) or
