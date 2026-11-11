@@ -202,6 +202,12 @@ and the user who keeps Compose projects in their home directory usually is
 one, so for such a user the option records a fact rather than granting new
 power. Do not list a user who is not already trusted as root.
 
+The trust also covers anything that can write as that user. A process or
+container running under the user's UID, for example a container that runs
+as that UID with the home directory bind-mounted, can edit the project and
+so becomes root-equivalent too. Before you list a user, check what runs as
+that user and what has their home directory mounted.
+
 Files that a project pulls in with `include:` or `extends:`, the
 `env_file:` files a service names, and files in subdirectories are not named
 by the container's labels, so they are not checked on their own (SEC-7, a
