@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -90,6 +91,7 @@ func (c *Config) validate(errs *collector) {
 	v.absolute("providers.docker.configDir", docker.ConfigDir)
 	v.positiveDuration("providers.docker.updateHealthTimeout", docker.UpdateHealthTimeout)
 	v.positiveDuration("providers.docker.updateMaxRuntime", docker.UpdateMaxRuntime)
+	v.trustedOwners("providers.docker.compose.trustedOwners", docker.Compose.TrustedOwners)
 
 	apt := c.Providers.Apt.Settings
 	v.positiveDuration("providers.apt.lockWait", apt.LockWait)
@@ -326,6 +328,28 @@ func (v validator) positive(path string, n int64) {
 func (v validator) positiveDuration(path string, d time.Duration) {
 	if d <= 0 {
 		v.failf(path, "must be greater than zero, got %s", d)
+	}
+}
+
+// trustedOwners requires each name to be a user on this host, as the docker
+// provider resolves them to UIDs when it is configured. root is a user, so
+// listing it passes, and changes nothing.
+func (v validator) trustedOwners(path string, names []string) {
+	for i, name := range names {
+		p := fmt.Sprintf("%s[%d]", path, i)
+		if name == "" {
+			v.fail(p, "must not be empty")
+			continue
+		}
+		if _, err := user.Lookup(name); err != nil {
+			var unknown user.UnknownUserError
+			if errors.As(err, &unknown) {
+				v.failf(p, "unknown user %q: no such user on this host. Fix: create the user, or remove it from "+
+					"the list", name)
+			} else {
+				v.failf(p, "unknown user %q: it cannot be looked up: %v", name, err)
+			}
+		}
 	}
 }
 

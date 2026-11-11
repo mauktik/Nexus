@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -206,7 +207,7 @@ func TestPrepareUpdate(t *testing.T) {
 	want := helperInput{OperationID: testOpID, Mode: ModeStandalone, Name: "web", ContainerID: f.id("web"),
 		OldName: "web-nexus-old-0123456789ab", HealthTimeout: 60 * time.Second, CallTimeout: 5 * time.Second,
 		PullTimeout: 30 * time.Minute, Socket: f.socket, ConfigDir: p.Settings().ConfigDir}
-	if hin != want {
+	if !reflect.DeepEqual(hin, want) {
 		t.Fatalf("input.json %+v, want %+v", hin, want)
 	}
 	if st, err := os.Stat(filepath.Join(dir, inputFile)); err != nil || st.Mode().Perm() != 0o600 {

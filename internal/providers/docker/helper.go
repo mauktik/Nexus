@@ -19,6 +19,7 @@ import (
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/providers/docker/spec"
+	"github.com/mauktik/nexus/internal/providers/scripts"
 )
 
 // Container update always runs detached (D-8, A-62). Prepare writes
@@ -65,6 +66,10 @@ type helperInput struct {
 	// ComposeTimeout bounds each of its docker compose commands.
 	Compose        *composeTarget `json:"compose,omitempty"`
 	ComposeTimeout time.Duration  `json:"composeTimeout,omitempty"`
+	// TrustedOwners are providers.docker.compose.trustedOwners, resolved
+	// when the update was admitted: the helper judges the project's files
+	// with the owners nexusd judged them with.
+	TrustedOwners []scripts.Owner `json:"trustedOwners,omitempty"`
 }
 
 // helperResult is result.json.
@@ -161,6 +166,7 @@ func (p *Provider) prepareUpdate(ctx context.Context, in spec.ContainerInput, r 
 			return detach.Spec{}, err
 		}
 		hin.Mode, hin.OldName, hin.Compose = ModeCompose, "", &t
+		hin.TrustedOwners = p.trustedOwners()
 		hin.ComposeTimeout = s.UpdateMaxRuntime + composeGrace
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {

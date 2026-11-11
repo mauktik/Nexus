@@ -722,10 +722,12 @@ func auditDirectives(t *testing.T) {
 // (ProtectHome=read-only), and nothing is denied; then the directive audit.
 //
 // The scripts are in deploy's own home, which the run-as-user ancestor rule
-// accepts. A Compose project's every ancestor must be root-owned (SEC-1;
-// the account is root), so its working project sits in a root-owned
+// accepts. By default a Compose project's every ancestor must be root-owned
+// (SEC-1; the account is root), so its working project sits in a root-owned
 // directory directly under /home, and a project under deploy's home is
-// asserted to be refused.
+// asserted to be refused. Then, with providers.docker.compose.trustedOwners
+// [deploy] applied by a reload, that project, its files now deploy's own,
+// updates.
 func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 	freshHost(t)
 	ensureUsers(t)
@@ -759,12 +761,14 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 
 	runInstall(t)
 	cfgDir := configDir(t, "tc182", "")
-	cfg := fmt.Sprintf("host: {name: harness}\nlisten: [%q]\ntls: {mode: off}\nproviders:\n"+
-		"  docker: {enabled: true, socket: %s, configDir: %s}\n  apt:\n    enabled: true\n  scripts:\n    enabled: true\n    catalog:\n%s",
-		exactAddr, dockerSocket, cfgDir,
-		catalogYAML(entry{id: "tc182-hello", path: hello, runAs: "deploy", dir: home},
-			entry{id: "tc182-wait", path: wait, runAs: "deploy", dir: home}))
-	writeConfig(t, cfg)
+	cfg := func(dockerExtra string) string {
+		return fmt.Sprintf("host: {name: harness}\nlisten: [%q]\ntls: {mode: off}\nproviders:\n"+
+			"  docker: {enabled: true, socket: %s, configDir: %s%s}\n  apt:\n    enabled: true\n  scripts:\n    enabled: true\n    catalog:\n%s",
+			exactAddr, dockerSocket, cfgDir, dockerExtra,
+			catalogYAML(entry{id: "tc182-hello", path: hello, runAs: "deploy", dir: home},
+				entry{id: "tc182-wait", path: wait, runAs: "deploy", dir: home}))
+	}
+	writeConfig(t, cfg(""))
 
 	// Docker: a lifecycle container, a standalone container with a newer
 	// image in the registry, and a Compose project whose files are in a
@@ -857,8 +861,9 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 	// an operation exists, naming that directory, and nothing is recreated.
 	code, b := n.act(uhApp, "update", "{}")
 	rp := refused(t, code, b, http.StatusUnprocessableEntity, problem.ComposeFilesMissing, 1)
-	if rp.Extensions["path"] != "/home/deploy" || !strings.Contains(rp.Detail, "chown root /home/deploy") {
-		t.Fatalf("refusal path %v detail %q, want /home/deploy and its chown", rp.Extensions["path"], rp.Detail)
+	if rp.Extensions["path"] != "/home/deploy" || !strings.Contains(rp.Detail, "chown root /home/deploy") ||
+		!strings.Contains(rp.Detail, "providers.docker.compose.trustedOwners") {
+		t.Fatalf("refusal path %v detail %q, want /home/deploy, its chown and trustedOwners", rp.Extensions["path"], rp.Detail)
 	}
 	if now := containerID(t, uhApp); now != uhID || len(composeProcs()) != 0 {
 		t.Fatalf("%s is %s (was %s), compose processes %v", uhApp, now, uhID, composeProcs())
@@ -875,6 +880,28 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 		t.Fatalf("Compose update %s: result %+v, inspect digest %s, registry %s", app, res, got, appNew)
 	}
 	ok("docker.containers.update", "Compose service %s (files in %s) runs %s", app, c.dir, appNew[:19])
+	// trustedOwners [deploy], applied by a reload: the project under
+	// deploy's home, with deploy now owning its directory and files too,
+	// updates through the helper, which judges them again before up.
+	uhNew := uh.pushApp(t, updPlain)
+	mustSh(t, "chown", "-R", "deploy:deploy", uh.dir)
+	for _, p := range []string{uh.dir, uh.file, uh.envFile} {
+		if uid, _, _ := fileStat(t, p); uid == 0 {
+			t.Fatalf("%s is still root-owned", p)
+		}
+	}
+	writeConfig(t, cfg(", compose: {trustedOwners: [deploy]}"))
+	reloadAt := time.Now().Add(-time.Second)
+	mustSh(t, detach.Systemctl, "reload", nexusdUnit)
+	waitUntil(t, 30*time.Second, "the reload in the journal", func() (bool, string) {
+		j, _ := sh(30*time.Second, "journalctl", "-u", nexusdUnit, "--since", "@"+strconv.FormatInt(reloadAt.Unix(), 10), "--no-pager", "-o", "cat")
+		return strings.Contains(j, "configuration reloaded"), j
+	})
+	res = wantSucceeded(t, n.waitOp(n.startAction(uhApp, "update", "{}").ID, 3*time.Minute))
+	if got := repoDigest(t, dockerInspectField(t, uhApp, "{{.Image}}"), uh.host+"/"+uh.appRepo); !res.Changed || got != uhNew {
+		t.Fatalf("trusted-owner Compose update %s: result %+v, inspect digest %s, registry %s", uhApp, res, got, uhNew)
+	}
+	ok("docker.containers.update", "trustedOwners [deploy]: Compose service %s (deploy's files in %s) runs %s", uhApp, uh.dir, uhNew[:19])
 	n.do(lc, "stop", `{"timeoutSeconds":5}`)
 	n.do(lc, "remove", "")
 	if !lcGone(t, "container", lc) {

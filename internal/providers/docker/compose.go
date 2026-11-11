@@ -180,7 +180,7 @@ func filesMissing(path, detail string) error {
 // working directory, configuration files and environment files exist. It
 // changes nothing and contacts no registry. Labels Compose would not write
 // are refused as not-updatable.
-func composeTargetOf(c container.InspectResponse) (composeTarget, error) {
+func composeTargetOf(c container.InspectResponse, owners []scripts.Owner) (composeTarget, error) {
 	var l map[string]string
 	if c.Config != nil {
 		l = c.Config.Labels
@@ -222,28 +222,31 @@ func composeTargetOf(c container.InspectResponse) (composeTarget, error) {
 			return t, err
 		}
 	}
-	if err := checkComposeTrust(t); err != nil {
+	if err := checkComposeTrust(t, owners); err != nil {
 		return t, err
 	}
 	return t, nil
 }
 
 // composeTrust judges one path of a Compose project: a script-integrity
-// walk with root as the user, so that only root can write the path or any
-// directory above it. It is a variable so that T0 tests can stage projects
-// without root.
-var composeTrust = scripts.CheckRootOwned
+// walk with root as the user, so that only root, or the trusted owner who
+// owns a path, can write the path or any directory above it. It is a
+// variable so that T0 tests can stage projects without root.
+var composeTrust = scripts.CheckOwnedBy
 
 // checkComposeTrust refuses a Compose project that someone other than root
-// can change (SEC-1, CWE-829). The helper runs docker compose as root, and
-// Compose reads the project's files when it runs, so a file or directory an
-// unprivileged user can write decides what root creates: privileged mode, a
-// bind mount of /, and so on. It checks the working directory and its
-// ancestors, every -f and --env-file file, and the .env file Compose reads
-// from the working directory. Files that include: or extends: name are not
-// known from the labels, so they are not checked; they sit under the
-// working directory, whose owner and mode are.
-func checkComposeTrust(t composeTarget) error {
+// or a trusted owner can change (SEC-1, CWE-829). owners are
+// providers.docker.compose.trustedOwners: each path may be owned by root or
+// one of them, and written by no one but root and its owner. The helper
+// runs docker compose as root, and Compose reads the project's files when
+// it runs, so a file or directory an unprivileged user can write decides
+// what root creates: privileged mode, a bind mount of /, and so on. It
+// checks the working directory and its ancestors, every -f and --env-file
+// file, and the .env file Compose reads from the working directory. Files
+// that include: or extends: name are not known from the labels, so they are
+// not checked (SEC-7); they sit under the working directory, whose owner
+// and mode are.
+func checkComposeTrust(t composeTarget, owners []scripts.Owner) error {
 	type item struct {
 		kind, path string
 		dir        bool
@@ -261,22 +264,30 @@ func checkComposeTrust(t composeTarget) error {
 		}
 	}
 	for _, it := range items {
-		err := composeTrust(it.path, it.dir)
+		err := composeTrust(it.path, it.dir, owners)
 		if err == nil {
 			continue
 		}
-		detail, path := err.Error(), it.path
+		detail, path, check := err.Error(), it.path, ""
 		var pe *problem.Error
 		if errors.As(err, &pe) {
 			detail = pe.Detail
 			if v, ok := pe.Extensions["path"].(string); ok {
 				path = v
 			}
+			check, _ = pe.Extensions["check"].(string)
+		}
+		who := "anyone but root"
+		if len(owners) > 0 {
+			who = "anyone but root or its trusted owner"
+		} else if check == scripts.CheckScriptOwner || check == scripts.CheckDirectoryOwner {
+			detail += ", or trust its owner by naming that user in providers.docker.compose.trustedOwners, " +
+				"which makes the user root-equivalent (docs/security.md)"
 		}
 		return problem.New(problem.ComposeFilesMissing, fmt.Sprintf("Compose project %q's %s %s is not trusted: %s. "+
-			"Nexus runs docker compose as root on the project's files, so a path that anyone but root can write "+
+			"Nexus runs docker compose as root on the project's files, so a path that %s can write "+
 			"would decide what root creates. Fix the ownership and mode as stated, or update the project with "+
-			"docker compose by hand; nothing was changed", t.Project, it.kind, it.path, detail)).With("path", path)
+			"docker compose by hand; nothing was changed", t.Project, it.kind, it.path, detail, who)).With("path", path)
 	}
 	return nil
 }
@@ -303,7 +314,7 @@ func (p *Provider) composeAdmissible(c container.InspectResponse) (composeTarget
 	if t := p.composeTools(p.Settings().ConfigDir); t.Missing != "" {
 		return composeTarget{}, pluginMissing(t)
 	}
-	return composeTargetOf(c)
+	return composeTargetOf(c, p.trustedOwners())
 }
 
 // composeArgv is the argument vector of one Compose command on t's
@@ -430,7 +441,7 @@ func (u *updater) runCompose(ctx context.Context) helperResult {
 	case err != nil:
 		return u.fail(problem.DependencyUnavailable, "the Docker Engine could not describe the container: "+u.engine(err))
 	}
-	t, err := composeTargetOf(c)
+	t, err := composeTargetOf(c, u.in.TrustedOwners)
 	if err != nil {
 		var pe *problem.Error
 		if errors.As(err, &pe) {
@@ -516,8 +527,9 @@ func (u *updater) runCompose(ctx context.Context) helperResult {
 	}
 
 	// The project's files are read again by up, after the pull has taken
-	// time: they must still be ones only root can write.
-	if err := checkComposeTrust(t); err != nil {
+	// time: they must still be ones only root, or their trusted owner, can
+	// write.
+	if err := checkComposeTrust(t, u.in.TrustedOwners); err != nil {
 		var pe *problem.Error
 		if errors.As(err, &pe) {
 			return u.fail(pe.Slug(), pe.Detail)

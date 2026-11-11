@@ -11,6 +11,7 @@ package docker
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"sync/atomic"
@@ -24,6 +25,7 @@ import (
 	"github.com/mauktik/nexus/internal/detach"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/providers/docker/spec"
+	"github.com/mauktik/nexus/internal/providers/scripts"
 )
 
 // Options configures New.
@@ -60,6 +62,9 @@ type Provider struct {
 type engine struct {
 	settings config.DockerConfig
 	cli      *client.Client // Nil until Configure
+	// owners are settings.Compose.TrustedOwners resolved to UIDs, root
+	// left out.
+	owners []scripts.Owner
 }
 
 // New returns the provider; it has no client until Configure.
@@ -90,16 +95,20 @@ func (p *Provider) Configure(decode func(into any) error) error {
 	if err := decode(&settings); err != nil {
 		return err
 	}
+	owners, err := scripts.ResolveOwners(settings.Compose.TrustedOwners)
+	if err != nil {
+		return fmt.Errorf("providers.docker.compose.trustedOwners: %w", err)
+	}
 	cur := p.engine.Load()
 	if cur.cli != nil && cur.settings.Socket == settings.Socket {
-		p.engine.Store(&engine{settings: settings, cli: cur.cli})
+		p.engine.Store(&engine{settings: settings, cli: cur.cli, owners: owners})
 		return nil
 	}
 	cli, err := newClient(settings.Socket)
 	if err != nil {
 		return err
 	}
-	p.engine.Store(&engine{settings: settings, cli: cli})
+	p.engine.Store(&engine{settings: settings, cli: cli, owners: owners})
 	if cur.cli != nil {
 		// Only idle connections close; a call in flight on the old client
 		// finishes.
@@ -112,6 +121,10 @@ func (p *Provider) Configure(decode func(into any) error) error {
 
 // Settings returns the docker section in force, defaults applied.
 func (p *Provider) Settings() config.DockerConfig { return p.engine.Load().settings }
+
+// trustedOwners are the users besides root whom the Compose trust check
+// lets own a project's files (providers.docker.compose.trustedOwners).
+func (p *Provider) trustedOwners() []scripts.Owner { return p.engine.Load().owners }
 
 // Preflight pings the Engine, which also negotiates the API version. The
 // negotiated version and the socket are reported in capabilities, and so

@@ -2,8 +2,10 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
+	"os/user"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -193,6 +195,11 @@ func TestValidationRules(t *testing.T) {
 		// would refuse at run time.
 		{"enum value matching a pattern only in part", scriptsYAML("{name: e, type: string, pattern: '[a-z]+', enum: [prod, Dev], arg: --e}"), "providers.scripts.catalog[0].parameters[0].enum[1]", "pattern"},
 		{"duplicate enum value", scriptsYAML("{name: e, type: string, enum: [prod, prod], arg: --e}"), "providers.scripts.catalog[0].parameters[0].enum[1]", "duplicate"},
+		// SEC-1 relaxation: every trusted Compose owner must exist on the host.
+		{"unknown trusted Compose owner", "providers:\n  docker:\n    compose:\n      trustedOwners: [root, nx-no-such-user-182]\n",
+			"providers.docker.compose.trustedOwners[1]", `unknown user "nx-no-such-user-182"`},
+		{"empty trusted Compose owner", "providers: {docker: {compose: {trustedOwners: [\"\"]}}}\n",
+			"providers.docker.compose.trustedOwners[0]", "must not be empty"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -212,6 +219,21 @@ func TestValidationRules(t *testing.T) {
 			t.Errorf("no error at %s containing %q in:\n%v", tc.wantPath, tc.wantMsg, err)
 		})
 	}
+
+	t.Run("trusted Compose owners that exist pass, root included", func(t *testing.T) {
+		u, err := user.Current()
+		if err != nil {
+			t.Fatal(err)
+		}
+		y := fmt.Sprintf("providers: {docker: {compose: {trustedOwners: [root, %s]}}}\n", u.Username)
+		cfg, err := Parse([]byte(y), "c.yaml")
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if got := cfg.Providers.Docker.Settings.Compose.TrustedOwners; len(got) != 2 || got[1] != u.Username {
+			t.Fatalf("trustedOwners %q", got)
+		}
+	})
 
 	t.Run("valid catalog passes", func(t *testing.T) {
 		y := scriptsYAML("{name: branch, type: string, pattern: '^[a-z]+$', arg: --branch}", "{name: apiKey, type: string, pattern: '^[A-Za-z0-9]+$', sensitive: true, env: API_KEY}",

@@ -51,6 +51,19 @@ providers:
     configDir: /root/.docker   # Registry credentials: only `auths` in config.json is read
     updateHealthTimeout: 60s   # How long an updated container may take to become healthy
     updateMaxRuntime: 1h       # Bound on one container update
+    # A Compose update runs docker compose as root on the project's files, so
+    # by default the working directory, every directory above it, the -f and
+    # --env-file files and .env must be root-owned with no other writer.
+    # trustedOwners lets the users named here own them too, for example a
+    # project in /home/deploy/stacks/app. Each name must exist on the host;
+    # listing root changes nothing. Group write is still allowed only when
+    # the group holds no one but root and that path's owner, a named ACL
+    # writer must be root or that owner, and a world-writable directory
+    # (sticky or not) is still refused. A user listed here is trusted as
+    # root: whoever can write a project that root runs is root-equivalent,
+    # as is any member of the docker group. See docs/security.md.
+    compose:
+      trustedOwners: []        # User names, e.g. [deploy]
 
   # Packages through the fixed binaries /usr/bin/apt-get, apt-cache,
   # dpkg-query and dpkg, in the C locale, never prompting. Reads list

@@ -206,7 +206,10 @@ func resolutionFailure(path string, err error) error {
 // at most once, and only when a group must be judged.
 type run struct {
 	integrity
-	acct   account
+	acct account
+	// owners are the users the Compose check trusts besides root
+	// (CheckOwnedBy); nil for a script.
+	owners []Owner
 	db     *accountDB
 	dbErr  error
 	dbRead bool
@@ -291,9 +294,10 @@ func (r *run) directory(d string) error {
 		return changed(d)
 	}
 	uid, gid := owner(fi)
+	defer r.judgeAs(uid)()
 	if uid != 0 && uid != r.acct.uid {
 		return refuse(CheckDirectoryOwner, d, fmt.Sprintf("directory %s is owned by UID %d, not %s. "+
-			"Fix: chown root %s", d, uid, r.trusted(), quote(d)))
+			"Fix: chown root %s", d, uid, r.mayOwn(), quote(d)))
 	}
 	perm := fi.Mode().Perm()
 	var others []string

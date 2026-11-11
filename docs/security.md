@@ -154,25 +154,60 @@ and `docker compose up -d --no-deps` as root, outside the sandbox. Compose
 reads the project's files when it runs, so whoever can write them decides
 what root creates: `privileged: true`, a bind mount of `/`, another image.
 Before the pull, and again before `up`, `nexusd` therefore refuses the update
-unless the project is root-owned with no other writers (SEC-1). It checks:
+unless the project is owned by root, or by a user you have chosen to trust,
+with no other writers (SEC-1). It checks:
 
 - the project's working directory and every directory above it;
 - every `-f` configuration file and every `--env-file`, and the `.env` file
   in the working directory when there is one.
 
-Each must be owned by root, and neither group-writable nor world-writable,
-unless its group is private to root. A POSIX ACL entry that lets another user
-or group write also fails. Symbolic links are resolved, and the directories
-they pass through are checked too. A failed check is refused with
-`compose-files-missing` (HTTP 422) naming the path and the fix, and nothing
-is changed. Files that a project pulls in with `include:` or `extends:` are
-not named by the container's labels, so they are not checked on their own:
-keep them under the working directory, whose owner and mode are. A project
-in an ordinary home directory, owned by its user, is therefore refused:
-the home directory is one of the directories above it. Such a project
-works only when every directory above it, the home directory included, is
-root-owned (for example a root-owned directory directly under `/home`).
-Otherwise it must be updated with `docker compose` by hand.
+By default each must be owned by root, and neither group-writable nor
+world-writable, unless its group is private to root. A POSIX ACL entry that
+lets another user or group write also fails. Symbolic links are resolved,
+and the directories they pass through are checked too. A failed check is
+refused with `compose-files-missing` (HTTP 422) naming the path and the fix,
+and nothing is changed. A project in an ordinary home directory, owned by
+its user, is therefore refused by default: the home directory is one of the
+directories above it. It works when every directory above it, the home
+directory included, is root-owned (for example a root-owned directory
+directly under `/home`), or when you trust the user who owns it.
+
+### Trusting a user's Compose projects
+
+`providers.docker.compose.trustedOwners` lists users, by name, who may own a
+project's files and directories as root may. With
+`trustedOwners: [deploy]`, a project in `/home/deploy/stacks/app` that
+`deploy` owns updates. The list is empty by default, which keeps the
+root-only rule above. Each name must be a user on the host:
+`nexusd validate-config` refuses an unknown name, and `nexusd` resolves the
+names to UIDs when it loads or reloads the configuration. Listing `root`
+changes nothing. When the list is empty, an ownership refusal names this
+key as the alternative to `chown root`.
+
+Only ownership is relaxed. No one but the owner may write:
+
+- each path may be owned by root or by a listed user;
+- a group-writable path passes only when its group holds no one but root
+  and that path's owner, as for a script's directories;
+- a POSIX ACL entry that lets anyone other than root or that path's owner
+  write fails, even when the entry names another listed user;
+- a world-writable directory fails, sticky bit or not, so a project under
+  `/tmp` or below a world-writable directory is still refused.
+
+Trusting a user is a deliberate choice to make that user root-equivalent on
+this host. Whoever can write a Compose project that root runs decides what
+root creates: `privileged: true`, a bind mount of `/`, any image. Members of
+the `docker` group are already root-equivalent through the Docker socket,
+and the user who keeps Compose projects in their home directory usually is
+one, so for such a user the option records a fact rather than granting new
+power. Do not list a user who is not already trusted as root.
+
+Files that a project pulls in with `include:` or `extends:`, the
+`env_file:` files a service names, and files in subdirectories are not named
+by the container's labels, so they are not checked on their own (SEC-7, a
+known limitation). Keep them under the working directory, whose owner and
+mode are checked, and do not let anyone but root or the trusted owner write
+inside it. Otherwise update the project with `docker compose` by hand.
 
 A Compose update also recreates the service from the files as they are now,
 evaluated in `nexusd`'s minimal environment (`PATH`, `HOME`, `DOCKER_HOST`

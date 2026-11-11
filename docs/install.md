@@ -46,6 +46,13 @@ Read [security.md](security.md) first: Nexus is for the home LAN only.
 
    - **Providers:** set `enabled: true` for each provider you want, under
      `providers`. Catalog scripts as [scripts.md](scripts.md) describes.
+   - **Compose projects in a home directory:** a Compose update refuses a
+     project that anyone but root owns, which includes one under
+     `/home/<user>`. To update such projects, list their owner under
+     `providers.docker.compose.trustedOwners`, for example
+     `compose: {trustedOwners: [deploy]}` in the `docker` section. The user
+     must exist on the host. This trusts that user as root: read
+     [security.md](security.md#trusting-a-users-compose-projects) first.
    - **LAN access:** to reach the host from other machines, set `listen` to
      its LAN address, for example `listen: ["192.168.1.10:7443"]`, and keep
      `tls.mode: auto`. To connect by a DNS name such as `nas.lan`, add it to

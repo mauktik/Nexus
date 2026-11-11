@@ -99,6 +99,15 @@ type DockerConfig struct {
 	ConfigDir           string        `yaml:"configDir"`
 	UpdateHealthTimeout time.Duration `yaml:"updateHealthTimeout"`
 	UpdateMaxRuntime    time.Duration `yaml:"updateMaxRuntime"`
+	Compose             ComposeConfig `yaml:"compose"`
+}
+
+// ComposeConfig is how the docker provider judges a Compose project's files.
+type ComposeConfig struct {
+	// TrustedOwners names users, besides root, who may own the project's
+	// files and the directories above them (SEC-1). Each must exist on the
+	// host; root is always trusted, so listing it changes nothing.
+	TrustedOwners []string `yaml:"trustedOwners"`
 }
 
 // AptConfig is the apt provider section.
@@ -194,6 +203,7 @@ func Default() Config {
 				ConfigDir:           "/root/.docker",
 				UpdateHealthTimeout: 60 * time.Second,
 				UpdateMaxRuntime:    time.Hour,
+				Compose:             ComposeConfig{TrustedOwners: []string{}},
 			}},
 			Apt: Section[AptConfig]{Settings: AptConfig{
 				LockWait:   300 * time.Second,

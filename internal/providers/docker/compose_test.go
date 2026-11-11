@@ -72,7 +72,7 @@ func problemOf(t *testing.T, err error) *problem.Error {
 // container, are not-updatable.
 func TestComposeTargetOf(t *testing.T) {
 	dir, labels := composeProjectDir(t, "proj")
-	got, err := composeTargetOf(labeled(labels))
+	got, err := composeTargetOf(labeled(labels), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestComposeTargetOf(t *testing.T) {
 	}
 	noEnv := clone(labels)
 	delete(noEnv, spec.ComposeEnvFileLabel)
-	if got, err := composeTargetOf(labeled(noEnv)); err != nil || got.EnvFiles != nil {
+	if got, err := composeTargetOf(labeled(noEnv), nil); err != nil || got.EnvFiles != nil {
 		t.Fatalf("without --env-file: %+v %v", got, err)
 	}
 
@@ -111,7 +111,7 @@ func TestComposeTargetOf(t *testing.T) {
 	} {
 		l := clone(labels)
 		tc.change(l)
-		_, err := composeTargetOf(labeled(l))
+		_, err := composeTargetOf(labeled(l), nil)
 		p := problemOf(t, err)
 		if p.Slug() != tc.slug {
 			t.Errorf("%s: %v, want %s", tc.name, err, tc.slug)
