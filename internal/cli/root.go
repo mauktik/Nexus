@@ -170,31 +170,37 @@ func unknownCommand(root *cobra.Command, args []string) error {
 	if len(args) > 0 && (args[0] == cobra.ShellCompRequestCmd || args[0] == cobra.ShellCompNoDescRequestCmd) {
 		return nil // Cobra's hidden completion command, added by Execute
 	}
+	// Cobra adds --help and -h to a command only as it executes it, and
+	// Find reads a flag it does not know as taking the next word as its
+	// value: --help before a noun would swallow the noun. Add them first,
+	// as Execute would, so Find reads them as the booleans they are.
+	initHelpFlags(root)
 	target, rest, err := root.Find(args)
 	if err != nil || !target.HasSubCommands() {
 		return nil
 	}
 	if words := commandWords(target, rest); len(words) > 0 {
-		target.InitDefaultHelpFlag() // As Execute would, for the usage noVerb prints
 		return noVerb(target, words)
 	}
 	return nil
 }
 
+// initHelpFlags adds the default help flag to cmd and its subcommands.
+func initHelpFlags(cmd *cobra.Command) {
+	cmd.InitDefaultHelpFlag()
+	for _, c := range cmd.Commands() {
+		initHelpFlags(c)
+	}
+}
+
 // commandWords are the arguments of args that are not flags or flag
-// values, read as cobra reads them to find a command: a flag it does not
-// know as boolean takes the next argument as its value. Cobra adds --help,
-// -h and the root's --version, both boolean, only once it executes.
+// values, read as cobra's Find reads them to find a command: a flag that
+// is not a known boolean takes the next argument as its value. That
+// includes the root's --version, which cobra adds only once it executes.
 func commandWords(cmd *cobra.Command, args []string) []string {
 	fs := pflag.NewFlagSet(cmd.Name(), pflag.ContinueOnError)
 	fs.AddFlagSet(cmd.Flags())
 	fs.AddFlagSet(cmd.InheritedFlags())
-	if fs.Lookup("help") == nil {
-		fs.BoolP("help", "h", false, "")
-	}
-	if fs.Lookup("version") == nil && !cmd.HasParent() && cmd.Version != "" {
-		fs.Bool("version", false, "")
-	}
 	boolean := func(f *pflag.Flag) bool { return f != nil && f.NoOptDefVal != "" }
 	var words []string
 	for i := 0; i < len(args); i++ {

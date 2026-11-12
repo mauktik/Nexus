@@ -175,7 +175,7 @@ func (a *app) newOpCommand(g *opCommand) (*cobra.Command, error) {
 	if first.CLI.WaitedResultItems {
 		cmd.Long += "\n\nOnce the operation succeeds, this command prints each item of its result as one object, " +
 			"labeled with host and id, and names the operation on stderr. With --no-wait, or when the operation " +
-			"does not succeed, it prints the operation."
+			"does not succeed, it prints the operation; in a table, a failed operation shows only its error on stderr."
 	}
 	switch {
 	case g.merged():
@@ -653,14 +653,16 @@ func (a *app) printResponse(p *output.Printer, t hostTarget, op def.Op, in map[s
 // printResultItems prints each item of the result of the operation in
 // body, labeled with host and id, when it succeeded, and names the
 // operation and the rest of its result on stderr. done is false when the
-// operation did not succeed: it is then printed as it is.
+// operation did not succeed: it is then printed as it is, except in a
+// table, whose columns are those of the items and which would show the
+// operation as a blank row; its failure is on stderr.
 func (a *app) printResultItems(p *output.Printer, t hostTarget, body []byte) (done bool, err error) {
 	obj, err := output.DecodeObject(body)
 	if err != nil {
 		return false, errNotJSON
 	}
 	if obj["status"] != string(apitypes.StatusSucceeded) {
-		return false, nil
+		return a.format == output.Table, nil
 	}
 	result, ok := obj["result"].(map[string]any)
 	if !ok {
