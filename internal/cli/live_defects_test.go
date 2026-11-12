@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -170,12 +171,59 @@ func TestWaitedCheckUpdatesPrintsContainerRows(t *testing.T) {
 		t.Errorf("--no-wait: exit %d, stdout %q, want the queued operation", r.code, r.stdout)
 	}
 
+	// --no-wait in a table has the operation's columns, not the items'.
+	r = runSpecsCLI(env, specs, "--host", liveClientName, "containerupdate", "get", "-o", "table", "--no-wait")
+	nw := strings.Split(strings.TrimSuffix(r.stdout, "\n"), "\n")
+	if r.code != 0 || len(nw) != 2 || !slices.Contains(strings.Fields(nw[0]), "STATUS") ||
+		!slices.Equal(strings.Fields(nw[1])[:2], []string{liveClientName, liveOpID}) || !strings.Contains(nw[1], string(apitypes.StatusQueued)) {
+		t.Errorf("--no-wait table: exit %d, stdout %q, want the operation's ID and STATUS columns and its queued row", r.code, r.stdout)
+	}
+
 	// A failed wait still prints the operation, and exits 1.
 	failed := startLiveServer(t, liveOperation(t, apitypes.StatusFailed))
 	r = runSpecsCLI(liveEnv(t, failed), specs, "--host", liveClientName, "containerupdate", "get", "-o", "jsonl")
 	if objs := jsonLines(t, "failed", r.stdout); r.code != ExitFailure || len(objs) != 1 || objs[0]["id"] != liveOpID ||
 		objs[0]["status"] != string(apitypes.StatusFailed) {
 		t.Errorf("failed wait: exit %d, stdout %q, want the failed operation and exit 1", r.code, r.stdout)
+	}
+}
+
+// A host whose check failed has no container rows: in a table it adds no
+// row, rather than a row of blank cells, and its failure is on stderr; the
+// other hosts' rows are intact and the exit is 6. A machine format keeps
+// the failed operation (FR-33).
+func TestWaitedCheckUpdatesTableOmitsFailedHost(t *testing.T) {
+	good := startLiveServer(t, liveOperation(t, apitypes.StatusSucceeded))
+	bad := startLiveServer(t, liveOperation(t, apitypes.StatusFailed))
+	env := homeEnv(writeClientConfig(t, "", clientHost{"a", good.URL, "tok", nil}, clientHost{"b", bad.URL, "tok", nil}))
+	specs := catalog.All()
+
+	r := runSpecsCLI(env, specs, "--host", "a,b", "containerupdate", "get", "-o", "table")
+	if r.code != 6 {
+		t.Errorf("exit %d, want 6: %s", r.code, r.stderr)
+	}
+	lines := strings.Split(strings.TrimSuffix(r.stdout, "\n"), "\n")
+	if len(lines) != 1+len(liveUpdates()) {
+		t.Errorf("table has %d lines, want a header and one row per container of host a:\n%s", len(lines), r.stdout)
+	}
+	for _, l := range lines[1:] {
+		if !strings.HasPrefix(l, "a ") || len(strings.Fields(l)) < 3 {
+			t.Errorf("row %q is not a container row of host a:\n%s", l, r.stdout)
+		}
+	}
+	if !strings.Contains(r.stderr, "the registry did not answer") || !strings.Contains(r.stderr, liveOpID) {
+		t.Errorf("stderr %q does not name host b's failure and operation", r.stderr)
+	}
+
+	r = runSpecsCLI(env, specs, "--host", "a,b", "containerupdate", "get", "-o", "jsonl")
+	var failedOps int
+	for _, o := range jsonLines(t, "jsonl", r.stdout) {
+		if o["status"] == string(apitypes.StatusFailed) && o["host"] == "b" {
+			failedOps++
+		}
+	}
+	if r.code != 6 || failedOps != 1 {
+		t.Errorf("jsonl: exit %d, %d failed operations of host b, want exit 6 and one: %s", r.code, failedOps, r.stdout)
 	}
 }
 
@@ -246,6 +294,9 @@ func TestUnknownCommandWithFlagsReportsUnknownCommand(t *testing.T) {
 		{[]string{"container", "bogus"}, `unknown command "bogus" for "nexus container"`},
 		{[]string{"host", "bogus", "-o", "json"}, `unknown command "bogus" for "nexus host"`},
 		{[]string{"command", "bogus", "-h"}, `unknown command "bogus" for "nexus command"`},
+		{[]string{"--help", "upgradable", "get"}, `unknown command "upgradable" for "nexus"`},
+		{[]string{"-h", "container", "bogus"}, `unknown command "bogus" for "nexus container"`},
+		{[]string{"container", "--help", "bogus"}, `unknown command "bogus" for "nexus container"`},
 	} {
 		r := runCLI(env, tc.args...)
 		if r.code != ExitUsage || r.stdout != "" || !strings.Contains(r.stderr, "nexus: "+tc.want) {
@@ -266,6 +317,13 @@ func TestUnknownCommandWithFlagsReportsUnknownCommand(t *testing.T) {
 		{[]string{"--version"}, ExitOK, "nexus ", ""},
 		{[]string{"container"}, ExitUsage, "", "nexus container needs a command"},
 		{[]string{"container", "--help"}, ExitOK, "Usage:", ""},
+		// A help or version flag before the command it is for.
+		{[]string{"--help", "container"}, ExitOK, "Usage:", ""},
+		{[]string{"-h", "container"}, ExitOK, "Usage:", ""},
+		{[]string{"--help", "container", "get"}, ExitOK, "nexus container get [NAME]", ""},
+		{[]string{"container", "--help", "get"}, ExitOK, "Usage:", ""},
+		{[]string{"container", "-h", "get"}, ExitOK, "Usage:", ""},
+		{[]string{"--version", "container"}, ExitOK, "nexus ", ""},
 		{[]string{"container", "get", "--help"}, ExitOK, "nexus container get [NAME]", ""},
 		{[]string{"help", "container", "get"}, ExitOK, "nexus container get [NAME]", ""},
 		{[]string{"command", "get", "--noun", "container"}, ExitOK, `"noun":"container"`, ""},
