@@ -516,6 +516,28 @@ func TestCatalogColumnsResolve(t *testing.T) {
 	if declared == 0 {
 		t.Fatal("no op declares columns")
 	}
+	// An op that prints its result items when waited declares columns of
+	// one item, and with --no-wait shows an operation's.
+	items := 0
+	for c, g := range a.generated {
+		for _, op := range g.ops {
+			if !op.CLI.WaitedResultItems {
+				continue
+			}
+			items++
+			item, _ := def.ResultItemType(op.OutputType())
+			if len(op.Columns) == 0 || itemType(op) != item || len(g.columns[op.ID]) != len(op.Columns) {
+				t.Errorf("%s: columns %v do not resolve against the result item %v", c.CommandPath(), g.columns[op.ID], item)
+			}
+			want, err := a.columnsOf(operationType, nil)
+			if err != nil || !reflect.DeepEqual(g.operationColumns, want) {
+				t.Errorf("%s: --no-wait columns %v, want an operation's %v (%v)", c.CommandPath(), g.operationColumns, want, err)
+			}
+		}
+	}
+	if items == 0 {
+		t.Error("no op prints its result items")
+	}
 	a = testApp(append(catalog.All(), def.ProviderSpec{Name: "testgadget", Ops: []def.Op{badColumns.Op()}}))
 	if _, err := a.buildRoot(); err == nil || !strings.Contains(err.Error(), "properties.nope") {
 		t.Errorf("an unknown column was accepted: %v", err)

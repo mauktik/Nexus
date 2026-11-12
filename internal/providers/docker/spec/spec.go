@@ -499,7 +499,9 @@ var CheckUpdates = def.Define[CheckUpdatesInput, CheckUpdatesResult](def.Op{
 		"naming the blocking operation while another check runs.",
 	Scope: def.Scope{Name: ReadScope}, Risk: def.RiskReadOnly, Mode: def.ModeLongRunning, Idempotent: true,
 	Untrusted: true,
-	CLI:       def.CLIBinding{Noun: "containerupdate", Verb: "get"},
+	// Waited, the CLI prints one object per container, as the noun says.
+	CLI:     def.CLIBinding{Noun: "containerupdate", Verb: "get", WaitedResultItems: true},
+	Columns: []string{"name", "properties.update.status", "properties.update.reason"},
 	MCP: &def.MCPBinding{Tool: "check_container_updates",
 		Description: "Check which Docker containers have a newer image in their registry."},
 })

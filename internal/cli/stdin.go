@@ -250,7 +250,7 @@ func (a *app) invokeStdin(cmd *cobra.Command, g *opCommand, b *binding) error {
 			}
 		}
 	}
-	if err := r.p.close(); err != nil {
+	if err := a.closePrinter(r.p); err != nil {
 		return err
 	}
 	return tally.result(fmt.Sprintf("of %d input lines", tally.succeeded+len(tally.codes)))
@@ -296,7 +296,8 @@ func (r *stdinRun) line(ctx context.Context, l stdinLine) error {
 	}
 	body, err := r.a.execute(ctx, h.c, h.t, r.op, in, req, r.w, r.p)
 	if body != nil {
-		if perr := r.p.response(r.a, h.t, r.op, in, body); err == nil {
+		waited := r.op.Mode == def.ModeLongRunning && !r.w.noWait
+		if perr := r.p.response(r.a, h.t, r.op, in, body, waited); err == nil {
 			err = perr
 		}
 	}

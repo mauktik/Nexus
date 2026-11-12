@@ -2,6 +2,7 @@ package output
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -39,6 +40,22 @@ func ParsePaths(values []string) ([]Path, error) {
 
 // identity are the fields every printed object keeps (FR-30).
 var identity = []Path{{"host"}, {"id"}}
+
+func (p Path) equal(q Path) bool { return slices.Equal(p, q) }
+
+func isIdentity(p Path) bool { return slices.ContainsFunc(identity, p.equal) }
+
+// selectColumns are the table columns after host for --select: id, as
+// every selection keeps it (FR-30), then the paths given, each once.
+func selectColumns(paths []Path) []Path {
+	out := []Path{{"id"}}
+	for _, p := range paths {
+		if !isIdentity(p) && !slices.ContainsFunc(out, p.equal) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
 
 // Select returns obj with only the paths given, plus host and id. A path
 // obj lacks is left out; through an array it keeps each element's part.

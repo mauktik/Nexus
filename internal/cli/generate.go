@@ -51,6 +51,9 @@ type opCommand struct {
 	noun, verb string
 	ops        []def.Op                 // When merged: [without positional, with positional]
 	columns    map[string][]output.Path // Op ID -> its table columns
+	// operationColumns are the table columns of an operation, for an op
+	// that prints its result items when waited but runs with --no-wait.
+	operationColumns []output.Path
 }
 
 // selectOp is the op args run: the Get of a merged pair when a name is
@@ -149,6 +152,11 @@ func (a *app) newOpCommand(g *opCommand) (*cobra.Command, error) {
 			return nil, fmt.Errorf("op %q: %w", op.ID, err)
 		}
 		g.columns[op.ID] = cols
+		if op.CLI.WaitedResultItems {
+			if g.operationColumns, err = a.columnsOf(operationType, nil); err != nil {
+				return nil, fmt.Errorf("op %q: %w", op.ID, err)
+			}
+		}
 	}
 	first := g.ops[0]
 	cmd := &cobra.Command{
@@ -164,6 +172,11 @@ func (a *app) newOpCommand(g *opCommand) (*cobra.Command, error) {
 		ids = append(ids, op.ID)
 	}
 	cmd.Annotations = map[string]string{"nexus.ops": strings.Join(ids, ",")}
+	if first.CLI.WaitedResultItems {
+		cmd.Long += "\n\nOnce the operation succeeds, this command prints each item of its result as one object, " +
+			"labeled with host and id, and names the operation on stderr. With --no-wait, or when the operation " +
+			"does not succeed, it prints the operation."
+	}
 	switch {
 	case g.merged():
 		get := g.ops[1]
@@ -240,9 +253,14 @@ func registerOutputFlags(cmd *cobra.Command, g *opCommand) {
 var operationType = reflect.TypeFor[apitypes.Operation]()
 
 // itemType is the Go type of one object op prints: the operation a
-// long-running op answers with, one item of a list, or the output itself.
+// long-running op answers with, or one item of its result for an op that
+// prints its result items when waited; one item of a list; or the output
+// itself.
 func itemType(op def.Op) reflect.Type {
 	if op.Mode == def.ModeLongRunning {
+		if item, ok := def.ResultItemType(op.OutputType()); ok && op.CLI.WaitedResultItems {
+			return item
+		}
 		return operationType
 	}
 	t := op.OutputType()
@@ -259,11 +277,15 @@ func itemType(op def.Op) reflect.Type {
 // first op declaring columns for the same output, else derived from it.
 // Every declared column must name a field of the output.
 func (a *app) columnsFor(op def.Op) ([]output.Path, error) {
-	t := itemType(op)
+	return a.columnsOf(itemType(op), op.Columns)
+}
+
+// columnsOf is the table columns of objects of type t: declared, else
+// those of the first op declaring columns for t, else derived from t.
+func (a *app) columnsOf(t reflect.Type, declared []string) ([]output.Path, error) {
 	if t == nil {
 		return nil, nil
 	}
-	declared := op.Columns
 	for _, spec := range a.specs {
 		for _, o := range spec.Ops {
 			if len(declared) == 0 && len(o.Columns) > 0 && itemType(o) == t {
@@ -397,7 +419,8 @@ func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string
 		}
 		return a.execute(ctx, c, t, op, in, req, w, p)
 	}
-	show := func(t hostTarget, body []byte) error { return p.response(a, t, op, in, body) }
+	waited := op.Mode == def.ModeLongRunning && !w.noWait
+	show := func(t hostTarget, body []byte) error { return p.response(a, t, op, in, body, waited) }
 	if len(targets) == 1 {
 		// One host: its error is the command's, as without fan-out.
 		t := targets[0]
@@ -411,7 +434,7 @@ func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string
 		if err != nil {
 			return err
 		}
-		return p.close()
+		return a.closePrinter(p)
 	}
 	limit := maxConcurrentHosts
 	if followsStream(op, in) {
@@ -421,7 +444,7 @@ func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string
 		limit = len(targets)
 	}
 	ferr := a.fanOut(cmd.Context(), targets, limit, send, show)
-	if err := p.close(); err != nil {
+	if err := a.closePrinter(p); err != nil {
 		return err
 	}
 	return a.interruptedExit(ferr)
@@ -479,16 +502,36 @@ func (l *lockedPrinter) print(obj map[string]any) error {
 	return l.p.Print(obj)
 }
 
-func (l *lockedPrinter) response(a *app, t hostTarget, op def.Op, in map[string]any, body []byte) error {
+func (l *lockedPrinter) response(a *app, t hostTarget, op def.Op, in map[string]any, body []byte, waited bool) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return a.printResponse(l.p, t, op, in, body)
+	return a.printResponse(l.p, t, op, in, body, waited)
 }
 
 func (l *lockedPrinter) close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.p.Close()
+}
+
+// closePrinter closes p, then warns about each --select path that no
+// printed object had (FR-30): a typo would otherwise print blank columns.
+func (a *app) closePrinter(p *lockedPrinter) error {
+	if err := p.close(); err != nil {
+		return err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, path := range p.p.Unmatched() {
+		msg := fmt.Sprintf("--%s path %q matched no field", flagSelect, path.String())
+		if !a.format.Machine() {
+			fmt.Fprintf(a.env.Stderr, "%s: warning: %s\n", programName, msg)
+			continue
+		}
+		// As in warn: a failed write to stderr has nowhere to go.
+		_ = output.WriteLine(a.env.Stderr, map[string]any{"level": "warning", "message": msg, flagSelect: path.String()})
+	}
+	return nil
 }
 
 var errNotJSON = errors.New("the host answered with a body that is not JSON objects")
@@ -535,7 +578,11 @@ func (a *app) outputOptions(cmd *cobra.Command, g *opCommand, op def.Op) (output
 		keys = append(keys, f.Key)
 	}
 	server, local := output.SplitFilters(matches, keys)
-	o := output.Options{Format: a.format, Columns: g.columns[op.ID], Select: paths, Filters: local}
+	cols := g.columns[op.ID]
+	if op.CLI.WaitedResultItems && flagSet(cmd, flagNoWait) {
+		cols = g.operationColumns // It prints the operation as accepted
+	}
+	o := output.Options{Format: a.format, Columns: cols, Select: paths, Filters: local}
 	o.Color = a.format == output.Table && output.ColorEnabled(isTerminal(a.env.Stdout), a.env.Getenv)
 	if op.Mode == def.ModeStream {
 		o.Text = frameText
@@ -544,7 +591,13 @@ func (a *app) outputOptions(cmd *cobra.Command, g *opCommand, op def.Op) (output
 }
 
 // printResponse prints each object of body, labeled with host and id.
-func (a *app) printResponse(p *output.Printer, t hostTarget, op def.Op, in map[string]any, body []byte) error {
+// waited means body is the last state of the operation op answered with,
+// once waited for (FR-33).
+func (a *app) printResponse(p *output.Printer, t hostTarget, op def.Op, in map[string]any, body []byte, waited bool) error {
+	relabel := label
+	if printsOperations(op) {
+		relabel = labelOperation
+	}
 	switch {
 	case op.Mode == def.ModeStream:
 		target, _ := in[op.CLI.Positional].(string)
@@ -564,6 +617,10 @@ func (a *app) printResponse(p *output.Printer, t hostTarget, op def.Op, in map[s
 		return nil
 	case len(bytes.TrimSpace(body)) == 0:
 		return nil
+	case waited && op.CLI.WaitedResultItems:
+		if done, err := a.printResultItems(p, t, body); done || err != nil {
+			return err
+		}
 	case op.Kind == def.KindList:
 		var page struct {
 			Items      []json.RawMessage `json:"items"`
@@ -577,7 +634,7 @@ func (a *app) printResponse(p *output.Printer, t hostTarget, op def.Op, in map[s
 			if err != nil {
 				return errNotJSON
 			}
-			if err := p.Print(label(obj, t)); err != nil {
+			if err := p.Print(relabel(obj, t)); err != nil {
 				return err
 			}
 		}
@@ -590,7 +647,76 @@ func (a *app) printResponse(p *output.Printer, t hostTarget, op def.Op, in map[s
 	if err != nil {
 		return errNotJSON
 	}
-	return p.Print(label(obj, t))
+	return p.Print(relabel(obj, t))
+}
+
+// printResultItems prints each item of the result of the operation in
+// body, labeled with host and id, when it succeeded, and names the
+// operation and the rest of its result on stderr. done is false when the
+// operation did not succeed: it is then printed as it is.
+func (a *app) printResultItems(p *output.Printer, t hostTarget, body []byte) (done bool, err error) {
+	obj, err := output.DecodeObject(body)
+	if err != nil {
+		return false, errNotJSON
+	}
+	if obj["status"] != string(apitypes.StatusSucceeded) {
+		return false, nil
+	}
+	result, ok := obj["result"].(map[string]any)
+	if !ok {
+		return false, errNotJSON
+	}
+	items, ok := result["items"].([]any)
+	if !ok && result["items"] != nil {
+		return false, errNotJSON
+	}
+	id, _ := obj["id"].(string)
+	a.resultInfo(t.Name, id, result)
+	for _, it := range items {
+		item, ok := it.(map[string]any)
+		if !ok {
+			return true, errNotJSON
+		}
+		if err := p.Print(label(item, t)); err != nil {
+			return true, err
+		}
+	}
+	return true, nil
+}
+
+// resultInfo writes one line to stderr naming the operation whose result
+// items were printed, with the result's other fields, such as when a check
+// ran: JSON in a machine format, as progress is.
+func (a *app) resultInfo(host, id string, result map[string]any) {
+	keys := slices.Sorted(maps.Keys(result))
+	keys = slices.DeleteFunc(keys, func(k string) bool { return k == "items" })
+	if a.format.Machine() {
+		line := map[string]any{"level": "info", "host": host, "id": id, "status": apitypes.StatusSucceeded}
+		for _, k := range keys {
+			if _, taken := line[k]; !taken {
+				line[k] = result[k]
+			}
+		}
+		// A failed write to stderr has nowhere to go.
+		_ = output.WriteLine(a.env.Stderr, line)
+		return
+	}
+	text := fmt.Sprintf("%s: host %s: operation %s %s", programName, hostOr(host), id, apitypes.StatusSucceeded)
+	for _, k := range keys {
+		v, ok := result[k].(string)
+		if !ok {
+			data, _ := json.Marshal(result[k])
+			v = string(data)
+		}
+		text += ", " + output.Sanitize(k+" "+v, false)
+	}
+	fmt.Fprintln(a.env.Stderr, text)
+}
+
+// printsOperations reports whether op prints operations: a long-running op
+// answers with one, and the operation commands read them.
+func printsOperations(op def.Op) bool {
+	return op.Mode == def.ModeLongRunning || itemType(op) == operationType
 }
 
 // label sets obj's host to the client-side name of t, whatever the server
@@ -600,6 +726,23 @@ func (a *app) printResponse(p *output.Printer, t hostTarget, op def.Op, in map[s
 func label(obj map[string]any, t hostTarget) map[string]any {
 	obj["host"] = t.Name
 	return obj
+}
+
+// labelOperation is label for an operation, whose result can list
+// resources of the host, as check-updates does: each result item with a
+// host is labeled too, so it binds back through --stdin like any object.
+func labelOperation(obj map[string]any, t hostTarget) map[string]any {
+	if result, ok := obj["result"].(map[string]any); ok {
+		items, _ := result["items"].([]any)
+		for _, it := range items {
+			if item, ok := it.(map[string]any); ok {
+				if _, ok := item["host"]; ok {
+					label(item, t)
+				}
+			}
+		}
+	}
+	return label(obj, t)
 }
 
 // frameLocator is a log frame's id (Interfaces): <target>@<o> for operation

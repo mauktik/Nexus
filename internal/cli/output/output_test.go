@@ -3,6 +3,8 @@ package output
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"reflect"
 	"slices"
 	"strings"
@@ -232,10 +234,29 @@ func TestTable(t *testing.T) {
 	if !strings.HasPrefix(colored, "\x1b[1m") {
 		t.Errorf("colored header = %q", colored)
 	}
-	// --select replaces the spec's columns.
+	// --select replaces the spec's columns, after host and id, which it
+	// always keeps.
 	s = render(t, Options{Format: Table, Columns: []Path{{"name"}}, Select: []Path{{"properties", "state"}}}, m)
-	if s != "HOST  STATE\nnas   running\n" {
-		t.Errorf("select table = %q", s)
+	if want := "HOST  ID                                STATE\nnas   /providers/docker/containers/web  running\n"; s != want {
+		t.Errorf("select table = %q, want %q", s, want)
+	}
+}
+
+// Unmatched names each selected path no printed object has, but never
+// host or id, and nothing when nothing was printed.
+func TestUnmatched(t *testing.T) {
+	sel := []Path{{"host"}, {"id"}, {"name"}, {"nope"}, {"properties", "foo"}, {"nope"}}
+	p := NewPrinter(io.Discard, Options{Format: JSONL, Select: sel})
+	if got := p.Unmatched(); len(got) != 0 {
+		t.Errorf("before printing: %v", got)
+	}
+	for _, o := range []string{sample, `{"id":"/y","host":"nas","properties":{"foo":"z"}}`} {
+		if err := p.Print(obj(t, o)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := fmt.Sprint(p.Unmatched()); got != "[nope]" {
+		t.Errorf("Unmatched = %s, want [nope]", got)
 	}
 }
 

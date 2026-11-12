@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"golang.org/x/term"
 
 	"github.com/mauktik/nexus/internal/catalog"
@@ -99,7 +100,10 @@ func runWithSpecs(args []string, env Env, specs []def.ProviderSpec) int {
 		return ExitFailure
 	}
 	root.SetArgs(args)
-	err = root.Execute()
+	err = unknownCommand(root, args)
+	if err == nil {
+		err = root.Execute()
+	}
 	if err == nil {
 		return ExitOK
 	}
@@ -155,6 +159,62 @@ func noVerb(cmd *cobra.Command, args []string) error {
 		return &runError{err: usagef("unknown command %q for %q", args[0], cmd.CommandPath())}
 	}
 	return &runError{err: usagef("%s needs a command", cmd.CommandPath())}
+}
+
+// unknownCommand fails args that name no command: an argument left over
+// where root or a noun expects a command. It runs before cobra parses
+// flags, so the unknown command is reported, exit 2, whatever flags follow
+// it, --help included; cobra would report a verb's flag as unknown first,
+// or print the parent's help and succeed.
+func unknownCommand(root *cobra.Command, args []string) error {
+	if len(args) > 0 && (args[0] == cobra.ShellCompRequestCmd || args[0] == cobra.ShellCompNoDescRequestCmd) {
+		return nil // Cobra's hidden completion command, added by Execute
+	}
+	target, rest, err := root.Find(args)
+	if err != nil || !target.HasSubCommands() {
+		return nil
+	}
+	if words := commandWords(target, rest); len(words) > 0 {
+		target.InitDefaultHelpFlag() // As Execute would, for the usage noVerb prints
+		return noVerb(target, words)
+	}
+	return nil
+}
+
+// commandWords are the arguments of args that are not flags or flag
+// values, read as cobra reads them to find a command: a flag it does not
+// know as boolean takes the next argument as its value. Cobra adds --help,
+// -h and the root's --version, both boolean, only once it executes.
+func commandWords(cmd *cobra.Command, args []string) []string {
+	fs := pflag.NewFlagSet(cmd.Name(), pflag.ContinueOnError)
+	fs.AddFlagSet(cmd.Flags())
+	fs.AddFlagSet(cmd.InheritedFlags())
+	if fs.Lookup("help") == nil {
+		fs.BoolP("help", "h", false, "")
+	}
+	if fs.Lookup("version") == nil && !cmd.HasParent() && cmd.Version != "" {
+		fs.Bool("version", false, "")
+	}
+	boolean := func(f *pflag.Flag) bool { return f != nil && f.NoOptDefVal != "" }
+	var words []string
+	for i := 0; i < len(args); i++ {
+		s := args[i]
+		switch {
+		case s == "--":
+			return words
+		case strings.HasPrefix(s, "--") && !strings.Contains(s, "="):
+			if !boolean(fs.Lookup(s[2:])) {
+				i++
+			}
+		case strings.HasPrefix(s, "-") && len(s) == 2 && s != "-":
+			if !boolean(fs.ShorthandLookup(s[1:])) {
+				i++
+			}
+		case s != "" && !strings.HasPrefix(s, "-"):
+			words = append(words, s)
+		}
+	}
+	return words
 }
 
 // newRoot is buildRoot for declarations known to be valid; it panics

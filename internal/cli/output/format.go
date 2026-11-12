@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -79,6 +80,10 @@ type Printer struct {
 	w    io.Writer
 	o    Options
 	objs []map[string]any
+	// printed counts the objects that passed the filters; matched marks
+	// each Select path that one of them has.
+	printed int
+	matched []bool
 }
 
 // NewPrinter returns a printer writing to w.
@@ -89,7 +94,16 @@ func (p *Printer) Print(obj map[string]any) error {
 	if !MatchAll(obj, p.o.Filters) {
 		return nil
 	}
+	p.printed++
 	if len(p.o.Select) > 0 {
+		if p.matched == nil {
+			p.matched = make([]bool, len(p.o.Select))
+		}
+		for i, path := range p.o.Select {
+			if !p.matched[i] {
+				_, p.matched[i] = pick(obj, path)
+			}
+		}
 		obj = Select(obj, p.o.Select)
 	}
 	switch {
@@ -110,6 +124,19 @@ func (p *Printer) Print(obj map[string]any) error {
 	}
 	p.objs = append(p.objs, obj)
 	return nil
+}
+
+// Unmatched lists the Select paths, other than host and id, that no
+// printed object has, each once. It is empty when nothing was printed.
+func (p *Printer) Unmatched() []Path {
+	var out []Path
+	for i, path := range p.o.Select {
+		if p.printed == 0 || p.matched[i] || isIdentity(path) || slices.ContainsFunc(out, path.equal) {
+			continue
+		}
+		out = append(out, path)
+	}
+	return out
 }
 
 // Close writes what the format holds back until the end.
@@ -146,7 +173,7 @@ func (p *Printer) Close() error {
 		}
 		cols := p.o.Columns
 		if len(p.o.Select) > 0 {
-			cols = p.o.Select
+			cols = selectColumns(p.o.Select)
 		}
 		bw := bufio.NewWriter(p.w)
 		if err := writeTable(bw, cols, objs, p.o.Color); err != nil {

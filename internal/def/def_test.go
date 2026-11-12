@@ -2,6 +2,7 @@ package def
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -184,5 +185,47 @@ func TestDefineDefaultsCancelAndRecordsTypes(t *testing.T) {
 	}
 	if !(Op{Risk: RiskMutating}).Mutating() || !(Op{Risk: RiskDestructive}).Mutating() {
 		t.Error("Mutating() = false for a mutating or destructive risk")
+	}
+}
+
+type resultItemsOut struct {
+	Items []apitypes.Resource[struct{}] `json:"items"`
+}
+
+type plainItemsOut struct {
+	Items []string `json:"items"`
+}
+
+// CLI.WaitedResultItems is accepted only on a long-running op whose output
+// lists resources under items.
+func TestDefineWaitedResultItems(t *testing.T) {
+	op := mutatingOp(uniqueID("test.check"))
+	op.CLI.WaitedResultItems = true
+	typed := Define[struct{}, resultItemsOut](op)
+	if item, ok := ResultItemType(typed.Op().OutputType()); !ok || item != reflect.TypeFor[apitypes.Resource[struct{}]]() {
+		t.Errorf("ResultItemType = %v, %v; want the resource type", item, ok)
+	}
+
+	for _, tc := range []struct {
+		name string
+		def  func(Op)
+		rule string
+	}{
+		{"sync op", func(op Op) {
+			op.Risk, op.Mode = RiskReadOnly, ModeSync
+			Define[struct{}, resultItemsOut](op)
+		}, "requires ModeLongRunning"},
+		{"output without items", func(op Op) { Define[struct{}, struct{}](op) }, "Items field listing resources"},
+		{"items that are not resources", func(op Op) { Define[struct{}, plainItemsOut](op) }, "Items field listing resources"},
+		{"a list, not a struct", func(op Op) { Define[struct{}, []apitypes.Resource[struct{}]](op) }, "Items field listing resources"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			op := mutatingOp(uniqueID("test.bad"))
+			op.CLI.WaitedResultItems = true
+			msg, panicked := recoverMessage(func() { tc.def(op) })
+			if !panicked || !strings.Contains(msg, tc.rule) || !strings.Contains(msg, op.ID) {
+				t.Errorf("panicked=%v msg=%q, want the op ID and %q", panicked, msg, tc.rule)
+			}
+		})
 	}
 }

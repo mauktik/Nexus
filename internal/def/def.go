@@ -108,6 +108,12 @@ type CLIBinding struct {
 	Noun       string // Singular, e.g. "container"
 	Verb       string // One of ApprovedVerbs
 	Positional string // Input field bound to the positional argument, if any
+	// WaitedResultItems makes a waited long-running command print, once the
+	// operation succeeded, each object of its result's items instead of the
+	// operation; --no-wait and an operation that did not succeed still
+	// print the operation. The output must have an Items field listing
+	// resources, which carry host and id. It changes the CLI only.
+	WaitedResultItems bool
 }
 
 // MCPBinding exposes an operation as an MCP tool.
@@ -170,6 +176,35 @@ func Define[In, Out any](op Op) Typed[In, Out] {
 	return Typed[In, Out]{op: op}
 }
 
+// ResultItemType is the type of one item of t's Items field, tagged items,
+// when the items are resources: structs with string fields ID and Host,
+// tagged id and host, as apitypes.Resource has.
+func ResultItemType(t reflect.Type) (reflect.Type, bool) {
+	if t == nil || t.Kind() != reflect.Struct {
+		return nil, false
+	}
+	f, ok := t.FieldByName("Items")
+	if !ok || f.Type.Kind() != reflect.Slice || jsonName(f) != "items" {
+		return nil, false
+	}
+	item := f.Type.Elem()
+	if item.Kind() != reflect.Struct {
+		return nil, false
+	}
+	for name, tag := range map[string]string{"ID": "id", "Host": "host"} {
+		g, ok := item.FieldByName(name)
+		if !ok || g.Type.Kind() != reflect.String || jsonName(g) != tag {
+			return nil, false
+		}
+	}
+	return item, true
+}
+
+func jsonName(f reflect.StructField) string {
+	name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+	return name
+}
+
 func validate(op Op) error {
 	if op.ID == "" {
 		return fmt.Errorf("empty ID")
@@ -204,6 +239,15 @@ func validate(op Op) error {
 
 	if op.Mode == ModeStream && op.outputType != frameType {
 		return fmt.Errorf("ModeStream requires output type apitypes.Frame, got %v", op.outputType)
+	}
+
+	if op.CLI.WaitedResultItems {
+		if op.Mode != ModeLongRunning {
+			return fmt.Errorf("CLI.WaitedResultItems requires ModeLongRunning, got %q", op.Mode)
+		}
+		if _, ok := ResultItemType(op.outputType); !ok {
+			return fmt.Errorf("CLI.WaitedResultItems requires an output with an Items field listing resources, got %v", op.outputType)
+		}
 	}
 
 	if op.Mutating() {
