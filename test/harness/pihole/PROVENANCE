@@ -1,0 +1,145 @@
+WI 0.1 T1 feasibility spike (TC-120a in planning/pihole-dns-zones/test-cases.md)
+
+captured: 2026-11-13T09:03:25Z to 2026-11-13T09:05:37Z (INIT=sysv, checks 1-6);
+          2026-11-13T09:03:00Z (INIT=native, checks 1-3)
+script:   test/harness/pihole/spike.sh, then INIT=native test/harness/pihole/spike.sh
+docker:   context colima, server 29.2.1, daemon architecture aarch64 (GOARCH=arm64)
+spike.sh exit: 3 on both runs (an Expected not met with no blocking outcome:
+          check 3's bad-line exit code, below)
+
+ROUTE: 1 (route 2 was not needed and was not attempted; no VM was created)
+  image: pihole/pihole:2024.07.0@sha256:0def896a596e8d45780b6359dbf82fc8c75ef05b97e095452e67a0a4ccc95377
+         (the index digest; Docker selected its linux/arm64 image)
+  Dockerfile: FROM that image; systemd, systemd-sysv, dbus and dnsutils from
+    snapshot.debian.org 20240612T000000Z (the date the image's own
+    sources.list names; bullseye-security is gone from deb.debian.org's pool,
+    so the unpinned mirror returned 404 for systemd 247.3-7+deb11u8);
+    /usr/local/bin/service (the s6 shim) removed, so `service` is Debian's
+    /usr/sbin/service; conf-dir=/etc/dnsmasq.d already present in
+    /etc/dnsmasq.conf (kept, guarded); ENTRYPOINT cleared, CMD /sbin/init.
+  INIT=sysv (WI 0.1's route): /etc/.pihole/advanced/Templates/pihole-FTL.service
+    installed as /etc/init.d/pihole-FTL, `update-rc.d pihole-FTL defaults`;
+    systemd-sysv-generator wraps it (FragmentPath
+    /run/systemd/generator.late/pihole-FTL.service, Type=forking,
+    RemainAfterExit=yes: `systemctl is-active` stays active even if FTL dies,
+    so the checks also read the PID file, the process and dig).
+  INIT=native (supplementary): pihole-FTL.systemd installed as
+    /etc/systemd/system/pihole-FTL.service and enabled, which is what core
+    v5.18.4's basic-install.sh does when /run/systemd/system exists
+    (https://raw.githubusercontent.com/pi-hole/pi-hole/v5.18.4/automated%20install/basic-install.sh
+    L1382-1396: install the .systemd unit, remove /etc/init.d/pihole-FTL).
+    The user's bare-metal host was installed by that script under systemd, so
+    it most likely runs this unit (Type=simple, `pihole-FTL -f`,
+    User=pihole), not the SysV one. WI 6.1 step 0 should confirm with
+    `systemctl show -p FragmentPath,SourcePath pihole-FTL`.
+  Commands in the container run through `env -i PATH=... HOME=/root
+    LANG=C.UTF-8 bash -c`, so the image's s6 ENV (FTL_CMD, FTLCONF_*,
+    DNSMASQ_USER, /opt/pihole on PATH) does not leak in.
+  Versions (check 4, `pihole -v` and /etc/pihole/versions):
+    core v5.18.3  be5a8dc51a7b3e7ec3b40a9c815dee1c866ea2d4 (= tag v5.18.3,
+                  api.github.com/repos/pi-hole/pi-hole/git/ref/tags/v5.18.3)
+    web  v5.21    be05b0f61d3fcf796dae4cc3f89f8540b2359325 (= tag v5.21)
+    FTL  v5.25.2  8943e260; /usr/bin/pihole-FTL sha1
+                  981a5428b7ae5e04a5e92540aba958fd8625485f, equal to
+                  https://github.com/pi-hole/FTL/releases/download/v5.25.2/pihole-FTL-aarch64-linux-gnu.sha1
+    core v5.18.3 -> v5.18.4 (the host's) changes only CI/test files, README
+    and one Fedora-only line of basic-install.sh (rpm -q in
+    install_dependent_packages): compare/v5.18.3...v5.18.4 on GitHub.
+    The image's /usr/local/bin/pihole differs from /etc/.pihole/pihole only in
+    making -up, -r and uninstall print "not supported"; the spike runs none.
+
+CHECKS (verdict lines are at the end of each transcript)
+  1 boot          PASS  system running, pihole-FTL active, dig pi.hole NOERROR
+                        (native: PASS)
+  2 restartdns    PASS  PID 118 -> 285, dig answers after (A-32)
+                        (native: PASS, 94 -> 237)
+  3 ftl --test    bad line: EXIT 139, NOT 1 (Expected not met). SIGSEGV after
+                        "dnsmasq: Bad address in --address at line 1 of
+                        /etc/dnsmasq.d/99-nexus-spike.conf"; a core file is
+                        written to /core. Reproduced on every run, as root and
+                        as user pihole, under both INIT variants. It is
+                        non-zero, so A-19's falsifier (exit 0) is not met and
+                        this is not a blocking outcome; but code that tests
+                        for exit status 1, or reads exec.ExitError.ExitCode()
+                        (-1 for a signal death in Go), must treat "killed by a
+                        signal" as a failed test too. Likely path (code
+                        reading, not verified with a debugger): FTL v5.25.2
+                        src/args.c runs `--test` without initialising FTL's
+                        shared memory or database; the dnsmasq die() hook
+                        src/dnsmasq/log.c:512 FTL_log_dnsmasq_fatal ->
+                        src/database/message-table.c logg_fatal_dnsmasq_message
+                        -> add_message(), cleanup(EXIT_FAILURE). Only aarch64
+                        was observed (this daemon has no amd64 emulation);
+                        WI 6.1 should record the host's code.
+                  PASS  scratch file removed: exit 0
+                  PASS  FTL PID 285 unchanged and dig answers across the
+                        failed test (A-21)
+  4 versions/API  PASS  core v5.18.3, web v5.21, FTL v5.25.2 (A-52 n/a on
+                        route 1; ASM-13). /etc/pihole/versions EXISTED before
+                        `pihole updatechecker` ran (the image bakes it; V-8).
+                        updatechecker ran online, so GITHUB_* show v6.x.
+                        FTLPORT unset in pihole-FTL.conf: default 4711.
+  5 sqliteprobe   PASS  modernc.org/sqlite v1.61.0; 19 -p properties generated
+                        from deploy/nexusd.service [Service] (grep -c of the
+                        same filter: 19); exit 0; journal_mode delete (A-14);
+                        query_only 1; info rows and domainlist_count 0
+                        printed; no gravity.db-journal/-wal/-shm after; no
+                        SIGSYS, EPERM, audit or seccomp line in the unit or
+                        kernel journal (A-39; the kernel journal is empty in
+                        the container).
+  6 gravity       RECORDED, FAILED (record only, not an escalation; input
+                        for WI 5.1): with the container disconnected from its
+                        only network, `pihole -g` exited 1 after its 120 s
+                        retry with "DNS resolution is not available";
+                        info.updated 1720203654 before and after; the fixture
+                        list (127.0.0.1:8099, lighttpd) was added as adlist 2
+                        and got 0 gravity rows. A-33 is false as stated.
+                        Cause, from /opt/pihole/gravity.sh
+                        gravity_CheckDNSResolutionAvailable (L315-360 in the
+                        image): /etc/pihole/local.list is non-empty, so the
+                        lookup name is raw.githubusercontent.com, resolved
+                        with `getent hosts` and then `dig +short` through
+                        /etc/resolv.conf (nameserver 192.168.5.1, Docker's,
+                        not FTL). WI 5.1 needs /etc/resolv.conf pointing at
+                        127.0.0.1 and an answer for raw.githubusercontent.com
+                        (FTL or the stub upstream), or an empty local.list so
+                        the name is pi.hole.
+
+SQLITE VERSION FOR WI 2.1: modernc.org/sqlite v1.61.0
+  Published 2026-10-21T11:57:52Z (proxy.golang.org/modernc.org/sqlite/@v/v1.61.0.info,
+  origin gitlab.com/cznic/sqlite 4df1ebea0f1cf0cd6ec3245b26f5fec4234ce738):
+  the newest release at least two weeks before 2026-11-13. v1.61.1
+  (2026-10-31, 13 days) and v1.62.0 (2026-11-07) were too new.
+  The DSN starts with "file:", so the driver hands it to sqlite3_open_v2 whole
+  with SQLITE_OPEN_URI and SQLite applies mode=ro (modernc.org/sqlite@v1.61.0
+  driver.go L104-108, conn.go L117-121).
+  sqliteprobe: test/harness/pihole/sqliteprobe (nested module; the root
+  go.mod and ./... are untouched), CGO_ENABLED=0 GOOS=linux GOARCH=arm64.
+
+FILES (transcripts/; each command with its UTC time and exit code)
+  check1-boot.txt              2ec91a351651c67880cafb50f69ddc00d11e3cd594dcf2cbf221084cd8415935
+  check2-restartdns.txt        d0320b41c51505d5ade293fa2a64303c61311112d03b5b4c89a8f1bd44981a9f
+  check3-ftl-test.txt          8f4ea1112ce164c9ab73d4b6db7833c465a36175b68302f56a9bbb55a72fed73
+  check4-pihole-v.txt          7f99a42eed40182ec96b78aeee534c4df3408e6904da9facc82124190ce0da7e
+  check5-sqliteprobe.txt       2911700fe0f0336e5632c552c17f108c02e03556624de715e194955539a1107e
+  check6-gravity-offline.txt   05f05273d26d9d2cee3d764f325a6231002eb2677688014a2fb9d62a65a1086d
+  native-check1-boot.txt       c0524935296b92dd3df4917331885779984f9ef571279d5420f0f8ecf4668d66
+  native-check2-restartdns.txt b3d154b2487fcce24ea33ad74e3d3ae138e01bbbde227922175c6d15991240bd
+  native-check3-ftl-test.txt   898c77adb7d84e110070b0eab58cc49fe667e09f2d2d58d22f45900d703f8667
+  WI 2.2 fixtures, raw bytes as read from the socket or file, no header (their
+  commands, UTC times and exit codes are in check4-pihole-v.txt):
+  ftl-v5.25.2-stats.txt        b6558b38fd7dfc1c9e26a50e8c09164614a61d8c5788201a1302cd6905968a3a
+                               488 bytes; `>stats` on 127.0.0.1:4711; last
+                               non-empty line ---EOM---, then the blank line
+                               FTL sends before >quit closes (V-1)
+  ftl-v5.25.2-version.txt      641be574228cefaaa4ee912a667f5038d93309c5128b9b93b1772ccceca88e3b
+                               97 bytes; `>version`, same framing
+  versions                     ee3faef5a3749ed8d7fcd7aa29bf01099e6c5099ecc07e557defa1dde2276295
+                               377 bytes; /etc/pihole/versions after
+                               `pihole updatechecker`
+  Nothing under internal/providers/pihole/v5/testdata/ was written.
+
+FIDELITY LIMIT: a container shares the colima VM's kernel, and this daemon is
+aarch64 while the host's architecture is unconfirmed. WI 6.1 step 0 re-checks
+the journal mode, the FTL unit and binary paths on the real host, and WI 6.1
+step 2 runs the in-sandbox reads there.

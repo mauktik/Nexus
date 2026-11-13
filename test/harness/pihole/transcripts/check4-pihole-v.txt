@@ -1,0 +1,158 @@
+# Check 4: FTL >stats and >version over TCP, /etc/pihole/versions, pihole -v (A-11, V-8)
+# spike: test/harness/pihole/spike.sh (WI 0.1, TC-120a), route 1, INIT=sysv
+# image: nexus-pihole-spike:sysv built FROM pihole/pihole:2024.07.0@sha256:0def896a596e8d45780b6359dbf82fc8c75ef05b97e095452e67a0a4ccc95377
+# docker: context colima, server 29.2.1, daemon architecture aarch64
+# container: nexus-pihole-spike-sysv-20261113T090325Z-47741
+# Each command below runs as root in the container through
+# `docker exec <container> env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root LANG=C.UTF-8 bash -c '<command>'`
+# unless marked [host]. Format: $ command / # utc / output / # exit.
+#
+# The three fixtures WI 2.2 copies are written raw, byte for byte, with no
+# header, so a parser test can read them as they came off the wire:
+#   transcripts/ftl-v5.25.2-stats.txt    the >stats response
+#   transcripts/ftl-v5.25.2-version.txt  the >version response
+#   transcripts/versions                 /etc/pihole/versions after updatechecker
+# Their commands, exit codes, UTC times and sha256 sums are recorded here.
+
+$ test -e /etc/pihole/versions && echo "versions exists before updatechecker" || echo "versions absent before updatechecker"
+# utc: 2026-11-13T09:03:29Z
+versions exists before updatechecker
+# exit: 0
+
+$ ls -la --time-style=full-iso /etc/pihole/versions && cat /etc/pihole/versions
+# utc: 2026-11-13T09:03:29Z
+-rw-r--r-- 1 root root 382 2026-11-13 09:03:26.084837525 +0000 /etc/pihole/versions
+CORE_VERSION=v5.18.3
+CORE_BRANCH=master
+CORE_HASH=be5a8dc5
+GITHUB_CORE_VERSION=v5.18.3
+GITHUB_CORE_HASH=be5a8dc5
+WEB_VERSION=v5.21
+WEB_BRANCH=master
+WEB_HASH=be05b0f6
+GITHUB_WEB_VERSION=v5.21
+GITHUB_WEB_HASH=be05b0f6
+FTL_VERSION=v5.25.2
+FTL_BRANCH=master
+FTL_HASH=8943e260
+GITHUB_FTL_VERSION=v5.25.2
+GITHUB_FTL_HASH=8943e260
+DOCKER_VERSION=2024.07.0
+GITHUB_DOCKER_VERSION=2024.06.0
+# exit: 0
+
+$ pihole updatechecker
+# utc: 2026-11-13T09:03:29Z
+# exit: 0
+
+$ ls -la --time-style=full-iso /etc/pihole/versions && cat /etc/pihole/versions
+# utc: 2026-11-13T09:03:30Z
+-rw-r--r-- 1 root root 377 2026-11-13 09:03:30.881871448 +0000 /etc/pihole/versions
+CORE_VERSION=v5.18.3
+CORE_BRANCH=master
+CORE_HASH=be5a8dc5
+GITHUB_CORE_VERSION=v6.6
+GITHUB_CORE_HASH=f7c0220e
+WEB_VERSION=v5.21
+WEB_BRANCH=master
+WEB_HASH=be05b0f6
+GITHUB_WEB_VERSION=v6.6.1
+GITHUB_WEB_HASH=fb699c4e
+FTL_VERSION=v5.25.2
+FTL_BRANCH=master
+FTL_HASH=8943e260
+GITHUB_FTL_VERSION=v6.9
+GITHUB_FTL_HASH=2a0fcb74
+DOCKER_VERSION=2024.07.0
+GITHUB_DOCKER_VERSION=2026.11.0
+# exit: 0
+
+$ grep -E "^FTLPORT=" /etc/pihole/pihole-FTL.conf || echo "FTLPORT not set: default 4711"; cat /run/pihole-FTL.port 2>/dev/null
+# utc: 2026-11-13T09:03:30Z
+FTLPORT not set: default 4711
+# exit: 1
+
+$ bash -c 'exec 3<>/dev/tcp/127.0.0.1/4711; printf ">%s\n" "$1" >&3; while IFS= read -r l <&3; do printf "%s\n" "$l"; [ "$l" = "---EOM---" ] && break; done; printf ">quit\n" >&3; cat <&3; exec 3<&-' ftlq stats >transcripts/ftl-v5.25.2-stats.txt
+# utc: 2026-11-13T09:03:31Z
+# exit: 0
+# 488 bytes, sha256 b6558b38fd7dfc1c9e26a50e8c09164614a61d8c5788201a1302cd6905968a3a, last line ---EOM---
+domains_being_blocked 165493
+dns_queries_today 0
+ads_blocked_today 0
+ads_percentage_today 0.000000
+unique_domains 0
+queries_forwarded 0
+queries_cached 0
+clients_ever_seen 0
+unique_clients 0
+dns_queries_all_types 0
+reply_UNKNOWN 0
+reply_NODATA 0
+reply_NXDOMAIN 0
+reply_CNAME 0
+reply_IP 0
+reply_DOMAIN 0
+reply_RRNAME 0
+reply_SERVFAIL 0
+reply_REFUSED 0
+reply_NOTIMP 0
+reply_OTHER 0
+reply_DNSSEC 0
+reply_NONE 0
+reply_BLOB 0
+dns_queries_all_replies 0
+privacy_level 0
+status enabled
+---EOM---
+
+
+$ bash -c 'exec 3<>/dev/tcp/127.0.0.1/4711; printf ">%s\n" "$1" >&3; while IFS= read -r l <&3; do printf "%s\n" "$l"; [ "$l" = "---EOM---" ] && break; done; printf ">quit\n" >&3; cat <&3; exec 3<&-' ftlq version >transcripts/ftl-v5.25.2-version.txt
+# utc: 2026-11-13T09:03:31Z
+# exit: 0
+# 97 bytes, sha256 641be574228cefaaa4ee912a667f5038d93309c5128b9b93b1772ccceca88e3b, last line ---EOM---
+version v5.25.2
+tag v5.25.2
+branch master
+hash 8943e26
+date 2024-05-08 20:59:50 +0100
+---EOM---
+
+
+$ cat /etc/pihole/versions >transcripts/versions
+# utc: 2026-11-13T09:03:31Z
+# exit: 0
+# sha256 ee3faef5a3749ed8d7fcd7aa29bf01099e6c5099ecc07e557defa1dde2276295
+
+$ pihole -v
+# utc: 2026-11-13T09:03:31Z
+  Pi-hole version is v5.18.3 (Latest: v6.6)
+  web version is v5.21 (Latest: v6.6.1)
+  FTL version is v5.25.2 (Latest: v6.9)
+# exit: 0
+
+$ pihole-FTL -vv
+# utc: 2026-11-13T09:03:31Z
+****************************** FTL **********************************
+Version:         v5.25.2
+Branch:          master
+Commit:          8943e260 (2024-05-08 20:59:50 +0100)
+Architecture:    aarch64 (compiled on CI)
+Compiler:        aarch64-linux-gnu-gcc (Debian 8.3.0-2) 8.3.0
+
+****************************** dnsmasq ******************************
+Version:         pi-hole-v2.90+1
+Features:        IPv6 GNU-getopt no-DBus no-UBus no-i18n IDN DHCP DHCPv6 Lua TFTP no-conntrack ipset no-nftset auth cryptohash DNSSEC loop-detect inotify dumpfile
+
+****************************** SQLite3 ******************************
+Version:         3.42.0
+Features:        ATOMIC_INTRINSICS=1 COMPILER=gcc-8.3.0 DEFAULT_AUTOVACUUM DEFAULT_CACHE_SIZE=-16384 DEFAULT_FILE_FORMAT=4 DEFAULT_FOREIGN_KEYS DEFAULT_JOURNAL_SIZE_LIMIT=-1 DEFAULT_MEMSTATUS=0 DEFAULT_MMAP_SIZE=0 DEFAULT_PAGE_SIZE=4096 DEFAULT_PCACHE_INITSZ=20 DEFAULT_RECURSIVE_TRIGGERS DEFAULT_SECTOR_SIZE=4096 DEFAULT_SYNCHRONOUS=2 DEFAULT_WAL_AUTOCHECKPOINT=1000 DEFAULT_WAL_SYNCHRONOUS=2 DEFAULT_WORKER_THREADS=0 DQS=0 ENABLE_DBPAGE_VTAB MALLOC_SOFT_LIMIT=1024 MAX_ATTACHED=10 MAX_COLUMN=2000 MAX_COMPOUND_SELECT=500 MAX_DEFAULT_PAGE_SIZE=8192 MAX_EXPR_DEPTH=1000 MAX_FUNCTION_ARG=127 MAX_LENGTH=1000000000 MAX_LIKE_PATTERN_LENGTH=50000 MAX_MMAP_SIZE=0x7fff0000 MAX_PAGE_COUNT=1073741823 MAX_PAGE_SIZE=65536 MAX_SQL_LENGTH=1000000000 MAX_TRIGGER_DEPTH=1000 MAX_VARIABLE_NUMBER=32766 MAX_VDBE_OP=250000000 MAX_WORKER_THREADS=8 MUTEX_PTHREADS OMIT_DEPRECATED OMIT_DESERIALIZE OMIT_LOAD_EXTENSION OMIT_PROGRESS_CALLBACK SYSTEM_MALLOC TEMP_STORE=1 THREADSAFE=1
+
+******************************** LUA ********************************
+Version:         5.4
+Libraries:       inspect.lua (8.46 KB) 
+
+***************************** LIBNETTLE *****************************
+Version:         3.8
+GMP:             Full
+# exit: 0
+# verdict: PASS: core v5.18.3, web v5.21, FTL v5.25.2; both FTL replies end with ---EOM---; every >stats key WI 2.2 reads is present
