@@ -103,6 +103,7 @@ func newHelperActions() map[string]helperAction {
 	registerServiceActions(m)
 	registerBlockingActions(m)
 	registerDomainActions(m)
+	registerAdlistActions(m)
 	return m
 }
 

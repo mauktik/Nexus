@@ -271,5 +271,5 @@ func (p *Provider) Bindings() []provider.Binding {
 		provider.Sync(spec.RecordsList, p.listRecords),
 		provider.Sync(spec.RecordsGet, p.getRecord),
 	}
-	return slices.Concat(reads, p.serviceBindings(), p.blockingBindings(), p.domainBindings())
+	return slices.Concat(reads, p.serviceBindings(), p.blockingBindings(), p.domainBindings(), p.adlistBindings())
 }
