@@ -9,74 +9,6 @@ package nexusd
 
 import "testing"
 
-// TC-SM-67 (WI 4.3; FR-12, FR-9, CON-2): A rollback swaps the binary and unit files and verifies the target version
-func TestTCSM67_ARollbackSwapsTheBinaryAnd(t *testing.T) {
-	// - Setup:
-	//   - temp-root Paths: `Binary` = `#!fake nexusd v9.9.2 ok` (bytes B2), `Prev` = `#!fake nexusd
-	//     v9.9.1 ok` (bytes B1);
-	//   - `UnitFile` holds U2, and `<state>/rollback/nexusd.service` holds U1;
-	//   - F-SYS PID 100 runs B2;
-	//   - Runner: prev `validate-config` exits 0, and prev `-version` gives `v9.9.1`.
-	// - Steps:
-	//   1. Admit.
-	//   2. Prepare.
-	//   3. Run the helper.
-	//   4. Finalize.
-	//   5. Inspect the files and the F-SYS call order.
-	// - Expected:
-	//   - `input.json` has `fromVersion: version.Version` (the running binary's), `toVersion:
-	//     "v9.9.1"`, and `MaxRuntime == 2*(30s+20s)+60s`.
-	//   - After the run:
-	//     - `Binary == B1`, `Prev == B2`;
-	//     - `UnitFile == U1`, saved unit `== U2`;
-	//     - no `*.tmp` remains.
-	//   - The F-SYS order is `DaemonReload`, `ResetFailed`, `Restart`, then `Show`… (health), with
-	//     exactly 1 start.
-	//   - The result is `{changed: true, fromVersion, toVersion: "v9.9.1"}`.
-	t.Skip("TC-SM-67: SKIP-only stub; un-skip when WI 4.3 lands")
-}
-
-// TC-SM-68 (WI 4.3; FR-12, ASM-7): Rolling back a rollback restores the original pair byte for byte
-func TestTCSM68_RollingBackARollbackRestoresThe(t *testing.T) {
-	// - Setup: state after TC-SM-67.
-	// - Steps:
-	//   1. Run a second rollback (Admit, Prepare, helper, Finalize) with the expected version
-	//     `v9.9.2`.
-	// - Expected:
-	//   - `Binary == B2`, `Prev == B1`, `UnitFile == U2`, saved unit `== U1`.
-	//   - The SHA-256 of each file equals its original.
-	//   - The result is `{fromVersion: v9.9.1, toVersion: v9.9.2}`.
-	t.Skip("TC-SM-68: SKIP-only stub; un-skip when WI 4.3 lands")
-}
-
-// TC-SM-69 (WI 4.3; FR-12): With no saved unit, only the binary is swapped
-func TestTCSM69_WithNoSavedUnitOnlyThe(t *testing.T) {
-	// - Setup: as TC-SM-67, without `<state>/rollback/nexusd.service`.
-	// - Steps:
-	//   1. Run the full rollback pipeline.
-	// - Expected:
-	//   - The binaries are swapped.
-	//   - The `UnitFile` hash is unchanged.
-	//   - No `rollback/` directory is created.
-	//   - The result is Succeeded.
-	t.Skip("TC-SM-69: SKIP-only stub; un-skip when WI 4.3 lands")
-}
-
-// TC-SM-70 (WI 4.3; FR-12, NFR-5): Crash injection: the binary path exists after every intermediate swap step
-func TestTCSM70_CrashInjectionTheBinaryPathExists(t *testing.T) {
-	// - Setup: the swap sequence with a fault hook that aborts after step k, for k = 1..N (copy
-	//   current to swap.tmp; rename prev to current; rename swap.tmp to prev; and the unit
-	//   equivalents).
-	// - Steps:
-	//   1. For each k, run the swap in a fresh temp root with the fault at k.
-	//   2. Inspect the files.
-	// - Expected:
-	//   - For every k, `Paths.Binary` exists and its content is B1 or B2.
-	//   - Wherever `Prev` is missing, `nexusd.swap.tmp` exists and holds the other binary, so no
-	//     binary content is ever lost.
-	t.Skip("TC-SM-70: SKIP-only stub; un-skip when WI 4.3 lands")
-}
-
 // TC-SM-71 (WI 5.1; FR-6): An upload over REST stores the body with the right layout, modes and meta
 func TestTCSM71_AnUploadOverRESTStoresThe(t *testing.T) {
 	// - Setup: nexusd T0 stack (systemd available); `maxUploadBytes: 1048576`; body 200 KiB random;
@@ -509,50 +441,6 @@ func TestTCSME17_ExpiryBoundaryAnUploadIsFound(t *testing.T) {
 	//   - Step 1 → 202.
 	//   - Step 2 → 422 `upload-not-found`.
 	t.Skip("TC-SM-E17: SKIP-only stub; un-skip when WI 5.1 lands")
-}
-
-// TC-SM-ERR35 (WI 4.3; FR-12): rollback-unavailable when the previous binary is missing or does not report a version
-func TestTCSMERR35_RollbackUnavailableWhenThePreviousBinary(t *testing.T) {
-	// - Setup: nexusd T0 stack with the real Runner. Prev is (a) missing, and (b) a script whose
-	//   `validate-config` exits 0 and whose `-version` prints `oops`.
-	// - Steps:
-	//   1. POST rollback for each.
-	// - Expected:
-	//   - (a) 409 `rollback-unavailable` with `path == Paths.Prev`.
-	//   - (b) 409 `rollback-unavailable` with a detail naming the unparsable version.
-	//   - Neither creates an op.
-	t.Skip("TC-SM-ERR35: SKIP-only stub; un-skip when WI 4.3 lands")
-}
-
-// TC-SM-ERR36 (WI 4.3; FR-12, FR-3): A previous binary that rejects the config refuses the rollback with config-invalid
-func TestTCSMERR36_APreviousBinaryThatRejectsThe(t *testing.T) {
-	// - Setup: Prev is a shell stand-in: `validate-config --config X` writes the captured real stderr
-	//   (testdata/validate-config/unknown-key.stderr, 2 lines) and exits 1, and `-version` prints
-	//   `nexusd v9.9.0`.
-	// - Steps:
-	//   1. POST rollback.
-	// - Expected:
-	//   - 422 `config-invalid` with `errors == [{message: line1}, {message: line2}]` and `configPath`.
-	//   - No op is created.
-	//   - Prev was invoked with exactly `validate-config --config <ConfigPath()>`.
-	t.Skip("TC-SM-ERR36: SKIP-only stub; un-skip when WI 4.3 lands")
-}
-
-// TC-SM-ERR37 (WI 4.3; FR-12, FR-10): A rollback that fails health swaps back and reports rollback-failed
-func TestTCSMERR37_ARollbackThatFailsHealthSwaps(t *testing.T) {
-	// - Setup: as TC-SM-67, but the prev content B1 is `exit-at-start`. A variant also makes B2
-	//   `exit-at-start` after the swap back.
-	// - Steps:
-	//   1. Run the helper.
-	//   2. Finalize.
-	//   3. Repeat with the variant.
-	// - Expected:
-	//   - Main run:
-	//     - the files equal the originals (`Binary == B2`, `Prev == B1`, the units likewise);
-	//     - `ResetFailed` is called before each `Restart`;
-	//     - the result is `rollback-failed` with `rolledBack: false`, `condition` and both versions.
-	//   - Variant: the detail additionally says that nexusd may be down and names the manual steps.
-	t.Skip("TC-SM-ERR37: SKIP-only stub; un-skip when WI 4.3 lands")
 }
 
 // TC-SM-ERR38 (WI 5.1; FR-6): A third concurrent or staged upload is refused 409

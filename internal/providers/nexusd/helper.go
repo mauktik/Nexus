@@ -49,6 +49,11 @@ type helperInput struct {
 	Health          healthTarget  `json:"health"`
 	InstallTimeout  time.Duration `json:"installTimeout,omitempty"`
 	Paths           Paths         `json:"paths"`
+	FromVersion     string        `json:"fromVersion,omitempty"` // rollback: the running version
+	ToVersion       string        `json:"toVersion,omitempty"`   // rollback: the rollback binary's version
+	// SavedUnit is the saved copy of the unit file, swapped with
+	// Paths.UnitFile when it exists (rollback).
+	SavedUnit string `json:"savedUnit,omitempty"`
 }
 
 // helperResult is result.json, read by Finalize of possibly another
@@ -85,12 +90,13 @@ type helperRun struct {
 // result, never a missing one.
 type helperMode func(ctx context.Context, h *helperRun, in helperInput) helperResult
 
-// modeOf returns the function of a mode. rollback (4.3) and update (5.4)
-// add their cases.
+// modeOf returns the function of a mode. update (5.4) adds its case.
 func modeOf(name string) (helperMode, bool) {
 	switch name {
 	case modeRestart:
 		return helperRestartMode, true
+	case modeRollback:
+		return helperRollbackMode, true
 	default:
 		return nil, false
 	}

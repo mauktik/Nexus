@@ -244,7 +244,7 @@ func (p *Provider) requireSelfManagement() error {
 		With("provider", spec.Name).With("reason", a.Reason)
 }
 
-// Bindings binds get, validate-config, reload and restart.
+// Bindings binds get, validate-config, reload, restart and rollback.
 func (p *Provider) Bindings() []provider.Binding {
 	return []provider.Binding{
 		provider.Sync(spec.List, p.get),
@@ -255,6 +255,7 @@ func (p *Provider) Bindings() []provider.Binding {
 			Run:   p.reload,
 		}),
 		p.restartBinding(),
+		p.rollbackBinding(),
 	}
 }
 

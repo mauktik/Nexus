@@ -1,0 +1,2 @@
+unknown-key.yaml:2:1: bogus: unknown key "bogus"
+unknown-key.yaml:6:5: providers.nexusd.healthTimeot: unknown key "healthTimeot"
