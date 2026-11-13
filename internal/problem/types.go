@@ -30,6 +30,9 @@ const (
 	DependencyUnavailable Slug = "dependency-unavailable"
 	AuditUnavailable      Slug = "audit-unavailable"
 	StorageLimitReached   Slug = "storage-limit-reached"
+	NginxConfigInvalid    Slug = "nginx-config-invalid"
+	NginxConfigUnmanaged  Slug = "nginx-config-unmanaged"
+	NginxNotRunning       Slug = "nginx-not-running"
 )
 
 // Operation-level problem types: they appear only inside operation.error.
@@ -41,6 +44,7 @@ const (
 	ScriptFailed         Slug = "script-failed"
 	ScriptTimeout        Slug = "script-timeout"
 	UpdateHealthFailed   Slug = "update-health-failed"
+	NginxReloadFailed    Slug = "nginx-reload-failed"
 )
 
 // Type is one registered problem type. Problem types are part of the
@@ -77,6 +81,11 @@ var registry = []Type{
 	{Slug: ScriptIntegrityFailed, Title: "Script integrity check failed", Status: 422, Exit: 1, Extensions: []string{"check", "path"}},
 	{Slug: ComposeFilesMissing, Title: "Compose files missing", Status: 422, Exit: 1, Extensions: []string{"path"}},
 	{Slug: IdempotencyKeyReused, Title: "Idempotency key reused", Status: 422, Exit: 1, Extensions: []string{"operationId"}},
+	// nginx -t runs only in detached operations (CON-2), so nginx-config-invalid
+	// surfaces inside operation.error even though it carries an HTTP status.
+	{Slug: NginxConfigInvalid, Title: "nginx configuration invalid", Status: 422, Exit: 1, Extensions: []string{"testOutput", "rolledBack"}},
+	{Slug: NginxConfigUnmanaged, Title: "nginx configuration not managed", Status: 422, Exit: 1, Extensions: []string{"reason", "fileName"}},
+	{Slug: NginxNotRunning, Title: "nginx not running", Status: 422, Exit: 1, Extensions: []string{"state"}},
 	// rate-limited carries Retry-After as a response header, not a body member.
 	{Slug: RateLimited, Title: "Rate limited", Status: 429, Exit: 3},
 	{Slug: InternalError, Title: "Internal error", Status: 500, Exit: 1},
@@ -102,6 +111,10 @@ var registry = []Type{
 	{Slug: ScriptTimeout, Title: "Script timed out", Exit: 1, OperationLevel: true, Extensions: []string{"exitCode", "signal", "durationSeconds"}},
 	{Slug: UpdateHealthFailed, Title: "Update health check failed", Exit: 1, OperationLevel: true,
 		Extensions: []string{"rolledBack", "previousDigest", "newDigest"}},
+	// observed is a ReloadObservation; rollbackReload is absent when nginx
+	// was no longer running to reload after the restore.
+	{Slug: NginxReloadFailed, Title: "nginx reload failed", Exit: 1, OperationLevel: true,
+		Extensions: []string{"observed", "rolledBack", "rollbackReload", "testOutput"}},
 }
 
 var bySlug = func() map[Slug]Type {

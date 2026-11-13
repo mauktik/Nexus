@@ -16,8 +16,6 @@ import (
 // nginx-provider TC-55: The four nginx problem types are registered.
 // Owner WI 4.3. Requirements: FR-17.
 func TestNginxProblemTypesRegistered(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-55 (WI 4.3)")
-
 	want := []struct {
 		slug    Slug
 		title   string
