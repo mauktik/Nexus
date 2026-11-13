@@ -926,9 +926,44 @@ GRAVITY ENDS WITH restartdns reload (code review CR-3; measured 2026-11-13T21:26
   to gravity.db right after `pihole -g` therefore meets a reload Nexus did
   not send; the harness setup's `pihole -a adlist del` right after its
   `pihole -g` is such a write (see "AFTER THE FIX", the run that found FTL
-  stuck before the test began). FakeHost's `-g` sends no such reload: the
-  gap is CR-3's, outside this file's tests. Not run live: this entry is the
-  script's text on the image, not a capture of a run.
+  stuck before the test began). FakeHost's `-g` sends it too, since CR-3 (fakehost.go
+  gravity()); what it does not model is the stopped-FTL branch, where L775
+  restarts FTL and that restart's own reload is not reproduced. Not run live:
+  this entry is the script's text on the image, not a capture of a run.
+
+GRAVITY PROCESS SHAPE (security review SEC-3; measured 2026-11-13T23:15Z, aarch64)
+  What an external gravity run looks like in /proc, so that v5.GravityRunning
+  can tell it from a setuid-root program that merely has the script as
+  argv[1] (`sudo /opt/pihole/gravity.sh` at its password prompt is uid 0 with
+  that argv; argv[0] is the caller's to set, comm is not).
+  On nexus-harness-pihole:native (Debian 11, core v5.18.3), by
+  `docker run -d --entrypoint sleep nexus-harness-pihole:native 600` and,
+  in it, a loop that reads /proc/<pid>/{cmdline,comm,status} and
+  readlink /proc/<pid>/exe for every process whose cmdline names gravity.sh
+  while `pihole -g` runs (about 85 samples of one run):
+    cmdline  bash /opt/pihole/gravity.sh -g     (NUL separated)
+    comm     bash
+    Uid      0 0 0 0
+    exe      /bin/bash
+  pihole L93 is `exec "${PI_HOLE_SCRIPT_DIR}"/gravity.sh "$@"` and
+  gravity.sh's shebang is `#!/usr/bin/env bash`, so for a few ms before
+  env's exec the same pid is `/usr/bin/env bash /opt/pihole/gravity.sh -g`
+  with argv[1] = bash (not the script: never counted) and comm bash. comm is
+  never "gravity.sh" or "sh" on this image; the code also accepts those two
+  and dash (a direct shebang exec, a POSIX shell build of the script) and
+  nothing else. A process with any other comm (sudo, su, pkexec) is not a
+  gravity run however its argv reads.
+  T1 TC-129's fake gravity (`bash /opt/pihole/gravity.sh`, a bind-mounted
+  `#!/bin/bash` sleeper) has comm "bash" and still qualifies.
+  sudo at a password prompt, as user nobody with `sleep 4 | sudo -S
+  /opt/pihole/gravity.sh` (the image has /usr/bin/sudo; no pty here, so -S):
+    cmdline  sudo -S /opt/pihole/gravity.sh
+    comm     sudo
+    Uid      65534 0 0 0   (real still nobody while it waits for stdin)
+  So with -S the existing uid check already refuses it, and its argv[1] is
+  -S. The reviewer's case, a pty prompt for `sudo /opt/pihole/gravity.sh`
+  with real, effective and saved uid 0 under PERM_ROOT, was not reproduced
+  (no pty); its comm is "sudo" all the same, which is what the check uses.
 
 TC-158 RED AGAIN ON THE PRE-FIX CODE, WITH THE FINAL phDig (code review CR-14)
   PROVENANCE "REGRESSION TESTS, RED ON THE PRE-FIX CODE" recorded TC-158's

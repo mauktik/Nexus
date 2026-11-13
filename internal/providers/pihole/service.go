@@ -22,15 +22,11 @@ const serviceLostDetail = "DNS may be restarting; check `nexus pihole get`"
 
 // The read of FTL's new PID after a restart: the native Type=simple unit
 // returns before FTL writes its PID file (A-56), so the read is retried
-// every ftlPIDPollInterval for up to ftlPIDPollLimit until the file names a
-// live FTL other than the one before. It is dnswrite's, which a DNS write's
-// restart shares.
-const (
-	ftlPIDPollInterval = dnswrite.PIDPollInterval
-	ftlPIDPollLimit    = dnswrite.PIDPollLimit
-)
+// every dnswrite.PIDPollInterval for up to dnswrite.PIDPollLimit until the
+// file names a live FTL other than the one before. It is dnswrite's, which a
+// DNS write's restart shares.
 
-// pidPoll is the PID read's bounds. Production uses the constants above;
+// pidPoll is the PID read's bounds. Production uses dnswrite's constants;
 // the helper's test seams shorten them.
 type pidPoll = dnswrite.PIDPoll
 

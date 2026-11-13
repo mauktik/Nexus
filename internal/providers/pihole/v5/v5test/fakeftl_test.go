@@ -700,9 +700,10 @@ func TestFakeFTLFailedRestartLeavesNoLiveFTL(t *testing.T) {
 // after its completion line (check_inaccessible_adlists, PROVENANCE "FTL LIST
 // RELOAD SIGNALS"); a commit during that read makes it fail and FTL logs
 // "check_inaccessible_adlists(): Gravity database not available", a commit
-// after it does not. Queries are not held by the read, but the ones the
-// reload held are answered no sooner than DefaultHeldQueryLag after the
-// completion line.
+// after it does not. On the device the read runs under lock_shm and a query
+// sent during it waits for it; FakeFTL answers it, on purpose and stricter
+// than FTL (DefaultPostCompileReads). The queries the reload held are
+// answered no sooner than DefaultHeldQueryLag after the completion line.
 func TestFakeFTLReadsGravityAfterTheCompletionLine(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

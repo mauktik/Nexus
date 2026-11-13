@@ -198,15 +198,23 @@ func FastReload() v5.ReloadTiming {
 // nothing when it succeeds and LogInaccessibleAdlists when a commit made it
 // fail (src/datastructure.c L514, src/database/gravity-db.c L1529-1567;
 // PROVENANCE "FTL LIST RELOAD SIGNALS"). How long the read takes is not
-// measured, so this is a model parameter; queries do not wait for it, so the
-// barrier cannot rely on a probe to outlast it.
+// measured, so this is a model parameter. On the device the read runs under
+// lock_shm, which dnsmasq's hooks take too, so a query sent during it waits
+// for it (PROVENANCE "QUERIES DURING A RELOAD"). FakeFTL is stricter, on
+// purpose: it answers a query during the read, so that the barrier's quiet
+// window, not a probe that outlasts the read, is what keeps a commit out of
+// it.
 const DefaultPostCompileReads = 20 * time.Millisecond
 
 // DefaultHeldQueryLag is how long after a reload's completion line the
 // queries it held are answered at the earliest: the first held reply came
 // 29, 54 and 70 ms after the line in the three runs of PROVENANCE "QUERIES
-// DURING A RELOAD" (the shortest is used, so a probe is never answered
-// later than on the device). A query sent when no reload holds it is
+// DURING A RELOAD" (the shortest is used). That is the permissive direction
+// for a probe with a timeout: the device drained its backlog over up to
+// ~0.8 s, and FakeFTL answers it at once, so a probe is never answered later
+// here than on the device. Nothing models that drain; the barrier's probe
+// timeout is pinned to 1 s (ListReloadProbeTimeout, reload_test.go) so the
+// difference stays harmless. A query sent when no reload holds it is
 // answered at once.
 const DefaultHeldQueryLag = 29 * time.Millisecond
 
@@ -673,9 +681,11 @@ func (f *FakeFTL) beginReload() {
 // endReload fails the reload when gravity.db was committed to since it
 // began, or when FailNextReloads asks; it then starts the reload a signal
 // asked for meanwhile. A reload that succeeded still reads gravity.db for
-// postReads (check_inaccessible_adlists), under the lock that holds queries,
-// logging nothing unless a commit lands in that time. When a reload follows, the queries held so far, up
-// to QueuedGapAnswers, are answered before it begins. Callers hold mu.
+// postReads (check_inaccessible_adlists), logging nothing unless a commit
+// lands in that time; on the device that read holds queries (lock_shm),
+// which FakeFTL does not model (DefaultPostCompileReads). When a reload
+// follows, the queries held so far, up to QueuedGapAnswers, are answered
+// before it begins. Callers hold mu.
 func (f *FakeFTL) endReload(counter uint32) {
 	failed := f.failNext > 0 || f.changeCounter() != counter
 	if f.failNext > 0 {
@@ -702,20 +712,26 @@ func (f *FakeFTL) endReload(counter uint32) {
 }
 
 // readAfterCompile is FTL's read of gravity.db after a reload's completion
-// line: a commit during the next
-// postReads makes it fail, logged as LogInaccessibleAdlists (a failed
-// reload's own lines already include it). Callers hold mu.
+// line: a commit during the next postReads makes it fail, logged as
+// LogInaccessibleAdlists (a failed reload's own lines already include it).
+// The window is [now, now+postReads] on FakeFTL's own clock, and a commit
+// counts when its time, gravity.db's modification time, falls inside it. It
+// is not judged by when the timer below runs: a callback that a loaded host
+// (the race detector, a parallel `go test ./...`) runs late must not count a
+// commit made after the window as one made during it (code review CR-23).
+// Callers hold mu.
 func (f *FakeFTL) readAfterCompile(failed bool) {
 	if f.postReads <= 0 {
 		return
 	}
 	counter, gen := f.changeCounter(), f.gen
+	end := time.Now().Add(f.postReads)
 	f.reading = true
 	f.after(f.postReads, func() {
 		if f.gen != gen {
 			return
 		}
-		if !failed && f.changeCounter() != counter {
+		if !failed && f.changeCounter() != counter && f.lastCommit().Compare(end) <= 0 {
 			f.logLine(false, LogInaccessibleAdlists)
 		}
 		f.reading = false
@@ -785,6 +801,19 @@ func (f *FakeFTL) changeCounter() uint32 {
 		return 0
 	}
 	return binary.BigEndian.Uint32(b[:])
+}
+
+// lastCommit is the time of gravity.db's latest commit, its modification
+// time (a rollback-journal commit rewrites the file's header, and so
+// touches it); the zero time when it cannot be read. Only the latest commit
+// is known: a window's earlier commit is missed when a later one follows it
+// before the window's timer runs, which needs that timer to be late.
+func (f *FakeFTL) lastCommit() time.Time {
+	fi, err := os.Stat(filepath.Join(f.root, v5.GravityDBFile))
+	if err != nil {
+		return time.Time{}
+	}
+	return fi.ModTime()
 }
 
 // after runs fn under mu d from now, unless FakeFTL is closed first.

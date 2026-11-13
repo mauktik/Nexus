@@ -730,6 +730,10 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 // next write must not start, while that read may still run. FakeFTL's read
 // is made longer than a probe's answer, 150 ms, and the barrier's quiet
 // longer than that: removing the quiet window lets the commit meet the read.
+// On the device the read holds queries (lock_shm), so a probe sent during it
+// waits for it; FakeFTL answers the probe during the read, stricter than
+// FTL, so that it is the quiet window and not a probe that outlasts the read
+// that keeps the commit out (DefaultPostCompileReads).
 func TestListReloadQuietWindowKeepsTheNextCommitOutOfTheReadAfterCompile(t *testing.T) {
 	h, m := barrierHost(t)
 	h.FTL().SetPostCompileReads(150 * time.Millisecond)

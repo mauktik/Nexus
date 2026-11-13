@@ -67,7 +67,7 @@ type helperError struct {
 
 // helperInject carries the helper's test seams. Nil, in production, means
 // the real exec runner, root "/", DNS server 127.0.0.1:53, time.Now and
-// the dnscheck.ReadyWindow readiness window, the ftlPIDPoll bounds and the
+// the dnscheck.ReadyWindow readiness window, the dnswrite.PIDPoll bounds and the
 // v5.ListReload bounds. The last two are wall-clock waits that tests
 // shorten.
 type helperInject struct {

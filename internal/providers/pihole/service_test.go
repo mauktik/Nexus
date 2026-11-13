@@ -22,6 +22,7 @@ import (
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/providers/pihole/dnscheck"
+	"github.com/mauktik/nexus/internal/providers/pihole/dnswrite"
 	"github.com/mauktik/nexus/internal/providers/pihole/spec"
 	"github.com/mauktik/nexus/internal/providers/pihole/v5"
 	"github.com/mauktik/nexus/internal/providers/pihole/v5/v5test"
@@ -327,16 +328,16 @@ func TestTC148_SixRestartDNSOpsWithinAMinute(t *testing.T) {
 }
 
 // testPIDLimit is the PID read's limit in tests (helperWorld.inject): a
-// fifth of production's ftlPIDPollLimit.
-const testPIDLimit = ftlPIDPollLimit / 5
+// fifth of production's dnswrite.PIDPollLimit.
+const testPIDLimit = dnswrite.PIDPollLimit / 5
 
 // The PID read's production bounds are the constants, unless a test seam
 // shortens them (A-56).
 func TestPIDPollDefaults(t *testing.T) {
-	if ftlPIDPollInterval != 100*time.Millisecond || ftlPIDPollLimit != 2*time.Second {
-		t.Errorf("PID poll %s for %s, want 100ms for 2s", ftlPIDPollInterval, ftlPIDPollLimit)
+	if dnswrite.PIDPollInterval != 100*time.Millisecond || dnswrite.PIDPollLimit != 2*time.Second {
+		t.Errorf("PID poll %s for %s, want 100ms for 2s", dnswrite.PIDPollInterval, dnswrite.PIDPollLimit)
 	}
-	if got := helperSeams(nil).PIDPoll; got != (pidPoll{Interval: ftlPIDPollInterval, Limit: ftlPIDPollLimit}) {
+	if got := helperSeams(nil).PIDPoll; got != (pidPoll{Interval: dnswrite.PIDPollInterval, Limit: dnswrite.PIDPollLimit}) {
 		t.Errorf("production seams' PID poll %+v", got)
 	}
 	if got := helperSeams(&helperInject{}).PIDPoll; got != defaultPIDPoll {

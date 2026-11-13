@@ -523,7 +523,9 @@ func listReloadFailed(done string, wait time.Duration) error {
 }
 
 // listReloadUnverified is the barrier's failure when FTL's log could not be
-// read for the whole wait: Nexus cannot tell whether FTL reloaded its lists.
+// read at its last read (the wait ended on the latest read's error, not
+// necessarily on one that failed throughout): Nexus cannot tell whether FTL
+// reloaded its lists.
 func listReloadUnverified(done, logPath string) error {
 	const command = "pihole restartdns reload-lists"
 	return problem.New(problem.PiholeCommandFailed, done+", but FTL's log "+logPath+" could not be read, so Nexus cannot "+

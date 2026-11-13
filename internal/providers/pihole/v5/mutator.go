@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mauktik/nexus/internal/problem"
@@ -106,12 +107,19 @@ func (m *Mutator) WaitExternalGravity(ctx context.Context, out io.Writer) error 
 }
 
 // GravityRunning returns the PID of a gravity run: a process that root runs
-// (real and effective uid 0, as `pihole -g` and Pi-hole's cron job do) and
-// whose /proc/<pid>/cmdline has GravityScript as argv[1], the interpreter
-// being argv[0]. Both are needed: any local user can start a process whose
-// command line merely contains the script's path, and Nexus would wait for
-// it up to GravityWaitLimit with the pihole lane held (security review
-// SEC-2). The lowest PID is returned when there are several.
+// (real and effective uid 0, as `pihole -g` and Pi-hole's cron job do),
+// whose /proc/<pid>/cmdline has GravityScript as argv[1], and whose
+// /proc/<pid>/comm names a script interpreter (gravityComms). Each is
+// needed: any local user can start a process whose command line merely
+// contains the script's path, and Nexus would wait for it up to
+// GravityWaitLimit with the pihole lane held (security review SEC-2); and a
+// setuid-root program such as `sudo /opt/pihole/gravity.sh`, left at its
+// password prompt, has uid 0 and that argv too (SEC-3). comm is the name of
+// the executed file, which the caller cannot choose for a setuid program,
+// unlike argv[0]. On the T1 image, `pihole -g` and cron's `pihole
+// updateGravity` run as `bash /opt/pihole/gravity.sh -g` with comm "bash"
+// (PROVENANCE, "GRAVITY PROCESS SHAPE"). The lowest PID is returned when
+// there are several.
 func GravityRunning(p Paths) (int, bool) {
 	entries, err := os.ReadDir(p.Host(ProcDir))
 	if err != nil {
@@ -133,8 +141,14 @@ func GravityRunning(p Paths) (int, bool) {
 	return found, found != 0
 }
 
-// isGravityRun reports whether /proc/<pid> is a root process running
-// GravityScript.
+// gravityComms are the /proc/<pid>/comm values of the process that runs the
+// gravity script: the interpreter named by the script's `#!/usr/bin/env bash`
+// line, a POSIX shell on another build, or the script's own name, which the
+// kernel gives a process that was exec'd directly through its shebang.
+var gravityComms = map[string]bool{"bash": true, "sh": true, "dash": true, "gravity.sh": true}
+
+// isGravityRun reports whether /proc/<pid> is a root process whose
+// interpreter runs GravityScript.
 func isGravityRun(p Paths, pid string) bool {
 	b, err := os.ReadFile(p.Host(filepath.Join(ProcDir, pid, "cmdline")))
 	if err != nil {
@@ -142,6 +156,10 @@ func isGravityRun(p Paths, pid string) bool {
 	}
 	argv := bytes.Split(bytes.TrimSuffix(b, []byte{0}), []byte{0})
 	if len(argv) < 2 || string(argv[1]) != GravityScript {
+		return false
+	}
+	comm, err := os.ReadFile(p.Host(filepath.Join(ProcDir, pid, "comm")))
+	if err != nil || !gravityComms[strings.TrimSuffix(string(comm), "\n")] {
 		return false
 	}
 	status, err := os.ReadFile(p.Host(filepath.Join(ProcDir, pid, "status")))

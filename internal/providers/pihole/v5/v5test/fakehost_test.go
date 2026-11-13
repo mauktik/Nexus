@@ -44,7 +44,8 @@ func run(t *testing.T, h *v5test.FakeHost, argv ...string) (int, string) {
 }
 
 // TC-70a (V-13): enable and disable always exit 0 and flip BLOCKING_ENABLED;
-// each sends reload-lists (SIGRTMIN) to FTL.
+// each one that changes the state sends reload-lists (SIGRTMIN) to FTL; one
+// that finds the state already set is a no-op and sends nothing.
 func TestTC70a_EnableDisableAlwaysExitZero(t *testing.T) {
 	h := v5test.NewFakeHost(t)
 	if got := h.BlockingEnabled(); got != "true" {
