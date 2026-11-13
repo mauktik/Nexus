@@ -1097,3 +1097,63 @@ func TestUpdatePrepareReverifies(t *testing.T) {
 		t.Error("the package was extracted")
 	}
 }
+
+// A caller that leaves during update admission (CR-1): the probe's failure
+// is the cancellation's, not the package's. The upload must survive and
+// the audit log must not record a refusal as an invalid package.
+func TestUpdateAdmissionCancelledByTheCallerKeepsTheUpload(t *testing.T) {
+	setRunningVersion(t, "v9.9.1")
+	k := pkgKey(seedTrusted)
+	u := newUpdateStack(t, updateStackConfig{keys: []ed25519.PrivateKey{k}})
+	uploadID := u.stage(t, updatePackage(t, "v9.9.2", "v9.9.2"), k)
+
+	started, returned := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	u.run.setReply(func(ctx context.Context, argv []string) (RunResult, error) {
+		// The real runner on a program that outlives the request, so the
+		// error is the one a cancelled -version run returns in production.
+		once.Do(func() { close(started) })
+		res, err := execRunner{}.Run(ctx, []string{"/bin/sleep", "30"})
+		close(returned)
+		return res, err
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.url+"/v1/providers/nexusd/actions/update",
+		strings.NewReader(updateOf(uploadID, false)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+u.admin)
+	req.Header.Set("Content-Type", "application/json")
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if resp, err := u.http.Do(req); err == nil {
+			resp.Body.Close()
+		}
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the version probe never started")
+	}
+	cancel()
+	<-done
+	select {
+	case <-returned:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the version probe never returned")
+	}
+
+	// Wait for the Dispatcher's refusal record: the admission has ended.
+	waitFor(t, "the update's refused audit record", func() bool { return len(u.auditOf(t, spec.Update.Op().ID)) >= 1 })
+	outs := outcomes(u.auditOf(t, spec.Update.Op().ID))
+	if slices.Contains(outs, "refused:"+string(problem.UpdatePackageInvalid)) {
+		t.Errorf("audit outcomes %v record the caller's cancellation as an invalid package", outs)
+	}
+	if !u.staged(uploadID) {
+		t.Error("the staged upload was deleted by a cancellation")
+	}
+}

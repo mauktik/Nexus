@@ -780,3 +780,21 @@ func TestRollbackResultWireFormat(t *testing.T) {
 		t.Errorf("problem %s %v", perr.Slug(), perr.Extensions)
 	}
 }
+
+// A caller that leaves during rollback admission (CR-1): the rollback
+// binary's failed run is the cancellation's, so it is not
+// rollback-unavailable.
+func TestRollbackAdmissionCancelledByTheCaller(t *testing.T) {
+	r := newRollbackRig(t, true)
+	r.run.setReply(func(ctx context.Context, argv []string) (RunResult, error) { return execRunner{}.Run(ctx, argv) })
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	err := r.funcs.Admit(ctx, spec.RollbackInput{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Admit on a cancelled context = %v, want context.Canceled", err)
+	}
+	var perr *problem.Error
+	if errors.As(err, &perr) {
+		t.Errorf("Admit = problem %s, want the cancellation", perr.Slug())
+	}
+}
