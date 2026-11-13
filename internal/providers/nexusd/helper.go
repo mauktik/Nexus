@@ -20,6 +20,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/mauktik/nexus/internal/problem"
@@ -84,13 +85,73 @@ type helperRun struct {
 // result, never a missing one.
 type helperMode func(ctx context.Context, h *helperRun, in helperInput) helperResult
 
-// modeOf returns the function of a mode. restart (4.2), rollback (4.3) and
-// update (5.4) add their cases.
+// modeOf returns the function of a mode. rollback (4.3) and update (5.4)
+// add their cases.
 func modeOf(name string) (helperMode, bool) {
 	switch name {
+	case modeRestart:
+		return helperRestartMode, true
 	default:
 		return nil, false
 	}
+}
+
+// maxResultFile bounds what readResult reads.
+const maxResultFile = 1 << 20
+
+// readResult reads dir/result.json. ok is false when there is none.
+func readResult(dir string) (res helperResult, ok bool, err error) {
+	f, err := os.Open(filepath.Join(dir, resultFileName))
+	if errors.Is(err, fs.ErrNotExist) {
+		return res, false, nil
+	}
+	if err != nil {
+		return res, false, fmt.Errorf("nexusd: read %s: %w", resultFileName, err)
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, maxResultFile+1))
+	if err != nil {
+		return res, false, fmt.Errorf("nexusd: read %s: %w", resultFileName, err)
+	}
+	if len(b) > maxResultFile {
+		return res, false, fmt.Errorf("nexusd: %s is larger than %d bytes", resultFileName, maxResultFile)
+	}
+	if err := json.Unmarshal(b, &res); err != nil {
+		return res, false, fmt.Errorf("nexusd: decode %s: %w", resultFileName, err)
+	}
+	return res, true, nil
+}
+
+// problem is the failed operation's problem, with each member of the result
+// that its type declares. A slug this release does not know as an
+// operation's outcome (a newer helper's) is an internal error carrying the
+// helper's detail.
+func (res helperResult) problem() *problem.Error {
+	e := res.Error
+	t, ok := problem.Lookup(e.Slug)
+	if !ok || !t.OperationLevel {
+		return problem.New(problem.InternalError, fmt.Sprintf("%s (%s)", e.Detail, e.Slug))
+	}
+	p := problem.New(t.Slug, e.Detail)
+	has := func(ext string) bool { return slices.Contains(t.Extensions, ext) }
+	if has("condition") && e.Condition != 0 {
+		p.With("condition", e.Condition)
+	}
+	if has("step") && e.Step != "" {
+		p.With("step", e.Step)
+	}
+	if has("rolledBack") {
+		p.With("rolledBack", res.RolledBack)
+	}
+	for ext, v := range map[string]string{
+		"version": res.Version, "previousVersion": res.PreviousVersion, "newVersion": res.NewVersion,
+		"fromVersion": res.FromVersion, "toVersion": res.ToVersion,
+	} {
+		if has(ext) && v != "" {
+			p.With(ext, v)
+		}
+	}
+	return p
 }
 
 // helperEnv are the helper's seams.

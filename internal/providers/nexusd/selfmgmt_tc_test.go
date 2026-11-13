@@ -9,49 +9,6 @@ package nexusd
 
 import "testing"
 
-// TC-SM-65 (WI 4.2; FR-5, FR-9, CON-2): The restart pipeline succeeds and reports the running version
-func TestTCSM65_TheRestartPipelineSucceedsAndReports(t *testing.T) {
-	// - Setup:
-	//   - provider pipeline harness: `Options.Systemd` available and `InService` ok;
-	//   - F-DAEMON with a valid config (`listen 127.0.0.1:8443`, TLS auto) and `healthTimeout: 30s`;
-	//   - F-SYS with PID 100 `ok` `v9.9.1`;
-	//   - F-CLK;
-	//   - a temp ops dir.
-	// - Steps:
-	//   1. `Admit`.
-	//   2. `Prepare`.
-	//   3. Read `input.json` and the returned `detach.Spec`.
-	//   4. Run the helper seam.
-	//   5. `Finalize(detach.Exit{Code: 0})`.
-	// - Expected:
-	//   - Admit returns nil.
-	//   - `input.json` has `mode: "restart"` and a health target matching TC-SM-59's mapping.
-	//   - The spec:
-	//     - `Argv == [Options.Executable(), "service-helper", "--dir", D]`;
-	//     - `KillMode == KillProcess`;
-	//     - `MaxRuntime == 30s + 5s + 75s` (computed from the configured `healthTimeout` with the A-8
-	//       formula).
-	//   - F-SYS: exactly 1 start, by `Restart` with `--no-block`.
-	//   - The result is `RestartResult{changed: true, version: "v9.9.1"}`.
-	t.Skip("TC-SM-65: SKIP-only stub; un-skip when WI 4.2 lands")
-}
-
-// TC-SM-66 (WI 4.2; FR-11): restart while a reload holds the lane gets 409 naming the blocking op
-func TestTCSM66_RestartWhileAReloadHoldsThe(t *testing.T) {
-	// - Setup: nexusd T0 stack; F-DAEMON `Reload` blocks until released.
-	// - Steps:
-	//   1. POST reload, giving op R in Running.
-	//   2. POST restart.
-	//   3. `POST /v1/operations/R/cancel`.
-	//   4. Release R.
-	// - Expected:
-	//   - Step 2 → 409 `conflict` with `blockingOperationId == R`, no op created, and a refused audit
-	//     record.
-	//   - Step 3 → 409 `not-cancelable` (`CancelQueuedOnly`).
-	//   - After release, R is `Succeeded`.
-	t.Skip("TC-SM-66: SKIP-only stub; un-skip when WI 4.2 lands")
-}
-
 // TC-SM-67 (WI 4.3; FR-12, FR-9, CON-2): A rollback swaps the binary and unit files and verifies the target version
 func TestTCSM67_ARollbackSwapsTheBinaryAnd(t *testing.T) {
 	// - Setup:
@@ -552,46 +509,6 @@ func TestTCSME17_ExpiryBoundaryAnUploadIsFound(t *testing.T) {
 	//   - Step 1 → 202.
 	//   - Step 2 → 422 `upload-not-found`.
 	t.Skip("TC-SM-E17: SKIP-only stub; un-skip when WI 5.1 lands")
-}
-
-// TC-SM-ERR32 (WI 4.2; FR-5, FR-10): A crash-looping restart fails with restart-unhealthy and no rollback
-func TestTCSMERR32_ACrashLoopingRestartFailsWith(t *testing.T) {
-	// - Setup: as TC-SM-65; the binary after the restart is `crash-after=3s`.
-	// - Steps:
-	//   1. Admit.
-	//   2. Prepare.
-	//   3. Run the helper.
-	//   4. Finalize.
-	// - Expected:
-	//   - Problem `restart-unhealthy` with `condition` 4 (or 1 once the start limit is hit) and
-	//     `version` empty or the last observed version.
-	//   - F-SYS shows no DaemonReload, no file change and no second explicit start.
-	//   - The helper exit is 0.
-	t.Skip("TC-SM-ERR32: SKIP-only stub; un-skip when WI 4.2 lands")
-}
-
-// TC-SM-ERR33 (WI 4.2; FR-5): restart is refused with config-invalid when the on-disk config is invalid
-func TestTCSMERR33_RestartIsRefusedWithConfigInvalid(t *testing.T) {
-	// - Setup: nexusd T0 stack; `ConfigPath` set to `bad-listen.yaml`.
-	// - Steps:
-	//   1. POST restart.
-	// - Expected:
-	//   - 422 `config-invalid` with the errors.
-	//   - No op is created, and F-SYS has zero calls.
-	t.Skip("TC-SM-ERR33: SKIP-only stub; un-skip when WI 4.2 lands")
-}
-
-// TC-SM-ERR34 (WI 4.2; FR-9, FR-5): A restart Finalize without result.json is outcome-unknown with recovery guidance
-func TestTCSMERR34_ARestartFinalizeWithoutResultJson(t *testing.T) {
-	// - Setup: an op dir with `input.json` and no `result.json`.
-	// - Steps:
-	//   1. `Finalize(detach.Exit{Code: 0})`.
-	//   2. `Finalize(detach.Exit{Lost: true})`.
-	// - Expected:
-	//   - Both are `outcome-unknown`.
-	//   - The `LostDetail` text contains `systemctl status nexusd.service`, `/usr/local/bin/nexusd
-	//     -version` and `nexusd.prev`.
-	t.Skip("TC-SM-ERR34: SKIP-only stub; un-skip when WI 4.2 lands")
 }
 
 // TC-SM-ERR35 (WI 4.3; FR-12): rollback-unavailable when the previous binary is missing or does not report a version

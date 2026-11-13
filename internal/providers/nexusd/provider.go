@@ -129,6 +129,7 @@ type Provider struct {
 
 	settings atomic.Pointer[settings]
 	daemon   atomic.Pointer[daemonRef]
+	opsDir   atomic.Pointer[string] // Operations' directories; set by UseOpsDir
 
 	prev prevCache
 }
@@ -243,7 +244,7 @@ func (p *Provider) requireSelfManagement() error {
 		With("provider", spec.Name).With("reason", a.Reason)
 }
 
-// Bindings binds get, validate-config and reload.
+// Bindings binds get, validate-config, reload and restart.
 func (p *Provider) Bindings() []provider.Binding {
 	return []provider.Binding{
 		provider.Sync(spec.List, p.get),
@@ -253,6 +254,7 @@ func (p *Provider) Bindings() []provider.Binding {
 			Lane:  laneOf[spec.ReloadInput],
 			Run:   p.reload,
 		}),
+		p.restartBinding(),
 	}
 }
 
