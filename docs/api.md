@@ -4082,20 +4082,32 @@ Response `202` (`application/json`):
       "items": {
         "type": "object",
         "properties": {
+          "column": {
+            "type": "integer",
+            "description": "1-based column; absent when unknown."
+          },
+          "file": {
+            "type": "string",
+            "description": "The file the error is in; absent when unknown."
+          },
+          "line": {
+            "type": "integer",
+            "description": "1-based line; absent when unknown."
+          },
           "message": {
-            "type": "string"
+            "type": "string",
+            "description": "What is wrong. It never echoes a key's value."
           },
           "path": {
             "type": "string",
-            "description": "JSON Pointer into the input; empty for the input as a whole."
+            "description": "The configuration key, such as providers.nexusd.trustedKeys; absent when unknown."
           }
         },
         "required": [
-          "path",
           "message"
         ]
       },
-      "description": "The failing input fields."
+      "description": "The configuration errors, located where known."
     },
     "status": {
       "const": 422
@@ -4495,13 +4507,17 @@ Response `202` (`application/json`):
 {
   "properties": {
     "condition": {
-      "type": "string"
+      "type": "integer",
+      "description": "The health condition that failed: 1 the service is active, 2 it runs the expected version, 3 /healthz answers, 4 all three held for 5 s.",
+      "minimum": 1,
+      "maximum": 4
     },
     "type": {
       "const": "urn:nexus:problem:restart-unhealthy"
     },
     "version": {
-      "type": "string"
+      "type": "string",
+      "description": "The nexusd version running after the restart."
     }
   },
   "title": "Restart unhealthy",
@@ -4523,17 +4539,22 @@ Response `202` (`application/json`):
 {
   "properties": {
     "condition": {
-      "type": "string"
+      "type": "integer",
+      "description": "The health condition that failed: 1 the service is active, 2 it runs the expected version, 3 /healthz answers, 4 all three held for 5 s.",
+      "minimum": 1,
+      "maximum": 4
     },
     "fromVersion": {
-      "type": "string"
+      "type": "string",
+      "description": "The nexusd version the rollback replaced."
     },
     "rolledBack": {
       "type": "boolean",
-      "description": "Whether the previous container was restored."
+      "description": "Whether the previous nexusd was restored and passed the health check."
     },
     "toVersion": {
-      "type": "string"
+      "type": "string",
+      "description": "The nexusd version the rollback restored."
     },
     "type": {
       "const": "urn:nexus:problem:rollback-failed"
@@ -4758,17 +4779,20 @@ Response `202` (`application/json`):
 {
   "properties": {
     "newVersion": {
-      "type": "string"
+      "type": "string",
+      "description": "The nexusd version the update installed."
     },
     "previousVersion": {
-      "type": "string"
+      "type": "string",
+      "description": "The nexusd version before the update."
     },
     "rolledBack": {
       "type": "boolean",
-      "description": "Whether the previous container was restored."
+      "description": "Whether the previous nexusd was restored and passed the health check."
     },
     "step": {
-      "type": "string"
+      "type": "string",
+      "description": "The update step that failed, such as precheck."
     },
     "type": {
       "const": "urn:nexus:problem:update-failed"
@@ -4878,17 +4902,20 @@ Response `202` (`application/json`):
 {
   "properties": {
     "newVersion": {
-      "type": "string"
+      "type": "string",
+      "description": "The nexusd version the update installed."
     },
     "previousVersion": {
-      "type": "string"
+      "type": "string",
+      "description": "The nexusd version before the update."
     },
     "rolledBack": {
       "type": "boolean",
-      "description": "Whether the previous container was restored."
+      "description": "Whether the previous nexusd was restored and passed the health check."
     },
     "step": {
-      "type": "string"
+      "type": "string",
+      "description": "The update step that failed, such as precheck."
     },
     "type": {
       "const": "urn:nexus:problem:update-rollback-failed"
@@ -4966,7 +4993,9 @@ Response `202` (`application/json`):
 {
   "properties": {
     "maxBytes": {
-      "type": "string"
+      "type": "integer",
+      "description": "The largest body the route accepts, in bytes.",
+      "minimum": 0
     },
     "status": {
       "const": 413
@@ -5039,10 +5068,12 @@ Response `202` (`application/json`):
 {
   "properties": {
     "packageVersion": {
-      "type": "string"
+      "type": "string",
+      "description": "The version the uploaded package carries."
     },
     "runningVersion": {
-      "type": "string"
+      "type": "string",
+      "description": "The nexusd version running now."
     },
     "status": {
       "const": 409
