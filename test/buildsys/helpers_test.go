@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -143,4 +144,30 @@ func run(t *testing.T, dir string, env []string, name string, args ...string) (s
 	}
 	t.Fatalf("start %s %v: %v", name, args, err)
 	return "", -1
+}
+
+// releaseKeyEnvs select the release-signing key. Cases that run make release
+// drop them from the environment and always name a temporary key, so the
+// real key under $HOME is never read or written.
+var releaseKeyEnvs = []string{"NEXUS_RELEASE_KEY", "RELEASE_KEY"}
+
+// releaseEnv is the environment for running make release: the current one
+// minus the make guard and any key selection.
+func releaseEnv() []string {
+	return envWithout(append([]string{makeGuardEnv}, releaseKeyEnvs...)...)
+}
+
+var trustedKeysLine = regexp.MustCompile(`(?m)^trustedKeys: \["([A-Za-z0-9+/=]{44})"\]$`)
+
+// releaseKey makes a temporary signing key with `nexus-release keygen` from
+// the repository copy dir, and returns its path and public key.
+func releaseKey(t *testing.T, dir string) (path, pub string) {
+	t.Helper()
+	path = filepath.Join(t.TempDir(), "keys", "release-signing.key")
+	out, code := run(t, dir, releaseEnv(), "go", "run", "./cmd/nexus-release", "keygen", "--key", path)
+	m := trustedKeysLine.FindStringSubmatch(out)
+	if code != 0 || m == nil {
+		t.Fatalf("nexus-release keygen exited %d:\n%s", code, out)
+	}
+	return path, m[1]
 }

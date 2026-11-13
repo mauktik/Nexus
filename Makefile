@@ -27,11 +27,16 @@ TAR_FLAGS := --uid 0 --gid 0 --uname root --gname root --no-xattrs --no-mac-meta
 endif
 SHA256 := $(shell command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo shasum -a 256)
 
+# The release-signing key (FR-15): a PEM PKCS#8 Ed25519 key, mode 0600, kept
+# off the repository. `make release-key` makes one; `make release` refuses to
+# start without a usable one and signs the nexusd tarball with it.
+RELEASE_KEY ?= $(or $(NEXUS_RELEASE_KEY),$(HOME)/.config/nexus/release-signing.key)
+
 # Build-system tests that run make skip when this is set, so `make test` never
 # recurses into make.
 export NEXUS_IN_MAKE := 1
 
-.PHONY: build build-release test vet vuln check docs docs-check test-harness release release-version nexusd-tree test-emu nfr nfr-sizes
+.PHONY: build build-release test vet vuln check docs docs-check test-harness release release-version release-key release-key-check nexusd-tree test-emu nfr nfr-sizes
 
 # Host-arch binaries for local use.
 build:
@@ -68,10 +73,13 @@ docs:
 docs-check:
 	go run ./cmd/nexus-gendocs -dir docs -check
 
-# release VERSION=vX.Y.Z[-pre]: the gate (vet, test, govulncheck), the
-# release build, then one tarball per target and SHA256SUMS in dist/release/.
-# A failing step stops the build before any tarball is written.
-release: release-version check build-release
+# release VERSION=vX.Y.Z[-pre]: the signing-key check, the gate (vet, test,
+# govulncheck), the release build, then one tarball per target, the nexusd
+# tarball's signature, and SHA256SUMS over both in dist/release/. A failing
+# step, a missing key or a key readable by anyone but its owner stops the
+# build before any tarball is written. Only the nexusd tarball is signed: it
+# is the one a daemon installs through the update verbs (A-37).
+release: release-version release-key-check check build-release
 	rm -rf $(RELEASE_DIR) $(STAGE_DIR)
 	mkdir -p $(RELEASE_DIR) $(STAGE_DIR)
 	$(MAKE) --no-print-directory nexusd-tree TREE_BIN=$(DIST_DIR)/nexusd-linux-amd64 TREE_DIR=$(STAGE_DIR)/nexusd-$(VERSION)-linux-amd64
@@ -83,7 +91,16 @@ release: release-version check build-release
 	for t in nexusd-$(VERSION)-linux-amd64 nexus-$(VERSION)-darwin-arm64 nexus-$(VERSION)-linux-amd64; do \
 		(cd $(STAGE_DIR) && COPYFILE_DISABLE=1 tar $(TAR_FLAGS) -czf $(CURDIR)/$(RELEASE_DIR)/$$t.tar.gz $$t) || exit 1; \
 	done
-	cd $(RELEASE_DIR) && $(SHA256) *.tar.gz >SHA256SUMS && $(SHA256) -c SHA256SUMS
+	go run ./cmd/nexus-release sign --key '$(RELEASE_KEY)' $(RELEASE_DIR)/nexusd-$(VERSION)-linux-amd64.tar.gz
+	cd $(RELEASE_DIR) && $(SHA256) *.tar.gz *.sig >SHA256SUMS && $(SHA256) -c SHA256SUMS
+
+# release-key: make the signing key at RELEASE_KEY (never replacing one) and
+# print the trustedKeys line for providers.nexusd.update in nexusd.yaml.
+release-key:
+	go run ./cmd/nexus-release keygen --key '$(RELEASE_KEY)'
+
+release-key-check:
+	go run ./cmd/nexus-release check-key --key '$(RELEASE_KEY)'
 
 release-version:
 	@echo '$(VERSION)' | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$$' || \

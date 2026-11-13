@@ -9,36 +9,6 @@ package buildsys
 
 import "testing"
 
-// TC-SM-17 (WI 1.4; FR-15): make -n release runs the key check before check and the build
-func TestTCSM17_MakeNReleaseRunsTheKey(t *testing.T) {
-	// - Setup: throwaway copy of the repo (existing buildsys pattern); `skipUnderMake`.
-	// - Steps:
-	//   1. `make -n release VERSION=v0.0.0-test NEXUS_RELEASE_KEY=/nonexistent`.
-	// - Expected:
-	//   - In the dry-run output, the first command that references the key (`nexus-release check-key`)
-	//     appears before `go vet`, `go test` and the first `go build`.
-	//   - The output contains `nexus-release sign --key '/nonexistent'`, and `SHA256SUMS` lists
-	//     `*.tar.gz *.sig`.
-	t.Skip("TC-SM-17: SKIP-only stub; un-skip when WI 1.4 lands")
-}
-
-// TC-SM-18 (WI 1.4; FR-15): make release with a temp key signs only the nexusd tarball and lists the .sig in SHA256SUMS
-func TestTCSM18_MakeReleaseWithATempKey(t *testing.T) {
-	// - Setup: throwaway repo copy; a temp key from `nexus-release keygen`; `skipUnderMake`. The
-	//   `check` step is overridden as `TC-178` does, so the run does not recurse into tests.
-	// - Steps:
-	//   1. `make release VERSION=v0.0.0-test NEXUS_RELEASE_KEY=$key`.
-	//   2. List `dist/release`.
-	//   3. Run `sha256sum -c SHA256SUMS` (`shasum -a 256 -c` on macOS).
-	//   4. `release.Verify` the `.sig` against the temp public key.
-	// - Expected:
-	//   - Exactly one `.sig` exists: `nexusd-v0.0.0-test-linux-amd64.tar.gz.sig` (A-37). The client
-	//     tarballs have none.
-	//   - `SHA256SUMS` contains a line for the `.sig`, and the check passes.
-	//   - Verification is true.
-	t.Skip("TC-SM-18: SKIP-only stub; un-skip when WI 1.4 lands")
-}
-
 // TC-SM-100 (WI 6.1; FR-18, NFR-7, FR-13): Generated docs are current, and the update page documents its flags
 func TestTCSM100_GeneratedDocsAreCurrentAndThe(t *testing.T) {
 	// - Setup: repo copy.
@@ -120,18 +90,4 @@ func TestTCSM108_TheRealNexusdTreeSEntry(t *testing.T) {
 	//   - The tarball was packed with `TAR_FLAGS`: every header has uid and gid 0 and no xattr or PAX
 	//     `SCHILY.xattr.*` records (the `readTarball` checks).
 	t.Skip("TC-SM-108: SKIP-only stub; un-skip when WI 7.1 lands")
-}
-
-// TC-SM-ERR7 (WI 1.4; FR-15): make release with a missing or 0644 key fails before any tarball
-func TestTCSMERR7_MakeReleaseWithAMissingOr(t *testing.T) {
-	// - Setup: repo copy; `skipUnderMake`. Run (a) with `NEXUS_RELEASE_KEY=/nonexistent` and (b) with
-	//   a valid key chmod 0644.
-	// - Steps:
-	//   1. `make release VERSION=v0.0.0-test`.
-	// - Expected:
-	//   - Non-zero exit in both.
-	//   - stderr names the reason.
-	//   - `dist/release/` has no `*.tar.gz` (absent or empty), and `build-release` did not run (no
-	//     `dist/nexusd-linux-amd64`).
-	t.Skip("TC-SM-ERR7: SKIP-only stub; un-skip when WI 1.4 lands")
 }

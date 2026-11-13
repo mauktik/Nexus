@@ -1,0 +1,55 @@
+nexus-release sign: OpenSSL 3 interoperability transcript (TC-SM-16, CON-6, WI 1.4)
+
+A .sig written by `nexus-release sign` verifies with stock OpenSSL 3
+`pkeyutl -verify -rawin -pubin` against the key `nexus-release pubkey` prints.
+TC-SM-16 repeats this check on every run where OpenSSL 3 is installed and
+skips, naming this file, where it is not.
+
+Setup: nexus-release built from cmd/nexus-release (`go build -o $BIN
+./cmd/nexus-release`, on PATH); K a scratch directory (mode 0700) outside the
+repository, deleted afterwards, holding a throwaway key selected through
+$NEXUS_RELEASE_KEY, so the default ~/.config/nexus/release-signing.key is
+never read or written; OPENSSL=/opt/homebrew/opt/openssl@3/bin/openssl.
+The public key is turned into SPKI PEM by prefixing the fixed 12-byte Ed25519
+SubjectPublicKeyInfo header 302a300506032b6570032100 to the raw 32 bytes.
+Recorded 2026-11-13 on macOS (darwin/arm64). Output follows verbatim; the
+scratch key path is shown as $K.
+
+$ $OPENSSL version
+OpenSSL 3.6.1 27 Jan 2026 (Library: OpenSSL 3.6.1 27 Jan 2026)
+$ mkdir -p src/fixture && printf "nexus-release sign transcript fixture\n" > src/fixture/hello.txt
+$ tar -C src -czf test.tar.gz fixture
+$ NEXUS_RELEASE_KEY=$K/release-signing.key nexus-release keygen
+nexus-release: wrote $K/release-signing.key (mode 0600). Add this line to providers.nexusd.update in nexusd.yaml on each host:
+trustedKeys: ["/hygOxpDlusum4VEYAfmHKUi+lVM2jjGwzq1ZFcCPVE="]
+$ ls -l $K/release-signing.key | cut -c1-10
+-rw-------
+$ NEXUS_RELEASE_KEY=$K/release-signing.key nexus-release check-key
+nexus-release: $K/release-signing.key: an ed25519 signing key; public key /hygOxpDlusum4VEYAfmHKUi+lVM2jjGwzq1ZFcCPVE=
+$ nexus-release sign --key $K/release-signing.key test.tar.gz
+nexus-release: signed test.tar.gz -> test.tar.gz.sig
+$ cat test.tar.gz.sig
+bD4xkvSbhNObXzQOpHY2GfU3YvSJqRWSQnCaauMFDvzFw1Fo+bse6ADBBRl3AGNnw5NgXkqg+gzUZ8nSU7llCQ==
+$ NEXUS_RELEASE_KEY=$K/release-signing.key nexus-release pubkey > pub.b64; cat pub.b64
+/hygOxpDlusum4VEYAfmHKUi+lVM2jjGwzq1ZFcCPVE=
+$ nexus-release verify --pubkey "$(cat pub.b64)" test.tar.gz
+nexus-release: test.tar.gz: signature verified
+$ { printf "nexus-release-signature-v1\0"; $OPENSSL dgst -sha256 -binary test.tar.gz; } > msg.bin
+$ wc -c < msg.bin
+      59
+$ tr -d "\n" < test.tar.gz.sig | $OPENSSL base64 -d -A > sig.bin
+$ wc -c < sig.bin
+      64
+$ { printf "\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00"; tr -d "\n" < pub.b64 | $OPENSSL base64 -d -A; } | $OPENSSL pkey -pubin -inform DER -out pub.pem
+$ cat pub.pem
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEA/hygOxpDlusum4VEYAfmHKUi+lVM2jjGwzq1ZFcCPVE=
+-----END PUBLIC KEY-----
+$ $OPENSSL pkeyutl -verify -rawin -pubin -inkey pub.pem -in msg.bin -sigfile sig.bin
+Signature Verified Successfully
+# negative control: one flipped message byte
+$ cp msg.bin bad.bin && printf "\xff" | dd of=bad.bin bs=1 seek=58 conv=notrunc 2>/dev/null
+$ $OPENSSL pkeyutl -verify -rawin -pubin -inkey pub.pem -in bad.bin -sigfile sig.bin || echo "exit $?"
+80BF84F701000000:error:030000EA:digital envelope routines:EVP_DigestVerify:provider signature failure:crypto/evp/m_sigver.c:783:ED25519 digest_verify:
+Signature Verification Failure
+exit 1
