@@ -11,39 +11,6 @@ package integration
 
 import "testing"
 
-// TC-SM-103 (WI 6.2; FR-19): Uninstall removes nexusd.prev and rollback/; --purge also removes staging/
-func TestTCSM103_UninstallRemovesNexusdPrevAndRollback(t *testing.T) {
-	// - Setup: T1 clean host; install `v9.9.1`; create `/usr/local/bin/nexusd.prev`,
-	//   `/var/lib/nexus/rollback/nexusd.service`, `/var/lib/nexus/staging/x/release.tar.gz` and one op
-	//   dir.
-	// - Steps:
-	//   1. `uninstall.sh`, then inspect.
-	//   2. Recreate the state, then run `uninstall.sh --purge` and inspect.
-	// - Expected:
-	//   - Step 1:
-	//     - `nexusd`, `nexusd.prev`, the unit and `rollback/` are gone;
-	//     - `staging/`, `ops/` and `/etc/nexus` remain;
-	//     - `systemctl show nexusd.service -p LoadState` is `not-found`.
-	//   - Step 2: `/var/lib/nexus` is gone, including `staging/`.
-	t.Skip("TC-SM-103: SKIP-only stub; un-skip when WI 6.2 lands")
-}
-
-// TC-SM-104 (WI 6.2; FR-19, CON-5): A manual install.sh from an unpacked tree still works unchanged
-func TestTCSM104_AManualInstallShFromAn(t *testing.T) {
-	// - Setup: T1 wiped host; the `v9.9.1` tree from `/harness/selfupdate`.
-	// - Steps:
-	//   1. Unpack the tarball.
-	//   2. `bash nexusd-v9.9.1-linux-<goarch>/install.sh`.
-	//   3. Start the service.
-	//   4. Rerun `install.sh` from the `v9.9.2` tree while the service is active.
-	// - Expected:
-	//   - Step 2 succeeds; `/usr/local/bin/nexusd -version` prints `nexusd v9.9.1`; the service is
-	//     active.
-	//   - Step 4: the binary is `v9.9.2`, the MainPID changed exactly once (the journal has one
-	//     `Started` line), and the config is kept unchanged.
-	t.Skip("TC-SM-104: SKIP-only stub; un-skip when WI 6.2 lands")
-}
-
 // TC-SM-107 (WI 7.1; NFR-6, FR-15, CON-1): Fixture tarballs are signed with a per-run key and verified on the host
 func TestTCSM107_FixtureTarballsAreSignedWithA(t *testing.T) {
 	// - Setup: inside T1, `/harness/selfupdate/`.

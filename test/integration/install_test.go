@@ -7,7 +7,9 @@ package integration
 // no drop-in: clean install (TC-179), no config overwrite (TC-180),
 // uninstall retention and purge (TC-181), every provider action and the
 // directive audit (TC-182), reload (TC-183), config ownership as root
-// (TC-ERR67) and a real full disk (TC-ERR68). Expected values come from
+// (TC-ERR67) and a real full disk (TC-ERR68); and, for nexusd self-management
+// (FR-19), uninstall of the rollback state (TC-SM-103) and a manual install
+// from an unpacked release tarball (TC-SM-104). Expected values come from
 // ss, systemctl, stat, docker, dpkg-query, the journal and the files
 // themselves, never from Nexus.
 //
@@ -353,8 +355,9 @@ func TestInstallCleanIsLoopbackOnly(t *testing.T) {
 		}
 	}
 	t.Logf("providers: %q", states)
-	if len(caps.Providers) != 3 {
-		t.Fatalf("want the 3 compiled-in providers, got %q", states)
+	// apt, docker, scripts and, since nexusd self-management, nexusd.
+	if len(caps.Providers) != 4 {
+		t.Fatalf("want the 4 compiled-in providers, got %q", states)
 	}
 
 	// Mode of every file nexusd keeps. Each exists by now: the store and
@@ -1322,4 +1325,218 @@ func TestDiskFullRefusesMutations(t *testing.T) {
 			t.Fatalf("audit line is not JSON: %q", sc.Text())
 		}
 	}
+}
+
+// selfupdateDir holds the signed fixture tarballs run.sh builds (WI 7.1):
+// nexusd-<v>-linux-<goarch>.tar.gz, each a `make nexusd-tree` tree.
+const selfupdateDir = "/harness/selfupdate"
+
+// unpackFixture unpacks the version v fixture tarball as an operator would,
+// with tar into a fresh directory, and returns the tree.
+func unpackFixture(t *testing.T, v string) string {
+	t.Helper()
+	top := "nexusd-" + v + "-linux-" + os.Getenv("NEXUS_HARNESS_ARCH")
+	tarball := filepath.Join(selfupdateDir, top+".tar.gz")
+	if !exists(tarball) {
+		t.Fatalf("no %s: run.sh copies the self-update fixture tarballs to %s (WI 7.1)", tarball, selfupdateDir)
+	}
+	dir := t.TempDir()
+	mustSh(t, "tar", "-xzf", tarball, "-C", dir)
+	tree := filepath.Join(dir, top)
+	if got := binVersion(t, filepath.Join(tree, "nexusd")); got != "nexusd "+v {
+		t.Fatalf("%s carries %q, want nexusd %s", tarball, got, v)
+	}
+	return tree
+}
+
+// binVersion is the output of path -version.
+func binVersion(t *testing.T, path string) string {
+	t.Helper()
+	return strings.TrimSpace(mustSh(t, path, "-version"))
+}
+
+// installTree runs a tree's install.sh with bash, as docs/install.md tells
+// an operator to, and requires success.
+func installTree(t *testing.T, tree string) string {
+	t.Helper()
+	out, err := sh(3*time.Minute, "bash", filepath.Join(tree, "install.sh"))
+	t.Logf("%s/install.sh: %v\n%s", filepath.Base(tree), err, strings.TrimSpace(out))
+	if err != nil {
+		t.Fatalf("install.sh from %s failed: %v", tree, err)
+	}
+	return out
+}
+
+// TC-SM-103 (FR-19): uninstall.sh also removes nexusd.prev, the saved unit
+// in /var/lib/nexus/rollback and the copies an interrupted update or
+// rollback leaves, and keeps the staged uploads and the operation history;
+// --purge removes /var/lib/nexus with staging/.
+func TestTCSM103_UninstallRemovesNexusdPrevAndRollback(t *testing.T) {
+	freshHost(t)
+	tree := unpackFixture(t, "v9.9.1")
+	uninstall := filepath.Join(tree, "uninstall.sh")
+	prev := nexusdBin + ".prev"
+	rollbackDir := filepath.Join(nexusdState, "rollback")
+	savedUnit := filepath.Join(rollbackDir, nexusdUnit)
+	staging := filepath.Join(nexusdState, "staging")
+	staged := filepath.Join(staging, "x", "release.tar.gz")
+	opDir := filepath.Join(nexusdState, "ops", "tcsm103")
+	// The update's unverified backup, and the copies a swap keeps beside
+	// the file it replaces (rollback.go swapTmpSuffix, swapNewSuffix).
+	interrupted := []string{nexusdBin + ".prev.tmp", nexusdBin + ".swap.tmp", installedUnit + ".swap.new.tmp",
+		savedUnit + ".swap.tmp"}
+
+	write := func(path string, b []byte, mode os.FileMode) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, b, mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// state installs v9.9.1 and lays out what an update leaves.
+	state := func(step string) {
+		t.Helper()
+		installTree(t, tree)
+		unit, err := os.ReadFile(installedUnit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bin, err := os.ReadFile(nexusdBin)
+		if err != nil {
+			t.Fatal(err)
+		}
+		write(prev, bin, 0o755)
+		write(savedUnit, unit, 0o644)
+		write(staged, []byte("staged upload\n"), 0o600)
+		write(filepath.Join(opDir, "input.json"), []byte("{}\n"), 0o600)
+		for _, p := range interrupted {
+			write(p, []byte("interrupted copy\n"), 0o600)
+		}
+		if got := binVersion(t, prev); got != "nexusd v9.9.1" {
+			t.Fatalf("%s: %s -version %q", step, prev, got)
+		}
+		if ls := showUnit(t, nexusdUnit, "LoadState")["LoadState"]; ls != "loaded" {
+			t.Fatalf("%s: nexusd.service LoadState %s after install.sh", step, ls)
+		}
+		t.Logf("%s: installed v9.9.1 with %s, %s, %s, %s and %q", step, prev, savedUnit, staged, opDir, interrupted)
+	}
+	gone := func(step string, paths ...string) {
+		t.Helper()
+		for _, p := range paths {
+			if _, err := os.Lstat(p); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("%s: %s remains (%v)", step, p, err)
+			}
+		}
+	}
+
+	// Step 1: uninstall, no --purge.
+	state("step 1")
+	cfgSum := sha(t, nexusdConfig)
+	out, err := sh(3*time.Minute, "bash", uninstall)
+	t.Logf("uninstall.sh: %v\n%s", err, strings.TrimSpace(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gone("step 1", append([]string{nexusdBin, prev, installedUnit, rollbackDir}, interrupted...)...)
+	for _, p := range []string{staged, opDir, filepath.Join(opDir, "input.json"), nexusdConfig} {
+		if !exists(p) {
+			t.Errorf("step 1: %s was removed without --purge", p)
+		}
+	}
+	if sha(t, nexusdConfig) != cfgSum {
+		t.Error("step 1: uninstall changed the config")
+	}
+	if ls := showUnit(t, nexusdUnit, "LoadState")["LoadState"]; ls != "not-found" {
+		t.Errorf("step 1: nexusd.service LoadState %s after uninstall", ls)
+	}
+	if t.Failed() {
+		t.FailNow()
+	}
+	t.Logf("step 1: removed nexusd, nexusd.prev, the unit, rollback/ and the interrupted copies; kept %s, %s and %s",
+		staging, opDir, nexusdConfig)
+
+	// Step 2: recreate the state, then purge.
+	state("step 2")
+	out, err = sh(3*time.Minute, "bash", uninstall, "--purge")
+	t.Logf("uninstall.sh --purge: %v\n%s", err, strings.TrimSpace(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gone("step 2", append([]string{nexusdBin, prev, installedUnit, nexusdState, staging, "/etc/nexus", logDir}, interrupted...)...)
+	if ls := showUnit(t, nexusdUnit, "LoadState")["LoadState"]; ls != "not-found" {
+		t.Errorf("step 2: nexusd.service LoadState %s after uninstall --purge", ls)
+	}
+}
+
+// TC-SM-104 (FR-19, CON-5): the install.sh in a release tarball, unpacked
+// and run by hand, installs a stopped nexusd and, rerun from a newer tree
+// while the service is active, restarts it exactly once onto the new binary
+// and keeps the config (A-33, the restart the update helper relies on).
+func TestTCSM104_AManualInstallShFromAn(t *testing.T) {
+	freshHost(t)
+	// Step 1: unpack both trees.
+	v1, v2 := unpackFixture(t, "v9.9.1"), unpackFixture(t, "v9.9.2")
+	// Both carry the shipped script: the release tree's copy of
+	// deploy/install.sh, which TC-SM-102 pins to the base revision.
+	for _, tree := range []string{v1, v2} {
+		if sha(t, filepath.Join(tree, "install.sh")) != sha(t, installSh) {
+			t.Fatalf("%s/install.sh is not the shipped deploy/install.sh", filepath.Base(tree))
+		}
+	}
+
+	// Step 2: the manual install.
+	installTree(t, v1)
+	if got := binVersion(t, nexusdBin); got != "nexusd v9.9.1" {
+		t.Fatalf("after install.sh from v9.9.1: %s -version %q", nexusdBin, got)
+	}
+	cfgSum := sha(t, nexusdConfig)
+
+	// Step 3: start the service.
+	pid0 := startExact(t)
+	if st := activeState(t, nexusdUnit); st != "active" {
+		t.Fatalf("nexusd.service %s after start", st)
+	}
+
+	// Step 4: rerun install.sh from v9.9.2 while active. The journal window
+	// opens on the next whole second, after step 3's Started line.
+	time.Sleep(time.Until(time.Now().Truncate(time.Second).Add(time.Second)))
+	since := "@" + strconv.FormatInt(time.Now().Unix(), 10)
+	out := installTree(t, v2)
+	for _, want := range []string{"restarted the running nexusd.service onto the new binary",
+		"kept the existing " + nexusdConfig + " unchanged"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("install.sh from v9.9.2 did not report %q", want)
+		}
+	}
+	if got := binVersion(t, nexusdBin); got != "nexusd v9.9.2" {
+		t.Fatalf("after install.sh from v9.9.2: %s -version %q", nexusdBin, got)
+	}
+	p := showUnit(t, nexusdUnit, "ActiveState", "MainPID", "NRestarts")
+	pid1, err := strconv.Atoi(p["MainPID"])
+	if err != nil || p["ActiveState"] != "active" || pid1 <= 0 || pid1 == pid0 {
+		t.Fatalf("nexusd.service %v after the rerun, want active with a MainPID other than %d", p, pid0)
+	}
+	if exe, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid1)); err != nil || exe != nexusdBin {
+		t.Fatalf("MainPID %d runs %q (%v), want %s", pid1, exe, err, nexusdBin)
+	}
+	var started []string
+	waitUntil(t, 10*time.Second, "the restart's Started line in the journal", func() (bool, string) {
+		started = started[:0]
+		for line := range strings.Lines(mustSh(t, "journalctl", "-u", nexusdUnit, "-o", "cat", "--no-pager", "--since", since)) {
+			if strings.HasPrefix(line, "Started ") {
+				started = append(started, strings.TrimSpace(line))
+			}
+		}
+		return len(started) > 0, fmt.Sprint(started)
+	})
+	if len(started) != 1 {
+		t.Fatalf("the journal since %s has %d Started lines, want 1: %q", since, len(started), started)
+	}
+	if sha(t, nexusdConfig) != cfgSum {
+		t.Fatal("install.sh from v9.9.2 changed the config")
+	}
+	t.Logf("v9.9.1 -> v9.9.2 by hand: MainPID %d -> %d (%s), %q, config sha256 %s unchanged",
+		pid0, pid1, nexusdBin, started, cfgSum)
 }
