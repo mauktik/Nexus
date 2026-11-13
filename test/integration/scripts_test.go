@@ -1296,6 +1296,12 @@ func TestScriptRestartAdmitsNoSecondRun(t *testing.T) {
 	d := newScriptsd(t, "tc212", catalogYAML(entry{id: "once", path: path, extra: "        concurrency: 1\n"}))
 	first := d.invoke("once", nil)
 	d.waitStatus(first.ID, apitypes.StatusRunning)
+	// Running is committed before the unit is launched: a kill -9 in
+	// between leaves no unit at all.
+	waitUntil(t, 30*time.Second, "the first operation's unit", func() (bool, string) {
+		units := allOpUnits(t)
+		return slices.Contains(units, detach.Unit(first.ID)), strings.Join(units, " ")
+	})
 	// Units of earlier tests are not this test's business.
 	earlier := map[string]bool{}
 	for _, u := range allOpUnits(t) {
