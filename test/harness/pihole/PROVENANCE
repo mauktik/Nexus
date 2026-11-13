@@ -443,3 +443,141 @@ EMPTY ^TestPihole SET (make test-harness-pihole, no temporary test; selected lin
     harness: tests exited 0
     harness: container nexus-harness-20261113T141032Z-47862 removed
     harness: exit 0
+
+
+WI 5.2 T1 INTEGRATION TESTS (TC-121 to TC-133, TC-150, TC-151, TC-152)
+
+command:  make test-harness-pihole (INIT=native) and make test-harness-pihole
+          INIT=sysv; 16 tests, ^TestPihole, in
+          test/integration/pihole_{reads,control,dns,faults}_test.go
+docker:   context colima, server 29.2.1, daemon architecture aarch64 (GOARCH=arm64)
+image:    the WI 5.1 harness image (core v5.18.3, web v5.21, FTL v5.25.2;
+          systemd 247.3-7+deb11u4)
+runs:     native container nexus-harness-20261113T155719Z-89527, 16 PASS, exit 0;
+          sysv container nexus-harness-20261113T160159Z-6660, 16 PASS, exit 0
+          (2026-11-13; the numbers below are the native run's unless marked)
+
+Every expected value is read from the host by the test itself (pihole,
+pihole-FTL sqlite3 [-readonly] [-json], dig @127.0.0.1, `>stats` over nc,
+/run/pihole-FTL.pid and /proc/<pid>/comm, systemctl show, journalctl, cat
+and sha256sum of the DNS file), never from Nexus.
+
+TC-150 (WI 5.4's real-device evidence; INIT=native, the same on sysv)
+  control: `pihole -a adlist del http://127.0.0.1:8099/rm-ctl.txt` on a list
+    gravity processed prints "Error: stepping, FOREIGN KEY constraint failed
+    (19)", exits 0, and the adlist row stays (1 row). Hazard reproduced.
+  remove-adlist of rm-small.txt by id: Succeeded; dig rm-target.example
+    NOERROR [0.0.0.0] before, NXDOMAIN [] right after the op returned;
+    info.updated unchanged (no gravity run); adlist / adlist_by_group /
+    gravity rows for its id 0 0 0; PRAGMA foreign_key_check empty.
+  rm-big.txt, 100,000 generated domains: removed in 854 ms (967 ms POST to terminal) (op started to
+    ended) while `dig pi.hole` ran every 200 ms: 4 digs, 0 failed. Under 10 s
+    (A-59 holds on this image).
+  The op logs hold no "adlist del".
+
+TC-151 (WI 5.5's real-device evidence)
+  INIT=native: systemctl show pihole-FTL: StartLimitBurst=5,
+    StartLimitIntervalUSec=1min, Restart=on-failure, RestartUSec=5s (A-60).
+    Control, after reset-failed: six bare `pihole restartdns`: exits
+    [0 0 0 0 0 1]; Result=start-limit-hit, ActiveState=failed; dig pi.hole
+    gets no answer for 5 s; the journal says "pihole-FTL.service: Start
+    request repeated too quickly." Hazard reproduced. Deviation from
+    TC-151's wording: the sixth's output is "[✗] Job for
+    pihole-FTL.service failed. See "systemctl status pihole-FTL.service"
+    and "journalctl -xe" for details." — it does not contain "attempted
+    too often" on systemd 247; the test asserts the journal line instead.
+    Recovered with reset-failed and systemctl start.
+    Seven `nexus piholeresolver restart` back to back: all exit 0,
+    Succeeded, a new PID each time equal to ftlPidAfter, FTL answers,
+    Result=success.
+  INIT=sysv (recorded only): the generated unit has StartLimitBurst=5,
+    StartLimitIntervalUSec=10s, Restart=no, RestartUSec=100ms. The same
+    control gives the same [0 0 0 0 0 1] and Result=start-limit-hit; the
+    seven Nexus restarts all succeed with a new PID and Result=success.
+  Red: the same test against 96d0a5f (WI 5.5's red commit, no reset-failed
+    in v5.Mutator.RestartDNS) fails: "Nexus restart 6: exit 1 Failed
+    pihole-command-failed: pihole restartdns exited with code 1; PID 1326
+    -> 0; answers false; Result=start-limit-hit", and restart 7 the same.
+
+TC-152 (FakeFTL fidelity, A-63; Nexus not involved)
+  INIT=native: reset-failed; `address=/bad.example/999.1.1.1` in
+    /etc/dnsmasq.d/99-tc152.conf; `pihole restartdns` exits 0 (the native
+    unit is Type=simple, so the restart job succeeds before FTL dies). FTL
+    never answered within 15 s. At 15 s: NRestarts=3, ActiveState
+    activating/auto-restart or active/running between attempts, not
+    answering; at 30 s: Result=exit-code, NRestarts=5, ActiveState=failed,
+    not answering. Each start logs "FATAL ERROR in dnsmasq core: Bad
+    address in --address at line 1 of /etc/dnsmasq.d/99-tc152.conf" and
+    "FTL terminated after 10ms (code 1)"; systemd's Restart=on-failure
+    retries every 5 s until its start limit.
+  INIT=sysv: `pihole restartdns` exits 1 ("Job for pihole-FTL.service
+    failed because the control process exited with error code."); not
+    answering; at 15 s and 30 s Result=exit-code, NRestarts=0,
+    ActiveState=failed.
+  Both match FakeFTL's TestFakeFTLRestartOntoBadConfig (nothing answers
+  until the line is fixed and FTL restarted): FakeFTL is not changed. After
+  removing the file, reset-failed and systemctl start, FTL answers and
+  /etc/dnsmasq.d holds only the seeded files.
+
+TC-129 syntax test and core files (A-19, A-21, A-57)
+  bare `/usr/bin/pihole-FTL --test` on the planted address=/bad.lan/999.1.1.1
+  ($? in bash): 139. The add-record op failed dns-config-test-failed with
+  exitCode 139, preExisting true, rolledBack true; the file was restored
+  byte for byte; FTL's PID unchanged and no FTL unit line in the journal
+  for the window; kernel core_pattern "core", yet no /core and no core* in
+  the op directory (the helper's RLIMIT_CORE 0 holds). The hand edit
+  between Admit and run (ifMatch read before it, the op queued behind a
+  domain add waiting on a fake gravity.sh) failed dns-file-conflict and
+  kept the edit.
+
+TC-124 timed stop
+  control: `systemd-run --wait pihole disable 20s`: BLOCKING_ENABLED still
+  false after 25 s (V-13). Nexus stop-blocking 20 s, nexusd stopped right
+  after: re-enabled +0.487 s (sysv run: +0.828 s) from reenableAt (nexusd inactive);
+  baseline-one.example.com blocked (0.0.0.0) again at once. The timer has
+  AccuracyUSec=1s.
+
+TC-122 NFR-1 (gravity_count 2000000, 1,000 domains, 50 adlists, 100 records;
+50 calls each): p95 status 5.9 ms, summary
+  1.2 ms, blocking 6.6 ms, domains?limit=1000 22.8 ms, domains/<id> 6.8 ms,
+  adlists?limit=1000 3.9 ms, adlists/<id> 1.8 ms, zones 0.7 ms, zones/<zone>
+  0.7 ms, records 1.0 ms, records/<id> 0.7 ms; all under 200 ms.
+
+TC-133: 28 string inputs x 14 attack values (FR-25's eleven plus a/b, a=b,
+  a'b): every one 400 validation-failed except the regex /value of
+  add-domain (stored byte for byte, then removed) and remove-domain
+  (404 not-found, looked up as data); gravity.db's domainlist and adlist
+  rows and the DNS file unchanged. The 64 KiB value is a 400 too. CLI:
+  `piholerecord update ... --ipv4 0.0.0.0` exit 2 (the CLI's own schema
+  check), `piholezone add --zone app.lan` (exists) exit 1 with the 409
+  conflict. Idle RSS of nexusd with pihole enabled over 60 s: 33.08 MiB (VmHWM 33.08 MiB), under 50 MiB.
+  `make nfr-sizes`: nexusd-linux-amd64 17.69 MiB, nexus-darwin-arm64
+  9.27 MiB, nexus-linux-amd64 9.79 MiB, all under 40 MiB.
+
+TC-131 deviation: `chmod 000 /etc/pihole/gravity.db` does not make it
+  unreadable to nexusd: it runs as root with CAP_DAC_READ_SEARCH in its
+  bounding set (deploy/nexusd.service), which bypasses read permission, so
+  the domain list still answers 200. The test records that and injects the
+  fault nexusd can see instead: gravity.db absent (renamed aside, as during
+  gravity's swap) gives 503 dependency-unavailable "gravity.db is
+  unavailable: missing, unreadable, locked or being replaced"; zones still
+  200. 50 domain reads under inotify on /etc/pihole created no -journal,
+  -wal or -shm file and left no denial in nexusd's journal. FTL stopped:
+  status and summary 200 with ftlRunning false, dnsAnswering false and null
+  counters; apt stays enabled and docker stays unavailable (this image has
+  no Docker Engine), both unchanged.
+
+FTL RELOAD RACE (found by TC-125's control; reported, not part of any TC)
+  On FTL v5.25.2, when a gravity.db write holds the lock while FTL reloads
+  its lists after a `pihole restartdns reload-lists` signal (SIGRTMIN), the
+  reload fails: FTL.log shows "SQLite3 message: database is locked ...",
+  "gravityDB_open(...) - SQL error prepare: database is locked",
+  "check_inaccessible_adlists(): Gravity database not available". From then
+  on FTL answers pi.hole only: www.xi.example, baseline-one.example.com, the
+  local record unity.lan and any new name time out (queries are logged as
+  received in pihole.log, never forwarded), for 60 s and more, until the
+  next reload that succeeds (`pihole restartdns reload-lists` restored it
+  at once). Reproduced by hand with `pihole -w X && pihole -b X` in a loop:
+  stuck in 2 of 8 rounds, and at round 4 of a second loop. Nexus's own
+  domain and adlist ops write gravity.db and then send that reload, and the
+  lane can start the next op's write while the previous reload runs.
