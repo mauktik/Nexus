@@ -15,6 +15,7 @@ import (
 	"github.com/mauktik/nexus/internal/def"
 	"github.com/mauktik/nexus/internal/openapi"
 	"github.com/mauktik/nexus/internal/problem"
+	nginx "github.com/mauktik/nexus/internal/providers/nginx/spec"
 	scripts "github.com/mauktik/nexus/internal/providers/scripts/spec"
 )
 
@@ -46,6 +47,10 @@ var inertAllowed = map[string]bool{
 	// Script parameter values reach the script only as one argv element or
 	// one env value (5.3 proves it against real processes, TC-106).
 	scripts.Invoke.Op().ID + " /parameters/{key}": true,
+	// nginx site content is only written to the configuration file and read
+	// by nginx, never passed to a shell or as an argument (FR-12).
+	nginx.Add.Op().ID + " /content":    true,
+	nginx.Update.Op().ID + " /content": true,
 }
 
 // stringParams lists the paths of op's string inputs.

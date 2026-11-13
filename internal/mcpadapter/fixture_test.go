@@ -20,6 +20,7 @@ import (
 	"github.com/mauktik/nexus/internal/provider"
 	apt "github.com/mauktik/nexus/internal/providers/apt/spec"
 	docker "github.com/mauktik/nexus/internal/providers/docker/spec"
+	nginx "github.com/mauktik/nexus/internal/providers/nginx/spec"
 	scripts "github.com/mauktik/nexus/internal/providers/scripts/spec"
 )
 
@@ -207,6 +208,21 @@ func catalogStubs(s *testprovider.Spy) []provider.Provider {
 			testprovider.Sync(s, scripts.List),
 			testprovider.Sync(s, scripts.Get),
 			testprovider.InProcess(s, scripts.Invoke),
+		),
+		testprovider.NewStub(nginx.Spec(),
+			testprovider.Sync(s, nginx.Status),
+			testprovider.InProcess(s, nginx.Test),
+			testprovider.InProcess(s, nginx.Start),
+			testprovider.InProcess(s, nginx.Stop),
+			testprovider.InProcess(s, nginx.Restart),
+			testprovider.InProcess(s, nginx.Reload),
+			testprovider.Sync(s, nginx.List),
+			testprovider.Sync(s, nginx.Get),
+			testprovider.Sync(s, nginx.Content),
+			testprovider.InProcess(s, nginx.Enable),
+			testprovider.InProcess(s, nginx.Disable),
+			testprovider.InProcess(s, nginx.Add),
+			testprovider.InProcess(s, nginx.Update),
 		),
 	}
 }

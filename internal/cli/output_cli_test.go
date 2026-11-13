@@ -150,8 +150,17 @@ func argsFor(c *opCommand, op def.Op) []string {
 	default:
 		args = append(args, "web")
 	}
-	if b, _ := newBinding(c); b != nil && b.variadic && b.required {
+	b, _ := newBinding(c)
+	if b != nil && b.variadic && b.required {
 		args = append(args, "curl")
+	}
+	// A required string input bound to a flag gets a value.
+	if r, err := op.InputSchema(); b != nil && err == nil {
+		for _, f := range b.fields {
+			if f.kind == kindString && b.opFields[op.ID][f.name] && slices.Contains(r.Schema().Required, f.name) {
+				args = append(args, "--"+f.flag, "x")
+			}
+		}
 	}
 	// The fixture server answers with an operation as accepted: print it
 	// without waiting (FR-33), and confirm a destructive op.
