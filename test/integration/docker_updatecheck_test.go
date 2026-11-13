@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/mauktik/nexus/internal/apitypes"
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/providers/docker/spec"
 )
@@ -492,7 +493,10 @@ func clearHelperMarker(t *testing.T) {
 // the result, the operation output and nexusd's journal.
 func noSecret(t *testing.T, n *nexusdInstance, res checkResult, since time.Time) {
 	t.Helper()
-	journal := mustSh(t, "journalctl", "-u", nexusdUnit, "--no-pager", "--since", since.Format("2006-01-02 15:04:05"))
+	journal := string(systemLog(t)) // On OpenRC, all of /var/log/messages
+	if detectedInit() != platform.OpenRC {
+		journal = mustSh(t, "journalctl", "-u", nexusdUnit, "--no-pager", "--since", since.Format("2006-01-02 15:04:05"))
+	}
 	all := res.raw + n.opLogs(res.op.ID) + journal
 	for _, s := range []string{regPass, b64(regUser + ":" + regPass)} {
 		if strings.Contains(all, s) {

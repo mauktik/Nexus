@@ -63,16 +63,27 @@ const (
 
 // wipeInstall removes every trace of an install, so install.sh starts from
 // a host that never had nexusd.
+// On OpenRC that is the script, its conf.d file and every runlevel link.
 func wipeInstall(t *testing.T) {
 	t.Helper()
 	lib(t, "stop-nexusd")
 	lib(t, "remove-dropins")
-	for _, p := range []string{installedUnit, nexusdBin, "/etc/nexus", nexusdState, logDir} {
+	paths := []string{installedUnit, nexusdBin, "/etc/nexus", nexusdState, logDir}
+	if detectedInit() == platform.OpenRC {
+		links, err := filepath.Glob("/etc/runlevels/*/nexusd")
+		if err != nil {
+			t.Fatal(err)
+		}
+		paths = append(append(paths, "/etc/init.d/nexusd", "/etc/conf.d/nexusd"), links...)
+	}
+	for _, p := range paths {
 		if err := os.RemoveAll(p); err != nil {
 			t.Fatal(err)
 		}
 	}
-	mustSh(t, detach.Systemctl, "daemon-reload")
+	if detectedInit() == platform.Systemd {
+		mustSh(t, detach.Systemctl, "daemon-reload")
+	}
 }
 
 // restoreHarness puts back the harness install: the harness binary, which

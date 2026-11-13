@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -21,6 +22,8 @@ import (
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/auth"
+	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/platform"
 	aptspec "github.com/mauktik/nexus/internal/providers/apt/spec"
 	dockerspec "github.com/mauktik/nexus/internal/providers/docker/spec"
 	scriptspec "github.com/mauktik/nexus/internal/providers/scripts/spec"
@@ -30,7 +33,11 @@ import (
 // nexusd under the shipped unit, all three providers enabled, and 50 real
 // containers on the nested Engine. The numbers are logged as "NFR ..."
 // lines and recorded in docs/verification/measurements.md. T1 is arm64;
-// the real x64 host repeats them at 11.1.
+// the real x64 host repeats them at 11.1. TestNFRIdleFootprint also runs on
+// the Alpine harness (nginx-provider TC-45), under the shipped OpenRC
+// script with the process backend: there apt is unavailable, the Engine
+// logs to /var/log/docker.log and nexusd to syslog, and startup is read
+// from the process start time and the ready line's own timestamp.
 
 const (
 	nfrContainerCount = 50
@@ -40,7 +47,10 @@ const (
 	nfrReadyLimit     = 2 * time.Second
 	nfrStartRuns      = 10
 	nfrSettle         = 30 * time.Second
+	nfrBinaryLimit    = 40 << 20
+	nfrOpWindow       = 30 * time.Second
 	dockerDaemonJSON  = "/etc/docker/daemon.json"
+	openrcDockerLog   = "/var/log/docker.log" // Alpine's /etc/conf.d/docker DOCKER_LOGFILE
 )
 
 // nfrIdle is the idle window; anything shorter than the NFR-1 five minutes
@@ -113,7 +123,11 @@ var nfrScopes = []string{
 // lines of the apt section.
 func nfrSetup(t *testing.T, name, socket, aptSettings string) *nfrDaemon {
 	t.Helper()
-	aptFixture(t, true)
+	if detectedInit() == platform.OpenRC {
+		t.Log("NFR env: no apt on Alpine: the apt provider is enabled and reports unavailable")
+	} else {
+		aptFixture(t, true)
+	}
 	return nfrStart(t, name, socket, aptSettings)
 }
 
@@ -123,9 +137,11 @@ func nfrStart(t *testing.T, name, socket, aptSettings string) *nfrDaemon {
 	dir := testDir(t, name)
 	ok := installFixture(t, dir, "ok.sh")
 	fail := installFixture(t, dir, "fail.sh")
+	hold := installScript(t, filepath.Join(dir, "hold.sh"), gateScript(filepath.Join(markers(t, name, "root"), "release"), 0))
 	providers := dockerSection(socket) +
 		"  apt:\n    enabled: true\n" + aptSettings +
-		"  scripts:\n    enabled: true\n    catalog:\n" + catalogYAML(entry{id: "ok", path: ok}, entry{id: "fail", path: fail})
+		"  scripts:\n    enabled: true\n    catalog:\n" + catalogYAML(entry{id: "ok", path: ok}, entry{id: "fail", path: fail},
+		entry{id: "hold", path: hold})
 	n := newNexusd(t, name, providers)
 	d := &nfrDaemon{nexusdInstance: n, name: name,
 		stateDir: filepath.Join(nexusdState, "nexusd-"+name), auditDir: filepath.Join("/var/log/nexus", "nexusd-"+name)}
@@ -399,21 +415,77 @@ func dockerDebug(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
-		if out, err := sh(time.Minute, "systemctl", "reload", "docker.service"); err != nil {
-			t.Errorf("reload docker: %v\n%s", err, out)
+		if err := reloadDocker(); err != nil {
+			t.Errorf("reload docker: %v", err)
 		}
 	})
-	mustSh(t, "systemctl", "reload", "docker.service")
+	if err := reloadDocker(); err != nil {
+		t.Fatalf("reload docker: %v", err)
+	}
 	waitUntil(t, 30*time.Second, "the Engine in debug mode", func() (bool, string) {
 		out, err := sh(10*time.Second, "docker", "info", "--format", "{{.Debug}}")
 		return err == nil && strings.TrimSpace(out) == "true", out
 	})
 }
 
+// reloadDocker makes the Engine reread daemon.json: systemctl reload, or
+// on OpenRC the SIGHUP that reload sends.
+func reloadDocker() error {
+	if detectedInit() == platform.OpenRC {
+		if out, err := sh(time.Minute, "pkill", "-HUP", "-x", "dockerd"); err != nil {
+			return fmt.Errorf("pkill -HUP dockerd: %v %s", err, out)
+		}
+		return nil
+	}
+	if out, err := sh(time.Minute, "systemctl", "reload", "docker.service"); err != nil {
+		return fmt.Errorf("%v %s", err, out)
+	}
+	return nil
+}
+
+// logTimeRE is the time="..." or "time":"..." of a logfmt or JSON log line.
+var logTimeRE = regexp.MustCompile(`time(?:=|":)"([^"]+)"`)
+
+// linesBetween keeps the lines of a log file whose own timestamp falls in
+// [since, until]; it is the journal's --since/--until for OpenRC's plain
+// log files, whose writers stamp each line.
+func linesBetween(t *testing.T, path, match string, since, until time.Time) []string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for line := range strings.Lines(string(b)) {
+		if !strings.Contains(line, match) {
+			continue
+		}
+		m := logTimeRE.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		at, err := time.Parse(time.RFC3339Nano, m[1])
+		if err != nil || at.Before(since) || at.After(until) {
+			continue
+		}
+		out = append(out, strings.TrimSpace(line))
+	}
+	return out
+}
+
 // dockerCalls returns the Engine's API request debug lines between since
 // and until.
 func dockerCalls(t *testing.T, since, until time.Time) []string {
 	t.Helper()
+	if detectedInit() == platform.OpenRC {
+		var calls []string
+		for _, line := range linesBetween(t, openrcDockerLog, "module=api", since, until) {
+			if strings.Contains(line, `msg="handling `) || strings.Contains(line, `msg="Calling `) {
+				calls = append(calls, line)
+			}
+		}
+		return calls
+	}
 	out := mustSh(t, "journalctl", "-u", "docker.service", "--no-pager", "-o", "cat",
 		"--since", "@"+strconv.FormatFloat(float64(since.UnixMicro())/1e6, 'f', 6, 64),
 		"--until", "@"+strconv.FormatFloat(float64(until.UnixMicro())/1e6, 'f', 6, 64))
@@ -451,7 +523,10 @@ func journalWindow(t *testing.T, since, until time.Time, args ...string) []strin
 // nfrStartup restarts nexusd.service runs times and returns, per run, the
 // time from the main process's exec to READY=1 as systemd recorded them
 // (ExecMainStartTimestampMonotonic to ActiveEnterTimestampMonotonic), and
-// the wall time of `systemctl start`.
+// the wall time of `systemctl start`. On OpenRC, which has no readiness
+// protocol, it is from the process's start time (/proc/<pid>/stat field
+// 22) to the time its "nexusd ready" line carries, and the wall time of
+// lib.sh start-nexusd (rc-service start, then waiting for that line).
 func nfrStartup(t *testing.T, runs int) (ready, wall []time.Duration) {
 	t.Helper()
 	mono := func(p map[string]string, k string) time.Duration {
@@ -466,6 +541,11 @@ func nfrStartup(t *testing.T, runs int) (ready, wall []time.Duration) {
 		start := time.Now()
 		lib(t, "start-nexusd")
 		w := time.Since(start)
+		if detectedInit() == platform.OpenRC {
+			ready = append(ready, openrcReadyAfterExec(t))
+			wall = append(wall, w)
+			continue
+		}
 		p := showUnit(t, nexusdUnit, "ExecMainStartTimestampMonotonic", "ActiveEnterTimestampMonotonic", "ActiveState")
 		if p["ActiveState"] != "active" {
 			t.Fatalf("nexusd %s after start", p["ActiveState"])
@@ -476,12 +556,51 @@ func nfrStartup(t *testing.T, runs int) (ready, wall []time.Duration) {
 	return ready, wall
 }
 
+// openrcReadyAfterExec is the running nexusd's exec-to-ready time: its
+// start time, /proc/<pid>/stat field 22 in clock ticks (USER_HZ 100) after
+// boot, the boot being now minus /proc/uptime, to the time field of its
+// last "nexusd ready" line in /var/log/messages. Both are good to 10 ms.
+func openrcReadyAfterExec(t *testing.T) time.Duration {
+	t.Helper()
+	pid := openrcMainPID(t)
+	b, err := os.ReadFile("/proc/uptime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	up, err := strconv.ParseFloat(strings.Fields(string(b))[0], 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	boot := time.Now().Add(-time.Duration(up * float64(time.Second)))
+	started := boot.Add(time.Duration(readProcStat(t, pid).startTicks) * 10 * time.Millisecond)
+	msgs, err := os.ReadFile("/var/log/messages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var readyAt time.Time
+	for line := range strings.Lines(string(msgs)) {
+		if strings.Contains(line, "nexusd ready") {
+			if m := logTimeRE.FindStringSubmatch(line); m != nil {
+				readyAt, _ = time.Parse(time.RFC3339Nano, m[1])
+			}
+		}
+	}
+	if readyAt.IsZero() || readyAt.Before(started.Add(-100*time.Millisecond)) {
+		t.Fatalf("no ready line of nexusd %d (started %v) in /var/log/messages", pid, started)
+	}
+	return readyAt.Sub(started)
+}
+
 // nfrWarmup is a client's use of every provider: reads of each, a script
-// run and a docker start, each to its end.
+// run and a docker start, each to its end. Alpine has no apt to read.
 func nfrWarmup(t *testing.T, n *nfrDaemon, containers []string) {
 	t.Helper()
-	for _, path := range []string{"/v1/capabilities", "/v1/operations", containersAt, containersAt + "/" + containers[0],
-		packagesAt, packagesAt + "/" + aptPlain, upgradableAt, "/v1/providers/scripts/scripts"} {
+	paths := []string{"/v1/capabilities", "/v1/operations", containersAt, containersAt + "/" + containers[0],
+		packagesAt, packagesAt + "/" + aptPlain, upgradableAt, "/v1/providers/scripts/scripts"}
+	if detectedInit() == platform.OpenRC {
+		paths = slices.DeleteFunc(paths, func(p string) bool { return strings.HasPrefix(p, "/v1/providers/apt/") })
+	}
+	for _, path := range paths {
 		if _, code, b := n.timed(http.MethodGet, path, ""); code != http.StatusOK {
 			t.Fatalf("GET %s: %d %s", path, code, b)
 		}
@@ -523,16 +642,27 @@ func TestNFRIdleFootprint(t *testing.T) {
 	dockerDebug(t)
 	containers := nfrContainers(t)
 	n := nfrSetup(t, "nfr-idle", dockerSocket, "")
-	if fi, err := os.Stat(nexusdBin); err == nil {
+	if fi, err := os.Stat(nexusdBin); err != nil {
+		t.Fatal(err)
+	} else {
 		t.Logf("NFR harness binary %s: %d bytes (unstripped linux/%s build; the release size is make nfr's)",
 			nexusdBin, fi.Size(), os.Getenv("NEXUS_HARNESS_ARCH"))
+		if fi.Size() >= nfrBinaryLimit {
+			t.Errorf("%s is %d bytes, want under 40 MiB", nexusdBin, fi.Size())
+		}
 	}
 
 	// Startup to ready.
 	ready, wall := nfrStartup(t, nfrStartRuns)
 	rs, ws := nfrSummarize(ready), nfrSummarize(wall)
-	t.Logf("NFR TC-187 startup exec->READY=1 (systemd monotonic) over %d starts: %s; each %v", nfrStartRuns, rs, ready)
-	t.Logf("NFR TC-187 startup systemctl start wall time: %s", ws)
+	if detectedInit() == platform.OpenRC {
+		t.Logf("NFR TC-187 startup exec->ready line (OpenRC: process start time to the line's own time) over %d starts: %s; each %v",
+			nfrStartRuns, rs, ready)
+		t.Logf("NFR TC-187 startup rc-service start + ready line wall time: %s", ws)
+	} else {
+		t.Logf("NFR TC-187 startup exec->READY=1 (systemd monotonic) over %d starts: %s; each %v", nfrStartRuns, rs, ready)
+		t.Logf("NFR TC-187 startup systemctl start wall time: %s", ws)
+	}
 	if rs.max >= nfrReadyLimit {
 		t.Errorf("TC-187: startup to ready max %v, want under %v", rs.max, nfrReadyLimit)
 	}
@@ -653,8 +783,15 @@ func TestNFRIdleFootprint(t *testing.T) {
 
 	// TC-188: nothing in the window.
 	calls := dockerCalls(t, winStart, winEnd)
-	nexusdLog := journalWindow(t, winStart, winEnd, "-u", nexusdUnit)
-	opUnits := journalWindow(t, winStart, winEnd, "-u", "nexus-op-*")
+	var nexusdLog, opUnits []string
+	if detectedInit() == platform.OpenRC {
+		// The process backend's supervisors log only to their op dirs;
+		// no operation ran in the window, which the op window below shows.
+		nexusdLog = linesBetween(t, "/var/log/messages", "nexusd:", winStart, winEnd)
+	} else {
+		nexusdLog = journalWindow(t, winStart, winEnd, "-u", nexusdUnit)
+		opUnits = journalWindow(t, winStart, winEnd, "-u", "nexus-op-*")
+	}
 	mu.Lock()
 	kids, apts := slices.Sorted(mapsKeys(children)), slices.Sorted(mapsKeys(aptSeen))
 	mu.Unlock()
@@ -674,6 +811,82 @@ func TestNFRIdleFootprint(t *testing.T) {
 	}
 	if len(nexusdLog) > 0 {
 		t.Logf("nexusd journal lines in the window:\n%s", strings.Join(nexusdLog, "\n"))
+	}
+
+	nfrOpWindowCPU(t, n, pid, p1)
+}
+
+// nfrWakeups is the context switches of every thread of pid so far: each
+// is a wakeup of that thread.
+func nfrWakeups(pid int) int64 {
+	tasks, err := os.ReadDir(fmt.Sprintf("/proc/%d/task", pid))
+	if err != nil {
+		return 0
+	}
+	var sum int64
+	for _, task := range tasks {
+		b, err := os.ReadFile(fmt.Sprintf("/proc/%d/task/%s/status", pid, task.Name()))
+		if err != nil {
+			continue
+		}
+		for line := range strings.Lines(string(b)) {
+			for _, k := range []string{"voluntary_ctxt_switches:", "nonvoluntary_ctxt_switches:"} {
+				if v, ok := strings.CutPrefix(line, k); ok {
+					n, _ := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+					sum += n
+				}
+			}
+		}
+	}
+	return sum
+}
+
+// nfrOpWindowCPU is nginx-provider TC-45 step 2: with one operation
+// running (a script held at a gate, so its supervisor lives the whole
+// window), nexusd's CPU time and wakeups over 30 s, against the same
+// counts over an idle 30 s just before. The operation's watcher polls
+// exit.json every detach.PollInterval (2/s), and the added wakeups must
+// stay within that rate, whichever backend runs the supervisor. The CPU
+// numbers are logged on both harnesses; docs/verification compares the
+// process backend's with the systemd launcher's.
+func nfrOpWindowCPU(t *testing.T, n *nfrDaemon, pid int, before nfrProc) {
+	t.Helper()
+	measure := func() (ticks, wakeups int64) {
+		p0, err := nfrReadProc(pid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w0 := nfrWakeups(pid)
+		time.Sleep(nfrOpWindow)
+		p1, err := nfrReadProc(pid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p1.ticks - p0.ticks, nfrWakeups(pid) - w0
+	}
+	idleTicks, idleWakeups := measure()
+	op := startOp(t, n.nexusdInstance, "/v1/providers/scripts/scripts/hold/invoke", "{}")
+	waitUntil(t, 30*time.Second, "the held script running", func() (bool, string) {
+		s := n.operation(op.ID).Status
+		return s == apitypes.StatusRunning, string(s)
+	})
+	opTicks, opWakeups := measure()
+	if st := n.operation(op.ID).Status; st != apitypes.StatusRunning {
+		t.Fatalf("the held script is %s, not running through the window", st)
+	}
+	releaseFile(t, filepath.Join(runRoot, n.name, "release"))
+	if end := n.waitOp(op.ID, time.Minute); end.Status != apitypes.StatusSucceeded {
+		t.Fatalf("held script: %s %+v", end.Status, end.Error)
+	}
+	secs := nfrOpWindow.Seconds()
+	added := float64(opWakeups-idleWakeups) / secs
+	pollRate := float64(time.Second) / float64(detach.PollInterval)
+	t.Logf("NFR TC-45 %s, one op running %v: nexusd CPU %d ticks (%.4f%% of one core), %d wakeups (%.2f/s); idle %v before: %d ticks, %d wakeups (%.2f/s); added %.2f wakeups/s, watcher poll rate %.1f/s; RSS %.2f MiB",
+		detectedInit(), nfrOpWindow, opTicks, float64(opTicks)/secs, opWakeups, float64(opWakeups)/secs,
+		nfrOpWindow, idleTicks, idleWakeups, float64(idleWakeups)/secs, added, pollRate, mib(before.rss))
+	// One poll wakes the ticker's thread and may hand off to one more.
+	if added > 2*pollRate {
+		t.Errorf("TC-45: one running op adds %.2f wakeups/s to nexusd, more than the watcher's poll (%.1f/s, two threads each)", added, pollRate)
 	}
 }
 

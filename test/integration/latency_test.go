@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/mauktik/nexus/internal/apitypes"
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/providers/apt"
 	dockerspec "github.com/mauktik/nexus/internal/providers/docker/spec"
@@ -565,13 +566,19 @@ func TestNFRDependencyFailureMatrix(t *testing.T) {
 		g := startDockerGate(t, true)
 		hsince := time.Now().Add(-time.Second)
 		hn := nfrStart(t, "nfr-hungstart", nfrGateSock, "")
-		p := showUnit(t, nexusdUnit, "ExecMainStartTimestampMonotonic", "ActiveEnterTimestampMonotonic")
-		var exec, ready int64
-		_, _ = fmt.Sscan(p["ExecMainStartTimestampMonotonic"], &exec)
-		_, _ = fmt.Sscan(p["ActiveEnterTimestampMonotonic"], &ready)
+		var startup time.Duration
+		if detectedInit() == platform.OpenRC {
+			startup = openrcReadyAfterExec(t)
+		} else {
+			p := showUnit(t, nexusdUnit, "ExecMainStartTimestampMonotonic", "ActiveEnterTimestampMonotonic")
+			var exec, ready int64
+			_, _ = fmt.Sscan(p["ExecMainStartTimestampMonotonic"], &exec)
+			_, _ = fmt.Sscan(p["ActiveEnterTimestampMonotonic"], &ready)
+			startup = time.Duration(ready-exec) * time.Microsecond
+		}
 		took, code, b := hn.timed(http.MethodGet, containersAt, "")
-		t.Logf("NFR TC-191 docker hung at start: exec->READY=1 %sms; GET containers %d %s in %sms; gate accepted %d, open %d",
-			ms(time.Duration(ready-exec)*time.Microsecond), code, b, ms(took), g.accepted.Load(), g.open.Load())
+		t.Logf("NFR TC-191 docker hung at start: exec->ready %sms; GET containers %d %s in %sms; gate accepted %d, open %d",
+			ms(startup), code, b, ms(took), g.accepted.Load(), g.open.Load())
 		if code != http.StatusServiceUnavailable || (nfrSlug(b) != problem.CapabilityUnavailable && nfrSlug(b) != problem.DependencyUnavailable) {
 			t.Errorf("hung at start: GET containers %d %s, want a 503 problem", code, b)
 		}

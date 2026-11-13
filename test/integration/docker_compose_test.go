@@ -21,6 +21,7 @@ import (
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/cli"
+	"github.com/mauktik/nexus/internal/detach"
 	"github.com/mauktik/nexus/internal/problem"
 )
 
@@ -246,8 +247,8 @@ func procComm(pid int) string {
 	return strings.TrimSpace(string(b))
 }
 
-// unitPIDs are the processes in nexus-op-<id>.service's cgroup, by
-// /proc/<pid>/cgroup.
+// unitPIDs are the processes in nexus-op-<id>.service's cgroup, or on
+// OpenRC its nexus-ops group, by /proc/<pid>/cgroup.
 func unitPIDs(id string) []int {
 	var out []int
 	ents, _ := os.ReadDir("/proc")
@@ -257,7 +258,7 @@ func unitPIDs(id string) []int {
 			continue
 		}
 		b, err := os.ReadFile(fmt.Sprintf("/proc/%d/cgroup", pid))
-		if err == nil && strings.Contains(string(b), "/nexus-op-"+id+".service") {
+		if err == nil && inOpCgroup(string(b), id) {
 			out = append(out, pid)
 		}
 	}
@@ -327,15 +328,11 @@ func TestDockerComposeUpdateChangesOneService(t *testing.T) {
 		t.Fatalf("helper argv %q, want %q", argv, want)
 	}
 	cpid, cargv := composeProc(t, op.ID, "pull")
-	unit := showUnit(t, "nexus-op-"+op.ID+".service", "KillMode", "ExecStart", "MainPID")
-	t.Logf("unit %v; helper %d %q; compose %d %q", unit, hpid, argv, cpid, cargv)
-	if unit["KillMode"] != "control-group" ||
-		!strings.Contains(unit["ExecStart"], "argv[]="+nexusdBin+" op-supervise --dir "+opDir+" ;") {
-		t.Fatalf("unit %v", unit)
-	}
+	mainPID := opSupervisor(t, op.ID, opDir, string(detach.KillControlGroup), hpid)
+	t.Logf("supervisor %d; helper %d %q; compose %d %q", mainPID, hpid, argv, cpid, cargv)
 	sup := ppid(t, hpid)
-	if sa := procArgv(sup); strconv.Itoa(sup) != unit["MainPID"] || len(sa) < 2 || sa[1] != "op-supervise" {
-		t.Fatalf("helper's parent %d %q, unit MainPID %s", sup, sa, unit["MainPID"])
+	if sa := procArgv(sup); sup != mainPID || len(sa) < 2 || sa[1] != "op-supervise" {
+		t.Fatalf("helper's parent %d %q, supervisor %d", sup, sa, mainPID)
 	}
 	if ppid(t, cpid) != hpid {
 		t.Fatalf("docker compose pull %d is not the helper's child", cpid)
@@ -772,12 +769,7 @@ func TestDockerUpdateNoShellString(t *testing.T) {
 			}
 		}
 		hp.waitHeld(t)
-		unit := "nexus-op-" + op.ID + ".service"
-		exec := showUnit(t, unit, "ExecStart")["ExecStart"]
-		if !strings.Contains(exec, "argv[]="+nexusdBin+" op-supervise --dir "+opDir+" ;") {
-			t.Fatalf("ExecStart %s", exec)
-		}
-		t.Logf("%s ExecStart: %s", unit, exec)
+		opSupervisor(t, op.ID, opDir, string(detach.KillControlGroup), 0)
 		pids := unitPIDs(op.ID)
 		if len(pids) < 2 {
 			t.Fatalf("unit processes %v", pids)

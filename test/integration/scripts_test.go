@@ -11,6 +11,8 @@ import (
 	"archive/tar"
 	"bufio"
 	"bytes"
+	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -33,6 +35,7 @@ import (
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/providers/scripts"
 	"github.com/mauktik/nexus/internal/providers/scripts/spec"
@@ -243,6 +246,16 @@ func (d *scriptsd) start() {
 	}
 }
 
+// mainPID is the running daemon's PID.
+func (d *scriptsd) mainPID() int {
+	d.t.Helper()
+	pid, err := strconv.Atoi(showUnit(d.t, nexusdUnit, "MainPID")["MainPID"])
+	if err != nil || pid == 0 {
+		d.t.Fatalf("nexusd has no main process (%v)", err)
+	}
+	return pid
+}
+
 func (d *scriptsd) kill9() {
 	d.t.Helper()
 	pid, err := strconv.Atoi(showUnit(d.t, nexusdUnit, "MainPID")["MainPID"])
@@ -408,9 +421,36 @@ func gateScript(release string, code int) string {
 		release, code)
 }
 
-// allOpUnits lists every operation unit systemd has loaded.
+// processOpUnits lists, on OpenRC, the operation units of every daemon's
+// ops directory whose supervisor identity is alive: the process backend's
+// ListUnits.
+func processOpUnits(t *testing.T) []string {
+	t.Helper()
+	dirs, err := filepath.Glob(filepath.Join(nexusdState, "*", "ops"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var units []string
+	for _, dir := range append(dirs, filepath.Join(nexusdState, "ops")) {
+		if !exists(dir) {
+			continue
+		}
+		u, err := detach.ProcessBackend(detach.ProcessConfig{OpsDir: dir}).ListUnits(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		units = append(units, u...)
+	}
+	return units
+}
+
+// allOpUnits lists every operation unit systemd has loaded, or on OpenRC
+// every live supervisor's.
 func allOpUnits(t *testing.T) []string {
 	t.Helper()
+	if detectedInit() == platform.OpenRC {
+		return processOpUnits(t)
+	}
 	out := mustSh(t, detach.Systemctl, "list-units", "--all", "--no-legend", "--plain", detach.UnitPrefix+"*")
 	var units []string
 	for line := range strings.Lines(out) {
@@ -421,9 +461,20 @@ func allOpUnits(t *testing.T) []string {
 	return units
 }
 
-// opUnits returns which of the operations' units systemd has active.
+// opUnits returns which of the operations' units systemd has active, or
+// on OpenRC which have a live supervisor.
 func opUnits(t *testing.T, ids []string) []string {
 	t.Helper()
+	if detectedInit() == platform.OpenRC {
+		var active []string
+		live := processOpUnits(t)
+		for _, id := range ids {
+			if slices.Contains(live, detach.Unit(id)) {
+				active = append(active, id)
+			}
+		}
+		return active
+	}
 	out := mustSh(t, detach.Systemctl, "list-units", "--no-legend", "--plain", "--state=active", detach.UnitPrefix+"*")
 	var active []string
 	for line := range strings.Lines(out) {
@@ -642,6 +693,54 @@ func TestScriptHasNoTTY(t *testing.T) {
 	}
 	if r := result(t, op); r.DurationSeconds > 5 {
 		t.Errorf("tty-check took %vs: the read did not return EOF at once", r.DurationSeconds)
+	}
+}
+
+// nginx-provider TC-43: a script runs as a non-root user on either init
+// system (NFR-8): the UID it prints is the account's, and a file it creates
+// with the shell's default mode is 0644, as under a systemd transient unit,
+// not 0600 from nexusd's own umask. On OpenRC nexusd itself keeps umask 077
+// (FR-23) and the interpreter is BusyBox. The integrity checks
+// (acl_linux.go among them) pass, or the script would not run.
+func TestScriptRunsAsNonRootWithUnitUmask(t *testing.T) {
+	const user = "nexusrun"
+	if _, err := sh(time.Minute, "id", user); err != nil {
+		if detectedInit() == platform.OpenRC {
+			mustSh(t, "adduser", "-D", "-H", user) // BusyBox
+		} else {
+			mustSh(t, "useradd", "--no-create-home", user)
+		}
+	}
+	shell, err := filepath.EvalSymlinks("/bin/sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("/bin/sh is %s", shell)
+	if detectedInit() == platform.OpenRC && shell != "/bin/busybox" {
+		t.Errorf("/bin/sh is %s on Alpine, want /bin/busybox", shell)
+	}
+	dir := testDir(t, "tc43")
+	created := "/tmp/nexus-umask-" + rand.Text()
+	t.Cleanup(func() { _ = os.Remove(created) })
+	path := installScript(t, filepath.Join(dir, "umask.sh"), fmt.Sprintf("#!/bin/sh\nid -u\n: > %s\n", created))
+	d := newScriptsd(t, "tc43", catalogYAML(entry{id: "umask", path: path, runAs: user, dir: "/tmp"}))
+	op, _ := d.waitTerminal(d.invoke("umask", nil).ID, time.Minute)
+	out := d.logs(op.ID)
+	if op.Status != apitypes.StatusSucceeded {
+		t.Fatalf("umask: %s %v\n%s", op.Status, op.Error, out)
+	}
+	uid := strings.TrimSpace(mustSh(t, "id", "-u", user))
+	mode := strings.TrimSpace(mustSh(t, "stat", "-c", "%a", created))
+	nexusdUmask := procStatusField(d.mainPID(), "Umask")
+	t.Logf("%s: output %q, uid of %s %s; %s mode %s; nexusd Umask %s", detectedInit(), out, user, uid, created, mode, nexusdUmask)
+	if strings.TrimSpace(out) != uid {
+		t.Errorf("the script printed %q, want %s's uid %s", out, user, uid)
+	}
+	if mode != "644" {
+		t.Errorf("%s is %s, want 644 (the unit umask 0022, not nexusd's)", created, mode)
+	}
+	if detectedInit() == platform.OpenRC && nexusdUmask != "0077" {
+		t.Errorf("nexusd Umask %s, want 0077 (FR-23)", nexusdUmask)
 	}
 }
 
@@ -987,7 +1086,7 @@ func TestScriptSensitiveValuesStayOut(t *testing.T) {
 	op := d.invoke("secret", map[string]string{"apiKey": paramSentinel, "branch": "main"})
 	pid := waitPIDFile(t, filepath.Join(m, "pid"))
 	// Step 1, during the run.
-	clean("systemctl show", []byte(mustSh(t, detach.Systemctl, "show", detach.Unit(op.ID))))
+	clean("the unit's properties", unitProperties(t, detach.Unit(op.ID)))
 	cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
 	if err != nil {
 		t.Fatal(err)
@@ -1030,7 +1129,7 @@ func TestScriptSensitiveValuesStayOut(t *testing.T) {
 	clean("GET operation", body)
 	walkClean(d.auditDir)
 	walkClean(d.opDir(op.ID))
-	clean("journal", []byte(mustSh(t, "journalctl", "--no-pager", "-o", "cat", "--since", "-10min")))
+	clean("the system log", systemLog(t))
 	db, err := os.ReadFile(filepath.Join(d.stateDir, "state.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -1176,7 +1275,7 @@ func TestScriptRestartAdmitsNoSecondRun(t *testing.T) {
 		}
 	}
 	d.kill9()
-	mustSh(t, detach.Systemctl, "start", "--no-block", nexusdUnit)
+	startNexusdNoBlock(t)
 
 	deadline := time.Now().Add(lostBound)
 	var answers []int
@@ -1249,7 +1348,7 @@ func TestScriptMaxRuntimeUnderStuckSupervisor(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_ = syscall.Kill(sup, syscall.SIGCONT)
-		_, _ = sh(time.Minute, detach.Systemctl, "kill", "--signal=SIGKILL", unit)
+		killOpUnit(t, unit)
 	})
 	d.waitStatus(op.ID, apitypes.StatusRunning)
 	started := *d.get(op.ID).Started
@@ -1315,7 +1414,11 @@ func TestQueuedSensitiveScriptNeverStartsAfterRestart(t *testing.T) {
 	if exists(filepath.Join(m, "sens")) {
 		t.Error("the sensitive script ran")
 	}
-	if out := mustSh(t, "journalctl", "--no-pager", "-o", "cat", "-u", detach.Unit(sensID)); strings.TrimSpace(out) != "" && !strings.Contains(out, "No entries") {
+	if detectedInit() == platform.OpenRC {
+		if dir := opDirOf(sensID); dir != "" && exists(filepath.Join(dir, detach.IdentityFile)) {
+			t.Errorf("the sensitive run had a supervisor: %s exists", filepath.Join(dir, detach.IdentityFile))
+		}
+	} else if out := mustSh(t, "journalctl", "--no-pager", "-o", "cat", "-u", detach.Unit(sensID)); strings.TrimSpace(out) != "" && !strings.Contains(out, "No entries") {
 		t.Errorf("the sensitive run's unit has journal entries:\n%s", out)
 	}
 	if plainEnd.Status != apitypes.StatusSucceeded || !exists(filepath.Join(m, "plain")) {

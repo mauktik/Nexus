@@ -29,6 +29,7 @@ import (
 	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/daemon"
 	"github.com/mauktik/nexus/internal/def"
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/providers/apt"
 	aptspec "github.com/mauktik/nexus/internal/providers/apt/spec"
@@ -362,7 +363,15 @@ func TestNFRAdditiveCompatibility(t *testing.T) {
 		t.Fatalf("container get on older: %v lacks %s and %s", got, a, b)
 	}
 	r = compatCLI(t, home, "package", "get", "--host", "older", "-o", "jsonl", "--limit", "5")
-	mustExit(r, 0, "package get on older")
+	if detectedInit() == platform.OpenRC {
+		// Alpine has no apt: the older nexusd answers as the newer one does.
+		mustExit(r, 4, "package get on older (no apt on this host)")
+		if !strings.Contains(r.stderr, "capability-unavailable") {
+			t.Fatalf("package get on older: stderr %q, want capability-unavailable", r.stderr)
+		}
+	} else {
+		mustExit(r, 0, "package get on older")
+	}
 
 	// The new op: a clear capability error, exit 4.
 	r = compatCLI(t, home, "packageupdate", "get", "--host", "older")

@@ -218,8 +218,11 @@ say "starting container $name"
 # process backend's nexus-ops groups are real.
 cgroupns=host
 [ $MODE = systemd ] || cgroupns=private
+# /harness-tmp is the parity suites' TMPDIR: they fsync thousands of small
+# records, and on the VM's shared disk one fsync stalled a run for minutes.
 container=$(docker run -d --name "$name" --privileged "--cgroupns=$cgroupns" \
-	--tmpfs /run --tmpfs /run/lock -v /var/lib/docker -v /var/lib/containerd "$tag")
+	--tmpfs /run --tmpfs /run/lock --tmpfs /harness-tmp:rw,exec,nosuid,size=2g,mode=1777 \
+	-v /var/lib/docker -v /var/lib/containerd "$tag")
 
 mounts=$(docker inspect -f '{{range .Mounts}}{{.Type}}:{{.Destination}} {{end}}' "$container")
 say "mounts: ${mounts:-none}"
@@ -282,26 +285,38 @@ docker exec "$container" chown -R root:root /harness/release
 docker exec "$container" sh -c 'chown root:root /usr/local/bin/nexusd /usr/local/bin/opsd /harness/integration.test /harness/lib.sh /harness/deploy/nexusd.service /harness/deploy/nexusd.openrc && chmod 0755 /usr/local/bin/nexusd /usr/local/bin/opsd /harness/integration.test /harness/lib.sh'
 
 # The parity suites (NFR-8, TC-46): as root, then as an unprivileged user,
-# each package's binary in a directory of its own holding its testdata.
+# each package's binary in a directory of its own holding its testdata
+# (internal/detach's goldens, internal/ops's test sources).
 # NEXUS_TEST_SUPERVISOR is the supervisor executable of their process
 # backend: the harness has no Go toolchain to build one.
 parity_status=0
+# The one test left out reads the package's API with `go doc`: it needs
+# the Go toolchain, so it runs in T0 only, and the cases it covers are not
+# root, cgroup or init specific.
+parity_skip() {
+	case $1 in
+	detach) echo '^TestSingleConstructorWithTestInjection$' ;;
+	*) echo '^$' ;;
+	esac
+}
 run_parity() {
-	local who=$1 pkg log rc
+	local who=$1 pkg log rc skip
 	for pkg in detach ops; do
+		skip=$(parity_skip "$pkg")
 		log=$pkg.log
 		[ "$who" = root ] || log=$pkg-nonroot.log
 		say "parity suite internal/$pkg as $who -> $log"
 		set +e
 		if [ "$who" = root ]; then
-			docker exec -w "/harness/parity/$pkg" -e NEXUS_TEST_SUPERVISOR=/usr/local/bin/nexusd \
+			docker exec -w "/harness/parity/$pkg" -e NEXUS_TEST_SUPERVISOR=/usr/local/bin/nexusd -e TMPDIR=/harness-tmp/root \
 				"$container" "/harness/parity/$pkg/$pkg.test" -test.v -test.count=1 -test.timeout=20m \
-				>"$LOGS/$log" 2>&1
+				-test.skip "$skip" >"$LOGS/$log" 2>&1
 		else
 			docker exec -w "/harness/parity/$pkg" "$container" setpriv --reuid=nexusparity --regid=nexusparity \
 				--clear-groups env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-				HOME=/tmp/nexusparity TMPDIR=/tmp/nexusparity NEXUS_TEST_SUPERVISOR=/usr/local/bin/nexusd \
-				"/harness/parity/$pkg/$pkg.test" -test.v -test.count=1 -test.timeout=20m >"$LOGS/$log" 2>&1
+				HOME=/harness-tmp/nexusparity TMPDIR=/harness-tmp/nexusparity NEXUS_TEST_SUPERVISOR=/usr/local/bin/nexusd \
+				"/harness/parity/$pkg/$pkg.test" -test.v -test.count=1 -test.timeout=20m -test.skip "$skip" \
+				>"$LOGS/$log" 2>&1
 		fi
 		rc=$?
 		set -e
@@ -318,13 +333,18 @@ if [ "$PARITY" = 1 ]; then
 	docker cp "$OUT/detach.test" "$container:/harness/parity/detach/detach.test"
 	docker cp "$OUT/ops.test" "$container:/harness/parity/ops/ops.test"
 	docker cp internal/detach/testdata "$container:/harness/parity/detach/testdata"
+	# TC-25 parses the ops behavioral suites' source to check that each runs
+	# per backend.
+	for f in internal/ops/*_test.go; do
+		docker cp "$f" "$container:/harness/parity/ops/${f##*/}"
+	done
 	if [ $MODE = openrc ]; then
 		docker exec "$container" adduser -D -H -s /sbin/nologin nexusparity
 	else
 		docker exec "$container" useradd -M -s /usr/sbin/nologin nexusparity
 	fi
 	docker exec "$container" sh -c 'chown -R root:root /harness/parity && chmod -R a+rX /harness/parity &&
-		install -d -o nexusparity -g nexusparity -m 0700 /tmp/nexusparity'
+		install -d -m 0700 /harness-tmp/root && install -d -o nexusparity -g nexusparity -m 0700 /harness-tmp/nexusparity'
 	run_parity root
 	run_parity nonroot
 fi

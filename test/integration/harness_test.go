@@ -88,17 +88,18 @@ func lib(t *testing.T, args ...string) string {
 	return mustSh(t, "bash", append([]string{libSh}, args...)...)
 }
 
-// showUnit is systemctl show for the named properties. On OpenRC only
-// nexusd.service has an equivalent, the nexusd service, and only its
-// MainPID and ActiveState (openrcService); anything else fails the test,
-// which must then be gated with requireInit(t, platform.Systemd).
+// showUnit is systemctl show for the named properties. On OpenRC,
+// nexusd.service is the nexusd service (openrcService) and an operation
+// unit is its process-backend supervisor (processUnit), each with only the
+// properties that have an equivalent; any other fails the test, which must
+// then be gated with requireInit(t, platform.Systemd).
 func showUnit(t *testing.T, unit string, props ...string) map[string]string {
 	t.Helper()
 	if detectedInit() == platform.OpenRC {
-		if unit != nexusdUnit {
-			t.Fatalf("systemctl show %s on OpenRC: an operation unit exists only under systemd; gate the test with requireInit(t, platform.Systemd)", unit)
+		if unit == nexusdUnit {
+			return openrcService(t, props...)
 		}
-		return openrcService(t, props...)
+		return processUnit(t, unit, props...)
 	}
 	args := []string{"show", unit}
 	for _, p := range props {
@@ -135,6 +136,225 @@ func openrcService(t *testing.T, props ...string) map[string]string {
 		}
 	}
 	return m
+}
+
+// opDirOf finds operation id's directory in the ops directory of any
+// daemon the tests run: the default state directory or one of a test's own.
+func opDirOf(id string) string {
+	for _, pattern := range []string{filepath.Join(nexusdState, "ops", id), filepath.Join(nexusdState, "*", "ops", id)} {
+		if m, _ := filepath.Glob(pattern); len(m) == 1 {
+			return m[0]
+		}
+	}
+	return ""
+}
+
+// processUnit answers showUnit for operation unit nexus-op-<id>.service on
+// OpenRC from the process backend: ActiveState and LoadState from its
+// UnitState (a live supervisor identity is active and loaded, anything
+// else inactive and not-found, as a collected unit), MainPID from
+// supervisor.json while it is live.
+func processUnit(t *testing.T, unit string, props ...string) map[string]string {
+	t.Helper()
+	id, ok := strings.CutPrefix(strings.TrimSuffix(unit, ".service"), detach.UnitPrefix)
+	if !ok || !strings.HasSuffix(unit, ".service") {
+		t.Fatalf("showUnit %s on OpenRC: not an operation unit", unit)
+	}
+	st := detach.UnitState{ActiveState: "inactive", LoadState: "not-found"}
+	dir := opDirOf(id)
+	if dir != "" {
+		var err error
+		opts := detach.ProcessBackend(detach.ProcessConfig{OpsDir: filepath.Dir(dir)})
+		if st, err = opts.UnitState(context.Background(), unit); err != nil {
+			t.Fatalf("UnitState %s: %v", unit, err)
+		}
+	}
+	m := map[string]string{}
+	for _, p := range props {
+		switch p {
+		case "ActiveState":
+			m[p] = st.ActiveState
+		case "LoadState":
+			m[p] = st.LoadState
+		case "MainPID":
+			m[p] = "0"
+			if st.ActiveState == "active" {
+				if ident, err := detach.ReadIdentity(dir); err == nil {
+					m[p] = strconv.Itoa(ident.PID)
+				}
+			}
+		default:
+			t.Fatalf("systemctl show %s -p %s has no OpenRC equivalent; gate the test with requireInit(t, platform.Systemd)", unit, p)
+		}
+	}
+	return m
+}
+
+// opCgroupPIDs lists every process in operation id's process-backend
+// cgroup, /sys/fs/cgroup/nexus-ops/<id> and its work group.
+func opCgroupPIDs(id string) []int {
+	var pids []int
+	_ = filepath.WalkDir(filepath.Join("/sys/fs/cgroup/nexus-ops", id), func(path string, e os.DirEntry, err error) error {
+		if err != nil || e.IsDir() || e.Name() != "cgroup.procs" {
+			return nil
+		}
+		b, _ := os.ReadFile(path)
+		for _, f := range strings.Fields(string(b)) {
+			if pid, err := strconv.Atoi(f); err == nil {
+				pids = append(pids, pid)
+			}
+		}
+		return nil
+	})
+	return pids
+}
+
+// inOpCgroup reports whether a /proc/<pid>/cgroup file places the process
+// in operation id's unit (systemd) or nexus-ops group, its work group
+// included (OpenRC).
+func inOpCgroup(cgroupFile, id string) bool {
+	if detectedInit() != platform.OpenRC {
+		return strings.Contains(cgroupFile, "/"+detach.Unit(id))
+	}
+	for line := range strings.Lines(cgroupFile) {
+		p, ok := strings.CutPrefix(strings.TrimSpace(line), "0::")
+		if ok && (p == "/nexus-ops/"+id || strings.HasPrefix(p, "/nexus-ops/"+id+"/")) {
+			return true
+		}
+	}
+	return false
+}
+
+// opSupervisor checks how operation id, whose directory is opDir, was
+// launched and returns its supervisor's PID: on systemd, its unit's
+// KillMode is killMode and its ExecStart is `nexusd op-supervise --dir
+// <opDir>`; on OpenRC, supervisor.json names a live process whose argv is
+// `nexusd op-supervise --dir <opDir> --process`, in its nexus-ops group, and
+// a control-group operation's work runs in that group's work subgroup.
+func opSupervisor(t *testing.T, id, opDir, killMode string, workPID int) int {
+	t.Helper()
+	unit := detach.Unit(id)
+	if detectedInit() != platform.OpenRC {
+		u := showUnit(t, unit, "KillMode", "ExecStart", "MainPID")
+		if u["KillMode"] != killMode || !strings.Contains(u["ExecStart"], "argv[]="+nexusdBin+" op-supervise --dir "+opDir+" ;") {
+			t.Fatalf("unit %s %v", unit, u)
+		}
+		pid, err := strconv.Atoi(u["MainPID"])
+		if err != nil || pid == 0 {
+			t.Fatalf("unit %s MainPID %q", unit, u["MainPID"])
+		}
+		return pid
+	}
+	ident, err := detach.ReadIdentity(opDir)
+	if err != nil || !pidAlive(ident.PID) {
+		t.Fatalf("supervisor of %s: %+v %v", id, ident, err)
+	}
+	cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", ident.PID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	argv := strings.Split(strings.TrimRight(string(cmdline), "\x00"), "\x00")
+	if want := []string{nexusdBin, "op-supervise", "--dir", opDir, "--process"}; !slices.Equal(argv, want) {
+		t.Fatalf("supervisor %d argv %q, want %q", ident.PID, argv, want)
+	}
+	if cg := pidCgroup(t, ident.PID); cg != "0::/nexus-ops/"+id {
+		t.Fatalf("supervisor %d in cgroup %q, want 0::/nexus-ops/%s", ident.PID, cg, id)
+	}
+	if workPID > 0 {
+		cg, want := pidCgroup(t, workPID), "0::/nexus-ops/"+id
+		if killMode == string(detach.KillControlGroup) {
+			want += "/work"
+		}
+		if cg != want {
+			t.Fatalf("pid %d of %s (%s) in cgroup %q, want %q", workPID, id, killMode, cg, want)
+		}
+	}
+	t.Logf("%s: supervisor %d %q in %s (process backend)", id, ident.PID, argv, pidCgroup(t, ident.PID))
+	return ident.PID
+}
+
+// killOpUnit sends SIGKILL to every process of operation unit unit, as
+// `systemctl kill --signal=SIGKILL` does: on OpenRC, its supervisor and
+// every process in its cgroup.
+func killOpUnit(t *testing.T, unit string) {
+	t.Helper()
+	if detectedInit() != platform.OpenRC {
+		_, _ = sh(time.Minute, detach.Systemctl, "kill", "--signal=SIGKILL", unit)
+		return
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(unit, detach.UnitPrefix), ".service")
+	pids := opCgroupPIDs(id)
+	if dir := opDirOf(id); dir != "" {
+		if ident, err := detach.ReadIdentity(dir); err == nil {
+			pids = append(pids, ident.PID)
+		}
+	}
+	for _, pid := range pids {
+		_ = syscall.Kill(pid, syscall.SIGKILL)
+	}
+}
+
+// unitProperties is what the init system holds about operation unit unit:
+// `systemctl show`, or on OpenRC its supervisor's command line,
+// environment and supervisor.json.
+func unitProperties(t *testing.T, unit string) []byte {
+	t.Helper()
+	if detectedInit() != platform.OpenRC {
+		return []byte(mustSh(t, detach.Systemctl, "show", unit))
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(unit, detach.UnitPrefix), ".service")
+	dir := opDirOf(id)
+	ident, err := detach.ReadIdentity(dir)
+	if err != nil {
+		t.Fatalf("supervisor of %s: %v", unit, err)
+	}
+	var out []byte
+	for _, f := range []string{fmt.Sprintf("/proc/%d/cmdline", ident.PID), fmt.Sprintf("/proc/%d/environ", ident.PID),
+		filepath.Join(dir, detach.IdentityFile)} {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, b...)
+	}
+	return out
+}
+
+// systemLog is the host's log of the last ten minutes or more: the
+// journal, or on OpenRC /var/log/messages, where the nexusd script's
+// logger lines land.
+func systemLog(t *testing.T) []byte {
+	t.Helper()
+	if detectedInit() != platform.OpenRC {
+		return []byte(mustSh(t, "journalctl", "--no-pager", "-o", "cat", "--since", "-10min"))
+	}
+	b, err := os.ReadFile("/var/log/messages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// startNexusdNoBlock starts nexusd without waiting for it: `systemctl
+// start --no-block`, or on OpenRC rc-service in the background (a crashed
+// service zapped first).
+func startNexusdNoBlock(t *testing.T) {
+	t.Helper()
+	if detectedInit() != platform.OpenRC {
+		mustSh(t, detach.Systemctl, "start", "--no-block", nexusdUnit)
+		return
+	}
+	cmd := exec.Command("sh", "-c", "rc-service nexusd status >/dev/null 2>&1 || rc-service nexusd zap >/dev/null 2>&1; rc-service nexusd start")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	t.Cleanup(func() {
+		if err := <-done; err != nil {
+			t.Logf("rc-service nexusd start (in the background): %v", err)
+		}
+	})
 }
 
 // rcStatus is the nexusd service's state word from rc-service.
