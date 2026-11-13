@@ -45,6 +45,15 @@ What the captures establish (ASM-7, L-26, L-27):
   master_process on;' -s reload`, which parses the config first: an invalid
   config exits 1, but a config the master rejects after parsing (bind
   conflict) exits 0 with the old workers kept.
+- The worst case, a HUP-style unit: nginx.org's packaging has `ExecReload=/bin/sh
+  -c "/bin/kill -s HUP $(/bin/cat /var/run/nginx.pid)"`, which only signals the
+  master. The `systemd/reload-hup*.txt` rows are container captures on the
+  Ubuntu container above, with that line installed as a drop-in
+  (`/etc/systemd/system/nginx.service.d/hup.conf`: `ExecReload=` then the HUP
+  line; `systemctl daemon-reload`), not a capture of nginx.org's own package.
+  `systemctl reload` exits 0 with empty output for an invalid config and for a
+  bind conflict, and the master keeps the old workers (the parse failure is only
+  in `/var/log/nginx/error.log`); only the valid config replaced the workers.
 - Alpine's `reload()` runs `nginx -t -q` before `start-stop-daemon --signal
   HUP`: an invalid config exits 1 with the configtest text, a bind conflict
   exits 0 with the old workers kept.
@@ -78,6 +87,9 @@ What the captures establish (ASM-7, L-26, L-27):
 | `systemd/reload-stopped.txt` | ubuntu-container | Ubuntu 26.04.1 LTS | systemd 259 (259.9-0ubuntu0.1) | nginx 1.28.3-2ubuntu1.12 | `systemctl reload -- nginx.service` (nginx stopped) | 1 | 2026-11-13 |
 | `systemd/reload-failed.txt` | ubuntu-container | Ubuntu 26.04.1 LTS | systemd 259 (259.9-0ubuntu0.1) | nginx 1.28.3-2ubuntu1.12 | `systemctl reload -- nginx.service` (nginx failed) | 1 | 2026-11-13 |
 | `systemd/reload-not-found.txt` | ubuntu-container | Ubuntu 26.04.1 LTS | systemd 259 (259.9-0ubuntu0.1) | nginx 1.28.3-2ubuntu1.12 | `systemctl reload -- nginx.service` (nginx purged) | 5 | 2026-11-13 |
+| `systemd/reload-hup.txt` | ubuntu-container | Ubuntu 26.04.1 LTS | systemd 259 (259.9-0ubuntu0.1) | nginx 1.28.3-2ubuntu1.12 | `systemctl reload -- nginx.service` (nginx running, valid config; ExecReload overridden to the nginx.org HUP form (new workers spawned, old ones gone)) | 0 | 2026-11-13 |
+| `systemd/reload-hup-invalid.txt` | ubuntu-container | Ubuntu 26.04.1 LTS | systemd 259 (259.9-0ubuntu0.1) | nginx 1.28.3-2ubuntu1.12 | `systemctl reload -- nginx.service` (nginx running, unknown directive in conf.d; ExecReload overridden to the nginx.org HUP form (exit 0, old workers kept)) | 0 | 2026-11-13 |
+| `systemd/reload-hup-bind-conflict.txt` | ubuntu-container | Ubuntu 26.04.1 LTS | systemd 259 (259.9-0ubuntu0.1) | nginx 1.28.3-2ubuntu1.12 | `systemctl reload -- nginx.service` (nginx running, port 8181 held by another process; ExecReload overridden to the nginx.org HUP form (exit 0, old workers kept)) | 0 | 2026-11-13 |
 | `openrc/exists.txt` | alpine-container | Alpine Linux 3.21.10 | OpenRC 0.55.1-r2 | nginx 1.26.3-r3 | `rc-service --exists nginx` (nginx installed) | 0 | 2026-11-13 |
 | `openrc/exists-absent.txt` | alpine-container | Alpine Linux 3.21.10 | OpenRC 0.55.1-r2 | nginx 1.26.3-r3 | `rc-service --exists nginx` (/etc/init.d/nginx moved away) | 1 | 2026-11-13 |
 | `openrc/absent.txt` | alpine-container | Alpine Linux 3.21.10 | OpenRC 0.55.1-r2 | nginx 1.26.3-r3 | `rc-service -C nginx {start,stop,restart,reload,status}` (/etc/init.d/nginx moved away; all five outputs identical) | 1 | 2026-11-13 |

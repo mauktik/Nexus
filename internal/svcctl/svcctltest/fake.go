@@ -6,7 +6,9 @@
 // The fake encodes the behaviors a caller must not paper over:
 //   - systemd `reload` exits 0 when the config parses, whatever the master
 //     does afterwards: a bind conflict leaves the old generation loaded and
-//     still exits 0;
+//     still exits 0. Under ReloadModel HUP (nginx.org's unit, which only
+//     signals the master) it exits 0 even for an invalid config, with the
+//     generation unchanged;
 //   - OpenRC `reload` runs the config test first: an invalid config exits
 //     non-zero with the configtest text, while a bind conflict exits 0 with
 //     the generation unchanged;
@@ -59,11 +61,26 @@ const (
 // Service is the one service the fake models.
 const Service = "nginx"
 
+// ReloadModel is how the systemd unit's ExecReload reloads nginx.
+type ReloadModel string
+
+const (
+	// SignalParse is Ubuntu's `nginx -s reload`: the config is parsed first,
+	// so an invalid one exits 1. The default.
+	SignalParse ReloadModel = "signal-parse"
+	// HUP is nginx.org's `kill -s HUP $(cat nginx.pid)`: the master is only
+	// signalled, so `systemctl reload` exits 0 whatever the config.
+	HUP ReloadModel = "hup"
+)
+
 // Model is the modeled nginx.
 type Model struct {
 	Absent bool         // The init system does not know nginx
 	State  svcctl.State // Running, Stopped or Failed; "" = Stopped
 	Config Config       // "" = Valid
+	// ReloadModel selects the systemd ExecReload; "" = SignalParse. OpenRC
+	// always runs `nginx -t` first and ignores it.
+	ReloadModel ReloadModel
 	// Generation counts the configurations a master has loaded: it advances
 	// on every successful start, restart and reload, and on nothing else.
 	Generation int
@@ -112,6 +129,9 @@ func normalize(m Model) Model {
 	}
 	if m.Config == "" {
 		m.Config = Valid
+	}
+	if m.ReloadModel == "" {
+		m.ReloadModel = SignalParse
 	}
 	return m
 }
@@ -261,18 +281,23 @@ func (f *Fake) systemd(argv []string) (svcctl.Result, error) {
 		case svcctl.Failed:
 			return f.fixture("systemd", "reload-failed.txt")
 		}
+		hup, valid := "", "reload.txt"
+		if m.ReloadModel == HUP {
+			hup, valid = "hup-", "reload-hup.txt"
+		}
 		switch m.Config {
 		case Invalid:
-			// ExecReload is `nginx -s reload`, which parses the config
-			// first: exit 1, nothing signalled.
-			return f.fixture("systemd", "reload-invalid.txt")
+			// SignalParse: `nginx -s reload` parses the config first, exit
+			// 1, nothing signalled. HUP: the master is signalled, rejects
+			// the config, and systemctl exits 0.
+			return f.fixture("systemd", "reload-"+hup+"invalid.txt")
 		case BindConflict:
 			// The master rejects the generation after parsing; systemctl
 			// still exits 0.
-			return f.fixture("systemd", "reload-bind-conflict.txt")
+			return f.fixture("systemd", "reload-"+hup+"bind-conflict.txt")
 		}
 		m.Generation++
-		return f.fixture("systemd", "reload.txt")
+		return f.fixture("systemd", valid)
 	}
 	return svcctl.Result{}, fmt.Errorf("argv %q has an action svcctl never sends", argv)
 }

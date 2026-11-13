@@ -340,7 +340,11 @@ func TestRealRunnerEnvCapAndTimeout(t *testing.T) {
 		"\tfor (k in ENVIRON) print k \"=\" ENVIRON[k]\n}\n")
 	big := writeScript(t, dir, "big.sh", "#!/bin/sh\nhead -c 204800 /dev/zero | tr '\\0' x\n")
 	sleepPID := filepath.Join(dir, "sleep.pid")
-	hang := writeScript(t, dir, "hang.sh", "#!/bin/sh\nsleep 60 &\necho $! > "+sleepPID+"\nwait\n")
+	// The pid is written to a temp file and renamed, so the pidfile is
+	// either absent or complete, never empty; the timeout below is long
+	// enough that the script has started its sleep and renamed the file
+	// before the deadline fires.
+	hang := writeScript(t, dir, "hang.sh", "#!/bin/sh\nsleep 60 &\necho $! > "+sleepPID+".tmp\nmv "+sleepPID+".tmp "+sleepPID+"\nwait\n")
 
 	t.Setenv("NEXUS_SVCCTL_LEAK", "must-not-pass")
 	res, err := svcctl.RealCall(t.Context(), 10*time.Second, []string{envdump})
@@ -361,17 +365,18 @@ func TestRealRunnerEnvCapAndTimeout(t *testing.T) {
 		t.Errorf("big: %d bytes of output, want exactly 65536", len(res.Output))
 	}
 
+	const hangTimeout = 2 * time.Second
 	start := time.Now()
-	res, err = svcctl.RealCall(t.Context(), 200*time.Millisecond, []string{hang})
-	if el := time.Since(start); el > 2*time.Second {
-		t.Errorf("hang returned after %s, want within 2s", el)
+	res, err = svcctl.RealCall(t.Context(), hangTimeout, []string{hang})
+	if el := time.Since(start); el > hangTimeout+2*time.Second {
+		t.Errorf("hang returned after %s, want within %s of its timeout", el, 2*time.Second)
 	}
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("hang: err = %v (result %+v), want context.DeadlineExceeded", err, res)
 	}
 	b, err := os.ReadFile(sleepPID)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("hang.sh did not start its sleep within %s: %v", hangTimeout, err)
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
 	if err != nil {
@@ -414,24 +419,38 @@ func TestFakeEncodesInitSystemConstraints(t *testing.T) {
 		output   string // A fixture whose text the output must equal
 		advanced bool
 	}
-	cases := map[platform.InitSystem][]step{
+	type reloadCase struct {
+		init  platform.InitSystem
+		model svcctltest.ReloadModel
+		steps []step
+	}
+	cases := map[string]reloadCase{
 		// Captured: Ubuntu's ExecReload is `nginx -s reload`, which parses
 		// the config first, so an invalid config exits 1. A bind conflict
 		// is rejected by the master after parsing and still exits 0.
-		platform.Systemd: {
+		"systemd/signal-parse": {platform.Systemd, svcctltest.SignalParse, []step{
 			{svcctltest.Invalid, 1, "systemd/reload-invalid.txt", false},
 			{svcctltest.BindConflict, 0, "systemd/reload-bind-conflict.txt", false},
 			{svcctltest.Valid, 0, "systemd/reload.txt", true},
-		},
-		platform.OpenRC: {
+		}},
+		// Worst case (L-26): nginx.org's ExecReload only sends HUP, so
+		// systemctl exits 0 for an invalid config too, and the generation
+		// does not advance.
+		"systemd/hup": {platform.Systemd, svcctltest.HUP, []step{
+			{svcctltest.Invalid, 0, "systemd/reload-hup-invalid.txt", false},
+			{svcctltest.BindConflict, 0, "systemd/reload-hup-bind-conflict.txt", false},
+			{svcctltest.Valid, 0, "systemd/reload-hup.txt", true},
+		}},
+		"openrc": {platform.OpenRC, "", []step{
 			{svcctltest.Invalid, 1, "openrc/reload-invalid.txt", false},
 			{svcctltest.BindConflict, 0, "openrc/reload-bind-conflict.txt", false},
 			{svcctltest.Valid, 0, "openrc/reload.txt", true},
-		},
+		}},
 	}
-	for init, steps := range cases {
-		t.Run(string(init)+"/reload", func(t *testing.T) {
-			fake := svcctltest.New(t, init, svcctltest.Model{State: svcctl.Running, Generation: 1})
+	for name, rc := range cases {
+		init, steps := rc.init, rc.steps
+		t.Run(name+"/reload", func(t *testing.T) {
+			fake := svcctltest.New(t, init, svcctltest.Model{State: svcctl.Running, Generation: 1, ReloadModel: rc.model})
 			c := newController(t, init, svcctl.Options{Run: fake.Run})
 			for _, s := range steps {
 				fake.Set(func(m *svcctltest.Model) { m.Config = s.config })
@@ -456,6 +475,12 @@ func TestFakeEncodesInitSystemConstraints(t *testing.T) {
 			}
 		})
 	}
+	t.Run("reload-model-defaults-to-signal-parse", func(t *testing.T) {
+		fake := svcctltest.New(t, platform.Systemd, svcctltest.Model{})
+		if got := fake.Model().ReloadModel; got != svcctltest.SignalParse {
+			t.Errorf("default ReloadModel = %q, want %q", got, svcctltest.SignalParse)
+		}
+	})
 	t.Run("openrc/reload-invalid-text", func(t *testing.T) {
 		out := readFixture(t, "openrc/reload-invalid.txt")
 		if !strings.Contains(out, "configuration file /etc/nginx/nginx.conf test failed") {
