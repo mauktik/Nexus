@@ -152,7 +152,8 @@ func newHelperWorld(t *testing.T) *helperWorld {
 }
 
 func (w *helperWorld) inject() *helperInject {
-	return &helperInject{Runner: w.h, Root: w.h.Root(), DNSServer: w.h.FTL().Addr(), Now: w.h.Now}
+	return &helperInject{Runner: w.h, Root: w.h.Root(), DNSServer: w.h.FTL().Addr(), Now: w.h.Now, Reload: v5test.FastReload(),
+		PIDPoll: pidPoll{Interval: 10 * time.Millisecond, Limit: testPIDLimit}}
 }
 
 func (w *helperWorld) configure(dnsFile string) {
@@ -726,7 +727,7 @@ func TestExecRunnerExitContract(t *testing.T) {
 // once; with one it logs the PID, polls, and returns once it is gone.
 func TestTC71_WaitExternalGravity(t *testing.T) {
 	h := v5test.NewFakeHost(t)
-	m := &v5.Mutator{Paths: h.Paths(), Runner: h, Now: h.Now}
+	m := &v5.Mutator{Paths: h.Paths(), Runner: h, Now: h.Now, GravityPoll: 50 * time.Millisecond}
 	start := time.Now()
 	if err := m.WaitExternalGravity(context.Background(), io.Discard); err != nil || time.Since(start) > time.Second {
 		t.Fatalf("no run: %v after %v", err, time.Since(start))
@@ -820,6 +821,7 @@ func TestTC73_NoSecretInHelperOutput(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	var stdout, stderr syncBuffer
 	launcher, err := detach.New(detach.Config{OpsDir: w.opsDir, Logger: log}, detach.Options{
+		PollInterval: 20 * time.Millisecond,
 		// The unit: the helper runs in-process over the fake host, then
 		// exit.json is written, as op-supervise does.
 		Launch: func(_ context.Context, inv detach.Invocation) error {

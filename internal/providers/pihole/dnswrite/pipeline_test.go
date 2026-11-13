@@ -66,7 +66,7 @@ func setup(t *testing.T, content []byte) *env {
 		}
 	}
 	h := v5test.NewFakeHost(t)
-	e := &env{h: h, m: &v5.Mutator{Paths: h.Paths(), Runner: h, Now: h.Now},
+	e := &env{h: h, m: &v5.Mutator{Paths: h.Paths(), Runner: h, Now: h.Now, Reload: v5test.FastReload(), GravityPoll: 50 * time.Millisecond},
 		file:     filepath.Join(h.Root(), "etc/dnsmasq.d", basename),
 		stateDir: filepath.Join(t.TempDir(), "pihole"), opDir: t.TempDir(), orig: content}
 	if err := os.WriteFile(e.file, content, 0o644); err != nil {

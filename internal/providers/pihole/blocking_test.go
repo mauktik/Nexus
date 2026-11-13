@@ -37,6 +37,7 @@ func isTimer(a []string) bool   { return len(a) >= 1 && a[0] == systemdRun }
 // TC-77: an indefinite stop runs `pihole disable` with no argument and
 // creates no timer.
 func TestTC77_IndefiniteStop(t *testing.T) {
+	t.Parallel()
 	h, m := newV5(t)
 	got, err := m.StopBlocking(context.Background(), 0, &bytes.Buffer{})
 	if err != nil {
@@ -57,6 +58,7 @@ func TestTC77_IndefiniteStop(t *testing.T) {
 // transient timer before disabling, returns reenableAt, and blocking comes
 // back on after the op unit has ended, with no nexusd involvement.
 func TestTC78_TimedStopSurvivesUnitEnd(t *testing.T) {
+	t.Parallel()
 	h, m := newV5(t)
 	start := h.Now()
 	got, err := m.StopBlocking(context.Background(), 60*time.Second, &bytes.Buffer{})
@@ -86,6 +88,7 @@ func TestTC78_TimedStopSurvivesUnitEnd(t *testing.T) {
 
 // TC-E10: no code path ever passes a duration to `pihole disable`.
 func TestTCE10_NeverNativeTimedDisable(t *testing.T) {
+	t.Parallel()
 	h, m := newV5(t)
 	for _, d := range []time.Duration{0, time.Second, 90 * time.Second, 24 * time.Hour} {
 		if _, err := m.StopBlocking(context.Background(), d, &bytes.Buffer{}); err != nil {
@@ -105,6 +108,7 @@ func TestTCE10_NeverNativeTimedDisable(t *testing.T) {
 // TC-79: a new stop replaces the pending re-enable: a later time, or none for
 // an indefinite stop.
 func TestTC79_SecondStopReplacesTimer(t *testing.T) {
+	t.Parallel()
 	h, m := newV5(t)
 	ctx := context.Background()
 	if _, err := m.StopBlocking(ctx, 60*time.Second, &bytes.Buffer{}); err != nil {
@@ -151,6 +155,7 @@ func TestTC79_SecondStopReplacesTimer(t *testing.T) {
 // TC-80: start cancels a pending re-enable and enables blocking; start with
 // no timer tolerates systemctl's exit 5.
 func TestTC80_StartCancelsTimer(t *testing.T) {
+	t.Parallel()
 	h, m := newV5(t)
 	ctx := context.Background()
 	if _, err := m.StopBlocking(ctx, 60*time.Second, &bytes.Buffer{}); err != nil {
@@ -171,6 +176,7 @@ func TestTC80_StartCancelsTimer(t *testing.T) {
 // TC-ERR14: a failed timer creation fails the stop with blocking still on and
 // `pihole disable` never run.
 func TestTCERR14_TimerFailureLeavesBlockingOn(t *testing.T) {
+	t.Parallel()
 	h, m := newV5(t)
 	h.FailCommand([]string{systemdRun}, 1)
 	_, err := m.StopBlocking(context.Background(), 60*time.Second, &bytes.Buffer{})
@@ -186,6 +192,7 @@ func TestTCERR14_TimerFailureLeavesBlockingOn(t *testing.T) {
 // TC-ERR15 (V-13: disable always exits 0): a read-back that is not false
 // fails the stop and removes the timer it created.
 func TestTCERR15_DisableReadBack(t *testing.T) {
+	t.Parallel()
 	h, m := newV5(t)
 	h.IgnoreCommand([]string{piholeBin, "disable"})
 	_, err := m.StopBlocking(context.Background(), 60*time.Second, &bytes.Buffer{})
@@ -201,6 +208,7 @@ func TestTCERR15_DisableReadBack(t *testing.T) {
 // TC-81 (live-state, FR-6/FR-8): the blocking read reflects state A, then
 // the changed state A', then the re-enabled state, without caching.
 func TestTC81_BlockingReadFollowsState(t *testing.T) {
+	t.Parallel()
 	h, m := newV5(t)
 	r := &v5.Reader{Paths: h.Paths(), Runner: h, DNSServer: h.FTL().Addr()}
 	ctx := context.Background()
@@ -262,6 +270,7 @@ func detachedBinding(w *helperWorld, id string) provider.DetachedFuncs {
 // reenableAt and changed; a repeated indefinite stop and a start with
 // blocking already on report changed false.
 func TestBlockingActions(t *testing.T) {
+	t.Parallel()
 	w := newHelperWorld(t)
 	start := w.h.Now()
 	res, out, err := runBlockingOp(w, spec.StopBlocking, spec.StopBlockingInput{DurationSeconds: 60}, "op-stop")
@@ -302,6 +311,7 @@ func TestBlockingActions(t *testing.T) {
 // TC-ERR14, action half: a timer-creation failure reaches Finalize as
 // pihole-command-failed{command: systemd-run}, with blocking still on.
 func TestStopBlockingActionTimerFailure(t *testing.T) {
+	t.Parallel()
 	w := newHelperWorld(t)
 	w.h.FailCommand([]string{systemdRun}, 1)
 	_, out, err := runBlockingOp(w, spec.StopBlocking, spec.StopBlockingInput{DurationSeconds: 60}, "op-fail")
@@ -317,6 +327,7 @@ func TestStopBlockingActionTimerFailure(t *testing.T) {
 // stop-blocking and start-blocking are bound detached with MaxRuntime 10 min
 // and the blocking LostDetail, which a lost unit's outcome-unknown carries.
 func TestBlockingBindings(t *testing.T) {
+	t.Parallel()
 	const lost = "blocking may be off; a re-enable timer nexus-pihole-reenable.timer may exist; run `piholeblocking get`"
 	check := func(id string, in any) {
 		w := newHelperWorld(t)

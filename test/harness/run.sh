@@ -37,6 +37,9 @@ OUT=$ROOT/build/harness
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 LOGS=$OUT/logs/$STAMP
 READY_TIMEOUT=${READY_TIMEOUT:-180}
+# How long setup waits for FTL to finish reloading its lists after a command
+# that reloads or restarts it (ftl_settle).
+LISTS_TIMEOUT=${LISTS_TIMEOUT:-60}
 REQUIRED_UNITS="systemd-journald.service dbus.service docker.service"
 PIHOLE=""
 if [ "$(docker image inspect -f '{{index .Config.Labels "org.nexus.harness"}}' "$BASE" 2>/dev/null || true)" = pihole ]; then
@@ -207,6 +210,46 @@ ftl_pid() {
 	echo "$pid"
 }
 
+# ftl_log_mark prints the size of FTL's log in bytes: the offset after which
+# ftl_settle reads what a command made FTL log.
+ftl_log_mark() { cx 'stat -c %s /var/log/pihole/FTL.log'; }
+
+# ftl_settle MARK [reload] waits, in the container, until FTL has finished
+# reloading its lists, so the next command may write gravity.db. FTL v5.25.2
+# re-reads gravity.db on its database thread after a `pihole restartdns
+# reload-lists` (which `pihole -g` ends with) or a start, and a gravity.db
+# commit meanwhile fails that reload and leaves FTL answering pi.hole only
+# (PROVENANCE "FTL RELOAD RACE", the race WI 5.6's barrier closes in the
+# product). It returns once, after MARK (an ftl_log_mark made before the
+# command), with `reload` given: FTL logged the end of a reload's regex
+# compilation ("Compiled N whitelist and N blacklist regex filters", the last
+# step it logs before its quiet reads); and the log has not grown for 2 s;
+# and FTL answers a nexus-probe-*.invalid name NXDOMAIN, which a stuck FTL
+# does not. It dies after LISTS_TIMEOUT s, with the log's tail.
+ftl_settle() {
+	local mark=$1 reload=${2:-}
+	# shellcheck disable=SC2016 # Expanded in the container.
+	cx "mark=$mark want=$reload limit=$LISTS_TIMEOUT"'
+		log=/var/log/pihole/FTL.log
+		end=$((SECONDS + limit)) last=-1 since=$SECONDS
+		while :; do
+			size=$(stat -c %s "$log" 2>/dev/null || echo 0)
+			if [ "$size" != "$last" ]; then last=$size since=$SECONDS; fi
+			ok=1
+			if [ -n "$want" ]; then
+				tail -c +$((mark + 1)) "$log" |
+					grep -Eq "Compiled [0-9]+ whitelist and [0-9]+ blacklist regex filters for" || ok=0
+			fi
+			# SECONDS counts whole seconds: 3 apart is at least 2 s of quiet.
+			if [ $ok = 1 ] && [ $((SECONDS - since)) -ge 3 ] &&
+				dig +time=2 +tries=1 @127.0.0.1 "nexus-probe-$RANDOM$RANDOM.invalid" 2>&1 | grep -q "status: NXDOMAIN"; then
+				exit 0
+			fi
+			[ $SECONDS -lt $end ] || { echo "FTL has not settled its lists after ${limit}s; log tail:" >&2; tail -n 12 "$log" >&2; exit 1; }
+			sleep 0.5
+		done' || die "FTL did not finish reloading its lists"
+}
+
 # pihole_setup is the one-time setup of the Pi-hole harness, after the
 # required units are active and before any test (WI 5.1). Offline gravity
 # (A-33): gravity.sh's gravity_CheckDNSResolutionAvailable looks up
@@ -216,13 +259,15 @@ ftl_pid() {
 # upstream answers that name instead. Every step's result is checked, and
 # pihole -g's output goes to pihole-setup.log with the other logs.
 pihole_setup() {
-	local pid0 pid1 pid2 out flags updated0 updated1 g rc lists
+	local pid0 pid1 pid2 out flags updated0 updated1 g rc lists mark setup_mark locked
 	local stock=https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts
 	local baseline=http://127.0.0.1:8099/baseline.txt
 	local db=/etc/pihole/gravity.db
 	say "versions: $(cx 'pihole -v | xargs; echo "INIT $(cat /etc/pihole-spike-init);"; systemctl show -p FragmentPath -p Type pihole-FTL | xargs; systemctl --version | head -1' | xargs)"
 	pid0=$(ftl_pid)
 	say "pihole-FTL PID $pid0 answers on 127.0.0.1:53"
+	ftl_settle "$(ftl_log_mark)"
+	setup_mark=$(ftl_log_mark)
 	out=$(cx 'dig +short @127.0.0.1 -p 5353 www.xi.example A')
 	[ "$out" = 203.0.113.10 ] || die "stub upstream: www.xi.example gave '$out'"
 	say "stub upstream: www.xi.example A $out"
@@ -253,8 +298,10 @@ pihole_setup() {
 		echo "$([ "${DNS_FQDN_REQUIRED:-}" = true ] && echo domain-needed || echo off)" \
 			"$([ "${DNS_BOGUS_PRIV:-}" = true ] && echo bogus-priv || echo off)" \
 			"$([ "${DNSSEC:-}" = true ] && echo dnssec || echo off)"') || die "setupVars.conf"
+	mark=$(ftl_log_mark)
 	cx "pihole -a setdns '127.0.0.1#5353' $flags" || die "pihole -a setdns 127.0.0.1#5353 $flags failed"
 	pid1=$(ftl_pid "$pid0")
+	ftl_settle "$mark" reload
 	say "pihole -a setdns 127.0.0.1#5353 $flags: FTL PID $pid0 -> $pid1"
 	out=$(cx "grep '^PIHOLE_DNS_' /etc/pihole/setupVars.conf")
 	[ "$out" = "PIHOLE_DNS_1=127.0.0.1#5353" ] || die "setupVars.conf PIHOLE_DNS_ lines: $out"
@@ -272,11 +319,14 @@ pihole_setup() {
 	# `pihole -a adlist del` exits 0 with the row still there (PROVENANCE).
 	# Disabled, gravity neither downloads nor keeps it, and it is deleted
 	# after the run.
+	# Each of them writes gravity.db, which FTL's start-up reload just read.
 	cx "pihole -a adlist disable '$stock' && pihole -a adlist add '$baseline' harness-baseline"
+	ftl_settle "$(ftl_log_mark)"
 	updated0=$(cx "pihole-FTL sqlite3 $db \"SELECT value FROM info WHERE property = 'updated'\"")
 
 	# 4. One gravity run, against loopback lists only.
 	g=$LOGS/pihole-setup.log
+	mark=$(ftl_log_mark)
 	set +e
 	cx 'pihole -g' >"$g" 2>&1
 	rc=$?
@@ -286,12 +336,20 @@ pihole_setup() {
 	[ $rc -eq 0 ] || die "pihole -g exited $rc (${g#"$ROOT"/})"
 	! grep -q 'DNS resolution is not available' "$g" || die "pihole -g: DNS resolution is not available"
 	[ "$updated1" -gt "$updated0" ] || die "pihole -g did not advance info.updated"
+	# pihole -g ended with a list reload; deleting the adlist writes
+	# gravity.db, so FTL must have finished that reload first.
+	ftl_settle "$mark" reload
 	cx "pihole -a adlist del '$stock'"
+	ftl_settle "$(ftl_log_mark)"
 	lists=$(cx "pihole-FTL sqlite3 $db 'SELECT address, enabled, status, number FROM adlist'")
 	say "adlist (address|enabled|status|number): $(echo "$lists" | xargs)"
 	[ "$lists" = "$baseline|1|1|3" ] || die "adlist table is not only the baseline list, enabled at status 1"
 	say "gravity_count $(cx "pihole-FTL sqlite3 $db \"SELECT value FROM info WHERE property = 'gravity_count'\"")"
 	pid2=$(ftl_pid)
+	# No setup step may have raced a list reload.
+	locked=$(cx "tail -c +$((setup_mark + 1)) /var/log/pihole/FTL.log | grep -c 'database is locked' || true")
+	say "FTL.log lines 'database is locked' since the setup began: $locked"
+	[ "$locked" = 0 ] || die "FTL logged $locked 'database is locked' lines during setup: a gravity.db write raced a list reload"
 	say "pihole-FTL PID $pid2 answers on 127.0.0.1:53; setup done"
 }
 

@@ -40,6 +40,12 @@ type Mutator struct {
 	// Sleep waits d or until ctx ends; nil means a real timer. Tests advance
 	// a fake clock with it.
 	Sleep func(ctx context.Context, d time.Duration) error
+	// Reload overrides the list reload barrier's bounds; zero, in production,
+	// means the ListReload constants (A-67).
+	Reload ReloadTiming
+	// GravityPoll is the wait between checks for a gravity run outside
+	// Nexus; zero, in production, means GravityPollInterval.
+	GravityPoll time.Duration
 }
 
 func (m *Mutator) now() time.Time {
@@ -88,7 +94,11 @@ func (m *Mutator) WaitExternalGravity(ctx context.Context, out io.Writer) error 
 				"within %s; nothing was changed", pid, GravityWaitLimit)).
 				With("waitedSeconds", int(waited/time.Second))
 		}
-		if err := m.sleep(ctx, GravityPollInterval); err != nil {
+		poll := m.GravityPoll
+		if poll <= 0 {
+			poll = GravityPollInterval
+		}
+		if err := m.sleep(ctx, poll); err != nil {
 			return fmt.Errorf("pihole: waiting for a gravity run (pid %d): %w", pid, err)
 		}
 	}

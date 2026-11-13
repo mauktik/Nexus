@@ -43,6 +43,35 @@ const (
 	listReloadTail = 256 << 10
 )
 
+// ReloadTiming overrides the barrier's wall-clock bounds. Production leaves
+// it zero, which means the ListReload constants above (A-67); tests set
+// shorter values through Mutator.Reload so the barrier's real waits stay
+// short. A zero field means its constant.
+type ReloadTiming struct {
+	Poll         time.Duration // ListReloadPoll
+	Quiet        time.Duration // ListReloadQuiet
+	Wait         time.Duration // ListReloadWait
+	ProbeTimeout time.Duration // ListReloadProbeTimeout
+}
+
+// reloadTiming is m's barrier bounds, the constants where unset.
+func (m *Mutator) reloadTiming() ReloadTiming {
+	t := m.Reload
+	if t.Poll <= 0 {
+		t.Poll = ListReloadPoll
+	}
+	if t.Quiet <= 0 {
+		t.Quiet = ListReloadQuiet
+	}
+	if t.Wait <= 0 {
+		t.Wait = ListReloadWait
+	}
+	if t.ProbeTimeout <= 0 {
+		t.ProbeTimeout = ListReloadProbeTimeout
+	}
+	return t
+}
+
 // FTL's log lines that mark a list reload, from TC-153's capture of FTL
 // v5.25.2 and its source at the tag (PROVENANCE "FTL LIST RELOAD SIGNALS").
 // Only these fixed patterns are ever matched; no log text reaches a result,
@@ -156,6 +185,7 @@ type logMark struct {
 // one that stands still.
 type ftlLogWatch struct {
 	m       *Mutator
+	tm      ReloadTiming
 	path    string
 	mark    logMark
 	rec     reloadRecord
@@ -172,7 +202,8 @@ type ftlLogWatch struct {
 // error; the watch is usable either way, and reads the log from its start
 // once it appears.
 func (m *Mutator) watchFTLLog() (*ftlLogWatch, error) {
-	w := &ftlLogWatch{m: m, path: m.Paths.FTLLogPath(), last: -ListReloadQuiet, began: -1, quiet: ListReloadQuiet,
+	tm := m.reloadTiming()
+	w := &ftlLogWatch{m: m, tm: tm, path: m.Paths.FTLLogPath(), last: -tm.Quiet, began: -1, quiet: tm.Quiet,
 		t0: m.now()}
 	f, err := os.Open(w.path)
 	if err != nil {
@@ -264,7 +295,7 @@ func (w *ftlLogWatch) feed(b []byte, live bool) int {
 		w.last = now
 		switch {
 		case newRecord:
-			w.started, w.began, w.quiet = true, now, ListReloadQuiet
+			w.started, w.began, w.quiet = true, now, w.tm.Quiet
 		case m == markerStart:
 			w.started = true
 		case m == markerEnd && w.rec.starts > 1:
@@ -272,7 +303,7 @@ func (w *ftlLogWatch) feed(b []byte, live bool) int {
 			// took, plus the database thread's 100 ms sleeps, for its
 			// completion line.
 			if w.began >= 0 {
-				w.quiet = max(ListReloadQuiet, now-w.began+2*ListReloadPoll)
+				w.quiet = max(w.tm.Quiet, now-w.began+2*w.tm.Poll)
 			}
 		}
 	}
@@ -292,10 +323,10 @@ func (w *ftlLogWatch) settled() bool {
 }
 
 func (w *ftlLogWatch) sleep(ctx context.Context) error {
-	if err := w.m.sleep(ctx, ListReloadPoll); err != nil {
+	if err := w.m.sleep(ctx, w.tm.Poll); err != nil {
 		return err
 	}
-	w.slept += ListReloadPoll
+	w.slept += w.tm.Poll
 	return nil
 }
 
@@ -326,7 +357,7 @@ func (m *Mutator) probeFTL(ctx context.Context) (bool, error) {
 		if _, err := rand.Read(b[:]); err != nil {
 			return false, fmt.Errorf("pihole: probe name: %w", err)
 		}
-		_, err := dnscheck.Query(ctx, m.DNSServer, "nexus-probe-"+hex.EncodeToString(b[:])+".invalid", ListReloadProbeTimeout)
+		_, err := dnscheck.Query(ctx, m.DNSServer, "nexus-probe-"+hex.EncodeToString(b[:])+".invalid", m.reloadTiming().ProbeTimeout)
 		if err == nil || errors.Is(err, dnscheck.ErrTruncated) {
 			return true, nil
 		}
@@ -366,9 +397,9 @@ func (m *Mutator) reloadListsAndWait(ctx context.Context, out io.Writer, done st
 		case res == reloadDone || res == reloadFTLDown:
 			return nil
 		case res == reloadTimedOut:
-			return listReloadFailed(done, true)
+			return listReloadFailed(done, m.reloadTiming().Wait)
 		case attempt >= ListReloadRecoveries:
-			return listReloadFailed(done, false)
+			return listReloadFailed(done, 0)
 		}
 		fmt.Fprintln(out, "pihole: FTL's list reload failed (gravity.db was busy); reloading again")
 	}
@@ -397,7 +428,7 @@ func (m *Mutator) reloadListsOnce(ctx context.Context, out io.Writer, done strin
 		if w.started && w.settled() {
 			break
 		}
-		if w.elapsed() >= ListReloadWait {
+		if w.elapsed() >= w.tm.Wait {
 			return reloadTimedOut, nil
 		}
 		if err := w.sleep(ctx); err != nil {
@@ -432,11 +463,12 @@ func (m *Mutator) runReloadLists(ctx context.Context, out io.Writer, done string
 }
 
 // listReloadFailed is the barrier's failure: FTL did not reload its lists,
-// or not within ListReloadWait. Nothing is rolled back.
-func listReloadFailed(done string, timedOut bool) error {
+// or not within wait (zero: it failed rather than timed out). Nothing is
+// rolled back.
+func listReloadFailed(done string, wait time.Duration) error {
 	within := ""
-	if timedOut {
-		within = fmt.Sprintf(" within %d s", int(ListReloadWait/time.Second))
+	if wait > 0 {
+		within = fmt.Sprintf(" within %d s", int(wait/time.Second))
 	}
 	const command = "pihole restartdns reload-lists"
 	return problem.New(problem.PiholeCommandFailed, done+", but FTL could not reload its lists"+within+
@@ -474,9 +506,9 @@ func (m *Mutator) settleLists(ctx context.Context, out io.Writer) error {
 			if w.settled() {
 				break
 			}
-			if waited := w.elapsed(); waited >= ListReloadWait {
+			if waited := w.elapsed(); waited >= w.tm.Wait {
 				return problem.New(problem.PiholeBusy, fmt.Sprintf("FTL did not finish reloading its lists within %d s; "+
-					"nothing was changed", int(ListReloadWait/time.Second))).With("waitedSeconds", int(waited/time.Second))
+					"nothing was changed", int(w.tm.Wait/time.Second))).With("waitedSeconds", int(waited/time.Second))
 			}
 			if err := w.sleep(ctx); err != nil {
 				return fmt.Errorf("pihole: waiting for FTL to finish reloading its lists: %w", err)

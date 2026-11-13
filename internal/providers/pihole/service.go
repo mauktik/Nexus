@@ -29,6 +29,12 @@ const (
 	ftlPIDPollLimit    = 2 * time.Second
 )
 
+// pidPoll is the PID read's bounds. Production uses the constants above;
+// the helper's test seams shorten them.
+type pidPoll struct{ Interval, Limit time.Duration }
+
+var defaultPIDPoll = pidPoll{Interval: ftlPIDPollInterval, Limit: ftlPIDPollLimit}
+
 // serviceBindings binds restart-dns and flush-cache.
 func (p *Provider) serviceBindings() []provider.Binding {
 	lost := func(*provider.Run, spec.NoInput) string { return serviceLostDetail }
@@ -83,7 +89,7 @@ func runService(ctx context.Context, c *helperCall, restart bool) (any, error) {
 	fmt.Fprintf(c.Out, "pihole: FTL answered after %d ms\n", ready.Milliseconds())
 	var after *int
 	if restart {
-		after = pidAfterRestart(ctx, c.Mutator, before)
+		after = pidAfterRestart(ctx, c.Mutator, before, c.PIDPoll)
 	} else {
 		after = pidOf(c.Mutator.FTLPID())
 	}
@@ -95,13 +101,13 @@ func runService(ctx context.Context, c *helperCall, restart bool) (any, error) {
 }
 
 // pidAfterRestart reads FTL's PID every ftlPIDPollInterval until it names a
-// live FTL other than before, for up to ftlPIDPollLimit; then it is
-// whatever FTLPID returns, nil when none, which is not a failure (A-55,
-// A-56).
-func pidAfterRestart(ctx context.Context, m backend.Mutator, before *int) *int {
-	t := time.NewTicker(ftlPIDPollInterval)
+// live FTL other than before, for up to ftlPIDPollLimit (poll's bounds,
+// which the constants default); then it is whatever FTLPID returns, nil
+// when none, which is not a failure (A-55, A-56).
+func pidAfterRestart(ctx context.Context, m backend.Mutator, before *int, poll pidPoll) *int {
+	t := time.NewTicker(poll.Interval)
 	defer t.Stop()
-	limit := time.NewTimer(ftlPIDPollLimit)
+	limit := time.NewTimer(poll.Limit)
 	defer limit.Stop()
 	for {
 		pid := pidOf(m.FTLPID())

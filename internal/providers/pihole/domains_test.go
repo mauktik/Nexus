@@ -77,6 +77,7 @@ func reloads(events []string) int {
 // returns the row read back from gravity.db; adding it again is created:false
 // with no further reload.
 func TestTC82_AddDomainCreatedThenIdempotent(t *testing.T) {
+	t.Parallel()
 	h, m := newV5Lists(t)
 	in := spec.DomainAddInput{List: "deny", Kind: "exact", Value: "ads.example.com", Comment: "nexus test"}
 	got, created, err := m.AddDomain(context.Background(), in, &bytes.Buffer{})
@@ -106,6 +107,7 @@ func TestTC82_AddDomainCreatedThenIdempotent(t *testing.T) {
 // list with the same kind is refused 409 naming the existing entry; the row
 // keeps its type; list.sh is never run.
 func TestTC83_CrossListRefusedNotMoved(t *testing.T) {
+	t.Parallel()
 	h, m := newV5Lists(t)
 	id := h.SeedDomain(0 /* allow exact */, "cdn.example.com", "")
 	_, _, err := m.AddDomain(context.Background(), spec.DomainAddInput{List: "deny", Kind: "exact", Value: "cdn.example.com"}, &bytes.Buffer{})
@@ -129,6 +131,7 @@ func TestTC83_CrossListRefusedNotMoved(t *testing.T) {
 // characters FTL regex needs, and an SQL-injection probe without a quote, are
 // stored byte for byte through bound parameters; the table survives.
 func TestTC84_RegexStoredByteExact(t *testing.T) {
+	t.Parallel()
 	h, m := newV5Lists(t)
 	values := []string{
 		`(^|\.)ads\.example\.com$`,
@@ -160,6 +163,7 @@ func TestTC84_RegexStoredByteExact(t *testing.T) {
 // TC-85: remove by id returns the removed row and reloads lists; an unknown
 // id is not-found with no reload.
 func TestTC85_RemoveDomain(t *testing.T) {
+	t.Parallel()
 	h, m := newV5Lists(t)
 	id := h.SeedDomain(1, "ads.example.com", "c")
 	got, err := m.RemoveDomain(context.Background(), id, &bytes.Buffer{})
@@ -211,6 +215,7 @@ func TestTC87_WaitsForExternalGravity(t *testing.T) {
 // TC-ERR16: a failed reload-lists after the insert is pihole-command-failed
 // whose detail says the entry was added.
 func TestTCERR16_ReloadFailureAfterAdd(t *testing.T) {
+	t.Parallel()
 	h, m := newV5Lists(t)
 	h.FailCommand([]string{piholeBin, "restartdns", "reload-lists"}, 1)
 	_, _, err := m.AddDomain(context.Background(), spec.DomainAddInput{List: "deny", Kind: "exact", Value: "ads.example.com"}, &bytes.Buffer{})
@@ -243,6 +248,7 @@ func newDomainWorld(t *testing.T) *domainWorld {
 	w := &domainWorld{helperWorld: newHelperWorld(t)}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	launcher, err := detach.New(detach.Config{OpsDir: w.opsDir, Logger: log}, detach.Options{
+		PollInterval: 20 * time.Millisecond,
 		Launch: func(_ context.Context, inv detach.Invocation) error {
 			if err := os.Remove(filepath.Join(inv.Dir, detach.SpecFile)); err != nil {
 				return err
@@ -351,6 +357,7 @@ func succeeded[T any](t *testing.T, rec store.OpRecord) T {
 // 404 before an operation; a conflicting row that appears after Admit
 // fails the operation with conflict from the helper, inserting nothing.
 func TestTC86_DomainAdmitBeforeOperation(t *testing.T) {
+	t.Parallel()
 	w := newDomainWorld(t)
 	allowID := w.h.SeedDomain(0, "cdn.example.com", "")
 
@@ -411,6 +418,7 @@ func TestTC86_DomainAdmitBeforeOperation(t *testing.T) {
 // named by the provider's host, and a second add is created false with no
 // further reload; remove by id returns the removed row.
 func TestDomainActionsEndToEnd(t *testing.T) {
+	t.Parallel()
 	w := newDomainWorld(t)
 	rec, pe := w.invoke(spec.AddDomain.Op(), `{"list":"deny","kind":"exact","value":"ads.example.com","comment":"nexus test"}`)
 	if pe != nil {
@@ -448,6 +456,7 @@ func TestDomainActionsEndToEnd(t *testing.T) {
 // TC-E3 (FR-11, FR-12): remove-domain needs exactly one addressing form;
 // otherwise 400 validation-failed naming the rule, with no operation.
 func TestTCE3_RemoveDomainAddressingForms(t *testing.T) {
+	t.Parallel()
 	w := newDomainWorld(t)
 	w.h.SeedDomain(1, "ads.example.com", "")
 	for _, in := range []string{
@@ -471,6 +480,7 @@ func TestTCE3_RemoveDomainAddressingForms(t *testing.T) {
 // 400 validation-failed at /value before an operation; the same text as a
 // regex is admitted.
 func TestTCERR17_DomainAdmitValidation(t *testing.T) {
+	t.Parallel()
 	w := newDomainWorld(t)
 	for _, v := range []string{"a/b", "ADS.example.com", "*.example.com"} {
 		in, _ := json.Marshal(spec.DomainAddInput{List: "deny", Kind: "exact", Value: v})
@@ -492,6 +502,7 @@ func TestTCERR17_DomainAdmitValidation(t *testing.T) {
 // add-domain and remove-domain are bound detached with MaxRuntime 10 min
 // and the LostDetail a lost unit's outcome-unknown carries.
 func TestDomainBindings(t *testing.T) {
+	t.Parallel()
 	const lost = "the entry may have been added or removed; lists may not be reloaded"
 	w := newHelperWorld(t)
 	check := func(id string, df provider.DetachedFuncs, in any) {
@@ -575,13 +586,14 @@ func probesAfter(f *v5test.FakeFTL, reloads int) int {
 // On the pre-fix code each returned as soon as `pihole restartdns
 // reload-lists` exited, with the reload still running.
 func TestTC155_OpsReturnAfterFTLReloadedLists(t *testing.T) {
+	t.Parallel()
 	w := newHelperWorld(t)
 	f := w.h.FTL()
 	listID := seedAdlist(t, w.h, listA)
 	if code, err := w.h.Run(context.Background(), []string{piholeBin, "-g"}, io.Discard, io.Discard); code != 0 || err != nil {
 		t.Fatalf("gravity: %d %v", code, err)
 	}
-	f.SetReloadDuration(300 * time.Millisecond)
+	f.SetReloadDuration(150 * time.Millisecond)
 	steps := []struct {
 		name string
 		opID string

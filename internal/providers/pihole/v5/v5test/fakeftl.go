@@ -157,6 +157,16 @@ type FTLQuery struct {
 	Reloads int
 }
 
+// FastReload is the list reload barrier's timing for tests: a fifth of the
+// production bounds (v5.ListReloadPoll, v5.ListReloadQuiet), still several
+// times FakeFTL's reload (DefaultReloadDuration), and a probe timeout that
+// a healthy FakeFTL beats under load. The 30 s cap stays production's: tests
+// that reach it advance a fake clock (see the fakeTime helper of package v5's
+// tests), never the wall clock.
+func FastReload() v5.ReloadTiming {
+	return v5.ReloadTiming{Poll: 10 * time.Millisecond, Quiet: 50 * time.Millisecond, ProbeTimeout: 250 * time.Millisecond}
+}
+
 // DefaultReloadDuration is how long a FakeFTL list reload takes, in real
 // time, unless SetReloadDuration changes it. On the image a reload-lists
 // took 15 ms to 119 ms from the command to its completion line (TC-153).

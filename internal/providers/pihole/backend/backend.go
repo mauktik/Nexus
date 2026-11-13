@@ -74,6 +74,7 @@ type Deps struct {
 	Runner    v5.Runner        // the exec runner in production
 	DNSServer netip.AddrPort   // 127.0.0.1:53 in production
 	Now       func() time.Time // the Mutator's clock; nil means time.Now
+	Reload    v5.ReloadTiming  // the list reload barrier's bounds; zero means production's
 }
 
 // The v5-cli Mutator implements the base Mutator; each area interface is
@@ -89,7 +90,8 @@ func Select(v Versions, p v5.Paths, deps Deps) (Reader, Mutator, string, error) 
 	switch v.Major {
 	case 5:
 		return &v5.Reader{Paths: p, Runner: deps.Runner, DNSServer: deps.DNSServer},
-			&v5.Mutator{Paths: p, Runner: deps.Runner, DNSServer: deps.DNSServer, Now: deps.Now}, spec.BackendV5CLI, nil
+			&v5.Mutator{Paths: p, Runner: deps.Runner, DNSServer: deps.DNSServer, Now: deps.Now,
+				Reload: deps.Reload}, spec.BackendV5CLI, nil
 	case 6:
 		return Unsupported{}, Unsupported{}, spec.BackendUnsupported, nil
 	}

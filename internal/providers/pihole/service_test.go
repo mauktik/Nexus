@@ -39,7 +39,7 @@ const (
 func newV5(t *testing.T) (*v5test.FakeHost, *v5.Mutator) {
 	t.Helper()
 	h := v5test.NewFakeHost(t)
-	return h, &v5.Mutator{Paths: h.Paths(), Runner: h, Now: h.Now}
+	return h, &v5.Mutator{Paths: h.Paths(), Runner: h, Now: h.Now, Reload: v5test.FastReload(), GravityPoll: 50 * time.Millisecond}
 }
 
 func slugOf(t *testing.T, err error) (problem.Slug, *problem.Error) {
@@ -70,6 +70,7 @@ func hasArgv(h *v5test.FakeHost, pred func([]string) bool) bool {
 // exactly `pihole restartdns`; FTL comes back with a new PID and answers on
 // loopback.
 func TestTC75_RestartDNS(t *testing.T) {
+	t.Parallel()
 	h, m := newV5(t)
 	pid := h.FTL().PID()
 	var out bytes.Buffer
@@ -91,6 +92,7 @@ func TestTC75_RestartDNS(t *testing.T) {
 // runs exactly `pihole restartdns reload`, never `pihole flush`/`-f`; the
 // query log is untouched, the PID is unchanged, and the cache was flushed.
 func TestTC76_FlushCacheNeverPiholeFlush(t *testing.T) {
+	t.Parallel()
 	h, m := newV5(t)
 	pid, logLines := h.FTL().PID(), h.QueryLogLines()
 	if err := m.FlushCache(context.Background(), &bytes.Buffer{}); err != nil {
@@ -111,6 +113,7 @@ func TestTC76_FlushCacheNeverPiholeFlush(t *testing.T) {
 // TC-ERR12: a non-zero `pihole restartdns` is pihole-command-failed naming
 // the command and exit code.
 func TestTCERR12_RestartFailure(t *testing.T) {
+	t.Parallel()
 	h, m := newV5(t)
 	h.FailCommand([]string{piholeBin, "restartdns"}, 1)
 	err := m.RestartDNS(context.Background(), &bytes.Buffer{})
@@ -191,6 +194,7 @@ func TestTCERR32_StartLimitNamed(t *testing.T) {
 // v5.25.2 showed, reported as 128+11 with a nil error; 1 when the fake
 // exits plainly instead; and (-1, err) when the command cannot start.
 func TestTCERR13_TestConfigExitCode(t *testing.T) {
+	t.Parallel()
 	h, m := newV5(t)
 	if code, err := m.TestConfig(context.Background(), &bytes.Buffer{}); err != nil || code != 0 {
 		t.Fatalf("clean: %d, %v", code, err)
@@ -268,6 +272,7 @@ func pidStr(p *int) string {
 // pihole-FTL.service` and `pihole restartdns` once each and returns a ServiceResult with the PID before, FTL's new PID and how long
 // FTL took to answer.
 func TestTC75_RestartDNSAction(t *testing.T) {
+	t.Parallel()
 	w := newHelperWorld(t)
 	res, out, err := serviceOp(w, spec.RestartDNS, "op-restart", 0)
 	if err != nil {
@@ -321,20 +326,39 @@ func TestTC148_SixRestartDNSOpsWithinAMinute(t *testing.T) {
 	}
 }
 
+// testPIDLimit is the PID read's limit in tests (helperWorld.inject): a
+// fifth of production's ftlPIDPollLimit.
+const testPIDLimit = ftlPIDPollLimit / 5
+
+// The PID read's production bounds are the constants, unless a test seam
+// shortens them (A-56).
+func TestPIDPollDefaults(t *testing.T) {
+	if ftlPIDPollInterval != 100*time.Millisecond || ftlPIDPollLimit != 2*time.Second {
+		t.Errorf("PID poll %s for %s, want 100ms for 2s", ftlPIDPollInterval, ftlPIDPollLimit)
+	}
+	if got := helperSeams(nil).PIDPoll; got != (pidPoll{Interval: ftlPIDPollInterval, Limit: ftlPIDPollLimit}) {
+		t.Errorf("production seams' PID poll %+v", got)
+	}
+	if got := helperSeams(&helperInject{}).PIDPoll; got != defaultPIDPoll {
+		t.Errorf("an empty injection's PID poll %+v, want the defaults", got)
+	}
+}
+
 // A-56: the new PID file appears only after FTL answers. restart-dns
-// retries the read for up to 2 s, so ftlPidAfter is the new PID; after 2 s
-// it reports what FTLPID returns, the old PID while the file still names a
-// live FTL, or null when there is none, and that is not a failure.
+// retries the read for up to its limit (2 s in production, testPIDLimit
+// here), so ftlPidAfter is the new PID; after it the action reports what
+// FTLPID returns, the old PID while the file still names a live FTL, or
+// null when there is none, and that is not a failure.
 func TestRestartDNSActionPIDFileLate(t *testing.T) {
-	t.Run("within 2 s", func(t *testing.T) {
+	t.Run("within the limit", func(t *testing.T) {
 		w := newHelperWorld(t)
-		w.h.FTL().SetPIDFileLag(400 * time.Millisecond)
+		w.h.FTL().SetPIDFileLag(testPIDLimit / 5)
 		res, out, err := serviceOp(w, spec.RestartDNS, "op-late", 0)
 		if err != nil || res.FTLPidAfter == nil || *res.FTLPidAfter != w.h.FTL().PID() {
 			t.Errorf("result %+v (after %s), %v; want ftlPidAfter %d\n%s", res, pidStr(res.FTLPidAfter), err, w.h.FTL().PID(), out)
 		}
 	})
-	t.Run("never within 2 s", func(t *testing.T) {
+	t.Run("never within the limit", func(t *testing.T) {
 		w := newHelperWorld(t)
 		w.h.FTL().SetPIDFileLag(time.Hour)
 		start := time.Now()
@@ -342,8 +366,8 @@ func TestRestartDNSActionPIDFileLate(t *testing.T) {
 		if err != nil || res.FTLPidAfter == nil || *res.FTLPidAfter != v5test.FakeFTLPID {
 			t.Errorf("result after %s, %v; want the old PID FTLPID still returns", pidStr(res.FTLPidAfter), err)
 		}
-		if d := time.Since(start); d < ftlPIDPollLimit {
-			t.Errorf("gave up after %s, want %s of retries", d, ftlPIDPollLimit)
+		if d := time.Since(start); d < testPIDLimit {
+			t.Errorf("gave up after %s, want %s of retries", d, testPIDLimit)
 		}
 	})
 	t.Run("no PID file", func(t *testing.T) {
@@ -363,6 +387,7 @@ func TestRestartDNSActionPIDFileLate(t *testing.T) {
 // reload`; FTL keeps its PID, the query log is kept, the cache was flushed
 // once, and ftlPidBefore == ftlPidAfter.
 func TestTC76_FlushCacheAction(t *testing.T) {
+	t.Parallel()
 	w := newHelperWorld(t)
 	logLines := w.h.QueryLogLines()
 	res, out, err := serviceOp(w, spec.FlushCache, "op-flush", 0)
@@ -385,6 +410,7 @@ func TestTC76_FlushCacheAction(t *testing.T) {
 // TC-ERR12, action half: a failed restart command is pihole-command-failed
 // through result.json, and FTL readiness is not waited for.
 func TestRestartDNSActionCommandFailed(t *testing.T) {
+	t.Parallel()
 	w := newHelperWorld(t)
 	w.h.FTL().SetFault(v5test.FaultRestartFails)
 	_, out, err := serviceOp(w, spec.RestartDNS, "op-fail", 0)
@@ -401,7 +427,7 @@ func TestRestartDNSActionCommandFailed(t *testing.T) {
 // flush, and a flush while FTL is stopped (reload exits 0 as a no-op,
 // V-17), each fail dns-verification-failed{rolledBack:false, name:pi.hole}.
 func TestTCERR29_NeverReady(t *testing.T) {
-	const window = 600 * time.Millisecond
+	const window = 250 * time.Millisecond
 	cases := []struct {
 		name  string
 		op    def.Typed[spec.NoInput, spec.ServiceResult]
@@ -428,6 +454,7 @@ func TestTCERR29_NeverReady(t *testing.T) {
 // LostDetail "DNS may be restarting; check `piholestatus get`", which a
 // lost unit's outcome-unknown carries.
 func TestServiceBindings(t *testing.T) {
+	t.Parallel()
 	const lost = "DNS may be restarting; check `piholestatus get`"
 	for _, op := range []def.Typed[spec.NoInput, spec.ServiceResult]{spec.RestartDNS, spec.FlushCache} {
 		w := newHelperWorld(t)

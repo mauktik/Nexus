@@ -97,6 +97,7 @@ func newDNSWorld(t *testing.T, content []byte) *dnsWorld {
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	launcher, err := detach.New(detach.Config{OpsDir: w.opsDir, Logger: log}, detach.Options{
+		PollInterval: 20 * time.Millisecond,
 		Launch: func(_ context.Context, inv detach.Invocation) error {
 			if err := os.Remove(filepath.Join(inv.Dir, detach.SpecFile)); err != nil {
 				return err
@@ -229,6 +230,7 @@ func noLocalLine(t *testing.T, b []byte) {
 // backup. Each result.json, as runHelper wrote it, has a result and no
 // error member (the typed-nil guard on the first real dnswrite caller).
 func TestTC104_ZoneAddSecondState(t *testing.T) {
+	t.Parallel()
 	orig := dnsFixture(t, "fr23-seven-lines.conf")
 	w := newDNSWorld(t, orig)
 	pid, restarts := w.h.FTL().PID(), w.h.FTL().Restarts()
@@ -290,6 +292,7 @@ func TestTC104_ZoneAddSecondState(t *testing.T) {
 // TC-105 (FR-19): adding a declared zone is 409 conflict at Admit; no
 // operation; the file is unchanged.
 func TestTC105_AddExistingZoneRefused(t *testing.T) {
+	t.Parallel()
 	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
 	w := newDNSWorld(t, rendered)
 	_, pe := w.invoke(spec.AddZone.Op(), `{"zone":"app.lan"}`)
@@ -303,6 +306,7 @@ func TestTC105_AddExistingZoneRefused(t *testing.T) {
 // count, with no operation; cascade deletes both records and the marker
 // with one restart and verifies each name absent.
 func TestTC106_RemoveZoneNonEmptyThenCascade(t *testing.T) {
+	t.Parallel()
 	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
 	w := newDNSWorld(t, rendered)
 	restarts := w.h.FTL().Restarts()
@@ -349,6 +353,7 @@ func TestTC106_RemoveZoneNonEmptyThenCascade(t *testing.T) {
 // TC-107 (FR-19, NFR-3): removing an empty zone removes its marker only:
 // no configuration test, no restart, the PID unchanged.
 func TestTC107_RemoveEmptyZoneNoRestart(t *testing.T) {
+	t.Parallel()
 	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
 	w := newDNSWorld(t, append(slices.Clone(rendered), "\n# nexus:zone empty.lan\n"...))
 	pid, restarts := w.h.FTL().PID(), w.h.FTL().Restarts()
@@ -374,6 +379,7 @@ func TestTC107_RemoveEmptyZoneNoRestart(t *testing.T) {
 // move to the end of the preamble and are never dropped; the change is
 // comment lines only, so nothing restarts.
 func TestA44_RemovedSectionLinesMoveToPreamble(t *testing.T) {
+	t.Parallel()
 	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
 	seed := "# hand-written header\n\n# nexus:zone empty.lan\n# printer, ask Bob\n\n" + string(rendered)
 	w := newDNSWorld(t, []byte(seed))
@@ -399,6 +405,7 @@ func TestA44_RemovedSectionLinesMoveToPreamble(t *testing.T) {
 // 503 capability-unavailable when dnsmasq would not load the DNS file's
 // directory, checked live, and on the v6 backend; no operation either way.
 func TestTC108_DNSWritesRefusedNoConfDirOrV6(t *testing.T) {
+	t.Parallel()
 	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
 
 	w := newDNSWorld(t, rendered)
@@ -431,6 +438,7 @@ func TestTC108_DNSWritesRefusedNoConfDirOrV6(t *testing.T) {
 // add with a stale ifMatch is 409 dns-file-conflict naming both etags; no
 // operation.
 func TestTCERR26_ZoneRefusals(t *testing.T) {
+	t.Parallel()
 	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
 	w := newDNSWorld(t, rendered)
 
@@ -457,6 +465,7 @@ func TestTCERR26_ZoneRefusals(t *testing.T) {
 // after Admit fails the operation with capability-unavailable and nothing
 // written.
 func TestDNSHelperRechecksConfDir(t *testing.T) {
+	t.Parallel()
 	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
 	w := newDNSWorld(t, rendered)
 	var df provider.DetachedFuncs
@@ -492,6 +501,7 @@ func TestDNSHelperRechecksConfDir(t *testing.T) {
 // add-zone and zones.remove run up to 10 min (A-3); a unit lost without a
 // result is outcome-unknown naming the rollback copy in the op directory.
 func TestZoneOpsMaxRuntimeAndLostDetail(t *testing.T) {
+	t.Parallel()
 	w := newHelperWorld(t)
 	check := func(name string, df provider.DetachedFuncs, in any) {
 		t.Helper()
@@ -609,6 +619,7 @@ func verifiedOne(t *testing.T, what string, res spec.DNSChangeResult, fqdn strin
 // from 1 to 2 records with the new etag; FakeFTL serves the commanded
 // address; the result is verified with one restart.
 func TestTC109_RecordAddSecondState(t *testing.T) {
+	t.Parallel()
 	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
 	w := newDNSWorld(t, rendered)
 	restarts := w.h.FTL().Restarts()
@@ -639,6 +650,7 @@ func TestTC109_RecordAddSecondState(t *testing.T) {
 // TC-110 (FR-21, FR-22): updating a record to the address it has is
 // changed:false with no write and no restart.
 func TestTC110_UpdateSameIPNoOp(t *testing.T) {
+	t.Parallel()
 	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
 	w := newDNSWorld(t, rendered)
 	pid, restarts := w.h.FTL().PID(), w.h.FTL().Restarts()
@@ -667,6 +679,7 @@ func TestTC110_UpdateSameIPNoOp(t *testing.T) {
 // replacement: every read of the file during the op holds the name, and
 // the final file has the new line where the old one was.
 func TestTC111_UpdateInPlaceNeverAbsent(t *testing.T) {
+	t.Parallel()
 	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
 	w := newDNSWorld(t, rendered)
 
@@ -718,6 +731,7 @@ func TestTC111_UpdateInPlaceNeverAbsent(t *testing.T) {
 // uses the commanded address and absence; the updated one stays in the
 // unzoned section.
 func TestTC112_UnzonedRecordsManageable(t *testing.T) {
+	t.Parallel()
 	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
 	w := newDNSWorld(t, rendered)
 
@@ -770,6 +784,7 @@ func TestTC113_DuplicatesRefused(t *testing.T) {
 // TC-114 (NFR-2): an add, an update and a remove each run `pihole
 // restartdns` exactly once.
 func TestTC114_OneRestartPerRecordOp(t *testing.T) {
+	t.Parallel()
 	w := newDNSWorld(t, dnsFixture(t, "fr23-seven-lines.rendered.conf"))
 	for _, c := range []struct {
 		op    def.Op
@@ -793,6 +808,7 @@ func TestTC114_OneRestartPerRecordOp(t *testing.T) {
 // TC-E13 (FR-17, FR-21): a record named exactly like its zone belongs to
 // it and covers the zone's names that have no line of their own.
 func TestTCE13_RecordNamedLikeItsZone(t *testing.T) {
+	t.Parallel()
 	w := newDNSWorld(t, dnsFixture(t, "fr23-seven-lines.rendered.conf"))
 	res := w.mustSucceed(spec.AddRecord.Op(), `{"fqdn":"app.lan","ipv4":"192.168.7.3"}`)
 	verifiedOne(t, "add app.lan", res, "app.lan", []string{"192.168.7.3"})
@@ -811,6 +827,7 @@ func TestTCE13_RecordNamedLikeItsZone(t *testing.T) {
 // Removing a name that a shorter record name still covers verifies against
 // that name's address, not absence (FR-24).
 func TestRecordRemoveCoveredBySuffix(t *testing.T) {
+	t.Parallel()
 	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
 	seed := strings.Replace(string(rendered), "# nexus:zone app.lan\n", "# nexus:zone app.lan\naddress=/app.lan/192.168.7.3\n", 1)
 	w := newDNSWorld(t, []byte(seed))
@@ -829,6 +846,7 @@ func TestRecordRemoveCoveredBySuffix(t *testing.T) {
 // an unknown record 404; 0.0.0.0 400; a stale ifMatch 409
 // dns-file-conflict. No operation is created and the file is unchanged.
 func TestTCERR27_RecordRefusals(t *testing.T) {
+	t.Parallel()
 	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
 	w := newDNSWorld(t, rendered)
 
@@ -859,6 +877,7 @@ func TestTCERR27_RecordRefusals(t *testing.T) {
 // The record ops refuse a DNS write on the v6 backend at Admit, as every DNS
 // write does.
 func TestRecordOpsRefusedOnV6(t *testing.T) {
+	t.Parallel()
 	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
 	w := newDNSWorld(t, rendered)
 	w.p.reader.Store(&readerBox{r: backend.Unsupported{}})
@@ -881,6 +900,7 @@ func TestRecordOpsRefusedOnV6(t *testing.T) {
 // add-record, records.update and records.remove run up to 10 min (A-3); a
 // unit lost without a result is outcome-unknown naming the rollback copy.
 func TestRecordOpsMaxRuntimeAndLostDetail(t *testing.T) {
+	t.Parallel()
 	w := newHelperWorld(t)
 	found := 0
 	for _, b := range w.p.Bindings() {
@@ -908,6 +928,7 @@ func TestRecordOpsMaxRuntimeAndLostDetail(t *testing.T) {
 // The helper parses the record ID again and refuses one that is not
 // <fqdn>~A, writing nothing.
 func TestRecordHelperRefusesBadRecordID(t *testing.T) {
+	t.Parallel()
 	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
 	w := newDNSWorld(t, rendered)
 	var df provider.DetachedFuncs
@@ -981,6 +1002,7 @@ func wantBatchRejected(t *testing.T, what string, pe *problem.Error, index int, 
 // leave exactly the FR-23 rendering; zone markers are comment lines, so no
 // test, no restart and the same PID.
 func TestTC115_FR23ZonesInOneBatch(t *testing.T) {
+	t.Parallel()
 	w := newDNSWorld(t, dnsFixture(t, "fr23-seven-lines.conf"))
 	pid, restarts := w.h.FTL().PID(), w.h.FTL().Restarts()
 
@@ -1012,6 +1034,7 @@ func TestTC115_FR23ZonesInOneBatch(t *testing.T) {
 // against one model, and a one-change batch reports its refusal the same
 // way.
 func TestTC116_FailureAtIndex2WritesNothing(t *testing.T) {
+	t.Parallel()
 	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
 	w := newDNSWorld(t, rendered)
 
@@ -1035,6 +1058,7 @@ func TestTC116_FailureAtIndex2WritesNothing(t *testing.T) {
 // one restart and 99 verified names; 101 and 0 changes are 400
 // validation-failed with no operation.
 func TestTC117_BatchSizeBounds(t *testing.T) {
+	t.Parallel()
 	w := newDNSWorld(t, dnsFixture(t, "fr23-seven-lines.conf"))
 	restarts := w.h.FTL().Restarts()
 	changes := []string{"add-zone:app.lan"}
@@ -1084,6 +1108,7 @@ func TestTC117_BatchSizeBounds(t *testing.T) {
 // own zone add, an update and a remove run one test and one restart and
 // verify every changed name; the op is destructive, so the CLI asks first.
 func TestTC118_DependentChangesOneRestart(t *testing.T) {
+	t.Parallel()
 	w := newDNSWorld(t, dnsFixture(t, "fr23-seven-lines.conf"))
 	restarts := w.h.FTL().Restarts()
 
@@ -1123,6 +1148,7 @@ func TestTC118_DependentChangesOneRestart(t *testing.T) {
 // TC-E14 (FR-26, NFR-3): a batch of zone changes only is comment-only: no
 // test, no restart, the PID unchanged.
 func TestTCE14_ZoneOnlyBatchCommentOnly(t *testing.T) {
+	t.Parallel()
 	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
 	w := newDNSWorld(t, append(slices.Clone(rendered), "\n# nexus:zone old.lan\n"...))
 	pid, restarts := w.h.FTL().PID(), w.h.FTL().Restarts()
@@ -1148,6 +1174,7 @@ func TestTCE14_ZoneOnlyBatchCommentOnly(t *testing.T) {
 // operation with dns-batch-rejected at index 0, cause dns-name-unzoned, and
 // nothing written.
 func TestTCERR28_HelperBatchRejectionCarriesCause(t *testing.T) {
+	t.Parallel()
 	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
 	w := newDNSWorld(t, rendered)
 	var df provider.DetachedFuncs
@@ -1214,6 +1241,7 @@ func TestParseBatchBounds(t *testing.T) {
 // gravity and 10 min otherwise, and a LostDetail; the DNS writes' names the
 // rollback copy and the blocking ops' the re-enable timer.
 func TestTC119_BindingInventory(t *testing.T) {
+	t.Parallel()
 	w := newHelperWorld(t)
 	dnsOps := map[string]bool{}
 	for _, op := range []def.Op{spec.AddZone.Op(), spec.ZonesRemove.Op(), spec.AddRecord.Op(), spec.RecordsUpdate.Op(),

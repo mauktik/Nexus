@@ -39,7 +39,7 @@ var reloadListsArgv = []string{piholeBin, "restartdns", "reload-lists"}
 func barrierHost(t *testing.T) (*v5test.FakeHost, *v5.Mutator) {
 	t.Helper()
 	h := v5test.NewFakeHost(t)
-	return h, &v5.Mutator{Paths: h.Paths(), Runner: h, DNSServer: h.FTL().Addr(), Now: h.Now}
+	return h, &v5.Mutator{Paths: h.Paths(), Runner: h, DNSServer: h.FTL().Addr(), Now: h.Now, Reload: v5test.FastReload()}
 }
 
 // fakeTime makes m's sleeps advance h's clock at once, with no real wait.
@@ -50,6 +50,22 @@ func fakeTime(h *v5test.FakeHost, m *v5.Mutator) {
 		}
 		h.Advance(d)
 		return nil
+	}
+}
+
+// A-67: production's bounds are the constants; tests shorten the polls, the
+// quiet window and the probe through Mutator.Reload (v5test.FastReload) and
+// keep the 30 s cap, which TC-ERR33 reaches with a fake clock.
+func TestListReloadBoundsArePinned(t *testing.T) {
+	if v5.ListReloadPoll != 100*time.Millisecond || v5.ListReloadQuiet != 500*time.Millisecond ||
+		v5.ListReloadWait != 30*time.Second || v5.ListReloadRecoveries != 1 ||
+		v5.ListReloadProbeTimeout != time.Second || v5.ListReloadProbeTries != 3 {
+		t.Errorf("bounds poll %s quiet %s wait %s recoveries %d probe %s x%d",
+			v5.ListReloadPoll, v5.ListReloadQuiet, v5.ListReloadWait, v5.ListReloadRecoveries,
+			v5.ListReloadProbeTimeout, v5.ListReloadProbeTries)
+	}
+	if f := v5test.FastReload(); f.Wait != 0 || f.Poll >= v5.ListReloadPoll || f.Quiet >= v5.ListReloadQuiet {
+		t.Errorf("FastReload %+v must shorten poll and quiet and leave the wait cap alone", f)
 	}
 }
 
@@ -201,7 +217,7 @@ func TestTC156_NoWriteWhileReloadInFlight(t *testing.T) {
 			var out syncBuf
 			done := make(chan error, 1)
 			go func() { done <- a.run(context.Background(), m, id, &out) }()
-			for end := time.Now().Add(300 * time.Millisecond); time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+			for end := time.Now().Add(150 * time.Millisecond); time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
 				if c := changeCounter(t, h); c != counter {
 					t.Errorf("gravity.db committed (counter %d -> %d) while FTL reloaded its lists", counter, c)
 					break
@@ -425,7 +441,7 @@ func TestTCERR33_BarrierFailurePaths(t *testing.T) {
 					t.Fatal("no reload-lists")
 				}
 			}
-			time.Sleep(250 * time.Millisecond) // the barrier has polled the start marker
+			time.Sleep(100 * time.Millisecond) // the barrier has polled the start marker
 			p := h.FTL().LogPath()
 			var err error
 			if how == "truncated" {
@@ -467,7 +483,7 @@ func TestTCERR33_BarrierFailurePaths(t *testing.T) {
 		startHeldReload(t, h)
 		defer h.FTL().ReleaseReloads()
 		ctx, cancel := context.WithCancel(context.Background())
-		time.AfterFunc(200*time.Millisecond, cancel)
+		time.AfterFunc(100*time.Millisecond, cancel)
 		err := add(ctx, m, io.Discard)
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("err %v, want it to wrap context.Canceled", err)

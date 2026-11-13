@@ -78,6 +78,7 @@ func isGravity(a []string) bool { return len(a) == 2 && a[0] == piholeBin && a[1
 // with the comment as its own argv element, returns the row read back,
 // created true; adding the same URL again is created false with no command.
 func TestTC88_AddAdlistCreatedThenIdempotent(t *testing.T) {
+	t.Parallel()
 	h, m := newV5Lists(t)
 	got, created, err := m.AddAdlist(context.Background(), listA, "my list", &bytes.Buffer{})
 	if err != nil || !created {
@@ -117,6 +118,7 @@ func TestTC88_AddAdlistCreatedThenIdempotent(t *testing.T) {
 // TC-ERR18 (FR-12, A-17, V-9): an add Pi-hole silently ignores (exit 0, no
 // row) is pihole-command-failed{command: "pihole -a adlist add", exitCode: 0}.
 func TestTCERR18_IgnoredAdlistAddFails(t *testing.T) {
+	t.Parallel()
 	h, m := newV5Lists(t)
 	h.IgnoreCommand([]string{piholeBin, "-a", "adlist", "add"})
 	_, created, err := m.AddAdlist(context.Background(), listA, "", &bytes.Buffer{})
@@ -135,6 +137,7 @@ func TestTCERR18_IgnoredAdlistAddFails(t *testing.T) {
 // RemoveAdlist deletes the row in gravity.db, reloads the lists once and
 // returns the row; an id with no row is not-found with no command (A-58).
 func TestRemoveAdlistByID(t *testing.T) {
+	t.Parallel()
 	h, m := newV5Lists(t)
 	idA := seedAdlist(t, h, listA)
 	idB := seedAdlist(t, h, listB)
@@ -160,6 +163,7 @@ func TestRemoveAdlistByID(t *testing.T) {
 // TC-91 (FR-13): gravity's output reaches the writer in the fake's order;
 // the result is info read back; exit 0; no failed lists, no warning.
 func TestTC91_UpdateGravityStreamsAndReadsBack(t *testing.T) {
+	t.Parallel()
 	h, m := newV5Lists(t)
 	for _, u := range []string{listA, listB, listC} {
 		seedAdlist(t, h, u)
@@ -197,6 +201,7 @@ func TestTC91_UpdateGravityStreamsAndReadsBack(t *testing.T) {
 // TC-92 (FR-13, A-48, V-12): lists that fail to download do not fail the
 // update; they are counted, with a warning.
 func TestTC92_PartialListFailuresWarn(t *testing.T) {
+	t.Parallel()
 	h, m := newV5Lists(t)
 	for _, u := range []string{listA, listB, listC} {
 		seedAdlist(t, h, u)
@@ -232,6 +237,7 @@ func (f failingGravity) Run(ctx context.Context, argv []string, stdout, stderr i
 // TC-ERR19 (FR-13): gravity exiting 1 is gravity-failed{exitCode: 1}; what
 // it printed so far stays in the log.
 func TestTCERR19_GravityExit1(t *testing.T) {
+	t.Parallel()
 	h, m := newV5Lists(t)
 	h.FailCommand([]string{piholeBin, "-g"}, 1)
 	var out bytes.Buffer
@@ -262,6 +268,7 @@ func TestTCERR19_GravityExit1(t *testing.T) {
 // `pihole -a adlist del`, reloads the lists once per remove; the rows are
 // gone; the results hold them.
 func TestTC89_RemoveAdlistByIDOrURL(t *testing.T) {
+	t.Parallel()
 	w := newDomainWorld(t)
 	idA := seedAdlist(t, w.h, listA)
 	if code, err := w.h.Run(context.Background(), []string{piholeBin, "-g"}, io.Discard, io.Discard); code != 0 || err != nil {
@@ -303,6 +310,7 @@ func TestTC89_RemoveAdlistByIDOrURL(t *testing.T) {
 // TC-90 (FR-12, FR-13): updateGravity decides whether `pihole -g` runs,
 // after the add or remove, with its result nested.
 func TestTC90_UpdateGravityFlag(t *testing.T) {
+	t.Parallel()
 	w := newDomainWorld(t)
 	rec, pe := w.invoke(spec.AddAdlist.Op(), `{"url":"`+listA+`","updateGravity":false}`)
 	if pe != nil {
@@ -351,6 +359,7 @@ func TestTC90_UpdateGravityFlag(t *testing.T) {
 // An add whose gravity fails is gravity-failed, and its detail says the
 // adlist was added: the row stays.
 func TestAddAdlistGravityFailureSaysAdded(t *testing.T) {
+	t.Parallel()
 	w := newDomainWorld(t)
 	w.h.FailCommand([]string{piholeBin, "-g"}, 1)
 	rec, pe := w.invoke(spec.AddAdlist.Op(), `{"url":"`+listA+`","updateGravity":true}`)
@@ -369,6 +378,7 @@ func TestAddAdlistGravityFailureSaysAdded(t *testing.T) {
 // TC-94 (FR-12): remove-adlist with both id and url, or neither, is 400;
 // an unknown id or url is 404; none creates an operation.
 func TestTC94_RemoveAdlistAdmit(t *testing.T) {
+	t.Parallel()
 	w := newDomainWorld(t)
 	id := seedAdlist(t, w.h, listA)
 	for _, c := range []struct {
@@ -400,6 +410,7 @@ func TestTC94_RemoveAdlistAdmit(t *testing.T) {
 // adlist op with updateGravity, 10 min otherwise; a lost unit is
 // outcome-unknown with the op's LostDetail.
 func TestTC93_AdlistMaxRuntime(t *testing.T) {
+	t.Parallel()
 	w := newHelperWorld(t)
 	check := func(id string, df provider.DetachedFuncs, in any, want time.Duration) {
 		t.Helper()
@@ -460,6 +471,7 @@ func (p *passthrough) Run(ctx context.Context, argv []string, stdout, stderr io.
 // helper's stdout directly, so `pihole: …` step lines and gravity's lines
 // interleave in order with nothing buffered until the end.
 func TestTC95_GravityOutputReachesLogInOrder(t *testing.T) {
+	t.Parallel()
 	w := newHelperWorld(t)
 	seedAdlist(t, w.h, listA)
 	seedAdlist(t, w.h, listB)
@@ -544,6 +556,7 @@ func isAdlistDel(a []string) bool {
 // helper action, must delete the list's gravity rows, group links and the
 // list in one transaction, then reload the lists once.
 func TestTC145_RemoveAdlistDeletesGravityRowsInOneTransaction(t *testing.T) {
+	t.Parallel()
 	w := newHelperWorld(t)
 	idA := seedAdlist(t, w.h, listA)
 	idB := seedAdlist(t, w.h, listB)
@@ -610,6 +623,7 @@ func (r reinsertOnReload) Run(ctx context.Context, argv []string, stdout, stderr
 
 // TC-ERR31 (FR-12, A-58): remove-adlist failure paths.
 func TestTCERR31_RemoveAdlistFailurePaths(t *testing.T) {
+	t.Parallel()
 	// processed is a FakeHost with one gravity-processed adlist.
 	processed := func(t *testing.T) (*v5test.FakeHost, *v5.Mutator, int64) {
 		h, m := newV5Lists(t)

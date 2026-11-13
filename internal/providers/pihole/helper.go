@@ -67,13 +67,17 @@ type helperError struct {
 
 // helperInject carries the helper's test seams. Nil, in production, means
 // the real exec runner, root "/", DNS server 127.0.0.1:53, time.Now and
-// the dnscheck.ReadyWindow readiness window.
+// the dnscheck.ReadyWindow readiness window, the ftlPIDPoll bounds and the
+// v5.ListReload bounds. The last two are wall-clock waits that tests
+// shorten.
 type helperInject struct {
 	Runner      v5.Runner
 	Root        string
 	DNSServer   netip.AddrPort
 	Now         func() time.Time
 	ReadyWindow time.Duration
+	PIDPoll     pidPoll
+	Reload      v5.ReloadTiming
 }
 
 // helperCall is what an action works with.
@@ -87,7 +91,9 @@ type helperCall struct {
 	Now       func() time.Time
 	// ReadyWindow is how long FTL has to answer after a restart or reload.
 	ReadyWindow time.Duration
-	Out         io.Writer // The operation's output: `pihole: <step>` lines and command output
+	// PIDPoll bounds the read of FTL's new PID after a restart.
+	PIDPoll pidPoll
+	Out     io.Writer // The operation's output: `pihole: <step>` lines and command output
 }
 
 // helperAction performs one op in the helper. A non-nil error is the op's
@@ -141,7 +147,8 @@ func Helper(args []string, stdout, stderr io.Writer) int {
 
 // helperSeams resolves inject to the seams the helper runs with.
 func helperSeams(inject *helperInject) helperInject {
-	s := helperInject{Runner: v5.Exec{}, Root: "/", DNSServer: defaultDNSServer, Now: time.Now, ReadyWindow: dnscheck.ReadyWindow}
+	s := helperInject{Runner: v5.Exec{}, Root: "/", DNSServer: defaultDNSServer, Now: time.Now, ReadyWindow: dnscheck.ReadyWindow,
+		PIDPoll: defaultPIDPoll}
 	if inject == nil {
 		return s
 	}
@@ -160,6 +167,13 @@ func helperSeams(inject *helperInject) helperInject {
 	if inject.ReadyWindow > 0 {
 		s.ReadyWindow = inject.ReadyWindow
 	}
+	if inject.PIDPoll.Interval > 0 {
+		s.PIDPoll.Interval = inject.PIDPoll.Interval
+	}
+	if inject.PIDPoll.Limit > 0 {
+		s.PIDPoll.Limit = inject.PIDPoll.Limit
+	}
+	s.Reload = inject.Reload
 	return s
 }
 
@@ -233,13 +247,13 @@ func helperRun(ctx context.Context, dir string, stdout io.Writer, inject *helper
 	}
 	s := helperSeams(inject)
 	paths := v5.Paths{Root: s.Root}
-	rd, m, _, err := backend.Select(v, paths, backend.Deps{Runner: s.Runner, DNSServer: s.DNSServer, Now: s.Now})
+	rd, m, _, err := backend.Select(v, paths, backend.Deps{Runner: s.Runner, DNSServer: s.DNSServer, Now: s.Now, Reload: s.Reload})
 	if err != nil {
 		return errorResult(problem.New(problem.InternalError,
 			fmt.Sprintf("the pi-hole helper cannot select backend %q: %v; nothing was changed", in.Backend, err)))
 	}
 	out, err := action(ctx, &helperCall{In: in, Mutator: m, Reader: rd, Paths: paths, Runner: s.Runner, DNSServer: s.DNSServer, Now: s.Now,
-		ReadyWindow: s.ReadyWindow, Out: stdout})
+		ReadyWindow: s.ReadyWindow, PIDPoll: s.PIDPoll, Out: stdout})
 	if err != nil {
 		var pe *problem.Error
 		if !errors.As(err, &pe) {

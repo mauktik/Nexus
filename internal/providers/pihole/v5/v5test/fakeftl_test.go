@@ -422,7 +422,7 @@ func TestTC154_FakeFTLAsyncListReloadAndRace(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				h := v5test.NewFakeHost(t)
 				f := h.FTL()
-				f.SetReloadDuration(300 * time.Millisecond)
+				f.SetReloadDuration(150 * time.Millisecond)
 				path := f.LogPath()
 				if path != filepath.Join(h.Root(), "var/log/pihole/FTL.log") {
 					t.Fatalf("log path %s", path)

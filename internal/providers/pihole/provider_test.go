@@ -251,6 +251,7 @@ func TestTCERR7_PreflightUnavailableReasons(t *testing.T) {
 
 // TC-52 step 1, without the registry: the enabled details of a v5 host.
 func TestPreflightV5Details(t *testing.T) {
+	t.Parallel()
 	r := newV5Root(t)
 	coreV, web, ftl := fixtureVersions(t)
 	st := r.p.Preflight(context.Background())
@@ -275,6 +276,7 @@ func TestPreflightV5Details(t *testing.T) {
 // dnsWrites reports a dnsmasq.conf that does not load the DNS file's
 // directory, and stays informational: the provider is still enabled.
 func TestPreflightDNSWritesReportsConfDir(t *testing.T) {
+	t.Parallel()
 	r := newV5Root(t)
 	r.write(v5.DnsmasqConfFile, []byte("# conf-dir=/etc/dnsmasq.d\nconf-dir=/etc/other\n"), 0o644)
 	st := r.p.Preflight(context.Background())
@@ -290,6 +292,7 @@ func TestPreflightDNSWritesReportsConfDir(t *testing.T) {
 // Configure takes effect on the next preflight: a reloaded dnsFile is the
 // one checked and reported (FR-2).
 func TestConfigureDNSFileTakesEffect(t *testing.T) {
+	t.Parallel()
 	r := newV5Root(t)
 	const other = "/etc/dnsmasq.d/09-nexus.conf"
 	r.write(other, []byte("address=/a.lan/192.168.7.9\n"), 0o644)
@@ -316,6 +319,7 @@ func TestConfigureDNSFileTakesEffect(t *testing.T) {
 // TC-52: the details are a snapshot as of the last preflight; a backup that
 // appears after startup shows only through a refresh (A-53).
 func TestTC52_DetailsSnapshotThenBackupAppears(t *testing.T) {
+	t.Parallel()
 	r := newV5Root(t)
 	core0, web, ftl := fixtureVersions(t)
 	reg, err := core.New([]provider.Provider{r.p}, core.Options{Host: "h", Providers: pfConfigs(true, nil)})
@@ -498,6 +502,7 @@ func (stubProvider) Bindings() []provider.Binding { return nil }
 // TC-55: pihole enabled over a root without the pihole binary is
 // unavailable with that reason, and docker and apt stay enabled (NFR-5).
 func TestTC55_UnavailablePiholeLeavesOthersEnabled(t *testing.T) {
+	t.Parallel()
 	r := newV5Root(t)
 	r.remove(v5.PiholeBin)
 	cfgs := map[string]core.ProviderConfig{"docker": {Enabled: true}, "apt": {Enabled: true}, spec.Name: {Enabled: true}}

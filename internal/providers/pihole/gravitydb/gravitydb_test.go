@@ -431,8 +431,12 @@ func TestInsertDomainRejectsUnknownType(t *testing.T) {
 }
 
 // TC-36: 20 fresh opens reading 1,000 domains and 50 adlists, p95 under
-// 50 ms; no query touches the gravity table.
+// 50 ms; no query touches the gravity table (TestReadQueriesAvoidGravityTable,
+// which also runs under the race detector).
 func TestReadPerformance(t *testing.T) {
+	if raceEnabled {
+		t.Skip("the 50 ms p95 budget (NFR) is a wall-clock bound; race instrumentation makes it meaningless")
+	}
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "gravity.db")
 	buildDB(t, path,
@@ -473,6 +477,16 @@ func TestReadPerformance(t *testing.T) {
 		t.Errorf("p95 %v, want under 50ms (all: %v)", p95, samples)
 	}
 
+}
+
+// TC-36, second half: no read query's plan touches the gravity table.
+func TestReadQueriesAvoidGravityTable(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "gravity.db")
+	buildDB(t, path,
+		`INSERT INTO domainlist (type, domain, comment) VALUES (1, 'd.example', 'c')`,
+		`INSERT INTO adlist (address, number, status) VALUES ('https://l.example/list', 1, 1)`,
+		`INSERT INTO gravity (domain, adlist_id) VALUES ('g.example', 1)`)
 	d, err := OpenReadOnly(ctx, path)
 	if err != nil {
 		t.Fatal(err)
