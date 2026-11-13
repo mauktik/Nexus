@@ -299,7 +299,7 @@ func (r *throttled) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-// TC-SM-29 (A-5): with the base read and write timeouts at 1 s, an upload
+// TC-SM-29 (A-5): with the base read and write timeouts at 1 s and 1.5 s, an upload
 // that takes 3 s is not cut over HTTP/2-over-TLS or HTTP/1.1-over-TLS,
 // while a JSON POST trickled for 2 s is.
 func TestTCSM29_ASlowUploadLongerThanThe(t *testing.T) {
@@ -319,8 +319,13 @@ func TestTCSM29_ASlowUploadLongerThanThe(t *testing.T) {
 			hc := clients[proto]
 			t.Cleanup(hc.CloseIdleConnections)
 			fu := newFupl(4<<20, "")
+			spy := &bodySpy{}
 			us := startUploads(t, fu, uplOptions{tls: &tls.Config{Certificates: []tls.Certificate{cert}}, tune: func(hs *http.Server) {
-				hs.ReadTimeout, hs.WriteTimeout = time.Second, time.Second
+				// Both base deadlines are below the 3 s upload, so it passes only
+				// if both are extended; the write deadline comes later, so the
+				// control is cut by the read deadline, not by a stream reset.
+				hs.ReadTimeout, hs.WriteTimeout = time.Second, 1500*time.Millisecond
+				hs.Handler = spy.wrap(fuEchoPath, hs.Handler)
 			}})
 			base := "https://" + us.addr
 			wantMajor := map[string]int{"h2": 2, "h1": 1}[proto]
@@ -353,21 +358,71 @@ func TestTCSM29_ASlowUploadLongerThanThe(t *testing.T) {
 			}
 			req.Header.Set("Authorization", "Bearer "+us.tok)
 			req.Header.Set("Content-Type", "application/json")
-			// The cut shows as a transport error, or as a refusal whose body
-			// the deadline may also truncate; only success means it was not.
+			// The server's read of the body must fail on its read deadline;
+			// the client then sees one of the shapes that cut produces: a
+			// transport error (h1 closes the connection, h2 resets the
+			// stream), or the 400 the unreadable body gives, whose body the
+			// write deadline may cut in turn. Nothing else passes.
+			start = time.Now()
 			resp, err = hc.Do(req)
 			if err == nil {
 				body, rerr := io.ReadAll(resp.Body)
 				resp.Body.Close()
-				if resp.StatusCode == http.StatusOK && rerr == nil {
-					t.Fatalf("control: a JSON POST trickled for 2s was not cut: %d %s", resp.StatusCode, body)
+				if resp.StatusCode != http.StatusBadRequest {
+					t.Fatalf("control: status %d, body %s; want a transport error or 400 from the read-deadline cut", resp.StatusCode, body)
 				}
-				t.Logf("control request cut: status %d, body %q, read error %v", resp.StatusCode, body, rerr)
-				return
+				if rerr == nil {
+					expectProblem(t, "control", resp, body, http.StatusBadRequest, problem.ValidationFailed)
+				}
 			}
-			t.Logf("control request cut: error %v", err)
+			if elapsed := time.Since(start); elapsed >= 2*time.Second {
+				t.Fatalf("control: answered after %v, want the 1s read deadline to cut the 2s trickle", elapsed)
+			}
+			if serr := spy.err(); !errors.Is(serr, os.ErrDeadlineExceeded) {
+				t.Fatalf("control: the server's body read ended with %v, want a read-deadline error (client error %v)", serr, err)
+			}
+			t.Logf("control request cut: client error %v, server read error %v", err, spy.err())
 		})
 	}
+}
+
+// bodySpy records the error that ends the server's read of the request body
+// on one path, below every middleware.
+type bodySpy struct {
+	mu   sync.Mutex
+	last error
+}
+
+func (s *bodySpy) wrap(path string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == path {
+			r.Body = &spiedBody{ReadCloser: r.Body, spy: s}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *bodySpy) err() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.last
+}
+
+type spiedBody struct {
+	io.ReadCloser
+	spy *bodySpy
+}
+
+func (b *spiedBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if err != nil && !errors.Is(err, io.EOF) {
+		b.spy.mu.Lock()
+		if b.spy.last == nil {
+			b.spy.last = err
+		}
+		b.spy.mu.Unlock()
+	}
+	return n, err
 }
 
 // slowCopy hands out src n bytes at a time, one piece per interval.
