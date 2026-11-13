@@ -158,6 +158,21 @@ type FakeFTL struct {
 	reloadSeq  int      // Bumped by every reload that begins or EndReload ends
 	reloadCtr  uint32   // gravity.db's change counter when the running reload began
 	queries    []FTLQuery
+	postReads  time.Duration  // SetPostCompileReads
+	reading    bool           // After a completion line, FTL still reads gravity.db
+	heldLag    time.Duration  // SetHeldQueryLag
+	heldUntil  time.Time      // Queries held by a reload are answered no sooner
+	queue      []pendingQuery // Queries received, answered one at a time in order
+	qwake      chan struct{}  // Closed and replaced when a query is queued
+	gapLeft    int            // Backlog queries that may still be answered between two queued reloads
+	gapEpoch   int            // Queries that arrived before this many reloads ended are the backlog
+}
+
+// pendingQuery is a datagram FakeFTL received and has not answered yet.
+type pendingQuery struct {
+	pkt     []byte
+	from    netip.AddrPort
+	arrived int // Reloads that had ended when it arrived
 }
 
 // FTLQuery is one query FakeFTL received while running: its name, and how
@@ -176,6 +191,37 @@ type FTLQuery struct {
 func FastReload() v5.ReloadTiming {
 	return v5.ReloadTiming{Poll: 10 * time.Millisecond, Quiet: 50 * time.Millisecond, ProbeTimeout: 250 * time.Millisecond}
 }
+
+// DefaultPostCompileReads is how long after a reload's completion line
+// FakeFTL still reads gravity.db, in real time unless SetPostCompileReads
+// changes it. FTL's check_inaccessible_adlists does read it there, logs
+// nothing when it succeeds and LogInaccessibleAdlists when a commit made it
+// fail (src/datastructure.c L514, src/database/gravity-db.c L1529-1567;
+// PROVENANCE "FTL LIST RELOAD SIGNALS"). How long the read takes is not
+// measured, so this is a model parameter; queries do not wait for it, so the
+// barrier cannot rely on a probe to outlast it.
+const DefaultPostCompileReads = 20 * time.Millisecond
+
+// DefaultHeldQueryLag is how long after a reload's completion line the
+// queries it held are answered at the earliest: the first held reply came
+// 29, 54 and 70 ms after the line in the three runs of PROVENANCE "QUERIES
+// DURING A RELOAD" (the shortest is used, so a probe is never answered
+// later than on the device). A query sent when no reload holds it is
+// answered at once.
+const DefaultHeldQueryLag = 29 * time.Millisecond
+
+// QueuedGapAnswers is how many queries that were held when a reload ended
+// FakeFTL answers before the reload queued behind it begins: 5 of the ~28
+// held queries were answered in the ~100 ms between two queued reloads, and
+// the rest only after the second (PROVENANCE "QUERIES DURING A RELOAD",
+// queued reload). A query that arrives after the first completion line is
+// held through both.
+const QueuedGapAnswers = 5
+
+// LogInaccessibleAdlists is the line FTL logs when its read after a
+// reload's completion line cannot open gravity.db (src/database/gravity-db.c
+// L1540).
+const LogInaccessibleAdlists = "check_inaccessible_adlists(): Gravity database not available"
 
 // DefaultReloadDuration is how long a FakeFTL list reload takes, in real
 // time, unless SetReloadDuration changes it. On the image a reload-lists
@@ -224,11 +270,13 @@ func newFakeFTL(t testing.TB, root string) *FakeFTL {
 		t: t, root: root, conn: conn, addr: conn.LocalAddr().(*net.UDPAddr).AddrPort(),
 		state: ftlAnswering, wake: make(chan struct{}), pid: FakeFTLPID, nextPID: FakeFTLPID,
 		upstream: map[string]netip.Addr{}, cache: map[string]netip.Addr{}, faults: map[Fault]bool{},
-		reloadDur: DefaultReloadDuration,
+		reloadDur: DefaultReloadDuration, postReads: DefaultPostCompileReads, heldLag: DefaultHeldQueryLag,
+		qwake: make(chan struct{}),
 	}
 	f.rules, _ = f.snapshot()
-	f.serv.Add(1)
+	f.serv.Add(2)
 	go f.serve()
+	go f.work()
 	t.Cleanup(f.close)
 	return f
 }
@@ -244,6 +292,7 @@ func (f *FakeFTL) close() {
 	}
 	f.timers = nil
 	f.setState(f.state)
+	f.wakeWorker()
 	f.mu.Unlock()
 	if err := f.conn.Close(); err != nil {
 		f.t.Errorf("v5test: FakeFTL close: %v", err)
@@ -362,6 +411,10 @@ func (f *FakeFTL) restart(stdout io.Writer) int {
 	later := f.faulted > 0
 	f.faulted++
 	if f.faults[FaultRestartFails] || later && f.faults[FaultRollbackRestartFails] {
+		// The stop half of the restart ran: the old FTL is gone, its PID
+		// file left stale, as Stop leaves it (TC-151).
+		f.resetReloads()
+		f.removeProc(f.pid)
 		f.reapStale()
 		f.setState(ftlStopped)
 		fmt.Fprintln(stdout, "  [✗] Job for pihole-FTL.service failed because the control process exited with error code.")
@@ -440,6 +493,31 @@ func (f *FakeFTL) SetReloadDuration(d time.Duration) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reloadDur = d
+}
+
+// SetPostCompileReads sets how long after a successful reload's completion
+// line FTL still reads gravity.db: a commit within it makes that read fail,
+// and FTL logs LogInaccessibleAdlists. Zero means no such read.
+func (f *FakeFTL) SetPostCompileReads(d time.Duration) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.postReads = d
+}
+
+// SetHeldQueryLag sets how long after a reload's completion line the queries
+// it held are answered at the earliest (DefaultHeldQueryLag).
+func (f *FakeFTL) SetHeldQueryLag(d time.Duration) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.heldLag = d
+}
+
+// PendingQueries is how many queries FTL has received and not answered
+// yet, the one it is holding included.
+func (f *FakeFTL) PendingQueries() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.queue)
 }
 
 // EndReload ends the reload in progress now, as its timer would: failed
@@ -524,6 +602,25 @@ func (f *FakeFTL) Reloading() bool {
 	return f.reloading
 }
 
+// WaitIdle waits, in real time, until no list reload is in progress or
+// queued and FTL has finished reading gravity.db after the last. A test that
+// runs `pihole -g`, which ends with a SIGHUP reload (gravity.sh L946), and
+// then writes gravity.db must do what the real harness does, or it races
+// that reload as the device would.
+func (f *FakeFTL) WaitIdle(t testing.TB) {
+	t.Helper()
+	busy := func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.reloading || f.reading
+	}
+	for deadline := time.Now().Add(10 * time.Second); busy(); time.Sleep(2 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("v5test: FakeFTL is still reloading its lists")
+		}
+	}
+}
+
 // Queries are the queries FTL received while answering, in order.
 func (f *FakeFTL) Queries() []FTLQuery {
 	f.mu.Lock()
@@ -575,7 +672,10 @@ func (f *FakeFTL) beginReload() {
 
 // endReload fails the reload when gravity.db was committed to since it
 // began, or when FailNextReloads asks; it then starts the reload a signal
-// asked for meanwhile. Callers hold mu.
+// asked for meanwhile. A reload that succeeded still reads gravity.db for
+// postReads (check_inaccessible_adlists), under the lock that holds queries,
+// logging nothing unless a commit lands in that time. When a reload follows, the queries held so far, up
+// to QueuedGapAnswers, are answered before it begins. Callers hold mu.
 func (f *FakeFTL) endReload(counter uint32) {
 	failed := f.failNext > 0 || f.changeCounter() != counter
 	if f.failNext > 0 {
@@ -587,20 +687,45 @@ func (f *FakeFTL) endReload(counter uint32) {
 		f.logLine(false, LogCompiled)
 		f.logBlocking()
 	}
+	f.readAfterCompile(failed)
+	f.heldUntil = time.Now().Add(f.heldLag)
 	f.stuck = failed
 	f.completed++
 	f.reloading = false
+	f.gapLeft = 0
 	if f.reloadNext {
 		f.reloadNext = false
+		f.gapLeft, f.gapEpoch = QueuedGapAnswers, f.completed
 		f.beginReload()
 	}
 	f.wakeQueries()
 }
 
+// readAfterCompile is FTL's read of gravity.db after a reload's completion
+// line: a commit during the next
+// postReads makes it fail, logged as LogInaccessibleAdlists (a failed
+// reload's own lines already include it). Callers hold mu.
+func (f *FakeFTL) readAfterCompile(failed bool) {
+	if f.postReads <= 0 {
+		return
+	}
+	counter, gen := f.changeCounter(), f.gen
+	f.reading = true
+	f.after(f.postReads, func() {
+		if f.gen != gen {
+			return
+		}
+		if !failed && f.changeCounter() != counter {
+			f.logLine(false, LogInaccessibleAdlists)
+		}
+		f.reading = false
+	})
+}
+
 // resetReloads forgets the reloads of a process that ended. Callers hold
 // mu.
 func (f *FakeFTL) resetReloads() {
-	f.reloading, f.reloadNext, f.parked, f.stuck = false, false, nil, false
+	f.reloading, f.reloadNext, f.parked, f.stuck, f.gapLeft, f.reading = false, false, nil, false, 0, false
 }
 
 // logFailed logs a failed reload's lines. Callers hold mu.
@@ -880,7 +1005,8 @@ func (f *FakeFTL) snapshot() (map[string]ftlRule, bool) {
 
 func canonical(name string) string { return strings.ToLower(strings.TrimSuffix(name, ".")) }
 
-// serve answers queries until close.
+// serve receives queries until close and queues them with the number of
+// reloads that had ended when each arrived; work answers them.
 func (f *FakeFTL) serve() {
 	defer f.serv.Done()
 	buf := make([]byte, 4096)
@@ -892,32 +1018,69 @@ func (f *FakeFTL) serve() {
 		if err != nil {
 			continue
 		}
-		if reply := f.answer(buf[:n]); reply != nil {
-			_, _ = f.conn.WriteToUDPAddrPort(reply, from) // the client may have given up
-		}
+		f.mu.Lock()
+		f.queue = append(f.queue, pendingQuery{pkt: slices.Clone(buf[:n]), from: from, arrived: f.completed})
+		f.wakeWorker()
+		f.mu.Unlock()
 	}
 }
 
-// answer is the reply to query, waiting while FTL starts or reloads its
-// lists; nil when FTL is stopped or hung, or query is not a DNS query.
-func (f *FakeFTL) answer(query []byte) []byte {
+// wakeWorker wakes work to look at its queue. Callers hold mu.
+func (f *FakeFTL) wakeWorker() {
+	close(f.qwake)
+	f.qwake = make(chan struct{})
+}
+
+// work answers the queue one query at a time in arrival order, as dnsmasq's
+// single thread does: the head waits while FTL starts or reloads its lists,
+// and is dropped, unanswered, when FTL is stopped or hung.
+func (f *FakeFTL) work() {
+	defer f.serv.Done()
 	for {
 		f.mu.Lock()
+		if f.closed {
+			f.mu.Unlock()
+			return
+		}
+		if len(f.queue) == 0 {
+			wake := f.qwake
+			f.mu.Unlock()
+			<-wake
+			continue
+		}
+		q := f.queue[0]
+		var reply []byte
 		switch {
-		case f.state == ftlAnswering && (!f.reloading || f.closed):
-			defer f.mu.Unlock()
-			return f.reply(query)
+		case f.state == ftlAnswering && (!f.reloading || f.gapLeft > 0 && q.arrived < f.gapEpoch) &&
+			q.arrived < f.completed && time.Now().Before(f.heldUntil):
+			// Held by the reload that ended: answered DefaultHeldQueryLag
+			// after its completion line at the earliest.
+			wake, d := f.wake, time.Until(f.heldUntil)
+			f.mu.Unlock()
+			tm := time.NewTimer(d)
+			select {
+			case <-tm.C:
+			case <-wake:
+			}
+			tm.Stop()
+			continue
+		case f.state == ftlAnswering && !f.reloading:
+			reply = f.reply(q.pkt)
+		case f.state == ftlAnswering && f.gapLeft > 0 && q.arrived < f.gapEpoch:
+			// Held through the reload that just ended; answered before the
+			// queued one begins (QueuedGapAnswers).
+			f.gapLeft--
+			reply = f.reply(q.pkt)
 		case f.state == ftlAnswering || f.state == ftlStarting:
 			wake := f.wake
-			closed := f.closed
 			f.mu.Unlock()
-			if closed {
-				return nil
-			}
 			<-wake
-		default:
-			f.mu.Unlock()
-			return nil
+			continue
+		}
+		f.queue = f.queue[1:]
+		f.mu.Unlock()
+		if reply != nil {
+			_, _ = f.conn.WriteToUDPAddrPort(reply, q.from) // the client may have given up
 		}
 	}
 }

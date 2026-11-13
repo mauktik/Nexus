@@ -98,6 +98,33 @@ const (
 	logNoGravityDB = "Gravity database not available"
 )
 
+// FTL registers one SQLite log callback for the whole process (src/database/
+// common.c, sqlite3_config(SQLITE_CONFIG_LOG)), so a busy pihole-FTL.db logs
+// `SQLite3 message: database is locked in "<sql>" (5)` as well, and only the
+// statement tells the two databases apart. A failure line is one of
+// gravity.db's own messages (gravityDB_*, check_inaccessible_adlists), or
+// that callback's line whose SQL names a gravity.db view or table; a line
+// about pihole-FTL.db is not (code review CR-7).
+var (
+	logGravityOwn = regexp.MustCompile(`^(gravityDB_|check_inaccessible_adlists)`)
+	logSQLiteLock = regexp.MustCompile(`^SQLite3 message: database is locked in "(.*)" \([0-9]+\)$`)
+	logGravitySQL = regexp.MustCompile(`\b(vw_[a-z_]+|domainlist|adlist|gravity|domain_audit)\b`)
+)
+
+// isGravityFailure reports whether msg is a failed gravity.db access.
+func isGravityFailure(msg string) bool {
+	if strings.Contains(msg, logNoGravityDB) {
+		return true
+	}
+	if logGravityOwn.MatchString(msg) {
+		return strings.Contains(msg, logLocked)
+	}
+	if m := logSQLiteLock.FindStringSubmatch(msg); m != nil {
+		return logGravitySQL.MatchString(m[1])
+	}
+	return false
+}
+
 type logMarker int
 
 const (
@@ -126,7 +153,7 @@ func classifyLogLine(line string) logMarker {
 		return markerStart
 	case logCompiled.MatchString(msg):
 		return markerEnd
-	case strings.Contains(msg, logLocked) || strings.Contains(msg, logNoGravityDB):
+	case isGravityFailure(msg):
 		return markerFailed
 	}
 	return markerNone
@@ -195,29 +222,38 @@ type ftlLogWatch struct {
 	quiet   time.Duration // How long the log must be quiet; ListReloadQuiet or more
 	t0      time.Time
 	slept   time.Duration
+	// lastErr is the log's open, stat or read error at the latest read, nil
+	// once a read succeeds: why the watch may see nothing.
+	lastErr error
 }
 
 // watchFTLLog reads the last listReloadTail bytes of FTL's log, whole lines
-// only, to learn its state. The error is the log's open, stat or read
-// error; the watch is usable either way, and reads the log from its start
-// once it appears.
-func (m *Mutator) watchFTLLog() (*ftlLogWatch, error) {
+// only, to learn its state. The log's open, stat or read error is the
+// watch's lastErr; the watch is usable either way, and reads the log from
+// its start once it appears.
+func (m *Mutator) watchFTLLog() *ftlLogWatch {
 	tm := m.reloadTiming()
 	w := &ftlLogWatch{m: m, tm: tm, path: m.Paths.FTLLogPath(), last: -tm.Quiet, began: -1, quiet: tm.Quiet,
 		t0: m.now()}
+	w.lastErr = w.readTail()
+	return w
+}
+
+// readTail is watchFTLLog's read of the log's end.
+func (w *ftlLogWatch) readTail() error {
 	f, err := os.Open(w.path)
 	if err != nil {
-		return w, err
+		return err
 	}
 	defer f.Close()
 	fi, err := f.Stat()
 	if err != nil {
-		return w, err
+		return err
 	}
 	from := max(fi.Size()-listReloadTail, 0)
 	b := make([]byte, fi.Size()-from)
 	if _, err := f.ReadAt(b, from); err != nil && !errors.Is(err, io.EOF) {
-		return w, err
+		return err
 	}
 	skip := 0
 	if from > 0 {
@@ -230,14 +266,17 @@ func (m *Mutator) watchFTLLog() (*ftlLogWatch, error) {
 	}
 	n := w.feed(b[skip:], false)
 	w.mark = logMark{ino: inode(fi), size: from + int64(skip+n)}
-	return w, nil
+	return nil
 }
 
-// poll reads the whole lines added since the mark. A new inode or a size
-// below the mark is a rotation (logrotate's create or copytruncate): the
-// new file is read from its start, and every line in it is newer than the
-// mark.
-func (w *ftlLogWatch) poll() error {
+// poll reads the whole lines added since the mark; a log that cannot be
+// read for now is read again at the next poll, and its error is lastErr.
+func (w *ftlLogWatch) poll() { w.lastErr = w.read() }
+
+// read is poll's read. A new inode or a size below the mark is a rotation
+// (logrotate's create or copytruncate): the new file is read from its
+// start, and every line in it is newer than the mark.
+func (w *ftlLogWatch) read() error {
 	fi, err := os.Stat(w.path)
 	if err != nil {
 		return err
@@ -375,6 +414,7 @@ const (
 	reloadFailed
 	reloadTimedOut
 	reloadFTLDown
+	reloadLogUnreadable // The wait timed out and FTL's log could not be read
 )
 
 // reloadListsAndWait runs `pihole restartdns reload-lists` and returns only
@@ -396,6 +436,8 @@ func (m *Mutator) reloadListsAndWait(ctx context.Context, out io.Writer, done st
 			return err
 		case res == reloadDone || res == reloadFTLDown:
 			return nil
+		case res == reloadLogUnreadable:
+			return listReloadUnverified(done, m.ftlLogHostPath())
 		case res == reloadTimedOut:
 			return listReloadFailed(done, m.reloadTiming().Wait)
 		case attempt >= ListReloadRecoveries:
@@ -414,8 +456,8 @@ func (m *Mutator) reloadListsOnce(ctx context.Context, out io.Writer, done strin
 		return reloadFTLDown, nil
 	}
 	// A log that cannot be read yet is read once it can; the bound ends
-	// the wait otherwise.
-	w, _ := m.watchFTLLog()
+	// the wait otherwise, and then w.lastErr says why.
+	w := m.watchFTLLog()
 	if err := m.runReloadLists(ctx, out, done); err != nil {
 		return 0, err
 	}
@@ -424,11 +466,15 @@ func (m *Mutator) reloadListsOnce(ctx context.Context, out io.Writer, done strin
 			fmt.Fprintln(out, "pihole: FTL is not running; its lists load when it starts")
 			return reloadFTLDown, nil
 		}
-		_ = w.poll() // A log missing for now is read again at the next poll.
+		w.poll()
 		if w.started && w.settled() {
 			break
 		}
 		if w.elapsed() >= w.tm.Wait {
+			if w.lastErr != nil {
+				fmt.Fprintf(out, "pihole: FTL's log %s could not be read: %v\n", m.ftlLogHostPath(), w.lastErr)
+				return reloadLogUnreadable, nil
+			}
 			return reloadTimedOut, nil
 		}
 		if err := w.sleep(ctx); err != nil {
@@ -476,6 +522,15 @@ func listReloadFailed(done string, wait time.Duration) error {
 		With("command", command).With("exitCode", 0).With("rolledBack", false)
 }
 
+// listReloadUnverified is the barrier's failure when FTL's log could not be
+// read for the whole wait: Nexus cannot tell whether FTL reloaded its lists.
+func listReloadUnverified(done, logPath string) error {
+	const command = "pihole restartdns reload-lists"
+	return problem.New(problem.PiholeCommandFailed, done+", but FTL's log "+logPath+" could not be read, so Nexus cannot "+
+		"tell whether FTL reloaded its lists; if FTL answers only pi.hole, run `"+command+"`").
+		With("command", command).With("exitCode", 0).With("rolledBack", false)
+}
+
 // settleLists is the check before every gravity.db write, and before every
 // command that writes it, after WaitExternalGravity. With FTL running it
 // reads FTL's log: a reload in progress is waited for, until its record
@@ -491,10 +546,9 @@ func (m *Mutator) settleLists(ctx context.Context, out io.Writer) error {
 	if _, ok := m.FTLPID(); !ok {
 		return nil // No reader to race.
 	}
-	w, err := m.watchFTLLog()
-	if err != nil {
-		return problem.New(problem.DependencyUnavailable, fmt.Sprintf("FTL's log %s is not readable, so Nexus cannot tell "+
-			"whether FTL is reloading its lists; nothing was changed", m.ftlLogHostPath())).With("provider", spec.Name)
+	w := m.watchFTLLog()
+	if w.lastErr != nil {
+		return unreadableLog(m.ftlLogHostPath())
 	}
 	if w.rec.running {
 		fmt.Fprintln(out, "pihole: waiting for FTL to finish reloading its lists")
@@ -502,11 +556,15 @@ func (m *Mutator) settleLists(ctx context.Context, out io.Writer) error {
 			if _, ok := m.FTLPID(); !ok {
 				return nil
 			}
-			_ = w.poll() // A log missing for now is read again at the next poll.
+			w.poll()
 			if w.settled() {
 				break
 			}
 			if waited := w.elapsed(); waited >= w.tm.Wait {
+				if w.lastErr != nil {
+					fmt.Fprintf(out, "pihole: FTL's log %s could not be read: %v\n", m.ftlLogHostPath(), w.lastErr)
+					return unreadableLog(m.ftlLogHostPath())
+				}
 				return problem.New(problem.PiholeBusy, fmt.Sprintf("FTL did not finish reloading its lists within %d s; "+
 					"nothing was changed", int(w.tm.Wait/time.Second))).With("waitedSeconds", int(waited/time.Second))
 			}
@@ -525,4 +583,11 @@ func (m *Mutator) settleLists(ctx context.Context, out io.Writer) error {
 		}
 	}
 	return m.reloadListsAndWait(ctx, out, "nothing was changed")
+}
+
+// unreadableLog is dependency-unavailable for an FTL log Nexus cannot read
+// while FTL runs, so it cannot tell whether FTL is reloading its lists.
+func unreadableLog(path string) error {
+	return problem.New(problem.DependencyUnavailable, fmt.Sprintf("FTL's log %s is not readable, so Nexus cannot tell "+
+		"whether FTL is reloading its lists; nothing was changed", path)).With("provider", spec.Name)
 }

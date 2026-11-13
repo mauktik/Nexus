@@ -274,6 +274,7 @@ func TestTC89_RemoveAdlistByIDOrURL(t *testing.T) {
 	if code, err := w.h.Run(context.Background(), []string{piholeBin, "-g"}, io.Discard, io.Discard); code != 0 || err != nil {
 		t.Fatalf("gravity: %d %v", code, err)
 	}
+	w.h.FTL().WaitIdle(t) // gravity ends with a SIGHUP reload, which a write must not meet
 	idB := seedAdlist(t, w.h, listB)
 	if g, _ := w.h.AdlistRefs(idA); g == 0 {
 		t.Fatal("setup: adlist A has no gravity rows")
@@ -631,6 +632,7 @@ func TestTCERR31_RemoveAdlistFailurePaths(t *testing.T) {
 		if code, err := h.Run(context.Background(), []string{piholeBin, "-g"}, io.Discard, io.Discard); code != 0 || err != nil {
 			t.Fatalf("gravity: %d %v", code, err)
 		}
+		h.FTL().WaitIdle(t) // gravity ends with a SIGHUP reload, which a write must not meet
 		h.ResetArgvs()
 		return h, m, id
 	}

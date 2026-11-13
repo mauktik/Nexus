@@ -13,6 +13,7 @@ package v5test_test
 
 import (
 	"context"
+	"fmt"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -565,9 +566,39 @@ func TestTC154_FakeFTLAsyncListReloadAndRace(t *testing.T) {
 // shared-memory lock (src/datastructure.c L499-522), so dnsmasq's queries
 // wait for it. A query with a shorter timeout than the reload gets no reply.
 // With a reload queued behind the running one, the device answered only a
-// few held queries in the ~100 ms between them and the rest after the
-// queued one; FakeFTL holds them all across both, never more permissive.
+// few of the held queries (5 of ~28) in the ~100 ms between them, and the
+// rest after the queued one; a query sent after the first completion line
+// waited for both.
 func TestFakeFTLHoldsQueriesDuringAReload(t *testing.T) {
+	type reply struct {
+		a   dnscheck.Answer
+		err error
+	}
+	// send starts n queries for names (name-0, name-1, ...) and waits until
+	// FakeFTL has them all.
+	send := func(t *testing.T, f *v5test.FakeFTL, n int) chan reply {
+		t.Helper()
+		got := make(chan reply, n)
+		before := f.PendingQueries()
+		for i := range n {
+			go func() {
+				a, err := dnscheck.Query(context.Background(), f.Addr(), fmt.Sprintf("q%d.invalid", i), 10*time.Second)
+				got <- reply{a, err}
+			}()
+		}
+		eventually(t, "the queries to arrive", func() bool { return f.PendingQueries() >= before+n })
+		return got
+	}
+	// reloadsAt is, per query name, how many reloads had ended when FakeFTL
+	// answered it.
+	reloadsAt := func(f *v5test.FakeFTL) map[string]int {
+		m := map[string]int{}
+		for _, q := range f.Queries() {
+			m[q.Name] = q.Reloads
+		}
+		return m
+	}
+
 	for _, tc := range []struct {
 		name    string
 		signals int
@@ -583,30 +614,63 @@ func TestFakeFTLHoldsQueriesDuringAReload(t *testing.T) {
 			if a, ok := replies(h, "pi.hole"); ok {
 				t.Errorf("pi.hole answered during the reload: %+v", a)
 			}
-			type reply struct {
-				a   dnscheck.Answer
-				err error
-			}
-			got := make(chan reply, 1)
-			go func() {
-				a, err := dnscheck.Query(context.Background(), f.Addr(), "x.invalid", 5*time.Second)
-				got <- reply{a, err}
-			}()
-			time.Sleep(100 * time.Millisecond)
+			got := send(t, f, 1)
+			f.SetReloadDuration(400 * time.Millisecond) // the queued reload outlasts the gap
 			f.ReleaseReloads()
 			r := <-got
 			if r.err != nil || r.a.RCode != "NXDOMAIN" {
-				t.Fatalf("x.invalid held across the reload: %+v %v", r.a, r.err)
+				t.Fatalf("q0.invalid held across the reload: %+v %v", r.a, r.err)
 			}
-			var at int
-			for _, q := range f.Queries() {
-				if q.Name == "x.invalid" {
-					at = q.Reloads
-				}
-			}
-			if at != tc.signals || f.Reloading() {
-				t.Errorf("x.invalid answered after %d reloads (reloading %v), want after %d", at, f.Reloading(), tc.signals)
+			// One reload: answered when it ended. A queued reload: the query
+			// was held when the first ended, so it is answered in the gap
+			// before the second begins (reloading again by then).
+			if at := reloadsAt(f)["q0.invalid"]; at != 1 {
+				t.Errorf("q0.invalid answered after %d reloads, want 1", at)
 			}
 		})
 	}
+
+	t.Run("a queued reload answers 5 held queries between the two, and the rest after the second", func(t *testing.T) {
+		h := v5test.NewFakeHost(t)
+		f := h.FTL()
+		f.HoldReloads()
+		run(t, h, pihole, "restartdns", "reload-lists")
+		run(t, h, pihole, "restartdns", "reload-lists")
+		eventually(t, "the reload", f.Reloading)
+		const n = v5test.QueuedGapAnswers + 3
+		got := send(t, f, n)
+		f.SetReloadDuration(400 * time.Millisecond) // the queued reload outlasts the checks below
+		f.ReleaseReloads()
+		eventually(t, "the gap answers", func() bool { return len(f.Queries()) == v5test.QueuedGapAnswers })
+		// A query sent after the first completion line waits for both.
+		late := make(chan reply, 1)
+		go func() {
+			a, err := dnscheck.Query(context.Background(), f.Addr(), "late.invalid", 10*time.Second)
+			late <- reply{a, err}
+		}()
+		for range n {
+			if r := <-got; r.err != nil {
+				t.Errorf("a held query got no answer: %v", r.err)
+			}
+		}
+		if r := <-late; r.err != nil {
+			t.Errorf("late.invalid got no answer: %v", r.err)
+		}
+		between, after := 0, 0
+		for name, at := range reloadsAt(f) {
+			switch {
+			case name == "late.invalid" && at != 2:
+				t.Errorf("late.invalid answered after %d reloads, want 2: a query sent after the first completion waits for both", at)
+			case name == "late.invalid":
+			case at == 1:
+				between++
+			case at == 2:
+				after++
+			}
+		}
+		if between != v5test.QueuedGapAnswers || after != n-v5test.QueuedGapAnswers {
+			t.Errorf("%d answered between the reloads and %d after the second, want %d and %d",
+				between, after, v5test.QueuedGapAnswers, n-v5test.QueuedGapAnswers)
+		}
+	})
 }

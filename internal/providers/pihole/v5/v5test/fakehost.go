@@ -281,7 +281,7 @@ func (h *FakeHost) nextDue(end time.Time) (time.Time, func(), bool) {
 		return at, func() { h.exec(tm.argv, io.Discard, io.Discard) }, true
 	case ci >= 0:
 		h.children = slices.Delete(h.children, ci, ci+1)
-		return at, func() { h.enable() }, true
+		return at, func() { h.enable(io.Discard) }, true
 	}
 	return time.Time{}, nil, false
 }
@@ -565,9 +565,7 @@ func (h *FakeHost) pihole(args []string, stdout, stderr io.Writer) int {
 		if len(args) != 1 {
 			return unknown(argv, stderr)
 		}
-		fmt.Fprintln(stdout, "  [i] Enabling blocking")
-		h.enable()
-		fmt.Fprintln(stdout, "  [✓] Pi-hole Enabled")
+		h.enable(stdout)
 		return 0
 	case "disable":
 		return h.disable(argv, args[1:], stdout, stderr)
@@ -616,17 +614,32 @@ func (h *FakeHost) pihole(args []string, stdout, stderr io.Writer) int {
 }
 
 // enable is `pihole enable`: it kills any native re-enable child
-// (killall -q pihole-reenable), sets BLOCKING_ENABLED=true and reloads the
-// lists. It always exits 0 (V-13).
-func (h *FakeHost) enable() {
+// (killall -q pihole-reenable), and unless setupVars.conf already says
+// BLOCKING_ENABLED=true ("Blocking already enabled, nothing to do", pihole
+// L241-244 on the harness image) sets it and reloads the lists. It always
+// exits 0 (V-13).
+func (h *FakeHost) enable(stdout io.Writer) {
 	h.children = nil
+	if h.blockingEnabled() == "true" {
+		fmt.Fprintln(stdout, "  [i] Blocking already enabled, nothing to do")
+		return
+	}
+	fmt.Fprintln(stdout, "  [i] Enabling blocking")
 	h.setBlocking(true)
 	h.ftlEvent(EventReloadLists, io.Discard)
+	fmt.Fprintln(stdout, "  [✓] Pi-hole Enabled")
 }
 
 // disable is `pihole disable [Ns|Nm]`. With a duration it starts the nohup
-// re-enable child in the calling unit's cgroup (V-13). It always exits 0.
+// re-enable child in the calling unit's cgroup (V-13). When setupVars.conf
+// already says BLOCKING_ENABLED=false it does nothing, whatever its argument
+// ("Blocking already disabled, nothing to do", pihole L196-198 on the
+// harness image). It always exits 0.
 func (h *FakeHost) disable(argv, args []string, stdout, stderr io.Writer) int {
+	if h.blockingEnabled() == "false" {
+		fmt.Fprintln(stdout, "  [i] Blocking already disabled, nothing to do")
+		return 0
+	}
 	var d time.Duration
 	switch len(args) {
 	case 0:
@@ -700,7 +713,10 @@ func (h *FakeHost) listSh(opt, value string, stdout io.Writer) int {
 // always 0. A del is the bare `DELETE FROM adlist WHERE address = ...`
 // under foreign keys: while gravity rows reference the list the constraint
 // refuses it, sqlite3 prints the error, the row stays, and the command
-// still exits 0 (WI 5.1 PROVENANCE "ADLIST REPLACEMENT"). A list with no
+// still exits 0 (WI 5.1 PROVENANCE "ADLIST REPLACEMENT"). An add
+// interpolates the address and the comment into its SQL unescaped
+// (webpage.sh L567): a comment with ' breaks the statement, sqlite3 prints
+// the error, nothing is stored, and the exit code is still 0. A list with no
 // gravity rows is deleted, and the schema's tr_adlist_delete trigger
 // removes its group links.
 func (h *FakeHost) adlist(verb, url, comment string, stderr io.Writer) {
@@ -709,7 +725,12 @@ func (h *FakeHost) adlist(verb, url, comment string, stderr io.Writer) {
 	}
 	h.withDB(func(db *sql.DB) error {
 		if verb == "add" {
-			_, err := db.Exec(`INSERT OR IGNORE INTO adlist (address, comment) VALUES (?, ?)`, url, comment)
+			_, err := db.Exec(fmt.Sprintf(`INSERT OR IGNORE INTO adlist (address, comment) VALUES ('%s', '%s')`, url, comment))
+			var se *sqlite.Error
+			if errors.As(err, &se) && se.Code() == sqlite3.SQLITE_ERROR {
+				fmt.Fprintf(stderr, "Error: %v\n", err)
+				return nil
+			}
 			return err
 		}
 		_, err := db.Exec(`DELETE FROM adlist WHERE address = ?`, url)
@@ -795,6 +816,10 @@ func (h *FakeHost) gravity(stdout io.Writer) int {
 		}
 		return nil
 	})
+	// gravity.sh L946 ends with `pihole restartdns reload` (SIGHUP) unless it
+	// had to restart DNS itself; a write that follows meets that reload
+	// (test/harness/pihole/PROVENANCE "GRAVITY ENDS WITH restartdns reload").
+	h.ftlEvent(EventReload, io.Discard)
 	fmt.Fprintln(stdout, "  [✓] Done.")
 	return 0
 }

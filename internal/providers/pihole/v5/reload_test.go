@@ -582,8 +582,13 @@ func TestListReloadBarrierWaitsForAFollowingReload(t *testing.T) {
 // queued behind it. The log shows a record that has ended, with two start
 // lines; the queued reload logs no start line of its own. FTL holds every
 // query while it reloads (PROVENANCE "FTL LIST RELOAD SIGNALS", QUERIES
-// DURING A RELOAD), so the pre-write probe is answered only once the queued
-// reload has ended, and the commit cannot meet it.
+// DURING A RELOAD): a query sent after the first completion line is held
+// through the queued reload too (only a few queries held BEFORE it were
+// answered in the gap, FakeFTL's QueuedGapAnswers), so the pre-write probe,
+// which the barrier sends after the first completion line, is answered only
+// once the queued reload has ended, and the commit cannot meet it. This is
+// the residual risk A-69 records: a probe answered in the gap would let a
+// commit meet the queued reload's start; it was not observed in 13 rounds.
 func TestListReloadBarrierWriteAfterACompletionWithAQueuedReload(t *testing.T) {
 	h, m := barrierHost(t)
 	f := h.FTL()
@@ -605,7 +610,7 @@ func TestListReloadBarrierWriteAfterACompletionWithAQueuedReload(t *testing.T) {
 		}
 	}
 	log := ftlLog(t, h)[mark:]
-	if probed < 2 || f.Stuck() || strings.Contains(log, "database is locked") || strings.Contains(log, "Gravity database not available") {
+	if probed != 2 || f.Stuck() || strings.Contains(log, "database is locked") || strings.Contains(log, "Gravity database not available") {
 		t.Errorf("first probe answered after %d reloads (want 2), stuck %v\nop log:\n%sFTL log:\n%s", probed, f.Stuck(),
 			out.String(), log)
 	}
@@ -663,4 +668,395 @@ func TestListReloadBarrierMergedSignals(t *testing.T) {
 	if strings.Contains(out.String(), "waiting for FTL") {
 		t.Errorf("waited for a reload that is not in flight:\n%s", out.String())
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Code review iteration 1 (CR-1, CR-3, CR-4, CR-7, CR-10): the fences the
+// review found missing, each shown to fail when the behavior it guards is
+// removed.
+
+// hookRunner is a Runner that runs after(argv) once the command ended, in
+// the caller's goroutine: the test's way to do something to the host between
+// a command's effect and the barrier's next look.
+type hookRunner struct {
+	v5.Runner
+	after func(argv []string)
+}
+
+func (r hookRunner) Run(ctx context.Context, argv []string, stdout, stderr io.Writer) (int, error) {
+	code, err := r.Runner.Run(ctx, argv, stdout, stderr)
+	if r.after != nil {
+		r.after(argv)
+	}
+	return code, err
+}
+
+// appendFTLLog writes whole log lines, as FTL would, with the time and the
+// process (`[<time> <pid>M] <msg>`), straight into FTL's log.
+func appendFTLLog(t *testing.T, h *v5test.FakeHost, msgs ...string) {
+	t.Helper()
+	f, err := os.OpenFile(h.FTL().LogPath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range msgs {
+		if _, err := f.WriteString("[2026-03-14 15:10:00.100 4242M] " + m + "\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// waitFor polls cond every 2 ms for up to 5 s.
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); !cond(); time.Sleep(2 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+	}
+}
+
+// CR-3 (PROVENANCE "FTL LIST RELOAD SIGNALS"): after a reload's completion
+// line FTL still reads gravity.db without logging (check_inaccessible_adlists),
+// and a commit during that read fails it. The barrier's quiet window is what
+// keeps the next write out of it: an operation must not return, and so a
+// next write must not start, while that read may still run. FakeFTL's read
+// is made longer than a probe's answer, 150 ms, and the barrier's quiet
+// longer than that: removing the quiet window lets the commit meet the read.
+func TestListReloadQuietWindowKeepsTheNextCommitOutOfTheReadAfterCompile(t *testing.T) {
+	h, m := barrierHost(t)
+	h.FTL().SetPostCompileReads(150 * time.Millisecond)
+	m.Reload = v5.ReloadTiming{Poll: 10 * time.Millisecond, Quiet: 250 * time.Millisecond, ProbeTimeout: 250 * time.Millisecond}
+	mark := len(ftlLog(t, h))
+	if _, _, err := m.AddDomain(context.Background(), spec.DomainAddInput{List: "deny", Kind: "exact", Value: "first.example.com"}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	h.SeedDomain(1, "next.example.com", "") // the next operation's commit, at once
+	time.Sleep(400 * time.Millisecond)
+	if log := ftlLog(t, h)[mark:]; strings.Contains(log, v5test.LogInaccessibleAdlists) || h.FTL().Stuck() {
+		t.Errorf("a commit right after the operation met FTL's read after the completion line (stuck %v):\n%s", h.FTL().Stuck(), log)
+	}
+}
+
+// CR-3: gravity.sh ends with `pihole restartdns reload` (SIGHUP, L946 on the
+// image), so a write right after `pihole -g` meets that reload unless the
+// barrier waits for it (the next write's settleLists, A-69). FakeHost's -g
+// now sends it.
+func TestListReloadBarrierAWriteAfterUpdateGravityWaitsForGravitysOwnReload(t *testing.T) {
+	h, m := barrierHost(t)
+	h.FTL().SetReloadDuration(150 * time.Millisecond)
+	mark := len(ftlLog(t, h))
+	ctx := context.Background()
+	if _, err := m.UpdateGravity(ctx, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if !h.FTL().Reloading() {
+		t.Fatal("pihole -g sent no reload: gravity.sh ends with `restartdns reload`")
+	}
+	var out bytes.Buffer
+	if _, _, err := m.AddDomain(ctx, spec.DomainAddInput{List: "deny", Kind: "exact", Value: "after-gravity.example.com"}, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	log := ftlLog(t, h)[mark:]
+	if !strings.Contains(out.String(), "pihole: waiting for FTL to finish reloading its lists") ||
+		strings.Contains(log, "database is locked") || strings.Contains(log, "Gravity database not available") || h.FTL().Stuck() {
+		t.Errorf("the write did not wait for gravity's reload (stuck %v)\nop log:\n%sFTL log:\n%s", h.FTL().Stuck(), out.String(), log)
+	}
+}
+
+// CR-4: a new FTL process's "FTL started" line ends a reload record the old
+// process left open (it died mid-reload), so the next write does not wait 30 s
+// and fail pihole-busy. The log has a start line and then the new process's
+// start line, and no completion line: only that line can end the record.
+func TestListReloadBarrierNewProcessLineEndsARecordLeftOpen(t *testing.T) {
+	h, m := barrierHost(t)
+	appendFTLLog(t, h, "Received: Real-time signal 0 (34 -> 0)", "########## FTL started on fakehost! ##########")
+	fakeTime(h, m)
+	var out bytes.Buffer
+	if _, _, err := m.AddAdlist(context.Background(), "https://lists.example/new-process.txt", "", &out); err != nil {
+		t.Fatalf("add after a restarted FTL: %v\n%s", err, out.String())
+	}
+	if strings.Contains(out.String(), "waiting for FTL to finish reloading") {
+		t.Errorf("waited for the dead process's reload:\n%s", out.String())
+	}
+	// The control: without the new process's line, the same log is a reload
+	// in flight that never ends.
+	h2, m2 := barrierHost(t)
+	appendFTLLog(t, h2, "Received: Real-time signal 0 (34 -> 0)")
+	fakeTime(h2, m2)
+	_, _, err := m2.AddAdlist(context.Background(), "https://lists.example/control.txt", "", io.Discard)
+	if pe := slug(t, err); pe.Slug() != problem.PiholeBusy {
+		t.Errorf("control: got %s, want pihole-busy for a reload that never ends", pe.Slug())
+	}
+}
+
+// CR-7: FTL's one SQLite log callback also reports pihole-FTL.db, so a
+// "database is locked" line about it, in the middle of a gravity.db reload,
+// is not a failed reload (src/database/common.c).
+func TestListReloadBarrierIgnoresALockedLineOfPiholeFTLDB(t *testing.T) {
+	h, m := barrierHost(t)
+	ran := scriptTime(t, h, m,
+		scriptStep{20 * time.Millisecond, func() {
+			appendFTLLog(t, h, `SQLite3 message: database is locked in "INSERT INTO queries VALUES (?)" (5)`,
+				`SQLite3 message: database is locked in "UPDATE ftl SET value = ? WHERE id = ?;" (5)`)
+		}},
+		scriptStep{150 * time.Millisecond, endReload(t, h)},
+	)
+	var out bytes.Buffer
+	if _, _, err := m.AddDomain(context.Background(), spec.DomainAddInput{List: "deny", Kind: "exact", Value: "busy-ftl-db.example.com"}, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if strings.Contains(out.String(), "reloading again") || ran() != 2 || n(h) != 1 {
+		t.Errorf("a pihole-FTL.db line failed the reload: %d of 2 steps, %d reload-lists\n%s", ran(), n(h), out.String())
+	}
+}
+
+// n is how many reload-lists the host ran.
+func n(h *v5test.FakeHost) int { return countArgv(h.Argvs(), reloadListsArgv) }
+
+// CR-1: a log that cannot be read after the commit is reported as that, not
+// as a reload that failed or timed out, and the cause reaches the op log.
+func TestListReloadBarrierReportsAnUnreadableLog(t *testing.T) {
+	t.Run("after the commit", func(t *testing.T) {
+		h, m := barrierHost(t)
+		h.FTL().SetReloadDuration(time.Hour) // FTL never logs the completion
+		m.Runner = hookRunner{Runner: h, after: func(argv []string) {
+			if slices.Equal(argv, reloadListsArgv) {
+				if err := os.Remove(h.FTL().LogPath()); err != nil {
+					t.Error(err)
+				}
+			}
+		}}
+		fakeTime(h, m)
+		var out bytes.Buffer
+		_, _, err := m.AddDomain(context.Background(), spec.DomainAddInput{List: "deny", Kind: "exact", Value: "nolog.example.com"}, &out)
+		pe := slug(t, err)
+		if pe.Slug() != problem.PiholeCommandFailed || !strings.Contains(pe.Detail, "could not be read") ||
+			strings.Contains(pe.Detail, "within 30 s") || pe.Extensions["rolledBack"] != false {
+			t.Fatalf("got %s %+v: %s", pe.Slug(), pe.Extensions, pe.Detail)
+		}
+		if !strings.Contains(out.String(), "pihole: FTL's log /var/log/pihole/FTL.log could not be read: ") {
+			t.Errorf("the op log does not say why:\n%s", out.String())
+		}
+		if len(h.DomainRows()) != 1 {
+			t.Error("the committed row must stay")
+		}
+	})
+
+	t.Run("while a reload is awaited before a write", func(t *testing.T) {
+		h, m := barrierHost(t)
+		startHeldReload(t, h)
+		defer h.FTL().ReleaseReloads()
+		if err := os.Remove(h.FTL().LogPath()); err != nil {
+			t.Fatal(err)
+		}
+		// The log existed when the reload started: a watch needs it readable
+		// first, so remove it only once the barrier is waiting.
+		appendFTLLog(t, h, "Received: Real-time signal 0 (34 -> 0)")
+		fakeTime(h, m)
+		sleep := m.Sleep
+		first := true
+		m.Sleep = func(ctx context.Context, d time.Duration) error {
+			if first {
+				first = false
+				if err := os.Remove(h.FTL().LogPath()); err != nil {
+					t.Error(err)
+				}
+			}
+			return sleep(ctx, d)
+		}
+		var out bytes.Buffer
+		_, _, err := m.AddDomain(context.Background(), spec.DomainAddInput{List: "deny", Kind: "exact", Value: "nolog2.example.com"}, &out)
+		pe := slug(t, err)
+		if pe.Slug() != problem.DependencyUnavailable || !strings.Contains(pe.Detail, "not readable") {
+			t.Fatalf("got %s: %s", pe.Slug(), pe.Detail)
+		}
+		if !strings.Contains(out.String(), "could not be read: ") || len(h.DomainRows()) != 0 {
+			t.Errorf("op log:\n%srows %v", out.String(), h.DomainRows())
+		}
+	})
+}
+
+// CR-10: recovery paths of the barrier that no test reached.
+func TestListReloadBarrierRecoveryPaths(t *testing.T) {
+	add := func(ctx context.Context, m *v5.Mutator, out io.Writer) error {
+		_, _, err := m.AddDomain(ctx, spec.DomainAddInput{List: "deny", Kind: "exact", Value: "cr10.example.com"}, out)
+		return err
+	}
+
+	t.Run("FTL stops while a write waits for a reload", func(t *testing.T) {
+		h, m := barrierHost(t)
+		startHeldReload(t, h)
+		var out syncBuf
+		done := make(chan error, 1)
+		go func() { done <- add(context.Background(), m, &out) }()
+		waitFor(t, "the wait", func() bool { return strings.Contains(out.String(), "waiting for FTL to finish reloading") })
+		h.FTL().Stop()
+		if err := <-done; err != nil {
+			t.Fatalf("%v\n%s", err, out.String())
+		}
+		if !strings.Contains(out.String(), "pihole: FTL is not running; its lists load when it starts") || len(h.DomainRows()) != 1 {
+			t.Errorf("rows %v, log:\n%s", h.DomainRows(), out.String())
+		}
+	})
+
+	t.Run("FTL stops while the barrier waits for its own reload", func(t *testing.T) {
+		h, m := barrierHost(t)
+		h.FTL().HoldReloads()
+		var out syncBuf
+		done := make(chan error, 1)
+		go func() { done <- add(context.Background(), m, &out) }()
+		waitFor(t, "the reload-lists", func() bool { return n(h) == 1 })
+		h.FTL().Stop()
+		if err := <-done; err != nil {
+			t.Fatalf("%v\n%s", err, out.String())
+		}
+		if !strings.Contains(out.String(), "pihole: FTL is not running; its lists load when it starts") || len(h.DomainRows()) != 1 {
+			t.Errorf("rows %v, log:\n%s", h.DomainRows(), out.String())
+		}
+	})
+
+	t.Run("ctx is cancelled after the commit", func(t *testing.T) {
+		h, m := barrierHost(t)
+		h.FTL().HoldReloads()
+		defer h.FTL().ReleaseReloads()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		done := make(chan error, 1)
+		go func() { done <- add(ctx, m, io.Discard) }()
+		waitFor(t, "the reload-lists", func() bool { return n(h) == 1 })
+		cancel()
+		if err := <-done; !errors.Is(err, context.Canceled) {
+			t.Fatalf("err %v, want it to wrap context.Canceled", err)
+		}
+		if len(h.DomainRows()) != 1 {
+			t.Error("the committed row must stay")
+		}
+	})
+
+	t.Run("ctx is cancelled while the pre-write probe waits", func(t *testing.T) {
+		h, m := barrierHost(t)
+		h.FTL().ForceStuckUnlogged() // the probe is never answered
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		time.AfterFunc(100*time.Millisecond, cancel)
+		start := time.Now()
+		err := add(ctx, m, io.Discard)
+		if !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "probing FTL") {
+			t.Fatalf("err %v, want a cancelled probe", err)
+		}
+		// The probe's 3 tries take 750 ms; a cancelled one must end sooner and
+		// must not go on to reload or write.
+		if took := time.Since(start); took > 600*time.Millisecond || n(h) != 0 || len(h.DomainRows()) != 0 {
+			t.Errorf("took %s, %d reload-lists, rows %v", took, n(h), h.DomainRows())
+		}
+	})
+
+	t.Run("the log shows a reload but the probe gets no answer", func(t *testing.T) {
+		h, m := barrierHost(t)
+		ran := scriptTime(t, h, m,
+			scriptStep{150 * time.Millisecond, endReload(t, h)},
+			scriptStep{150 * time.Millisecond, func() { h.FTL().ForceStuckUnlogged() }}, // stuck, log shows success
+			scriptStep{400 * time.Millisecond, endReload(t, h)},                         // the repair reload
+		)
+		var out bytes.Buffer
+		if err := add(context.Background(), m, &out); err != nil {
+			t.Fatalf("%v\n%s", err, out.String())
+		}
+		if ran() != 3 || n(h) != 2 || !strings.Contains(out.String(), "reloading again") || h.FTL().Stuck() {
+			t.Errorf("%d of 3 steps, %d reload-lists, stuck %v\n%s", ran(), n(h), h.FTL().Stuck(), out.String())
+		}
+	})
+
+	for _, how := range []string{"truncated", "renamed"} {
+		t.Run("the log is "+how+" before the barrier's first look", func(t *testing.T) {
+			h, m := barrierHost(t)
+			appendFTLLog(t, h, "some line before the reload") // the watch has a mark to fall below
+			m.Reload.Wait = 3 * time.Second
+			m.Runner = hookRunner{Runner: h, after: func(argv []string) {
+				if !slices.Equal(argv, reloadListsArgv) {
+					return
+				}
+				// The start line went with the old file; FTL's completion
+				// line goes to the new one.
+				p := h.FTL().LogPath()
+				var err error
+				if how == "truncated" {
+					err = os.Truncate(p, 0)
+				} else {
+					err = os.Rename(p, p+".1")
+				}
+				if err != nil {
+					t.Error(err)
+				}
+			}}
+			var out bytes.Buffer
+			if err := add(context.Background(), m, &out); err != nil {
+				t.Fatalf("%v\n%s", err, out.String())
+			}
+			if !strings.Contains(out.String(), "pihole: FTL reloaded its lists in ") {
+				t.Errorf("log:\n%s", out.String())
+			}
+		})
+	}
+
+	t.Run("a log tail over 256 KiB is read from a whole line", func(t *testing.T) {
+		h, m := barrierHost(t)
+		const tail = 256 << 10 // the barrier's tail read
+		// The file is "<junk without a newline><the cut line><filler>", and the
+		// last 256 KiB begin exactly at the cut line, which looks like a start
+		// marker: a reader that kept it would see a reload in flight.
+		const cut = "[2026-03-14 15:10:00.100 4242M] Received: Real-time signal 0 (34 -> 0)\n"
+		const filler = "[2026-03-14 15:10:00.100 4242M] filler line of the log, 128 bytes wide " +
+			"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n"
+		head := strings.Repeat(filler, 80) + "junk"
+		body := cut
+		for len(body)+len(filler) <= tail {
+			body += filler
+		}
+		if rem := tail - len(body); rem > 0 {
+			body += strings.Repeat("x", rem-1) + "\n"
+		}
+		if len(body) != tail {
+			t.Fatalf("the tail is %d bytes, want %d", len(body), tail)
+		}
+		if err := os.WriteFile(h.FTL().LogPath(), []byte(head+body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		fakeTime(h, m)
+		var out bytes.Buffer
+		if _, _, err := m.AddAdlist(context.Background(), "https://lists.example/long-log.txt", "", &out); err != nil {
+			t.Fatalf("%v\n%s", err, out.String())
+		}
+		if strings.Contains(out.String(), "waiting for FTL to finish reloading") {
+			t.Errorf("read the cut first line as a reload start:\n%s", out.String())
+		}
+	})
+
+	t.Run("the log is a directory", func(t *testing.T) {
+		h, m := barrierHost(t)
+		if err := os.Remove(h.FTL().LogPath()); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(h.FTL().LogPath(), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		pe := slug(t, add(context.Background(), m, io.Discard))
+		if pe.Slug() != problem.DependencyUnavailable || len(h.DomainRows()) != 0 {
+			t.Errorf("got %s: %s; rows %v", pe.Slug(), pe.Detail, h.DomainRows())
+		}
+	})
+
+	t.Run("reload-lists fails while FTL is stopped", func(t *testing.T) {
+		h, m := barrierHost(t)
+		h.FTL().Stop()
+		h.FailCommand(reloadListsArgv, 1)
+		pe := slug(t, add(context.Background(), m, io.Discard))
+		if pe.Slug() != problem.PiholeCommandFailed || pe.Extensions["exitCode"] != 1 || len(h.DomainRows()) != 1 {
+			t.Errorf("got %s %+v: %s; rows %v", pe.Slug(), pe.Extensions, pe.Detail, h.DomainRows())
+		}
+	})
 }

@@ -59,8 +59,14 @@ func TestTC70a_EnableDisableAlwaysExitZero(t *testing.T) {
 	if code, _ := run(t, h, pihole, "enable"); code != 0 || h.BlockingEnabled() != "true" {
 		t.Errorf("enable: exit %d, BLOCKING_ENABLED=%s", code, h.BlockingEnabled())
 	}
-	if n := countEvents(h, "reload-lists"); n != 3 {
-		t.Errorf("reload-lists sent %d times, want 3", n)
+	// A second disable finds BLOCKING_ENABLED=false and does nothing, as
+	// pihole L196-198 does: disable and enable are two reloads, not three.
+	if n := countEvents(h, "reload-lists"); n != 2 {
+		t.Errorf("reload-lists sent %d times, want 2", n)
+	}
+	if _, out := run(t, h, pihole, "enable"); !strings.Contains(out, "Blocking already enabled, nothing to do") ||
+		countEvents(h, "reload-lists") != 2 {
+		t.Errorf("enable when already enabled: %q, %d reloads", out, countEvents(h, "reload-lists"))
 	}
 }
 

@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -370,7 +371,17 @@ func TestTC86_DomainAdmitBeforeOperation(t *testing.T) {
 		t.Fatalf("%d operations after a refused add, want 0", n)
 	}
 
-	denyID := w.h.SeedDomain(3, `^ad[s]?\.;querytype=A`, "seeded")
+	// Decoys (review CR-2): one row of every other (list, kind) with the very
+	// same text, two of them with a lower ID than the target and one with a
+	// higher, so a lookup that ignores the list, the kind, or both, or that
+	// takes the first or the last row of that text, removes the wrong entry.
+	const adsValue = `^ad[s]?\.;querytype=A`
+	decoys := []int64{
+		w.h.SeedDomain(2, adsValue, ""), // allow regex
+		w.h.SeedDomain(1, adsValue, ""), // deny exact
+	}
+	denyID := w.h.SeedDomain(3, adsValue, "seeded")
+	decoys = append(decoys, w.h.SeedDomain(0, adsValue, "")) // allow exact
 	rec, pe := w.invoke(spec.RemoveDomain.Op(), `{"list":"deny","kind":"regex","value":"^ad[s]?\\.;querytype=A"}`)
 	if pe != nil {
 		t.Fatalf("remove by value: %v", pe)
@@ -379,8 +390,16 @@ func TestTC86_DomainAdmitBeforeOperation(t *testing.T) {
 	if !rm.Changed || rm.Removed.PiholeID != denyID || rm.Removed.Value != `^ad[s]?\.;querytype=A` || rm.Removed.Comment != "seeded" {
 		t.Errorf("removed %+v, want entry %d", rm, denyID)
 	}
-	if rows := w.h.DomainRows(); len(rows) != 1 || rows[0].ID != allowID {
-		t.Errorf("rows %+v, want only the allow entry", rows)
+	wantIDs := append([]int64{allowID}, decoys...)
+	var gotIDs []int64
+	for _, r := range w.h.DomainRows() {
+		gotIDs = append(gotIDs, r.ID)
+	}
+	slices.Sort(wantIDs)
+	slices.Sort(gotIDs)
+	if !slices.Equal(gotIDs, wantIDs) {
+		t.Errorf("rows %+v, want exactly the allow entry %d and the decoys %v: only the deny regex entry %d may go",
+			w.h.DomainRows(), allowID, decoys, denyID)
 	}
 	before := w.opCount()
 	_, pe = w.invoke(spec.RemoveDomain.Op(), `{"list":"deny","kind":"exact","value":"nowhere.example.com"}`)
@@ -582,7 +601,7 @@ func probesAfter(f *v5test.FakeFTL, reloads int) int {
 // TC-155 (FR-10 to FR-12, NFR-7, A-64, A-67) [hazard: reload-race]:
 // add-domain, remove-domain and remove-adlist, each run through its helper
 // action, return only after the FTL list reload it triggered has completed:
-// FakeFTL takes 300 ms to reload, as a long regex list makes real FTL do.
+// FakeFTL takes 150 ms to reload, as a long regex list makes real FTL do.
 // On the pre-fix code each returned as soon as `pihole restartdns
 // reload-lists` exited, with the reload still running.
 func TestTC155_OpsReturnAfterFTLReloadedLists(t *testing.T) {
@@ -593,6 +612,10 @@ func TestTC155_OpsReturnAfterFTLReloadedLists(t *testing.T) {
 	if code, err := w.h.Run(context.Background(), []string{piholeBin, "-g"}, io.Discard, io.Discard); code != 0 || err != nil {
 		t.Fatalf("gravity: %d %v", code, err)
 	}
+	f.WaitIdle(t) // gravity ends with a SIGHUP reload, which a write must not meet
+	// Decoys (review CR-2): rows of other kinds with the removed entry's
+	// text, with lower IDs than it, which a wrong lookup would remove.
+	decoys := []int64{w.h.SeedDomain(2, "tc155.example.com", ""), w.h.SeedDomain(3, "tc155.example.com", "")}
 	f.SetReloadDuration(150 * time.Millisecond)
 	steps := []struct {
 		name string
@@ -627,6 +650,15 @@ func TestTC155_OpsReturnAfterFTLReloadedLists(t *testing.T) {
 		if probesAfter(f, before+1) == 0 {
 			t.Errorf("%s: no nexus-probe-<16 hex>.invalid query after its reload", s.name)
 		}
+	}
+	// remove-domain took the deny exact entry and no decoy of the same text.
+	var left []int64
+	for _, r := range w.h.DomainRows() {
+		left = append(left, r.ID)
+	}
+	slices.Sort(left)
+	if !slices.Equal(left, decoys) {
+		t.Errorf("rows left %v, want exactly the decoys %v", left, decoys)
 	}
 }
 
