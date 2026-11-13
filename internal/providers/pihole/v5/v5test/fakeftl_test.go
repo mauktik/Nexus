@@ -558,3 +558,55 @@ func TestTC154_FakeFTLAsyncListReloadAndRace(t *testing.T) {
 		}
 	})
 }
+
+// FakeFTL holds queries while a list reload runs and answers them when it
+// ends, as FTL v5.25.2 did on the image (PROVENANCE "FTL LIST RELOAD
+// SIGNALS", QUERIES DURING A RELOAD): its database thread reloads under the
+// shared-memory lock (src/datastructure.c L499-522), so dnsmasq's queries
+// wait for it. A query with a shorter timeout than the reload gets no reply.
+// With a reload queued behind the running one, the device answered only a
+// few held queries in the ~100 ms between them and the rest after the
+// queued one; FakeFTL holds them all across both, never more permissive.
+func TestFakeFTLHoldsQueriesDuringAReload(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		signals int
+	}{{"one reload", 1}, {"a queued reload", 2}} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := v5test.NewFakeHost(t)
+			f := h.FTL()
+			f.HoldReloads()
+			for range tc.signals {
+				run(t, h, pihole, "restartdns", "reload-lists")
+			}
+			eventually(t, "the reload", f.Reloading)
+			if a, ok := replies(h, "pi.hole"); ok {
+				t.Errorf("pi.hole answered during the reload: %+v", a)
+			}
+			type reply struct {
+				a   dnscheck.Answer
+				err error
+			}
+			got := make(chan reply, 1)
+			go func() {
+				a, err := dnscheck.Query(context.Background(), f.Addr(), "x.invalid", 5*time.Second)
+				got <- reply{a, err}
+			}()
+			time.Sleep(100 * time.Millisecond)
+			f.ReleaseReloads()
+			r := <-got
+			if r.err != nil || r.a.RCode != "NXDOMAIN" {
+				t.Fatalf("x.invalid held across the reload: %+v %v", r.a, r.err)
+			}
+			var at int
+			for _, q := range f.Queries() {
+				if q.Name == "x.invalid" {
+					at = q.Reloads
+				}
+			}
+			if at != tc.signals || f.Reloading() {
+				t.Errorf("x.invalid answered after %d reloads (reloading %v), want after %d", at, f.Reloading(), tc.signals)
+			}
+		})
+	}
+}

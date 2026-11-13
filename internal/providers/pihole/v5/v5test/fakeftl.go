@@ -110,7 +110,15 @@ type confLine struct {
 //     which gravity.db's file change counter changed failed: it logs the
 //     captured failure lines, and FTL is then stuck, answering pi.hole and
 //     dropping every other query, until a reload with no commit during it
-//     succeeds.
+//     succeeds;
+//   - queries wait while a list reload runs and are answered when it ends
+//     (PROVENANCE "FTL LIST RELOAD SIGNALS", QUERIES DURING A RELOAD: FTL
+//     reloads under its shared-memory lock, src/datastructure.c L499-522),
+//     one at a time as dnsmasq's single thread does; a client that gives up
+//     first gets no reply. A queued reload begins as the one before it ends,
+//     so they wait across both: on the image, a few queries held by the
+//     first were answered in the ~100 ms between the two, and none sent
+//     after the first completion line.
 type FakeFTL struct {
 	t    testing.TB
 	root string
@@ -147,6 +155,8 @@ type FakeFTL struct {
 	failNext   int      // FailNextReloads
 	stuck      bool     // Answers pi.hole only
 	completed  int      // Reloads that ended, failed or not
+	reloadSeq  int      // Bumped by every reload that begins or EndReload ends
+	reloadCtr  uint32   // gravity.db's change counter when the running reload began
 	queries    []FTLQuery
 }
 
@@ -327,6 +337,12 @@ func (f *FakeFTL) Stop() {
 // Callers hold mu.
 func (f *FakeFTL) setState(s ftlState) {
 	f.state = s
+	f.wakeQueries()
+}
+
+// wakeQueries wakes the queries waiting for a start or for a reload to
+// end. Callers hold mu.
+func (f *FakeFTL) wakeQueries() {
 	close(f.wake)
 	f.wake = make(chan struct{})
 }
@@ -426,6 +442,21 @@ func (f *FakeFTL) SetReloadDuration(d time.Duration) {
 	f.reloadDur = d
 }
 
+// EndReload ends the reload in progress now, as its timer would: failed
+// when gravity.db changed during it, and the reload a signal asked for
+// meanwhile begins. With a long SetReloadDuration it lets a test end each
+// reload when it chooses. It reports false when none runs.
+func (f *FakeFTL) EndReload() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.reloading {
+		return false
+	}
+	f.reloadSeq++
+	f.endReload(f.reloadCtr)
+	return true
+}
+
 // HoldReloads keeps a reload that reaches its end in progress until
 // ReleaseReloads: no completion line, and its result is decided only then.
 func (f *FakeFTL) HoldReloads() {
@@ -522,14 +553,16 @@ func (f *FakeFTL) startReload(marker string) {
 // reloadDur later. Callers hold mu.
 func (f *FakeFTL) beginReload() {
 	f.reloading = true
-	counter, gen := f.changeCounter(), f.gen
+	f.reloadSeq++
+	counter, gen, seq := f.changeCounter(), f.gen, f.reloadSeq
+	f.reloadCtr = counter
 	end := func() {
-		if f.gen == gen {
+		if f.gen == gen && f.reloadSeq == seq {
 			f.endReload(counter)
 		}
 	}
 	f.after(f.reloadDur, func() {
-		if f.gen != gen {
+		if f.gen != gen || f.reloadSeq != seq {
 			return
 		}
 		if f.held {
@@ -561,6 +594,7 @@ func (f *FakeFTL) endReload(counter uint32) {
 		f.reloadNext = false
 		f.beginReload()
 	}
+	f.wakeQueries()
 }
 
 // resetReloads forgets the reloads of a process that ended. Callers hold
@@ -864,16 +898,16 @@ func (f *FakeFTL) serve() {
 	}
 }
 
-// answer is the reply to query, waiting while FTL starts; nil when FTL is
-// stopped or hung, or query is not a DNS query.
+// answer is the reply to query, waiting while FTL starts or reloads its
+// lists; nil when FTL is stopped or hung, or query is not a DNS query.
 func (f *FakeFTL) answer(query []byte) []byte {
 	for {
 		f.mu.Lock()
-		switch f.state {
-		case ftlAnswering:
+		switch {
+		case f.state == ftlAnswering && (!f.reloading || f.closed):
 			defer f.mu.Unlock()
 			return f.reply(query)
-		case ftlStarting:
+		case f.state == ftlAnswering || f.state == ftlStarting:
 			wake := f.wake
 			closed := f.closed
 			f.mu.Unlock()

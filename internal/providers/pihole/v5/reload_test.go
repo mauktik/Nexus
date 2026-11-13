@@ -504,38 +504,110 @@ func TestTCERR33_BarrierFailurePaths(t *testing.T) {
 	})
 }
 
+// scriptStep runs fn once m's sleeps have moved the clock at past the
+// first sleep.
+type scriptStep struct {
+	at time.Duration
+	fn func()
+}
+
+// scriptTime makes m's sleeps advance h's clock at once and then run, in
+// m's goroutine and in order, the steps that have come due. FakeFTL's
+// reloads take an hour, so they end only when a step calls EndReload: the
+// test decides when each log line appears relative to the barrier's polls,
+// with no wall-clock wait. ran is how many steps ran.
+func scriptTime(t *testing.T, h *v5test.FakeHost, m *v5.Mutator, steps ...scriptStep) (ran func() int) {
+	t.Helper()
+	h.FTL().SetReloadDuration(time.Hour)
+	var t0 time.Time
+	next := 0
+	m.Sleep = func(ctx context.Context, d time.Duration) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if t0.IsZero() {
+			t0 = h.Now()
+		}
+		h.Advance(d)
+		for next < len(steps) && h.Now().Sub(t0) >= steps[next].at {
+			steps[next].fn()
+			next++
+		}
+		return nil
+	}
+	return func() int { return next }
+}
+
+func endReload(t *testing.T, h *v5test.FakeHost) func() {
+	return func() {
+		if !h.FTL().EndReload() {
+			t.Error("no reload in progress to end")
+		}
+	}
+}
+
+func signalReloadLists(t *testing.T, h *v5test.FakeHost) func() {
+	return func() {
+		if code, err := h.Run(context.Background(), reloadListsArgv, io.Discard, io.Discard); code != 0 || err != nil {
+			t.Errorf("reload-lists: %d %v", code, err)
+		}
+	}
+}
+
 // The barrier's log reading: a reload signalled while another runs makes
 // one more reload follow (FTL's event flag, src/signals.c L290); the
 // barrier returns only once that one has ended too and the log is quiet.
+// Every poll is on the scripted clock: Nexus's reload takes 150 ms, a
+// reload-lists outside Nexus lands 10 ms into it, and the one that follows
+// takes 150 ms more.
 func TestListReloadBarrierWaitsForAFollowingReload(t *testing.T) {
 	h, m := barrierHost(t)
-	h.FTL().SetReloadDuration(150 * time.Millisecond)
-	var out syncBuf
-	done := make(chan error, 1)
-	go func() {
-		_, _, err := m.AddDomain(context.Background(), spec.DomainAddInput{List: "allow", Kind: "exact", Value: "follow.example.com"}, &out)
-		done <- err
-	}()
-	for deadline := time.Now().Add(5 * time.Second); countArgv(h.Argvs(), reloadListsArgv) == 0; time.Sleep(time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatal("no reload-lists")
+	ran := scriptTime(t, h, m,
+		scriptStep{10 * time.Millisecond, signalReloadLists(t, h)}, // a reload outside Nexus, while Nexus's own runs
+		scriptStep{150 * time.Millisecond, endReload(t, h)},
+		scriptStep{300 * time.Millisecond, endReload(t, h)},
+	)
+	var out bytes.Buffer
+	if _, _, err := m.AddDomain(context.Background(), spec.DomainAddInput{List: "allow", Kind: "exact", Value: "follow.example.com"}, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if ran() != 3 || h.FTL().Reloading() || h.FTL().Stuck() || h.FTL().ReloadsCompleted() != 2 {
+		t.Errorf("returned after %d of 3 steps while FakeFTL reloading=%v stuck=%v completed=%d\nop log:\n%sFTL log:\n%s", ran(),
+			h.FTL().Reloading(), h.FTL().Stuck(), h.FTL().ReloadsCompleted(), out.String(), ftlLog(t, h))
+	}
+}
+
+// Phase 5 verification (T1: TestPiholeWriteWaitsForQueuedReload): a write
+// that arrives just after FTL's completion line of a reload with another
+// queued behind it. The log shows a record that has ended, with two start
+// lines; the queued reload logs no start line of its own. FTL holds every
+// query while it reloads (PROVENANCE "FTL LIST RELOAD SIGNALS", QUERIES
+// DURING A RELOAD), so the pre-write probe is answered only once the queued
+// reload has ended, and the commit cannot meet it.
+func TestListReloadBarrierWriteAfterACompletionWithAQueuedReload(t *testing.T) {
+	h, m := barrierHost(t)
+	f := h.FTL()
+	f.SetReloadDuration(time.Hour)
+	signalReloadLists(t, h)()
+	signalReloadLists(t, h)() // queued: one more reload follows
+	mark := len(ftlLog(t, h))
+	f.SetReloadDuration(100 * time.Millisecond)
+	endReload(t, h)() // the first ends now; the queued one begins and takes 100 ms
+	var out bytes.Buffer
+	if _, _, err := m.AddDomain(context.Background(), spec.DomainAddInput{List: "deny", Kind: "exact", Value: "queued.example.com"}, &out); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	probed := -1
+	for _, q := range f.Queries() {
+		if strings.HasPrefix(q.Name, "nexus-probe-") {
+			probed = q.Reloads
+			break
 		}
 	}
-	// A reload outside Nexus, while Nexus's own runs.
-	if code, err := h.Run(context.Background(), reloadListsArgv, io.Discard, io.Discard); code != 0 || err != nil {
-		t.Fatalf("reload-lists: %d %v", code, err)
-	}
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("%v\n%s", err, out.String())
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("the add did not end")
-	}
-	if h.FTL().Reloading() || h.FTL().Stuck() || h.FTL().ReloadsCompleted() != 2 {
-		t.Errorf("returned while FakeFTL reloading=%v stuck=%v completed=%d", h.FTL().Reloading(), h.FTL().Stuck(),
-			h.FTL().ReloadsCompleted())
+	log := ftlLog(t, h)[mark:]
+	if probed < 2 || f.Stuck() || strings.Contains(log, "database is locked") || strings.Contains(log, "Gravity database not available") {
+		t.Errorf("first probe answered after %d reloads (want 2), stuck %v\nop log:\n%sFTL log:\n%s", probed, f.Stuck(),
+			out.String(), log)
 	}
 }
 
