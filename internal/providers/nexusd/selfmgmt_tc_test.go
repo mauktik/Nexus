@@ -566,7 +566,10 @@ func TestTCSM85_FinalizeDeletesTheStagedUploadIdempotently(t *testing.T) {
 	//   - (c) error `update-rollback-failed`;
 	//   - (d) no file.
 	// - Steps:
-	//   1. Call `Finalize` for each variant, twice for (a).
+	//   1. Before each `Finalize` of variants (a) to (c), plant `ops/<id>/pkg/` containing one file (a
+	//     helper that stopped between `result.json` and its own removal).
+	//   2. Call `Finalize` for each variant, twice for (a). The second (a) call runs with `pkg/`
+	//     already gone.
 	// - Expected:
 	//   - (a) `UpdateResult{changed: true, previousVersion, newVersion, rolledBack: false}`.
 	//   - (b) problem `update-failed` with extensions `rolledBack: true`, `step: "install"` and the
@@ -576,6 +579,8 @@ func TestTCSM85_FinalizeDeletesTheStagedUploadIdempotently(t *testing.T) {
 	//     `/usr/local/bin/nexusd -version` and `nexusd.prev`.
 	//   - In every case `staging/<uploadId>` is absent afterwards, and the second Finalize does not
 	//     error.
+	//   - (a), (b) and (c): `ops/<id>/pkg/` is absent after `Finalize`. The second (a) call, with
+	//     `pkg/` and the staged upload already absent, returns the same `UpdateResult` and no error.
 	t.Skip("TC-SM-85: SKIP-only stub; un-skip when WI 5.3 lands")
 }
 
@@ -1115,12 +1120,17 @@ func TestTCSMERR37_ARollbackThatFailsHealthSwaps(t *testing.T) {
 // TC-SM-ERR38 (WI 5.1; FR-6): A third concurrent or staged upload is refused 409
 func TestTCSMERR38_AThirdConcurrentOrStagedUpload(t *testing.T) {
 	// - Setup: nexusd T0 stack with F-CLK as `Options.Now`. In run A, two uploads are in flight (their
-	//   bodies blocked mid-stream). In run B, two different uploads are staged at virtual t0 and t0 + 10
-	//   min; keep each 201 response's `expiresAt`.
+	//   bodies blocked mid-stream). In run B, two different uploads are staged at virtual t0 and t0 +
+	//   10 min; keep each 201 response's `expiresAt`. In run C, the stack's audit writer (core
+	//   `Options.Audit`) wraps the real audit log and fails the next two `requested` writes, then
+	//   delegates to the real log.
 	// - Steps:
-	//   1. Start a third upload in each run.
+	//   1. Start a third upload in each of runs A and B.
 	//   2. In run A, let the first blocked upload finish, advance F-CLK 10 min, let the second finish
 	//     (keep both `expiresAt` values), then start a further upload.
+	//   3. In run C, POST two uploads while the `requested` write fails. Then upload two different
+	//     valid tarballs at virtual t0 and t0 + 10 min (keep both `expiresAt` values). Then start a
+	//     fifth upload.
 	// - Expected:
 	//   - 409 `conflict` in both runs.
 	//   - No new staging dir.
@@ -1130,6 +1140,11 @@ func TestTCSMERR38_AThirdConcurrentOrStagedUpload(t *testing.T) {
 	//     contains the first-finished upload's `expiresAt` and not the second's.
 	//   - Run A step 1 (nothing staged yet, only reservations in flight) asserts only the 409
 	//     `conflict`; the detail has no staged expiry to name.
+	//   - Run C: the first two uploads → 503 `audit-unavailable`, and `staging/` has no entries. Their
+	//     reservations were released, so the next two uploads → 201 each.
+	//   - Run C: the fifth upload → 409 `conflict`. Its `detail` contains the t0 upload's `expiresAt`
+	//     and not the later one's, and does not contain `still receiving` (no reservation is in
+	//     flight).
 	t.Skip("TC-SM-ERR38: SKIP-only stub; un-skip when WI 5.1 lands")
 }
 
@@ -1341,6 +1356,30 @@ func TestTCSMERR49_AnUploadRemovedBetweenAdmitAnd(t *testing.T) {
 	t.Skip("TC-SM-ERR49: SKIP-only stub; un-skip when WI 5.3 lands")
 }
 
+// TC-SM-ERR60 (WI 5.3; FR-7, FR-9): A Prepare that fails after extraction removes ops/<id>/pkg and launches nothing
+func TestTCSMERR60_APrepareThatFailsAfterExtraction(t *testing.T) {
+	// - Setup: nexusd T0 stack; a spy launch; running version `v9.9.1`, trusted key K, and fixture
+	//   `v9.9.2` signed by K and uploaded (as TC-SM-82). A test-only write hook on the provider fails
+	//   the `input.json` write with `errors.New("injected input.json write failure")` after
+	//   `extractAll` has returned, so `ops/<id>/pkg/` is fully extracted when the error occurs.
+	//   Background: the ops manager never calls `Finalize` after a Prepare failure
+	//   (`internal/ops/manager.go:456` → `failQueued`), so only Prepare can remove `pkg/`.
+	// - Steps:
+	//   1. POST update with the staged `uploadId`.
+	//   2. Poll the op until it is terminal.
+	//   3. Assert that the hook fired after extraction: the hook records that `ops/<id>/pkg/` existed
+	//     and was non-empty when it ran.
+	// - Expected:
+	//   - The op is `Failed` (from Queued), and no `Running` state was recorded.
+	//   - The spy launch count is 0.
+	//   - `ops/<id>/pkg` does not exist.
+	//   - Step 3 holds, which proves the removal ran on the after-extraction path and not because
+	//     extraction never happened (contrast TC-SM-ERR49, which fails before extraction).
+	//   - `Finalize` was not called (a spy on the provider's `Finalize` counts 0), so the removal is
+	//     Prepare's own.
+	t.Skip("TC-SM-ERR60: SKIP-only stub; un-skip when WI 5.3 lands")
+}
+
 // TC-SM-ERR50 (WI 5.3; CON-4, FR-7): Update input with path, command or url fields is refused 400
 func TestTCSMERR50_UpdateInputWithPathCommandOr(t *testing.T) {
 	// - Setup: nexusd T0 stack.
@@ -1372,7 +1411,8 @@ func TestTCSMERR51_InstallShExit3IsRolled(t *testing.T) {
 	//     written.
 	//   - Finalize cleanup: re-create `ops/<id>/pkg` with one file, call `Finalize`, and `ops/<id>/pkg`
 	//     is gone; call `Finalize` again with it already absent, and it returns no error (idempotent
-	//     removal, which also covers Prepare failures and `outcome-unknown`).
+	//     removal). Prepare failures are covered by Prepare's own removal (TC-SM-ERR49, TC-SM-ERR60),
+	//     and a lost unit's `pkg/` by op retention; see A-50.
 	t.Skip("TC-SM-ERR51: SKIP-only stub; un-skip when WI 5.4 lands")
 }
 

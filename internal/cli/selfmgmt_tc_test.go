@@ -76,9 +76,11 @@ func TestTCSM36_FR14AcceptanceA20S(t *testing.T) {
 	// - Setup:
 	//   - the real server with a gate-style long-running test op declaring `ReconnectWindow: 60s`;
 	//   - F-PROXY in `refuse` mode for virtual `[t+2s, t+22s)`;
-	//   - F-CLK injected through the WI 2.5 seam: F-CLK's `Now` as `reconnector.now` and F-CLK's
-	//     `Sleep` as `reconnector.sleep`, which also drives the regular `await` poll interval and the
-	//     `followFrames` retry gap;
+	//   - F-CLK injected through the WI 2.5 seam (A-45): replace the package-level `waitClock` with
+	//     `clock{now: F-CLK.Now, sleep: F-CLK.Sleep}` and restore it with `t.Cleanup`; the test does
+	//     not call `t.Parallel()`. `newReconnector`, the regular `await` poll interval, the progress
+	//     cadence and the `followFrames` retry gap all read `waitClock`, so no reconnector field is set
+	//     from the test;
 	//   - the op releases at virtual t+25s.
 	// - Steps:
 	//   1. Run `gate gadget start gated` (the gated op), which waits by default.

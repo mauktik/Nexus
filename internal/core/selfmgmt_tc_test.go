@@ -12,16 +12,26 @@ import "testing"
 // TC-SM-26 (WI 2.2; FR-6, NFR-7, FR-16): Dispatcher upload path runs scope, then validation, then Admit, then requested audit, then Receive, and answers 201
 func TestTCSM26_DispatcherUploadPathRunsScopeThen(t *testing.T) {
 	// - Setup: an F-UPL provider bound with `provider.Upload(op, UploadSpec{Admit, Receive})`, on the
-	//   real `core.New` with a spy audit sink recording order.
+	//   real `core.New` with a spy audit sink recording order. F-UPL's `Admit` has the WI 2.2 signature
+	//   `func(ctx, In) (release func(), err error)` and returns a counting `release` that appends
+	//   `release` to the recorded order.
 	// - Steps:
 	//   1. `Invoke` with a principal holding `tp:admin`, input `{signature: <valid>}`, and `Upload:
 	//     &UploadBody{Reader: bytes.NewReader(1 KiB), ContentType: "application/gzip", ContentLength:
 	//     1024}`.
+	//   2. Variant: F-UPL's `Receive` returns `errors.New("disk full")` after reading the body.
+	//   3. Variant: F-UPL's `Admit` succeeds and returns a nil `release`.
 	// - Expected:
-	//   - `InvokeResult.Status == 201`.
-	//   - The body is the provider's output.
-	//   - The recorded order is exactly `admit`, then `audit:requested`, then `receive`.
-	//   - `Receive` read exactly the 1024 bytes sent, which are equal.
+	//   - Step 1: `InvokeResult.Status == 201`.
+	//   - Step 1: the body is the provider's output.
+	//   - Step 1: the recorded order is exactly `admit`, then `audit:requested`, then `receive`, then
+	//     `release`.
+	//   - Step 1: `Receive` read exactly the 1024 bytes sent, which are equal.
+	//   - Step 1: the `release` count is exactly 1 when `Invoke` returns, and `release` was called
+	//     after `Receive` returned.
+	//   - Step 2: no 201 (the existing post-`requested` failure mapping), and the `release` count is
+	//     exactly 1.
+	//   - Step 3: 201 and no panic (a nil `release` is allowed).
 	t.Skip("TC-SM-26: SKIP-only stub; un-skip when WI 2.2 lands")
 }
 
@@ -123,12 +133,20 @@ func TestTCSMERR12_AStreamedOversizeBodyMapsTo(t *testing.T) {
 
 // TC-SM-ERR13 (WI 2.2; FR-16, FR-6): An audit write failure refuses the upload with audit-unavailable before Receive
 func TestTCSMERR13_AnAuditWriteFailureRefusesThe(t *testing.T) {
-	// - Setup: an audit sink that fails on the `requested` write.
+	// - Setup: F-UPL's `Admit` returns a counting `release` (as TC-SM-26). Row (a): an audit sink that
+	//   fails on the `requested` write. Row (b): a spy audit sink whose `requested` write succeeds and
+	//   then cancels the `Invoke` ctx, so the ctx ends between the `requested` record and `Receive`.
 	// - Steps:
-	//   1. Invoke the upload.
+	//   1. Row (a): invoke the upload.
+	//   2. Row (b): invoke the upload.
 	// - Expected:
-	//   - 503 `audit-unavailable`.
-	//   - Receive 0, and bytes read 0.
+	//   - Row (a): 503 `audit-unavailable`.
+	//   - Row (a): Receive 0, and bytes read 0.
+	//   - Row (a): the `release` count is exactly 1 when `Invoke` returns, although `Receive` was never
+	//     called.
+	//   - Row (b): no 201, and no `stored` audit record.
+	//   - Row (b): the `release` count is exactly 1 when `Invoke` returns, whether or not `Receive` was
+	//     entered.
 	t.Skip("TC-SM-ERR13: SKIP-only stub; un-skip when WI 2.2 lands")
 }
 
