@@ -104,7 +104,7 @@ func TestReleaseTarballs(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("make -n release exited %d:\n%s", code, out)
 		}
-		steps := []string{"go vet ./...", "go test -race ./...", "golang.org/x/vuln/cmd/govulncheck@v", "go build -trimpath", "SHA256SUMS"}
+		steps := []string{"go vet ./...", "go test -race -timeout 30m ./...", "golang.org/x/vuln/cmd/govulncheck@v", "go build -trimpath", "SHA256SUMS"}
 		last := -1
 		for _, s := range steps {
 			i := strings.Index(out, s)

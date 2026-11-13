@@ -57,8 +57,14 @@ build-release:
 	$(STATICCHECK) $(DIST_DIR)/nexusd-linux-amd64 $(DIST_DIR)/nexus-linux-amd64
 	GOOS=darwin GOARCH=arm64 $(RELEASE_BUILD) -o $(DIST_DIR)/nexus-darwin-arm64 ./cmd/nexus
 
+# Go's default per-package timeout is 10m. test/buildsys runs `make check`
+# (which runs this whole suite) inside TestMakeCheckIsTheGate and takes
+# ~7-8 minutes unloaded, so under load it overran the default and panicked
+# "test timed out". 30m leaves headroom without hiding a real hang.
+TEST_TIMEOUT ?= 30m
+
 test:
-	go test -race ./...
+	go test -race -timeout $(TEST_TIMEOUT) ./...
 
 # Linux-only code sits behind build tags, so vet the release target too.
 vet:
