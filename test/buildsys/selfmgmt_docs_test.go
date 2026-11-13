@@ -167,6 +167,12 @@ func TestTCSM105_TheDocumentationCoversTheScopesThe(t *testing.T) {
 	}
 
 	// The nexus-server-manager requirements: OOS-11, FR-22, FR-29 and NFR-4.
+	// copyRepo leaves planning/ out, so `make check`'s run in a repository
+	// copy has none; a checkout always has it.
+	if _, err := os.Stat(filepath.Join(root, "planning")); os.IsNotExist(err) {
+		t.Log("no planning/ directory (a repository copy): the NSM requirements are not checked")
+		return
+	}
 	nsm := read("planning/nexus-server-manager/requirements.md")
 	for _, c := range []struct {
 		heading string
