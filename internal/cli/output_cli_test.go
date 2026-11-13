@@ -60,7 +60,7 @@ func fixtureFor(t *testing.T, op def.Op) (status int, contentType string, body [
 	out := op.OutputType()
 	if out == reflect.TypeFor[apitypes.Capabilities]() {
 		return http.StatusOK, "application/json", marshal(apitypes.NewCapabilities(fixtureHost, "1.0.0",
-			[]apitypes.ProviderCapability{{Name: "docker", Status: apitypes.ProviderEnabled}}))
+			apitypes.HostOS{ID: "ubuntu", VersionID: "24.04"}, "systemd", []apitypes.ProviderCapability{{Name: "docker", Status: apitypes.ProviderEnabled}}))
 	}
 	v := reflect.New(out).Elem()
 	if items := v.FieldByName("Items"); items.IsValid() && items.Kind() == reflect.Slice {

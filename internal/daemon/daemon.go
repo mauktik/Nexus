@@ -24,6 +24,7 @@ import (
 	"github.com/mauktik/nexus/internal/core"
 	"github.com/mauktik/nexus/internal/detach"
 	"github.com/mauktik/nexus/internal/ops"
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/server"
 	"github.com/mauktik/nexus/internal/storage"
@@ -68,6 +69,9 @@ type Options struct {
 	// StorageObserve, when non-nil, receives the report of every storage
 	// accounting pass.
 	StorageObserve func(storage.Report)
+	// Platform is the host's init system and OS. Nil means
+	// platform.Current().
+	Platform *platform.Info
 }
 
 // Daemon is one nexusd serve process.
@@ -108,6 +112,12 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 	path := opts.ConfigPath
 	if path == "" {
 		path = config.DefaultPath
+	}
+	var plat platform.Info
+	if opts.Platform != nil {
+		plat = *opts.Platform
+	} else {
+		plat = platform.Current()
 	}
 	providers := opts.Providers
 	if providers == nil {
@@ -205,6 +215,7 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 		Ops:       mgr,
 		// Data Flow step 5: the limit flag refuses new mutations.
 		StorageCheck: acct.Check,
+		Platform:     plat,
 	})
 	if err != nil {
 		return fail(fmt.Errorf("providers: %w", err))

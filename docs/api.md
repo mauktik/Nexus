@@ -228,6 +228,28 @@ Response `200` (`application/json`):
     "version": {
       "type": "string"
     },
+    "os": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "versionId": {
+          "type": "string"
+        },
+        "prettyName": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "versionId"
+      ],
+      "additionalProperties": false
+    },
+    "initSystem": {
+      "type": "string"
+    },
     "providers": {
       "type": [
         "null",
@@ -283,6 +305,8 @@ Response `200` (`application/json`):
     "host",
     "apiVersion",
     "version",
+    "os",
+    "initSystem",
     "providers"
   ],
   "additionalProperties": false

@@ -22,6 +22,7 @@ import (
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/core"
 	"github.com/mauktik/nexus/internal/def"
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/server"
 )
@@ -202,6 +203,10 @@ func TestCapabilitiesReportEveryProviderState(t *testing.T) {
 	if caps.ID != apitypes.CapabilitiesID || caps.Host != "testhost" ||
 		caps.APIVersion != apitypes.APIVersion || caps.Version != "v1.2.3-test" {
 		t.Fatalf("identity = %+v", caps)
+	}
+	// A zero Options.Platform reports the detected host (FR-18).
+	if host := platform.Current(); caps.InitSystem != string(host.Init) || caps.OS.ID != host.OS.ID {
+		t.Errorf("platform = %q %+v, want the detected %+v", caps.InitSystem, caps.OS, host)
 	}
 	want := map[string]apitypes.ProviderState{
 		"alpha": apitypes.ProviderEnabled,
