@@ -143,3 +143,303 @@ FIDELITY LIMIT: a container shares the colima VM's kernel, and this daemon is
 aarch64 while the host's architecture is unconfirmed. WI 6.1 step 0 re-checks
 the journal mode, the FTL unit and binary paths on the real host, and WI 6.1
 step 2 runs the in-sandbox reads there.
+
+
+WI 5.1 T1 HARNESS (TC-120 in planning/pihole-dns-zones/test-cases.md)
+
+captured: 2026-11-13T14:14:16Z to 2026-11-13T14:14:31Z (INIT=native, below);
+          2026-11-13T14:10:06Z (INIT=sysv); 2026-11-13T14:10:32Z (the empty
+          ^TestPihole set)
+command:  make test-harness-pihole [INIT=native|sysv]: docker build
+          --build-arg INIT=<init> -t nexus-harness-pihole:<init>
+          test/harness/pihole, then BASE=nexus-harness-pihole:<init>
+          RUN='^TestPihole' test/harness/run.sh. run.sh recognises the image
+          by its org.nexus.harness=pihole label, uses it as is (no
+          test/harness/Dockerfile layer), waits for systemd-journald, dbus,
+          stub-upstream and fixture-http, then runs pihole_setup once.
+docker:   context colima, server 29.2.1, daemon architecture aarch64 (GOARCH=arm64)
+route:    1, as WI 0.1 (same digest, same snapshot.debian.org 20240612T000000Z
+          sources; the live mirror is not used). spike.sh still passes
+          --build-arg INIT=$INIT with its own sysv default.
+
+INIT: native by default (A-55): FragmentPath=/etc/systemd/system/pihole-FTL.service,
+  Type=simple. INIT=sysv still builds and passes the same setup:
+  FragmentPath=/run/systemd/generator.late/pihole-FTL.service, Type=forking.
+  Neither run.sh nor the acceptance reads `systemctl is-active pihole-FTL`:
+  FTL is up when /run/pihole-FTL.pid names a /proc/<pid> whose comm is
+  pihole-FTL and `dig +short @127.0.0.1 pi.hole` answers.
+
+STUB UPSTREAM (A-54): stub-upstream.service, Debian dnsmasq-base 2.85 from the
+  snapshot, Before=pihole-FTL.service, ExecStart exactly as WI 5.1 states
+  (--conf-file=/dev/null --no-resolv --no-hosts --pid-file= --bind-interfaces
+  --listen-address=127.0.0.1 --port=5353 ... --log-queries --log-facility=-).
+  Full answer set, observed: www.xi.example A 203.0.113.10 (AAAA: NOERROR with
+  no answer, "config www.xi.example is NODATA-IPv6"); raw.githubusercontent.com
+  A 192.0.2.1; every other name NXDOMAIN (nonexistent.example,
+  nosuch.xi.example). A-54 holds: `pihole -a setdns 127.0.0.1#5353` is
+  accepted as is (webpage.sh valid_ip takes an optional #port), sets
+  PIHOLE_DNS_1=127.0.0.1#5353 as the only PIHOLE_DNS_ line, regenerates
+  01-pihole.conf with server=127.0.0.1#5353 as its only server= line, and
+  restarts FTL (PID 96 -> 328). No workaround was needed. SetDNSServers
+  resets DNS_FQDN_REQUIRED, DNS_BOGUS_PRIV and DNSSEC from its later
+  arguments, so run.sh passes back the image's values (domain-needed
+  bogus-priv off: DNSSEC was unset) and refuses REV_SERVER=true.
+  06-rfc6761.conf's server=/test/ ... server=/onion/ lines are Pi-hole's
+  own local-only domains (no address), not upstreams.
+
+FIXTURE HTTP: fixture-http.service runs the image's /usr/sbin/lighttpd
+  (1.4.59) -D -f /etc/nexus-harness/lighttpd.conf: 127.0.0.1:8099, document
+  root /srv/nexus-harness, holding baseline.txt (baseline-one/-two/-three
+  .example.com). No new package.
+
+RESOLV.CONF: run.sh truncates and writes /etc/resolv.conf in place
+  (`printf "nameserver 127.0.0.1\n" >/etc/resolv.conf`): Docker bind-mounts
+  it, so it is never renamed over and the image cannot carry it.
+
+ADLIST REPLACEMENT (A-33), deviation from WI 5.1 step 3's order: on this
+  image `pihole -a adlist del https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts`
+  does NOT delete the row. It prints "Error: stepping, FOREIGN KEY constraint
+  failed (19)" and still exits 0 (V-9). gravity.gravity.adlist_id REFERENCES
+  adlist(id) with no ON DELETE action, the image's 165,493 gravity rows
+  reference adlist 1, and `pihole-FTL sqlite3` enforces foreign keys
+  (PRAGMA foreign_keys = 1). Reproduced on a copy of the image's gravity.db:
+  `DELETE FROM adlist WHERE id = 1` -> rc 19; after
+  `DELETE FROM gravity WHERE adlist_id = 1` the same delete -> rc 0. The web
+  UI's delete (groups.php delete_adlist: adlist_by_group, then adlist) runs
+  through PHP's SQLite3, where foreign keys are off by default, so it
+  succeeds there. The setup therefore reaches WI 5.1's end state with v5's
+  own commands in this order: `pihole -a adlist disable <stock URL>`,
+  `pihole -a adlist add http://127.0.0.1:8099/baseline.txt harness-baseline`,
+  `pihole -g` (a disabled list is neither downloaded nor kept, so its
+  gravity rows go), then `pihole -a adlist del <stock URL>`, which now
+  succeeds. Result: the adlist table is exactly
+  http://127.0.0.1:8099/baseline.txt|enabled 1|status 1|number 3, and
+  gravity_count is 3, the known baseline for TC-126.
+  Consequence beyond the harness: `pihole -a adlist del` cannot remove any
+  adlist that has gravity rows, so remove-adlist through it fails on a real
+  v5 host once gravity has run (WI 5.2's T1 tests will show it).
+
+MERGED /usr: the image's bullseye root is not merged (systemctl is
+  /bin/systemctl only), while nexusd runs /usr/bin/systemctl and
+  /usr/bin/systemd-run by absolute path (internal/detach) and the T1 tests
+  run /usr/bin/sleep. Debian's usrmerge package fails in the build
+  ("Can't rename /bin: Invalid cross-device link" from convert-usrmerge on
+  overlayfs), so the Dockerfile links every /bin and /sbin program missing
+  from /usr/bin and /usr/sbin there. Without it the first acceptance run
+  failed: "fork/exec /usr/bin/systemctl: no such file or directory".
+  WI 6.1 step 0 should record whether the host is merged-/usr
+  (`ls -ld /bin`).
+
+ENVIRONMENT: run.sh runs the setup's commands and the test binary in the
+  Pi-hole container under `env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  HOME=/root LANG=C.UTF-8` (plus the NEXUS_HARNESS* variables for the
+  tests), as spike.sh did, so the image's s6 ENV does not leak in.
+
+DNSFILE SEED: run.sh copies internal/providers/pihole/dnsfile/testdata/fr23-seven-lines.conf
+  (sha256 72772cf0139e932a5bad045262d3166ac7e66e20a4550babdfb1c58f95493bd6)
+  to /etc/dnsmasq.d/03-custom-dns-names.conf, root:root 0644, before setdns's
+  restart loads it (dig unity.lan -> 192.168.7.1; nexusd's record list ETag
+  is that sha256).
+
+ACCEPTANCE: the INIT=native run below is `make test-harness-pihole` with a
+  temporary acceptance test (TestPiholeWI51Acceptance, never committed) that
+  ran TC-120's commands inside the harness container and installed nexusd
+  through lib.sh install-nexusd: the shipped unit unchanged (cmp empty, no
+  drop-ins) and a loopback tls-auto config with providers.pihole.enabled.
+  TC-120a step 5's sandboxed read is nexusd's own: GET status, adlists and
+  records read gravity.db under deploy/nexusd.service, with no SIGSYS,
+  seccomp or EPERM line in its journal. Every check holds:
+    FTL answers (pi.hole NOERROR 127.0.0.1); restartdns PID 328 -> 659;
+    native unit, Type=simple; conf-dir=/etc/dnsmasq.d; resolv.conf only
+    nameserver 127.0.0.1; getent 192.0.2.1; adlist only loopback; setup
+    pihole -g exit 0, no "DNS resolution is not available", info.updated
+    1720203654 -> 1794579261, baseline status 1 (a second pihole -g: exit 0,
+    1794579261 -> 1794579264, status 2 "No changes detected"); stub answers
+    203.0.113.10 and NXDOMAIN; 127.0.0.1#5353 the only upstream; through FTL
+    www.xi.example 203.0.113.10, in the stub's journal and in FTL's
+    pihole.log as "forwarded www.xi.example to 127.0.0.1#5353"; nexusd.service
+    active (Type=notify) under the shipped unit; /v1/capabilities pihole
+    enabled (backend v5-cli, core v5.18.3, web v5.21, FTL v5.25.2,
+    dnsWrites available); make exit 0.
+
+TRANSCRIPT (INIT=native; make output verbatim, indented; [test] marks the
+temporary test's log lines; one long body elided where marked)
+    BASE='nexus-harness-pihole:native' RUN='^TestPihole' test/harness/run.sh
+    harness: docker context colima, daemon architecture aarch64 -> GOARCH=arm64, BASE=nexus-harness-pihole:native
+    harness: building linux/arm64 test-only binaries into build/harness/
+    harness: Pi-hole harness image nexus-harness-pihole:native (INIT=native)
+    harness: starting container nexus-harness-20261113T141416Z-60049
+    harness: mounts: volume:/var/lib/containerd volume:/var/lib/docker 
+    harness: waiting for systemd (running or degraded)
+    harness: system state: running
+    harness: failed units: none
+    harness: required unit systemd-journald.service active
+    harness: required unit dbus.service active
+    harness: required unit stub-upstream.service active
+    harness: required unit fixture-http.service active
+    harness: versions: Pi-hole version is v5.18.3 (Latest: v5.18.3) web version is v5.21 (Latest: v5.21) FTL version is v5.25.2 (Latest: v5.25.2) INIT native; Type=simple FragmentPath=/etc/systemd/system/pihole-FTL.service systemd 247 (247.3-7+deb11u4)
+    harness: pihole-FTL PID 96 answers on 127.0.0.1:53
+    harness: stub upstream: www.xi.example A 203.0.113.10
+    harness: fixture-http serves http://127.0.0.1:8099/baseline.txt
+    harness: resolv.conf: nameserver 127.0.0.1
+    harness: seeded /etc/dnsmasq.d/03-custom-dns-names.conf with the FR-23 fixture (7 lines)
+    harness: pihole -a setdns 127.0.0.1#5353 domain-needed bogus-priv off: FTL PID 96 -> 328
+    harness: setupVars.conf: PIHOLE_DNS_1=127.0.0.1#5353
+    harness: 01-pihole.conf: server=127.0.0.1#5353
+    harness: getent hosts raw.githubusercontent.com: 192.0.2.1 raw.githubusercontent.com
+    harness: pihole -g exit 0; info.updated 1720203654 -> 1794579261; Number of gravity domains: 3
+    harness: adlist (address|enabled|status|number): http://127.0.0.1:8099/baseline.txt|1|1|3
+    harness: gravity_count 3
+    harness: pihole-FTL PID 328 answers on 127.0.0.1:53; setup done
+    harness: copying binaries, unit, lib.sh and fixtures in with docker cp
+    harness: running tests
+    === RUN   TestPiholeWI51Acceptance
+    [test] transcript:
+    $ cat /etc/pihole-spike-init; systemctl show -p FragmentPath,Type pihole-FTL; systemctl show -p ActiveState,SubState,MainPID pihole-FTL
+    # utc: 2026-11-13T14:14:22Z
+    native
+    Type=simple
+    FragmentPath=/etc/systemd/system/pihole-FTL.service
+    MainPID=328
+    ActiveState=active
+    SubState=running
+    # exit: 0
+    $ p=$(cat /run/pihole-FTL.pid); echo "PID file $p; /proc/$p/comm $(cat /proc/$p/comm)"
+    # utc: 2026-11-13T14:14:22Z
+    PID file 328; /proc/328/comm pihole-FTL
+    # exit: 0
+    $ dig @127.0.0.1 pi.hole A +noall +answer +comments | grep -E "status|pi.hole"
+    # utc: 2026-11-13T14:14:22Z
+    ;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 45726
+    pi.hole.		0	IN	A	127.0.0.1
+    # exit: 0
+    $ pihole restartdns
+    # utc: 2026-11-13T14:14:22Z
+    # exit: 0
+    # restartdns: FTL PID 328 -> 659 (dig answers after)
+    $ grep conf-dir /etc/dnsmasq.conf
+    # utc: 2026-11-13T14:14:23Z
+    conf-dir=/etc/dnsmasq.d
+    # exit: 0
+    $ grep nameserver /etc/resolv.conf
+    # utc: 2026-11-13T14:14:23Z
+    nameserver 127.0.0.1
+    # exit: 0
+    $ getent hosts raw.githubusercontent.com
+    # utc: 2026-11-13T14:14:23Z
+    192.0.2.1       raw.githubusercontent.com
+    # exit: 0
+    $ pihole-FTL sqlite3 /etc/pihole/gravity.db "SELECT id, address, enabled, status, number FROM adlist"
+    # utc: 2026-11-13T14:14:23Z
+    2|http://127.0.0.1:8099/baseline.txt|1|1|3
+    # exit: 0
+    $ pihole -g >/tmp/g.log 2>&1; rc=$?; grep -E "Target|Status|Number of gravity|DNS resolution" /tmp/g.log | sed "s/\x1b\[K//g"; echo "pihole -g exit $rc; DNS-resolution-not-available lines: $(grep -c "DNS resolution is not available" /tmp/g.log)"; exit $rc
+    # utc: 2026-11-13T14:14:24Z
+      [i] Target: http://127.0.0.1:8099/baseline.txt
+      [i] Status: Pending...
+      [✓] Status: No changes detected
+      [i] Number of gravity domains: 3 (3 unique domains)
+    pihole -g exit 0; DNS-resolution-not-available lines: 0
+    # exit: 0
+    # info.updated 1794579261 -> 1794579264
+    $ pihole-FTL sqlite3 /etc/pihole/gravity.db "SELECT address, status FROM adlist; SELECT property, value FROM info WHERE property IN ('updated', 'gravity_count')"
+    # utc: 2026-11-13T14:14:24Z
+    http://127.0.0.1:8099/baseline.txt|2
+    gravity_count|3
+    updated|1794579264
+    # exit: 0
+    $ dig @127.0.0.1 -p 5353 www.xi.example A +noall +answer +comments | grep -E "status|xi.example"
+    # utc: 2026-11-13T14:14:24Z
+    ;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 65385
+    www.xi.example.		0	IN	A	203.0.113.10
+    # exit: 0
+    $ dig @127.0.0.1 -p 5353 nonexistent.example A +noall +comments | grep status
+    # utc: 2026-11-13T14:14:24Z
+    ;; ->>HEADER<<- opcode: QUERY, status: NXDOMAIN, id: 24097
+    # exit: 0
+    $ dig @127.0.0.1 -p 5353 nosuch.xi.example A +noall +comments | grep status
+    # utc: 2026-11-13T14:14:24Z
+    ;; ->>HEADER<<- opcode: QUERY, status: NXDOMAIN, id: 37706
+    # exit: 0
+    $ grep -E "^(PIHOLE_DNS_|server=)" /etc/pihole/setupVars.conf /etc/dnsmasq.d/*.conf
+    # utc: 2026-11-13T14:14:24Z
+    /etc/pihole/setupVars.conf:PIHOLE_DNS_1=127.0.0.1#5353
+    /etc/dnsmasq.d/01-pihole.conf:server=127.0.0.1#5353
+    /etc/dnsmasq.d/06-rfc6761.conf:server=/test/
+    /etc/dnsmasq.d/06-rfc6761.conf:server=/localhost/
+    /etc/dnsmasq.d/06-rfc6761.conf:server=/invalid/
+    /etc/dnsmasq.d/06-rfc6761.conf:server=/bind/
+    /etc/dnsmasq.d/06-rfc6761.conf:server=/onion/
+    # exit: 0
+    $ cat /etc/dnsmasq.d/03-custom-dns-names.conf; dig +short @127.0.0.1 unity.lan
+    # utc: 2026-11-13T14:14:24Z
+    address=/unity.local/192.168.7.1
+    address=/photon.home.local/192.168.7.5
+    address=/kiwi.home.local/192.168.7.5
+    address=/router.xi.example/192.168.7.1
+    address=/unity.lan/192.168.7.1
+    address=/photon.app.lan/192.168.7.5
+    address=/photos.xi.example/192.168.7.7
+    192.168.7.1
+    # exit: 0
+    $ dig @127.0.0.1 www.xi.example A +noall +answer +comments | grep -E "status|xi.example"
+    # utc: 2026-11-13T14:14:24Z
+    ;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 56568
+    www.xi.example.		0	IN	A	203.0.113.10
+    # exit: 0
+    $ journalctl -u stub-upstream.service --no-pager -o short-precise | grep -E "www.xi.example"
+    # utc: 2026-11-13T14:14:24Z
+    Nov 13 14:14:20.809191 669ef132aaa6 dnsmasq[55]: dnsmasq[55]: query[A] www.xi.example from 127.0.0.1
+    Nov 13 14:14:20.809191 669ef132aaa6 dnsmasq[55]: dnsmasq[55]: config www.xi.example is 203.0.113.10
+    Nov 13 14:14:24.551669 669ef132aaa6 dnsmasq[55]: dnsmasq[55]: query[A] www.xi.example from 127.0.0.1
+    Nov 13 14:14:24.551669 669ef132aaa6 dnsmasq[55]: dnsmasq[55]: config www.xi.example is 203.0.113.10
+    Nov 13 14:14:24.608236 669ef132aaa6 dnsmasq[55]: dnsmasq[55]: query[A] www.xi.example from 127.0.0.1
+    Nov 13 14:14:24.608236 669ef132aaa6 dnsmasq[55]: dnsmasq[55]: config www.xi.example is 203.0.113.10
+    # exit: 0
+    $ grep -E "www.xi.example" /var/log/pihole/pihole.log
+    # utc: 2026-11-13T14:14:24Z
+    Nov 13 14:14:24 dnsmasq[659]: query[A] www.xi.example from 127.0.0.1
+    Nov 13 14:14:24 dnsmasq[659]: forwarded www.xi.example to 127.0.0.1#5353
+    Nov 13 14:14:24 dnsmasq[659]: reply www.xi.example is 203.0.113.10
+    # exit: 0
+    [test] $ cmp /etc/systemd/system/nexusd.service /harness/deploy/nexusd.service: ""
+    [test] $ systemctl show nexusd: map[ActiveState:active DropInPaths: FragmentPath:/etc/systemd/system/nexusd.service MainPID:883 SubState:running Type:notify]
+    [test] $ cat /etc/nexus/nexusd.yaml:
+    listen: ["127.0.0.1:7443"]
+    tls: {mode: auto}
+    providers:
+      pihole:
+        enabled: true
+    [test] GET /v1/capabilities -> 200: provider pihole status enabled reason "" details map[backend:v5-cli coreVersion:v5.18.3 dnsFile:/etc/dnsmasq.d/03-custom-dns-names.conf dnsWrites:available ftlVersion:v5.25.2 preNexusBackupExists:false preNexusBackupPath:/var/lib/nexus/pihole/backups/03-custom-dns-names.conf.pre-nexus webVersion:v5.21]
+    [test] GET /v1/providers/pihole/status -> 200 {"items":[{"id":"/providers/pihole/status/current","type":"status","name":"current","host":"669ef132aaa6","properties":{"backend":"v5-cli","coreVersion":"v5.18.3","webVersion":"v5.21","ftlVersion":"v5.25.2","ftlRunning":true,"dnsAnswering":true,"blocking":"enabled","reenableAt":null,"gravityDomains":3,"gravityUpdated":"2026-11-13T14:14:24Z"}}],"nextCursor":""}
+    [test] GET /v1/providers/pihole/adlists -> 200 {"items":[{"id":"/providers/pihole/adlists/2","type":"adlists","name":"2","host":"669ef132aaa6","properties":{"piholeId":2,"url":"http://127.0.0.1:8099/baseline.txt","enabled":true,"comment":"harness-baseline","added":"2026-11-13T14:14:21Z","modified":"2026-11-13T14:14:21Z","domains":3,"status":"unchanged","lastUpdated":"2026-11-13T14:14:24Z"}}],"nextCursor":""}
+    [test] GET /v1/providers/pihole/records -> 200 {"items":[7 records, the FR-23 lines; body elided here] ...
+    [test] $ journalctl -u nexusd (SIGSYS/EPERM/seccomp):
+    0
+    --- PASS: TestPiholeWI51Acceptance (2.44s)
+    PASS
+    harness: tests exited 0
+    harness: collecting logs into build/harness/logs/20261113T141416Z
+    harness: container nexus-harness-20261113T141416Z-60049 removed
+    harness: dist/ untouched
+    harness: exit 0
+
+INIT=sysv (make test-harness-pihole INIT=sysv, same temporary test; selected lines)
+    harness: versions: Pi-hole version is v5.18.3 (Latest: v5.18.3) web version is v5.21 (Latest: v5.21) FTL version is v5.25.2 (Latest: v5.25.2) INIT sysv; Type=forking FragmentPath=/run/systemd/generator.late/pihole-FTL.service systemd 247 (247.3-7+deb11u4)
+    harness: pihole -a setdns 127.0.0.1#5353 domain-needed bogus-priv off: FTL PID 120 -> 375
+    harness: pihole -g exit 0; info.updated 1720203654 -> 1794579018; Number of gravity domains: 3
+    harness: adlist (address|enabled|status|number): http://127.0.0.1:8099/baseline.txt|1|1|3
+    harness: exit 0
+    # restartdns: FTL PID 375 -> 736 (dig answers after)
+    [test] GET /v1/capabilities -> 200: provider pihole status enabled reason ""
+
+EMPTY ^TestPihole SET (make test-harness-pihole, no temporary test; selected lines)
+    docker build --quiet --build-arg INIT='native' -t 'nexus-harness-pihole:native' test/harness/pihole
+    BASE='nexus-harness-pihole:native' RUN='^TestPihole' test/harness/run.sh
+    harness: versions: Pi-hole version is v5.18.3 (Latest: v5.18.3) web version is v5.21 (Latest: v5.21) FTL version is v5.25.2 (Latest: v5.25.2) INIT native; Type=simple FragmentPath=/etc/systemd/system/pihole-FTL.service systemd 247 (247.3-7+deb11u4)
+    harness: running tests
+    testing: warning: no tests to run
+    PASS
+    harness: tests exited 0
+    harness: container nexus-harness-20261113T141032Z-47862 removed
+    harness: exit 0

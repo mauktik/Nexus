@@ -1,0 +1,14 @@
+# T1 harness (WI 5.1): the local blocklist server. The image's own lighttpd,
+# on 127.0.0.1:8099, serving /srv/nexus-harness: baseline.txt, the harness
+# adlist, and the lists WI 5.2's tests put there. Gravity downloads only from
+# here, so no run waits for the network.
+[Unit]
+Description=Nexus T1 harness fixture HTTP server (127.0.0.1:8099)
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/lighttpd -D -f /etc/nexus-harness/lighttpd.conf
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

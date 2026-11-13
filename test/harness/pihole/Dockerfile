@@ -2,34 +2,53 @@
 # (/etc/.pihole, /opt/pihole, /usr/local/bin/pihole, /usr/bin/pihole-FTL,
 # /etc/pihole, /etc/dnsmasq.d) is the one pihole/pihole:2024.07.0 ships:
 # core v5.18.3, web v5.21, FTL v5.25.2 (V-18, ASM-13). Pinned by digest.
-# spike.sh builds it; nothing is bind-mounted.
+# spike.sh builds it (INIT=sysv by default); `make test-harness-pihole
+# [INIT=native|sysv]` builds it as the T1 harness (WI 5.1), which
+# test/harness/run.sh recognises by the org.nexus.harness label. Nothing is
+# bind-mounted.
 FROM pihole/pihole:2024.07.0@sha256:0def896a596e8d45780b6359dbf82fc8c75ef05b97e095452e67a0a4ccc95377
 
 # How pihole-FTL is started under systemd:
-#   sysv   (WI 0.1 default) the v5 SysV script as /etc/init.d/pihole-FTL,
-#          which systemd-sysv-generator wraps in a generated unit;
-#   native the unit v5.18.x basic-install.sh installs when /run/systemd/system
-#          exists (installScripts: pihole-FTL.systemd as
-#          /etc/systemd/system/pihole-FTL.service, init.d script removed).
-ARG INIT=sysv
+#   native (default, A-55) the unit v5.18.x basic-install.sh installs when
+#          /run/systemd/system exists (installScripts: pihole-FTL.systemd as
+#          /etc/systemd/system/pihole-FTL.service, init.d script removed),
+#          as on the user's systemd host;
+#   sysv   (WI 0.1's route, WI 6.1's fallback) the v5 SysV script as
+#          /etc/init.d/pihole-FTL, which systemd-sysv-generator wraps in a
+#          generated unit with RemainAfterExit=yes: `systemctl is-active`
+#          stays active after FTL dies, so readiness is the PID file,
+#          /proc/<pid> and dig, never is-active.
+ARG INIT=native
 
 ENV container=docker DEBIAN_FRONTEND=noninteractive
 
-# systemd, dbus and dnsutils; the s6 `service` shim in /usr/local/bin goes,
-# so `pihole restartdns` -> `service pihole-FTL restart` reaches Debian's
-# /usr/sbin/service and through it systemd. Packages come from the
-# snapshot.debian.org date the image itself was built from (its own
-# sources.list names it): bullseye has left deb.debian.org's security pool,
-# and the snapshot keeps the new packages in step with the image's libraries.
+# systemd, dbus, dnsutils and dnsmasq-base (the stub upstream's binary); the
+# s6 `service` shim in /usr/local/bin goes, so `pihole restartdns` ->
+# `service pihole-FTL restart` reaches Debian's /usr/sbin/service and through
+# it systemd. Packages come from the snapshot.debian.org date the image
+# itself was built from (its own sources.list names it): bullseye has left
+# deb.debian.org's security pool, and the snapshot keeps the new packages in
+# step with the image's libraries. Never add the live mirror back.
 ARG SNAPSHOT=20240612T000000Z
 RUN printf 'deb http://snapshot.debian.org/archive/debian/%s bullseye main\ndeb http://snapshot.debian.org/archive/debian-security/%s bullseye-security main\ndeb http://snapshot.debian.org/archive/debian/%s bullseye-updates main\n' \
       "$SNAPSHOT" "$SNAPSHOT" "$SNAPSHOT" >/etc/apt/sources.list \
  && apt-get -o Acquire::Check-Valid-Until=false update \
- && apt-get install -y --no-install-recommends systemd systemd-sysv dbus dnsutils \
+ && apt-get install -y --no-install-recommends systemd systemd-sysv dbus dnsutils dnsmasq-base \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* \
  && rm -f /usr/local/bin/service \
  && { grep -qx 'conf-dir=/etc/dnsmasq.d' /etc/dnsmasq.conf || echo 'conf-dir=/etc/dnsmasq.d' >>/etc/dnsmasq.conf; }
+
+# The image's bullseye root is not merged-/usr (systemctl is /bin/systemctl
+# only), and nexusd runs /usr/bin/systemctl by absolute path
+# (internal/detach). usrmerge's convert-usrmerge cannot rename /bin on
+# overlayfs ("Invalid cross-device link"), so every /bin and /sbin program
+# missing from /usr/bin and /usr/sbin gets a symlink there instead: the same
+# absolute paths resolve as on a merged-/usr host.
+RUN set -e; \
+    for d in bin sbin; do \
+      for f in /$d/*; do [ -e "/usr/$d/${f##*/}" ] || ln -s "$f" "/usr/$d/${f##*/}"; done; \
+    done
 
 RUN set -e; \
     case "$INIT" in \
@@ -43,6 +62,18 @@ RUN set -e; \
     *) echo "unknown INIT=$INIT" >&2; exit 1 ;; \
     esac; \
     echo "$INIT" >/etc/pihole-spike-init
+
+# The T1 harness's stub upstream (127.0.0.1#5353) and fixture HTTP server
+# (127.0.0.1:8099, the image's own lighttpd). run.sh's one-time setup points
+# Pi-hole at the stub and swaps the default adlist for baseline.txt.
+COPY stub-upstream.service fixture-http.service /etc/systemd/system/
+COPY fixtures/lighttpd.conf /etc/nexus-harness/lighttpd.conf
+COPY fixtures/baseline.txt /srv/nexus-harness/baseline.txt
+RUN chmod 0644 /etc/systemd/system/stub-upstream.service /etc/systemd/system/fixture-http.service \
+      /etc/nexus-harness/lighttpd.conf /srv/nexus-harness/baseline.txt \
+ && systemctl enable stub-upstream.service fixture-http.service
+
+LABEL org.nexus.harness=pihole org.nexus.harness.init=$INIT
 
 # The image's s6 entrypoint and health check belong to its own init.
 ENTRYPOINT []

@@ -31,7 +31,7 @@ SHA256 := $(shell command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo
 # recurses into make.
 export NEXUS_IN_MAKE := 1
 
-.PHONY: build build-release test vet vuln check docs docs-check test-harness release release-version nexusd-tree test-emu nfr nfr-sizes
+.PHONY: build build-release test vet vuln check docs docs-check test-harness test-harness-pihole release release-version nexusd-tree test-emu nfr nfr-sizes
 
 # Host-arch binaries for local use.
 build:
@@ -107,6 +107,15 @@ nexusd-tree:
 # never dist/. BASE defaults to ubuntu:latest; RUN narrows the tests.
 test-harness:
 	BASE='$(BASE)' RUN='$(RUN)' test/harness/run.sh
+
+# T1 Pi-hole v5 (WI 5.1): the test/harness/pihole image (FTL v5.25.2 under
+# systemd, with the stub upstream and the fixture HTTP server), built with
+# pihole-FTL's native systemd unit or, with INIT=sysv, the SysV script; then
+# the ^TestPihole tests in it.
+INIT ?= native
+test-harness-pihole:
+	docker build --quiet --build-arg INIT='$(INIT)' -t 'nexus-harness-pihole:$(INIT)' test/harness/pihole
+	BASE='nexus-harness-pihole:$(INIT)' RUN='^TestPihole' test/harness/run.sh
 
 # T1-emu (TC-184): the linux/amd64 nexusd from the tarball `make release`
 # wrote, in a plain container under amd64 emulation: no systemd, a smoke test
