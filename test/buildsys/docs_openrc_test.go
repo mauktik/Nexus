@@ -91,8 +91,6 @@ const rcCleanupKill = `(?is)rc_cgroup_cleanup.{0,300}cgroup v2.{0,300}kill|rc_cg
 // nginx-provider TC-35: security.md lists every unit directive with its
 // OpenRC outcome. Owner WI 3.3. Requirements: FR-27, CON-9, ASM-18, ASM-19.
 func TestSecurityDocCoversEveryUnitDirective(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-35 (WI 3.3)")
-
 	sec := section(readDoc(t, "docs/security.md"), "OpenRC hosts")
 	if sec == "" {
 		t.Fatal(`docs/security.md has no section headed "OpenRC hosts"`)
@@ -156,8 +154,6 @@ func TestSecurityDocCoversEveryUnitDirective(t *testing.T) {
 // nginx-provider TC-36: install.md and README cover Alpine. Owner WI 3.3.
 // Requirements: FR-27, ASM-20, CON-8.
 func TestInstallDocCoversAlpine(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-36 (WI 3.3)")
-
 	sec := section(readDoc(t, "docs/install.md"), "Alpine")
 	if sec == "" {
 		t.Fatal("docs/install.md has no Alpine section")
