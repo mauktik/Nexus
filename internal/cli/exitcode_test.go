@@ -34,6 +34,13 @@ var tabledExits = map[problem.Slug]int{
 	"audit-unavailable": 1, "storage-limit-reached": 1,
 }
 
+// piholeTabledExits is the CLI exit column of the HTTP-level rows of the
+// problem types table in planning/pihole-dns-zones/architecture.md, which
+// adds to the table above rather than changing it.
+var piholeTabledExits = map[problem.Slug]int{
+	"dns-file-conflict": 1, "dns-name-unzoned": 1, "dns-batch-rejected": 1,
+}
+
 // architectureExits parses the same column out of architecture.md, so a
 // change there that is not carried here fails.
 func architectureExits(t *testing.T) map[problem.Slug]int {
@@ -100,6 +107,9 @@ func TestExitCodeMapping(t *testing.T) {
 		if !typ.OperationLevel {
 			var tabled bool
 			want, tabled = tabledExits[typ.Slug]
+			if !tabled {
+				want, tabled = piholeTabledExits[typ.Slug]
+			}
 			if !tabled {
 				t.Errorf("%s: registered but not in the architecture table", typ.Slug)
 				continue
