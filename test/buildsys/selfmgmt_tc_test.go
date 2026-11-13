@@ -8,9 +8,9 @@
 package buildsys
 
 import (
-	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -21,25 +21,19 @@ import (
 // drift. If it is ever changed, this case is replaced by TC-SM-104's
 // backward-compatibility proof.
 func TestTCSM102_DeployInstallShIsByteIdentical(t *testing.T) {
-	const base = "d04583a"
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Fatalf("git is required for TC-SM-102: %v", err)
-	}
+	// The sha256 of d04583a:deploy/install.sh, pinned so the check also runs in
+	// the .git-less repo copy that TestMakeCheckIsTheGate builds. Recompute with
+	// `git show d04583a:deploy/install.sh | shasum -a 256`.
+	const base, baseSHA256 = "d04583a", "a85a4d8d4669a074ee3a925856b4185a66cee6d7759e55a4bafacef6e6b6ea34"
 	root := repoRoot(t)
-	cmd := exec.Command("git", "-C", root, "show", base+":deploy/install.sh")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	want, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("git show %s:deploy/install.sh: %v %s", base, err, stderr.String())
-	}
 	got, err := os.ReadFile(filepath.Join(root, "deploy", "install.sh"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(got, want) {
-		t.Fatalf("deploy/install.sh differs from %s (%d bytes, base %d bytes): FR-19 keeps it unchanged; "+
-			"a change needs TC-SM-104's backward-compatibility proof in place of this case", base, len(got), len(want))
+	sum := sha256.Sum256(got)
+	if hex.EncodeToString(sum[:]) != baseSHA256 {
+		t.Fatalf("deploy/install.sh differs from %s (sha256 %x, want %s): FR-19 keeps it unchanged; "+
+			"a change needs TC-SM-104's backward-compatibility proof in place of this case", base, sum, baseSHA256)
 	}
 	t.Logf("deploy/install.sh equals %s:deploy/install.sh (%d bytes)", base, len(got))
 }
