@@ -522,3 +522,57 @@ func TestListReloadBarrierWaitsForAFollowingReload(t *testing.T) {
 			h.FTL().ReloadsCompleted())
 	}
 }
+
+// A FTL that dies during a reload and is restarted leaves a start line with
+// no completion line; the new process's "FTL started" line ends it, so the
+// next write does not wait for a reload that will never complete.
+func TestListReloadBarrierNewFTLProcessEndsOldReload(t *testing.T) {
+	h, m := barrierHost(t)
+	startHeldReload(t, h)
+	if code, err := h.Run(context.Background(), []string{piholeBin, "restartdns"}, io.Discard, io.Discard); code != 0 || err != nil {
+		t.Fatalf("restartdns: %d %v", code, err)
+	}
+	h.FTL().ReleaseReloads()
+	waitIdle(t, h)
+	for deadline := time.Now().Add(3 * time.Second); func() bool { _, ok := m.FTLPID(); return !ok }(); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("restarted FTL has no PID file")
+		}
+	}
+	fakeTime(h, m)
+	var out bytes.Buffer
+	// add-adlist: the pre-write check, and no reload of its own to wait for.
+	if _, _, err := m.AddAdlist(context.Background(), "https://lists.example/restarted.txt", "", &out); err != nil {
+		t.Fatalf("add after an FTL restart: %v\n%s", err, out.String())
+	}
+	if strings.Contains(out.String(), "waiting for FTL to finish reloading") {
+		t.Errorf("waited for the dead process's reload:\n%s", out.String())
+	}
+}
+
+// Two reload signals within one sleep of FTL's database thread merge into
+// one reload: two start lines, one completion line (the TC-125 control on
+// the image: `pihole -w X; pihole -b X`, then reload-lists). The log then
+// shows no reload in flight, and a write does not wait for one.
+func TestListReloadBarrierMergedSignals(t *testing.T) {
+	h, m := barrierHost(t)
+	f, err := os.OpenFile(h.FTL().LogPath(), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = f.WriteString("[2026-03-14 15:10:00.100 4242M] Received: Real-time signal 0 (34 -> 0)\n" +
+		"[2026-03-14 15:10:00.140 4242M] Received: Real-time signal 0 (34 -> 0)\n" +
+		"[2026-03-14 15:10:00.210 4242/T4258] Compiled 0 whitelist and 0 blacklist regex filters for 1 clients in 0.1 msec\n" +
+		"[2026-03-14 15:10:00.210 4242/T4258] Blocking status is enabled\n")
+	if cerr := f.Close(); err != nil || cerr != nil {
+		t.Fatal(err, cerr)
+	}
+	fakeTime(h, m)
+	var out bytes.Buffer
+	if _, _, err := m.AddAdlist(context.Background(), "https://lists.example/merged.txt", "", &out); err != nil {
+		t.Fatalf("add: %v\n%s", err, out.String())
+	}
+	if strings.Contains(out.String(), "waiting for FTL") {
+		t.Errorf("waited for a reload that is not in flight:\n%s", out.String())
+	}
+}

@@ -22,7 +22,10 @@ import (
 //   - otherwise it inserts the row with bound parameters (the schema's
 //     trigger links it to the default group, A-15) and commits.
 //
-// A new row is followed by `pihole restartdns reload-lists`, then read back.
+// Before it opens gravity.db it waits for a list reload in flight to end
+// and repairs a stuck FTL (settleLists). A new row is followed by `pihole
+// restartdns reload-lists` and a wait until FTL has reloaded its lists
+// (reloadListsAndWait), then read back.
 func (m *Mutator) AddDomain(ctx context.Context, in spec.DomainAddInput, out io.Writer) (spec.DomainProperties, bool, error) {
 	var none spec.DomainProperties
 	typ, err := gravitydb.TypeOf(in.List, in.Kind)
@@ -30,6 +33,9 @@ func (m *Mutator) AddDomain(ctx context.Context, in spec.DomainAddInput, out io.
 		return none, false, problem.New(problem.InternalError, err.Error()+"; nothing was changed")
 	}
 	if err := m.WaitExternalGravity(ctx, out); err != nil {
+		return none, false, err
+	}
+	if err := m.settleLists(ctx, out); err != nil {
 		return none, false, err
 	}
 	db, err := gravitydb.OpenReadWrite(ctx, m.Paths.GravityDBPath())
@@ -69,7 +75,7 @@ func (m *Mutator) AddDomain(ctx context.Context, in spec.DomainAddInput, out io.
 	}
 	fmt.Fprintf(out, "pihole: added %s %s entry %d to gravity.db\n", in.List, in.Kind, id)
 	done := fmt.Sprintf("the entry was added as id %d", id)
-	if err := m.reloadLists(ctx, out, done); err != nil {
+	if err := m.reloadListsAndWait(ctx, out, done); err != nil {
 		return none, false, err
 	}
 	got, err := domainByID(ctx, db, id)
@@ -80,12 +86,16 @@ func (m *Mutator) AddDomain(ctx context.Context, in spec.DomainAddInput, out io.
 }
 
 // RemoveDomain deletes the entry with id from gravity.db in one BEGIN
-// IMMEDIATE transaction, after any external gravity run ends, then runs
-// `pihole restartdns reload-lists`, and returns the removed row. An id with
-// no row is 404 not-found, with nothing reloaded.
+// IMMEDIATE transaction, after any external gravity run ends and FTL's lists
+// are settled (settleLists), then runs `pihole restartdns reload-lists` and
+// waits until FTL has reloaded them, and returns the removed row. An id
+// with no row is 404 not-found, with nothing reloaded.
 func (m *Mutator) RemoveDomain(ctx context.Context, id int64, out io.Writer) (spec.DomainProperties, error) {
 	var none spec.DomainProperties
 	if err := m.WaitExternalGravity(ctx, out); err != nil {
+		return none, err
+	}
+	if err := m.settleLists(ctx, out); err != nil {
 		return none, err
 	}
 	db, err := gravitydb.OpenReadWrite(ctx, m.Paths.GravityDBPath())
@@ -125,23 +135,10 @@ func (m *Mutator) RemoveDomain(ctx context.Context, id int64, out io.Writer) (sp
 		return none, gravityFailed(err, "nothing was changed")
 	}
 	fmt.Fprintf(out, "pihole: removed %s %s entry %d from gravity.db\n", cur.List, cur.Kind, id)
-	if err := m.reloadLists(ctx, out, fmt.Sprintf("the entry with id %d was removed", id)); err != nil {
+	if err := m.reloadListsAndWait(ctx, out, fmt.Sprintf("the entry with id %d was removed", id)); err != nil {
 		return none, err
 	}
 	return cur, nil
-}
-
-// reloadLists runs `pihole restartdns reload-lists`, FTL's re-read of
-// gravity.db without a restart. A failure is pihole-command-failed whose
-// detail adds done, what the committed write already changed.
-func (m *Mutator) reloadLists(ctx context.Context, out io.Writer, done string) error {
-	fmt.Fprintln(out, "pihole: running pihole restartdns reload-lists")
-	err := m.runPihole(ctx, out, "restartdns", "reload-lists")
-	var pe *problem.Error
-	if errors.As(err, &pe) {
-		pe.Detail += "; " + done + ", but lists may not be reloaded"
-	}
-	return err
 }
 
 // rollback ends tx when it was not committed. Its error cannot change the

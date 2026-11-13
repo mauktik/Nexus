@@ -734,3 +734,40 @@ no product change)
   pihole -a adlist add / pihole: added adlist 3 to gravity.db" and
   dig www.xi.example: no answer (FTL still stuck): an adlist add sends no
   reload.
+
+AFTER THE FIX (WI 5.6 commit 2: settleLists before every gravity.db write,
+reloadListsAndWait after every reload-lists Nexus sends)
+  make test-harness-pihole (INIT=native, container
+    nexus-harness-20261113T170952Z-40973): 17 PASS, 1 SKIP, exit 0. TC-158:
+    R 80,000, D 2.705 s, 0 failures; each add-domain took 3.3-4.0 s (the
+    2.6 s reload, the 500 ms quiet, the probe), each add-adlist about
+    0.5 s; L0 10, L1 10 (the 10 are TC-125's control's own race, earlier
+    in the run). TC-159 skipped there as "TC-159 unverified on T1": that
+    version's held-lock fallback started BEGIN EXCLUSIVE while a reload of
+    the 80,000 regexes held a read lock, so it failed at once; the fallback
+    now waits for the log to go quiet first.
+  make test-harness-pihole INIT=sysv (nexus-harness-20261113T172322Z-91365):
+    18 PASS, exit 0. TC-158: R 80,000, D 2.834 s, 0 failures. TC-159: FTL
+    stuck by hand at round 1 of `pihole -w X && pihole -b X` (R 80,000);
+    add-adlist then ran a recovery reload before `pihole -a adlist add`,
+    and www.xi.example answered.
+  TC-159 INIT=native (nexus-harness-20261113T171738Z-74841 and
+    ...T172030Z-82379, each with TC-158): 20 hand rounds did not make FTL
+    stuck; the held lock did at attempt 1; add-adlist reloaded first and
+    www.xi.example answered: PASS both times.
+  TC-158 INIT=native, RUN=^TestPiholeListReloadRace$, final test code:
+    3 consecutive runs PASS (nexus-harness-20261113T173631Z-39878,
+    ...T173820Z-45868, ...T174006Z-51547): D 2.643 s, 2.702 s, 2.81 s;
+    0 failures each; no new "database is locked" line.
+  Two earlier native runs did not pass, neither a race:
+  - ...T173512Z-35686: FTL answered only pi.hole before the test began
+    (www.xi.example unanswered for 30 s, Result=success). The harness setup
+    runs `pihole -a adlist del` right after `pihole -g`, whose reload-lists
+    it can meet: the same race, in run.sh. The race tests now start with a
+    reload-lists and log whether FTL answered first (phStartHealthy);
+    run.sh's order is outside WI 5.6's files and is reported.
+  - ...T171738Z-74841 (TC-158 pair 2 of 10): www.xi.example and race-a2.example
+    unanswered once, with no new "database is locked" line (L0 0, L1 0), so
+    no reload failed; not reproduced in the 7 later runs that reached the
+    pairs (sysv included). The test now logs,
+    for such a dig, FTL.log since the step and a dig 2 s later.

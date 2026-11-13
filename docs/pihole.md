@@ -390,8 +390,8 @@ DNS.
 
 - Allow and deny entries (`piholedomain`) are written straight to
   `gravity.db` in one transaction, with the value as a bound parameter,
-  then Pi-hole reloads its lists (`pihole restartdns reload-lists`); DNS is
-  not restarted. Adding a value that is on the opposite list is refused
+  then Pi-hole reloads its lists (`pihole restartdns reload-lists`) and
+  the operation waits until FTL has reloaded them; DNS is not restarted. Adding a value that is on the opposite list is refused
   with `409 conflict`, rather than moved silently as `pihole -w` and
   `pihole -b` would.
 - Adding an adlist (`piholeadlist add`) goes through `pihole -a adlist
@@ -400,7 +400,8 @@ DNS.
 - Removing an adlist (`piholeadlist remove`) is one `gravity.db`
   transaction: the list's gravity rows, then its group links, then the
   list. Pi-hole then reloads its lists (`pihole restartdns reload-lists`),
-  so the list's domains stop being blocked at once, without a gravity run.
+  and the operation returns once FTL has, so the list's domains are no
+  longer blocked when it returns, without a gravity run.
 - Nexus does not use `pihole -a adlist del`. Its bare `DELETE FROM adlist`
   is refused by the foreign key from the gravity table for any list a
   gravity run has downloaded, and Pi-hole still reports success, so the
@@ -423,6 +424,53 @@ being written, can still lose it. If a change was made near a scheduled
 gravity run, read the list again to confirm it is there. Reads that land
 while gravity replaces the database can answer `dependency-unavailable`;
 retry them.
+
+### FTL's list reloads
+
+`pihole restartdns reload-lists` returns as soon as it has signalled FTL;
+FTL then re-reads `gravity.db` on its own. If `gravity.db` is written while
+FTL re-reads it, the reload fails ("database is locked" in
+`/var/log/pihole/FTL.log`), and from then on FTL answers only `pi.hole`,
+local DNS records included, until a later reload succeeds. Nexus keeps its
+own writes out of that window:
+
+- Before a domain, adlist or gravity operation writes `gravity.db`, Nexus
+  reads FTL's log, and waits while FTL is reloading its lists
+  ("waiting for FTL to finish reloading its lists"). After 30 seconds it
+  fails `pihole-busy` with nothing changed.
+- If FTL's last reload failed, or FTL does not answer a test query, Nexus
+  first reloads FTL's lists, whoever caused the failure, and only then
+  writes.
+- After a domain add or remove, or an adlist remove, the operation returns
+  once FTL has reloaded its lists and answers again ("FTL reloaded its lists
+  in N ms"). This usually adds under a second. A failed reload is retried
+  once.
+- If FTL still cannot reload its lists, the operation fails
+  `pihole-command-failed` for `pihole restartdns reload-lists`. The change
+  was written and is not undone; the detail says so. Until a reload
+  succeeds FTL may answer only `pi.hole`: run
+  `pihole restartdns reload-lists` on the host.
+- If FTL is not running, nothing waits: its lists load when it starts.
+- Nexus reads FTL's log at `/var/log/pihole/FTL.log`, or at the
+  `LOGFILE=` in `/etc/pihole/pihole-FTL.conf`. If FTL is running and the
+  log cannot be read, the operation fails `dependency-unavailable` with
+  nothing changed.
+- Each check sends one query for a name like
+  `nexus-probe-0123456789abcdef.invalid` to FTL on 127.0.0.1. Pi-hole
+  answers it locally (`.invalid` is one of its local-only domains) and
+  shows it in its query log.
+
+A write outside Nexus, such as from Pi-hole's web interface or `pihole -b`,
+can still meet a reload, Nexus's or another, and leave FTL in that state.
+The next Nexus domain or adlist operation repairs it before it writes; so
+does `pihole restartdns reload-lists`.
+
+### Reading gravity.db
+
+nexusd reads `gravity.db` with `CAP_DAC_READ_SEARCH`, so the file's
+permission bits do not stop its reads. A read that answers
+`dependency-unavailable` means the file is missing, locked, being replaced
+by a gravity run, or not a Pi-hole database.
 
 ## DNS service
 

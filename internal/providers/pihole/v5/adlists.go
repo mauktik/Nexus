@@ -14,6 +14,9 @@ import (
 // AddAdlist adds url through `pihole -a adlist add <url> [<comment>]`
 // (webpage.sh CustomizeAdLists), after any external gravity run ends. A URL
 // already in gravity.db returns that row, created false, and runs nothing.
+// Before the command it settles FTL's lists (settleLists): the add writes
+// gravity.db and sends no reload (V-9), so a write during a reload would
+// leave FTL stuck until something else reloads.
 //
 // The pihole wrapper exits 0 whatever webpage.sh did, including storing
 // nothing for a URL CheckUrl refuses (V-9), so success is decided by reading
@@ -32,6 +35,9 @@ func (m *Mutator) AddAdlist(ctx context.Context, url, comment string, out io.Wri
 	if r, ok := adlistByURL(rows, url); ok {
 		fmt.Fprintf(out, "pihole: adlist %d already has that URL; nothing to add\n", r.PiholeID)
 		return r, false, nil
+	}
+	if err := m.settleLists(ctx, out); err != nil {
+		return none, false, err
 	}
 	args := []string{"-a", "adlist", "add", url}
 	if comment != "" {
@@ -56,10 +62,12 @@ func (m *Mutator) AddAdlist(ctx context.Context, url, comment string, out io.Wri
 }
 
 // RemoveAdlist deletes the adlist with id from gravity.db in one BEGIN
-// IMMEDIATE transaction, after any external gravity run ends: its gravity
-// rows, its group links, then the row (gravitydb.DeleteAdlist). It then runs
-// `pihole restartdns reload-lists`, so the list's domains stop being blocked
-// at once, reads gravity.db back, and returns the removed row. An id with no
+// IMMEDIATE transaction, after any external gravity run ends and FTL's lists
+// are settled (settleLists): its gravity rows, its group links, then the row
+// (gravitydb.DeleteAdlist). It then runs `pihole restartdns reload-lists`
+// and waits until FTL has reloaded its lists, so the list's domains are no
+// longer blocked when it returns, reads gravity.db back, and returns the
+// removed row. An id with no
 // row is 404 not-found, with nothing changed or reloaded.
 //
 // It never runs `pihole -a adlist del`: webpage.sh's bare `DELETE FROM
@@ -69,6 +77,9 @@ func (m *Mutator) AddAdlist(ctx context.Context, url, comment string, out io.Wri
 func (m *Mutator) RemoveAdlist(ctx context.Context, id int64, out io.Writer) (spec.AdlistProperties, error) {
 	var none spec.AdlistProperties
 	if err := m.WaitExternalGravity(ctx, out); err != nil {
+		return none, err
+	}
+	if err := m.settleLists(ctx, out); err != nil {
 		return none, err
 	}
 	db, err := gravitydb.OpenReadWrite(ctx, m.Paths.GravityDBPath())
@@ -95,7 +106,7 @@ func (m *Mutator) RemoveAdlist(ctx context.Context, id int64, out io.Writer) (sp
 	}
 	fmt.Fprintf(out, "pihole: removed adlist %d and its %d gravity rows from gravity.db\n", id, gravityRows)
 	done := fmt.Sprintf("adlist %d was removed", id)
-	if err := m.reloadLists(ctx, out, done); err != nil {
+	if err := m.reloadListsAndWait(ctx, out, done); err != nil {
 		return none, err
 	}
 	rows, err := m.adlists(ctx)
@@ -123,7 +134,9 @@ func adlistGravityFailed(err error) error {
 	return gravityFailed(err, "nothing was changed")
 }
 
-// UpdateGravity runs `pihole -g` after any external gravity run ends, with
+// UpdateGravity runs `pihole -g` after any external gravity run ends and
+// FTL's lists are settled (settleLists; the reload gravity sends at its end
+// is settled by the next write's check), with
 // the child's stdout and stderr both out itself, so its progress streams to
 // the operation's log as it runs (FR-13). Anything but (0, nil) is
 // gravity-failed{exitCode}, such as the exit 1 of an offline host that
@@ -135,6 +148,9 @@ func adlistGravityFailed(err error) error {
 func (m *Mutator) UpdateGravity(ctx context.Context, out io.Writer) (spec.GravityResult, error) {
 	var none spec.GravityResult
 	if err := m.WaitExternalGravity(ctx, out); err != nil {
+		return none, err
+	}
+	if err := m.settleLists(ctx, out); err != nil {
 		return none, err
 	}
 	fmt.Fprintln(out, "pihole: running pihole -g")

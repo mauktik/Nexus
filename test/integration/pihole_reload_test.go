@@ -158,6 +158,18 @@ func phPollOp(t *testing.T, n *nexusdInstance, id string, timeout time.Duration)
 
 func phSplitAnswers(a phAnswer) bool { return len(a.addrs) == 1 && a.addrs[0] == phSplitIP }
 
+// phStartHealthy starts a race test from a FTL with its lists loaded. The
+// harness setup's own `pihole -a adlist del`, right after `pihole -g` sent
+// reload-lists, can meet that reload and leave FTL stuck before any test
+// runs (seen once in six native runs: www.xi.example unanswered from the
+// start); a reload-lists ends that state. Whether FTL answered first is
+// logged, then it must be healthy.
+func phStartHealthy(t *testing.T) {
+	t.Helper()
+	t.Logf("before the test: dig %s: %s; reload-lists took %s", phSplit, phDig(phSplit), phReloadLists(t))
+	phRequireFTLHealthy(t)
+}
+
 // TC-158 (FR-10, FR-12, NFR-7, A-64, A-67) [hazard: reload-race]:
 // back-to-back domain and adlist operations through nexusd leave FTL
 // answering, and each domain is blocked as soon as its operation succeeds.
@@ -165,7 +177,7 @@ func phSplitAnswers(a phAnswer) bool { return len(a.addrs) == 1 && a.addrs[0] ==
 // reload-lists` exited, and the next operation in the lane could commit to
 // gravity.db while FTL re-read it.
 func TestPiholeListReloadRace(t *testing.T) {
-	phRequireFTLHealthy(t)
+	phStartHealthy(t)
 	t.Cleanup(func() { phCleanRace(t) })
 	l0 := phLockedLines(t)
 	r, d := phSeedRaceRegexes(t)
@@ -176,6 +188,18 @@ func TestPiholeListReloadRace(t *testing.T) {
 		failures = append(failures, fmt.Sprintf(format, args...))
 		t.Errorf(format, args...)
 	}
+	// explain logs, after a dig that got no answer, what FTL logged since
+	// off and whether it answers 2 s later: a stuck FTL still does not, a
+	// busy one does.
+	explain := func(off int64, name string) {
+		time.Sleep(2 * time.Second)
+		lines := phLogSince(t, off)
+		if len(lines) > 40 {
+			lines = lines[len(lines)-40:]
+		}
+		t.Logf("2 s later: dig %s: %s, dig %s: %s; FTL.log since the step:\n%s", name, phDig(name), phSplit, phDig(phSplit),
+			strings.Join(lines, "\n"))
+	}
 
 	// 1. Burst: 10 add-domain operations posted without waiting.
 	const burst = 10
@@ -184,6 +208,7 @@ func TestPiholeListReloadRace(t *testing.T) {
 		ops[i] = phStart(t, n, "/actions/add-domain", fmt.Sprintf(`{"list":"deny","kind":"exact","value":"race-b%d.example"}`, i))
 	}
 	for i, op := range ops {
+		off := phLogSize(t)
 		op = phPollOp(t, n, op.ID, 5*time.Minute)
 		name := fmt.Sprintf("race-b%d.example", i)
 		if op.Status != apitypes.StatusSucceeded {
@@ -198,6 +223,9 @@ func TestPiholeListReloadRace(t *testing.T) {
 		if !phSplitAnswers(split) {
 			fail("burst %d: dig %s: %s (FTL stuck)", i, phSplit, split)
 		}
+		if !phIsBlocked(blocked) || !phSplitAnswers(split) {
+			explain(off, name)
+		}
 	}
 
 	// 2. Pairs: add-domain, then at once add-adlist (no gravity), so the
@@ -206,6 +234,7 @@ func TestPiholeListReloadRace(t *testing.T) {
 	for i := range pairs {
 		name := fmt.Sprintf("race-a%d.example", i)
 		url := phFixture(t, fmt.Sprintf("race-%d.txt", i), []string{fmt.Sprintf("race-list-%d.example", i)})
+		off := phLogSize(t)
 		dop := phStart(t, n, "/actions/add-domain", fmt.Sprintf(`{"list":"deny","kind":"exact","value":%q}`, name))
 		aop := phStart(t, n, "/actions/add-adlist", fmt.Sprintf(`{"url":%q}`, url))
 		dop, aop = phPollOp(t, n, dop.ID, 5*time.Minute), phPollOp(t, n, aop.ID, 5*time.Minute)
@@ -220,6 +249,9 @@ func TestPiholeListReloadRace(t *testing.T) {
 		}
 		if !phIsBlocked(blocked) {
 			fail("pair %d: %s not blocked (%s)", i, name, blocked)
+		}
+		if !phIsBlocked(blocked) || !phSplitAnswers(split) {
+			explain(off, name)
 		}
 	}
 
@@ -240,15 +272,37 @@ func phStuck(t *testing.T, before int) bool {
 	return phLockedLines(t) > before && phDig(phSplit).status == "" && phAnswers()
 }
 
+// phWaitReloadsQuiet waits until FTL's log has had no reload start or
+// completion line for quiet, for up to a minute.
+func phWaitReloadsQuiet(t *testing.T, quiet time.Duration) {
+	t.Helper()
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); {
+		off := phLogSize(t)
+		time.Sleep(quiet)
+		busy := false
+		for _, l := range phLogSince(t, off) {
+			if strings.Contains(l, "] Received: Real-time signal 0 (") || strings.Contains(l, "] Reloading DNS cache") ||
+				strings.Contains(l, "] Compiled ") {
+				busy = true
+			}
+		}
+		if !busy {
+			return
+		}
+	}
+	t.Fatal("FTL's log did not go quiet within a minute")
+}
+
 // phMakeStuck makes FTL stuck outside Nexus and says how, or returns "".
 // First as TC-153 step 6 did, up to 20 rounds: `pihole -w X` writes and
 // reloads, and `pihole -b X` writes during that reload. With a reload
 // seconds long, -b's write mostly loses the lock instead, so then, up to 3
-// times, a write lock is held across a reload's start: a sqlite3 shell
-// holds BEGIN EXCLUSIVE for 3 s while `pihole restartdns reload-lists`
-// runs, and FTL's gravityDB_open meets "database is locked" (PROVENANCE
-// "FTL LIST RELOAD SIGNALS").
-func phMakeStuck(t *testing.T) string {
+// times, a write lock is held across a reload's start: once FTL has no
+// reload in flight (one in flight holds a read lock, and BEGIN EXCLUSIVE
+// would fail at once), a sqlite3 shell holds BEGIN EXCLUSIVE for 4 s while
+// `pihole restartdns reload-lists` runs, and FTL's gravityDB_open meets
+// "database is locked" (PROVENANCE "FTL LIST RELOAD SIGNALS").
+func phMakeStuck(t *testing.T, d time.Duration) string {
 	t.Helper()
 	for i := 1; i <= 20; i++ {
 		x := fmt.Sprintf("nexus-stuck-%d.example", i)
@@ -260,13 +314,15 @@ func phMakeStuck(t *testing.T) string {
 		}
 	}
 	for i := 1; i <= 3; i++ {
+		phWaitReloadsQuiet(t, d+time.Second)
 		before := phLockedLines(t)
-		phBashCode("( echo 'BEGIN EXCLUSIVE;'; sleep 3; echo 'COMMIT;' ) | " + phFTLBin + " sqlite3 " + phGravityDB + " & " +
-			"sleep 0.5; " + phPihole + " restartdns reload-lists; wait")
+		out, code := phBashCode("( echo '.timeout 10000'; echo 'BEGIN EXCLUSIVE;'; sleep 4; echo 'COMMIT;' ) | " +
+			phFTLBin + " sqlite3 " + phGravityDB + " & sleep 1; " + phPihole + " restartdns reload-lists; wait")
 		time.Sleep(time.Second)
 		if phStuck(t, before) {
-			return fmt.Sprintf("a 3 s BEGIN EXCLUSIVE across reload-lists, attempt %d (20 hand rounds did not)", i)
+			return fmt.Sprintf("a 4 s BEGIN EXCLUSIVE across reload-lists, attempt %d (20 hand rounds did not)", i)
 		}
+		t.Logf("held-lock attempt %d did not make FTL stuck (exit %d): %s", i, code, strings.TrimSpace(out))
 	}
 	return ""
 }
@@ -277,12 +333,12 @@ func phMakeStuck(t *testing.T) string {
 // answers afterwards. Before WI 5.6, FTL stayed stuck: an adlist add sends
 // no reload.
 func TestPiholeStuckFTLRepairedBeforeWrite(t *testing.T) {
-	phRequireFTLHealthy(t)
+	phStartHealthy(t)
 	t.Cleanup(func() { phCleanRace(t) })
 	r, d := phSeedRaceRegexes(t)
 	n := piholed(t, "tc159", "")
 
-	how := phMakeStuck(t)
+	how := phMakeStuck(t, d)
 	if how == "" {
 		t.Skipf("TC-159 unverified on T1: 20 hand rounds and 3 held-lock reloads (R %d, D %s) did not make FTL stuck", r, d)
 	}
