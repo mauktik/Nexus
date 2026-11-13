@@ -480,6 +480,37 @@ func TestReadFTLConfDefaults(t *testing.T) {
 	}
 }
 
+// TC-E15 (NFR-7, A-65): FTL's log is /var/log/pihole/FTL.log unless
+// pihole-FTL.conf's first LOGFILE= names another, as FTL v5.25.2 reads it
+// (src/config.c getLogFilePath); the path resolves under Paths.Root.
+func TestTCE15_FTLLogPath(t *testing.T) {
+	h := newHost(t)
+	if got := v5.ReadFTLConf(h.paths).LogFile; got != "/var/log/pihole/FTL.log" {
+		t.Errorf("no pihole-FTL.conf: LogFile %q", got)
+	}
+	if got, want := h.paths.FTLLogPath(), filepath.Join(h.paths.Root, "var/log/pihole/FTL.log"); got != want {
+		t.Errorf("FTLLogPath %q, want %q", got, want)
+	}
+	h.put("/etc/pihole/pihole-FTL.conf", []byte("PRIVACYLEVEL=0\n#LOGFILE=/tmp/commented.log\n"))
+	if got := v5.ReadFTLConf(h.paths).LogFile; got != "/var/log/pihole/FTL.log" {
+		t.Errorf("no LOGFILE= line: LogFile %q", got)
+	}
+	h.put("/etc/pihole/pihole-FTL.conf", []byte("LOGFILE=/var/log/alt/FTL.log\n"))
+	if got := v5.ReadFTLConf(h.paths).LogFile; got != "/var/log/alt/FTL.log" {
+		t.Errorf("one LOGFILE=: LogFile %q", got)
+	}
+	h.put("/etc/pihole/pihole-FTL.conf", []byte("LOGFILE=/var/log/first.log\nLOGFILE=/var/log/second.log\n"))
+	if got := v5.ReadFTLConf(h.paths).LogFile; got != "/var/log/first.log" {
+		t.Errorf("two LOGFILE=: LogFile %q, want the first", got)
+	}
+	if got, want := h.paths.FTLLogPath(), filepath.Join(h.paths.Root, "var/log/first.log"); got != want {
+		t.Errorf("FTLLogPath %q, want %q", got, want)
+	}
+	if got := (v5.Paths{}).FTLLogPath(); got != "/var/log/pihole/FTL.log" {
+		t.Errorf("production FTLLogPath %q", got)
+	}
+}
+
 // TC-38 (per field): blocking from setupVars, else >stats status, else unknown.
 func TestBlockingSources(t *testing.T) {
 	ctx := context.Background()

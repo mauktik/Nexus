@@ -37,8 +37,20 @@ import (
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/providers/pihole/spec"
+	"github.com/mauktik/nexus/internal/providers/pihole/v5"
+	"github.com/mauktik/nexus/internal/providers/pihole/v5/v5test"
 	"github.com/mauktik/nexus/internal/store"
 )
+
+// newV5Lists is newV5 with the Mutator's DNS server on the host's FakeFTL,
+// which the list-reload barrier probes (WI 5.6, A-66), as production's is
+// 127.0.0.1:53.
+func newV5Lists(t *testing.T) (*v5test.FakeHost, *v5.Mutator) {
+	t.Helper()
+	h, m := newV5(t)
+	m.DNSServer = h.FTL().Addr()
+	return h, m
+}
 
 func usedListSh(argvs [][]string) bool {
 	for _, a := range argvs {
@@ -65,7 +77,7 @@ func reloads(events []string) int {
 // returns the row read back from gravity.db; adding it again is created:false
 // with no further reload.
 func TestTC82_AddDomainCreatedThenIdempotent(t *testing.T) {
-	h, m := newV5(t)
+	h, m := newV5Lists(t)
 	in := spec.DomainAddInput{List: "deny", Kind: "exact", Value: "ads.example.com", Comment: "nexus test"}
 	got, created, err := m.AddDomain(context.Background(), in, &bytes.Buffer{})
 	if err != nil || !created {
@@ -94,7 +106,7 @@ func TestTC82_AddDomainCreatedThenIdempotent(t *testing.T) {
 // list with the same kind is refused 409 naming the existing entry; the row
 // keeps its type; list.sh is never run.
 func TestTC83_CrossListRefusedNotMoved(t *testing.T) {
-	h, m := newV5(t)
+	h, m := newV5Lists(t)
 	id := h.SeedDomain(0 /* allow exact */, "cdn.example.com", "")
 	_, _, err := m.AddDomain(context.Background(), spec.DomainAddInput{List: "deny", Kind: "exact", Value: "cdn.example.com"}, &bytes.Buffer{})
 	slug, pe := slugOf(t, err)
@@ -117,7 +129,7 @@ func TestTC83_CrossListRefusedNotMoved(t *testing.T) {
 // characters FTL regex needs, and an SQL-injection probe without a quote, are
 // stored byte for byte through bound parameters; the table survives.
 func TestTC84_RegexStoredByteExact(t *testing.T) {
-	h, m := newV5(t)
+	h, m := newV5Lists(t)
 	values := []string{
 		`(^|\.)ads\.example\.com$`,
 		`^ad[s]?\.;querytype=A`,
@@ -148,7 +160,7 @@ func TestTC84_RegexStoredByteExact(t *testing.T) {
 // TC-85: remove by id returns the removed row and reloads lists; an unknown
 // id is not-found with no reload.
 func TestTC85_RemoveDomain(t *testing.T) {
-	h, m := newV5(t)
+	h, m := newV5Lists(t)
 	id := h.SeedDomain(1, "ads.example.com", "c")
 	got, err := m.RemoveDomain(context.Background(), id, &bytes.Buffer{})
 	if err != nil || got.PiholeID != id || got.Value != "ads.example.com" || got.List != "deny" {
@@ -166,7 +178,7 @@ func TestTC85_RemoveDomain(t *testing.T) {
 // TC-87 (V-7, A-16): a mutation waits while an external gravity run is in
 // progress, logs that it waits, and proceeds once it ends.
 func TestTC87_WaitsForExternalGravity(t *testing.T) {
-	h, m := newV5(t)
+	h, m := newV5Lists(t)
 	_, stop := h.PlantGravityProcess()
 	var out bytes.Buffer
 	done := make(chan error, 1)
@@ -199,7 +211,7 @@ func TestTC87_WaitsForExternalGravity(t *testing.T) {
 // TC-ERR16: a failed reload-lists after the insert is pihole-command-failed
 // whose detail says the entry was added.
 func TestTCERR16_ReloadFailureAfterAdd(t *testing.T) {
-	h, m := newV5(t)
+	h, m := newV5Lists(t)
 	h.FailCommand([]string{piholeBin, "restartdns", "reload-lists"}, 1)
 	_, _, err := m.AddDomain(context.Background(), spec.DomainAddInput{List: "deny", Kind: "exact", Value: "ads.example.com"}, &bytes.Buffer{})
 	slug, pe := slugOf(t, err)
@@ -512,4 +524,106 @@ func TestDomainBindings(t *testing.T) {
 	if found != 2 {
 		t.Errorf("%d of add-domain and remove-domain bound, want 2", found)
 	}
+}
+
+// helperOp runs the bound op opID as the core does: Admit, Prepare, the
+// helper on the operation's directory, then Finalize. It returns the typed
+// result or the operation's problem, and the operation log.
+func helperOp(w *helperWorld, opID, id string, in any) (any, string, error) {
+	w.t.Helper()
+	var df provider.DetachedFuncs
+	for _, b := range w.p.Bindings() {
+		if b.Op().ID == opID {
+			df, _ = b.Detached()
+		}
+	}
+	if df.Prepare == nil {
+		w.t.Fatalf("%s is not bound", opID)
+	}
+	ctx := context.Background()
+	if df.Admit != nil {
+		if err := df.Admit(ctx, in); err != nil {
+			w.t.Fatalf("Admit: %v", err)
+		}
+	}
+	if _, err := df.Prepare(ctx, in, provider.NewRun(id, nil)); err != nil {
+		w.t.Fatalf("Prepare: %v", err)
+	}
+	var out bytes.Buffer
+	code := runHelper(ctx, filepath.Join(w.opsDir, id), &out, &out, w.inject())
+	res, err := df.Finalize(ctx, in, detach.Exit{ExitCode: code}, provider.NewRun(id, nil))
+	return res, out.String(), err
+}
+
+// probesAfter counts the barrier's probe queries FakeFTL received once at
+// least reloads list reloads had completed.
+func probesAfter(f *v5test.FakeFTL, reloads int) int {
+	n := 0
+	for _, q := range f.Queries() {
+		if q.Reloads >= reloads && strings.HasPrefix(q.Name, "nexus-probe-") && strings.HasSuffix(q.Name, ".invalid") &&
+			len(strings.TrimSuffix(strings.TrimPrefix(q.Name, "nexus-probe-"), ".invalid")) == 16 {
+			n++
+		}
+	}
+	return n
+}
+
+// TC-155 (FR-10 to FR-12, NFR-7, A-64, A-67) [hazard: reload-race]:
+// add-domain, remove-domain and remove-adlist, each run through its helper
+// action, return only after the FTL list reload it triggered has completed:
+// FakeFTL takes 300 ms to reload, as a long regex list makes real FTL do.
+// On the pre-fix code each returned as soon as `pihole restartdns
+// reload-lists` exited, with the reload still running.
+func TestTC155_OpsReturnAfterFTLReloadedLists(t *testing.T) {
+	w := newHelperWorld(t)
+	f := w.h.FTL()
+	listID := seedAdlist(t, w.h, listA)
+	if code, err := w.h.Run(context.Background(), []string{piholeBin, "-g"}, io.Discard, io.Discard); code != 0 || err != nil {
+		t.Fatalf("gravity: %d %v", code, err)
+	}
+	f.SetReloadDuration(300 * time.Millisecond)
+	steps := []struct {
+		name string
+		opID string
+		in   func() any
+	}{
+		{"add-domain", spec.AddDomain.Op().ID, func() any {
+			return spec.DomainAddInput{List: "deny", Kind: "exact", Value: "tc155.example.com"}
+		}},
+		{"remove-domain", spec.RemoveDomain.Op().ID, func() any {
+			return spec.DomainRemoveInput{List: "deny", Kind: "exact", Value: "tc155.example.com"}
+		}},
+		{"remove-adlist", spec.RemoveAdlist.Op().ID, func() any { return spec.AdlistRemoveInput{ID: listID} }},
+	}
+	for i, s := range steps {
+		before, argvs := f.ReloadsCompleted(), len(w.h.Argvs())
+		_, log, err := helperOp(w, s.opID, "op-tc155-"+strconv.Itoa(i), s.in())
+		completed, stuck := f.ReloadsCompleted(), f.Stuck()
+		if err != nil {
+			t.Fatalf("%s: %v\n%s", s.name, err, log)
+		}
+		if completed != before+1 || stuck {
+			t.Errorf("%s returned with %d reloads completed (was %d), stuck %v: it must return after its reload ended",
+				s.name, completed, before, stuck)
+		}
+		if n := countReloadLists(w.h.Argvs()[argvs:]); n != 1 {
+			t.Errorf("%s: %d reload-lists, want exactly 1 after the commit", s.name, n)
+		}
+		if !strings.Contains(log, "pihole: FTL reloaded its lists in ") {
+			t.Errorf("%s log:\n%s", s.name, log)
+		}
+		if probesAfter(f, before+1) == 0 {
+			t.Errorf("%s: no nexus-probe-<16 hex>.invalid query after its reload", s.name)
+		}
+	}
+}
+
+func countReloadLists(argvs [][]string) int {
+	n := 0
+	for _, a := range argvs {
+		if len(a) == 3 && a[0] == piholeBin && a[1] == "restartdns" && a[2] == "reload-lists" {
+			n++
+		}
+	}
+	return n
 }

@@ -89,7 +89,7 @@ func Select(v Versions, p v5.Paths, deps Deps) (Reader, Mutator, string, error) 
 	switch v.Major {
 	case 5:
 		return &v5.Reader{Paths: p, Runner: deps.Runner, DNSServer: deps.DNSServer},
-			&v5.Mutator{Paths: p, Runner: deps.Runner, Now: deps.Now}, spec.BackendV5CLI, nil
+			&v5.Mutator{Paths: p, Runner: deps.Runner, DNSServer: deps.DNSServer, Now: deps.Now}, spec.BackendV5CLI, nil
 	case 6:
 		return Unsupported{}, Unsupported{}, spec.BackendUnsupported, nil
 	}

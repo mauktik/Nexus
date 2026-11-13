@@ -13,6 +13,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -539,4 +541,31 @@ func TestFakeHostFTLStartLimitWindow(t *testing.T) {
 			t.Errorf("unencoded show: exit %d, want 127", code)
 		}
 	})
+}
+
+// TC-154 (FakeHost part): the host seeds FTL's log and the image's five
+// rfc6761 local-only domains, so a healthy FakeFTL answers *.invalid
+// NXDOMAIN (WI 5.1 PROVENANCE "STUB UPSTREAM").
+func TestTC154_FakeHostSeedsFTLLogAndRFC6761(t *testing.T) {
+	h := v5test.NewFakeHost(t)
+	b, err := os.ReadFile(filepath.Join(h.Root(), "etc/dnsmasq.d/06-rfc6761.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "server=/test/\nserver=/localhost/\nserver=/invalid/\nserver=/bind/\nserver=/onion/\n"; string(b) != want {
+		t.Errorf("06-rfc6761.conf = %q, want %q", b, want)
+	}
+	log, err := os.ReadFile(filepath.Join(h.Root(), "var/log/pihole/FTL.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(log), "] Reloading DNS cache\n") || !strings.Contains(string(log), "] Compiled ") {
+		t.Errorf("FTL.log seed:\n%s", log)
+	}
+	for _, n := range []string{"nexus-probe-0123456789abcdef.invalid", "x.onion", "y.bind"} {
+		a, err := dnscheck.Query(context.Background(), h.FTL().Addr(), n, time.Second)
+		if err != nil || a.RCode != "NXDOMAIN" {
+			t.Errorf("%s = %+v, %v; want NXDOMAIN", n, a, err)
+		}
+	}
 }

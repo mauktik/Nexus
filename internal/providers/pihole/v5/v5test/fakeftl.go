@@ -2,6 +2,7 @@ package v5test
 
 import (
 	"bufio"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -98,7 +100,17 @@ type confLine struct {
 //     then FTL dies by SIGSEGV, (139, nil) through the runner contract, as
 //     FTL v5.25.2 did on every run of WI 0.1 check 3 (SetTestExit switches
 //     to a plain exit); without /etc/dnsmasq.conf nothing is checked and
-//     it passes (V-10). It never touches the running FTL (A-21).
+//     it passes (V-10). It never touches the running FTL (A-21);
+//   - a list reload is asynchronous (WI 5.6, A-64, A-65; PROVENANCE "FTL
+//     LIST RELOAD SIGNALS"): `pihole restartdns reload-lists`, `reload`
+//     and a restart log their start marker at once and exit 0, and FTL's
+//     database thread re-reads gravity.db ReloadDuration later and logs
+//     the completion marker. A signal during a reload makes one more
+//     reload follow it (an event flag: several coalesce). A reload during
+//     which gravity.db's file change counter changed failed: it logs the
+//     captured failure lines, and FTL is then stuck, answering pi.hole and
+//     dropping every other query, until a reload with no commit during it
+//     succeeds.
 type FakeFTL struct {
 	t    testing.TB
 	root string
@@ -125,6 +137,60 @@ type FakeFTL struct {
 	flushes  int
 	pidLag   time.Duration
 	timers   []*time.Timer
+
+	// The list reload (WI 5.6).
+	reloadDur  time.Duration
+	reloading  bool     // A reload runs on FTL's database thread
+	reloadNext bool     // A signal arrived during it: one more reload follows
+	held       bool     // HoldReloads: a reload that reaches its end waits
+	parked     []func() // Reloads that reached their end while held
+	failNext   int      // FailNextReloads
+	stuck      bool     // Answers pi.hole only
+	completed  int      // Reloads that ended, failed or not
+	queries    []FTLQuery
+}
+
+// FTLQuery is one query FakeFTL received while running: its name, and how
+// many reloads had completed when it arrived.
+type FTLQuery struct {
+	Name    string
+	Reloads int
+}
+
+// DefaultReloadDuration is how long a FakeFTL list reload takes, in real
+// time, unless SetReloadDuration changes it. On the image a reload-lists
+// took 15 ms to 119 ms from the command to its completion line (TC-153).
+const DefaultReloadDuration = 20 * time.Millisecond
+
+// The FTL log lines FakeFTL writes, copied from TC-153's capture of FTL
+// v5.25.2 on the harness image (test/harness/pihole/PROVENANCE "FTL LIST
+// RELOAD SIGNALS"), each with its source line at the v5.25.2 tag.
+const (
+	// LogReloadListsStart is logged when FTL receives SIGRTMIN, `pihole
+	// restartdns reload-lists` (src/signals.c L279).
+	LogReloadListsStart = "Received: Real-time signal 0 (34 -> 0)"
+	// LogReloadStart is logged on SIGHUP, `pihole restartdns reload`, and
+	// when FTL starts (src/dnsmasq_interface.c L1788).
+	LogReloadStart = "Reloading DNS cache"
+	// LogCompiled is the completion marker: the line after a reload's
+	// regex compilation (src/regex.c L744), logged by a failed reload too.
+	LogCompiled = "Compiled 0 whitelist and 0 blacklist regex filters for 1 clients in 0.2 msec"
+)
+
+// logReloadFailed are the lines of a reload that met a gravity.db commit,
+// in the captured order (TC-153 step 6, INIT=native; src/database/gravity-db.c
+// L1155, L203, L1107, L1540; src/regex.c L744). The blocking status line
+// follows them.
+var logReloadFailed = []string{
+	"gravityDB_count(SELECT COUNT(DISTINCT domain) FROM vw_regex_blacklist) - SQL error step database is locked",
+	"WARN: Database query failed, assuming there are no blacklist regex entries",
+	`SQLite3 message: database is locked in "SELECT domain, CASE WHEN substr(domain, 1, 1) = '*' THEN '*' || ` +
+		`substr(:input, - length(domain) + 1) ELSE :input END matcher FROM domain_audit WHERE matcher = domain;" (5)`,
+	`gravityDB_open("SELECT EXISTS(... domain_audit ...)") - SQL error prepare: database is locked`,
+	"gravityDB_count(4): Gravity database not available",
+	"WARN: Database query failed, assuming there are no whitelist regex entries",
+	LogCompiled,
+	"check_inaccessible_adlists(): Gravity database not available",
 }
 
 // newFakeFTL starts FTL as FakeFTLPID, answering from the files under root.
@@ -138,6 +204,7 @@ func newFakeFTL(t testing.TB, root string) *FakeFTL {
 		t: t, root: root, conn: conn, addr: conn.LocalAddr().(*net.UDPAddr).AddrPort(),
 		state: ftlAnswering, wake: make(chan struct{}), pid: FakeFTLPID, nextPID: FakeFTLPID,
 		upstream: map[string]netip.Addr{}, cache: map[string]netip.Addr{}, faults: map[Fault]bool{},
+		reloadDur: DefaultReloadDuration,
 	}
 	f.rules, _ = f.snapshot()
 	f.serv.Add(1)
@@ -240,6 +307,7 @@ func (f *FakeFTL) Stop() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.gen++
+	f.resetReloads()
 	f.removeProc(f.pid)
 	f.reapStale()
 	f.setState(ftlStopped)
@@ -292,6 +360,11 @@ func (f *FakeFTL) restart(stdout io.Writer) int {
 	}
 	f.rules = rules
 	f.setState(ftlStarting)
+	f.resetReloads()
+	f.logLine(true, "Using log file "+v5.ReadFTLConf(v5.Paths{Root: f.root}).LogFile)
+	f.logLine(true, "########## FTL started on fakehost! ##########")
+	f.logLine(true, "FTL version: v5.25.2")
+	f.startReload(LogReloadStart)
 	gen, pid := f.gen, f.pid
 	f.after(FTLStartDelay, func() {
 		if f.gen != gen {
@@ -319,14 +392,230 @@ func (f *FakeFTL) signal(ev string) bool {
 		return false
 	}
 	if ev == EventReload {
-		// SIGHUP clears the cache; the conf files are not re-read.
+		// SIGHUP clears the cache; the conf files are not re-read. It
+		// reloads the lists too (src/dnsmasq_interface.c L1811).
 		f.flushes++
 		f.cache = map[string]netip.Addr{}
 		if f.faults[FaultNeverReady] {
 			f.setState(ftlHung)
+			return true
 		}
+		f.startReload(LogReloadStart)
+		return true
+	}
+	if f.state != ftlHung {
+		f.startReload(LogReloadListsStart)
 	}
 	return true
+}
+
+// SetReloadDuration sets how long the following list reloads take.
+func (f *FakeFTL) SetReloadDuration(d time.Duration) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reloadDur = d
+}
+
+// HoldReloads keeps a reload that reaches its end in progress until
+// ReleaseReloads: no completion line, and its result is decided only then.
+func (f *FakeFTL) HoldReloads() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.held = true
+}
+
+// ReleaseReloads ends the held reloads at once, failed when gravity.db
+// changed during them, and lets the following ones end on time.
+func (f *FakeFTL) ReleaseReloads() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.held = false
+	parked := f.parked
+	f.parked = nil
+	for _, end := range parked {
+		end()
+	}
+}
+
+// FailNextReloads makes the next n reloads fail as a race does.
+func (f *FakeFTL) FailNextReloads(n int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failNext = n
+}
+
+// ForceStuck makes FTL stuck, with a failed reload record last in its log,
+// as a race outside Nexus leaves it.
+func (f *FakeFTL) ForceStuck() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.logLine(true, LogReloadListsStart)
+	f.logFailed()
+	f.stuck = true
+}
+
+// ForceStuckUnlogged makes FTL stuck while its log's last record shows a
+// completed reload: only a query tells.
+func (f *FakeFTL) ForceStuckUnlogged() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stuck = true
+}
+
+// Stuck reports whether FTL answers pi.hole only.
+func (f *FakeFTL) Stuck() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.stuck
+}
+
+// ReloadsCompleted is how many list reloads ended, failed or not.
+func (f *FakeFTL) ReloadsCompleted() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.completed
+}
+
+// Reloading reports whether a list reload is in progress (held or not).
+func (f *FakeFTL) Reloading() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.reloading
+}
+
+// Queries are the queries FTL received while answering, in order.
+func (f *FakeFTL) Queries() []FTLQuery {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.queries)
+}
+
+// LogPath is FTL's log on the host: pihole-FTL.conf's LOGFILE=, else
+// /var/log/pihole/FTL.log, under the root.
+func (f *FakeFTL) LogPath() string {
+	return filepath.Join(f.root, v5.ReadFTLConf(v5.Paths{Root: f.root}).LogFile)
+}
+
+// startReload logs marker, the line FTL logs when the reload is asked for,
+// and starts the reload on the database thread, or, while one runs, makes
+// one more follow it. Callers hold mu.
+func (f *FakeFTL) startReload(marker string) {
+	f.logLine(true, marker)
+	if f.reloading {
+		f.reloadNext = true
+		return
+	}
+	f.beginReload()
+}
+
+// beginReload reads gravity.db's change counter and ends the reload
+// reloadDur later. Callers hold mu.
+func (f *FakeFTL) beginReload() {
+	f.reloading = true
+	counter, gen := f.changeCounter(), f.gen
+	end := func() {
+		if f.gen == gen {
+			f.endReload(counter)
+		}
+	}
+	f.after(f.reloadDur, func() {
+		if f.gen != gen {
+			return
+		}
+		if f.held {
+			f.parked = append(f.parked, end)
+			return
+		}
+		end()
+	})
+}
+
+// endReload fails the reload when gravity.db was committed to since it
+// began, or when FailNextReloads asks; it then starts the reload a signal
+// asked for meanwhile. Callers hold mu.
+func (f *FakeFTL) endReload(counter uint32) {
+	failed := f.failNext > 0 || f.changeCounter() != counter
+	if f.failNext > 0 {
+		f.failNext--
+	}
+	if failed {
+		f.logFailed()
+	} else {
+		f.logLine(false, LogCompiled)
+		f.logBlocking()
+	}
+	f.stuck = failed
+	f.completed++
+	f.reloading = false
+	if f.reloadNext {
+		f.reloadNext = false
+		f.beginReload()
+	}
+}
+
+// resetReloads forgets the reloads of a process that ended. Callers hold
+// mu.
+func (f *FakeFTL) resetReloads() {
+	f.reloading, f.reloadNext, f.parked, f.stuck = false, false, nil, false
+}
+
+// logFailed logs a failed reload's lines. Callers hold mu.
+func (f *FakeFTL) logFailed() {
+	for _, l := range logReloadFailed {
+		f.logLine(false, l)
+	}
+	f.logBlocking()
+}
+
+// logBlocking is the "Blocking status is …" line FTL logs after a reload
+// (src/setupVars.c L256). Callers hold mu.
+func (f *FakeFTL) logBlocking() {
+	state := "enabled"
+	if b := v5.ReadBlockingEnabled(v5.Paths{Root: f.root}); b != nil && !*b {
+		state = "disabled"
+	}
+	f.logLine(false, "Blocking status is "+state)
+}
+
+// logLine appends msg to FTL's log as FTL v5.25.2 formats it, from the
+// main process (M) or the database thread (/T). FTL opens the log for
+// every line (src/log.c L133), so a deleted log is created again. Callers
+// hold mu.
+func (f *FakeFTL) logLine(main bool, msg string) {
+	who := fmt.Sprintf("%dM", f.pid)
+	if !main {
+		who = fmt.Sprintf("%d/T%d", f.pid, f.pid+16)
+	}
+	p := f.LogPath()
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		f.t.Errorf("v5test: FakeFTL: %v", err)
+		return
+	}
+	fh, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		f.t.Errorf("v5test: FakeFTL: %v", err)
+		return
+	}
+	defer fh.Close()
+	if _, err := fmt.Fprintf(fh, "[%s %s] %s\n", time.Now().Format("2006-01-02 15:04:05.000"), who, msg); err != nil {
+		f.t.Errorf("v5test: FakeFTL: %v", err)
+	}
+}
+
+// changeCounter is gravity.db's file change counter, header bytes 24-27,
+// which every commit in rollback-journal mode increments (sqlite.org
+// fileformat2 §1.3.8); 0 when it cannot be read.
+func (f *FakeFTL) changeCounter() uint32 {
+	fh, err := os.Open(filepath.Join(f.root, v5.GravityDBFile))
+	if err != nil {
+		return 0
+	}
+	defer fh.Close()
+	var b [4]byte
+	if _, err := fh.ReadAt(b[:], 24); err != nil {
+		return 0
+	}
+	return binary.BigEndian.Uint32(b[:])
 }
 
 // after runs fn under mu d from now, unless FakeFTL is closed first.
@@ -600,7 +889,13 @@ func (f *FakeFTL) reply(query []byte) []byte {
 	if err != nil {
 		return nil
 	}
-	rcode, ips := f.resolve(canonical(q.Name.String()))
+	name := canonical(q.Name.String())
+	f.queries = append(f.queries, FTLQuery{Name: name, Reloads: f.completed})
+	if f.stuck && name != "pi.hole" {
+		// A failed list reload leaves FTL answering pi.hole only (TC-153).
+		return nil
+	}
+	rcode, ips := f.resolve(name)
 	if q.Type != dnsmessage.TypeA {
 		ips = nil
 	}

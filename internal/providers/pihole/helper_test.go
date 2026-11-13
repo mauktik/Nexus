@@ -152,7 +152,7 @@ func newHelperWorld(t *testing.T) *helperWorld {
 }
 
 func (w *helperWorld) inject() *helperInject {
-	return &helperInject{Runner: w.h, Root: w.h.Root(), DNSServer: netip.MustParseAddrPort("127.0.0.1:5353"), Now: w.h.Now}
+	return &helperInject{Runner: w.h, Root: w.h.Root(), DNSServer: w.h.FTL().Addr(), Now: w.h.Now}
 }
 
 func (w *helperWorld) configure(dnsFile string) {
@@ -549,6 +549,15 @@ func TestTC68_ProductionWiring(t *testing.T) {
 	}
 	if _, ok := m.Runner.(v5.Exec); !ok || m.Paths.Root != "/" || c.Paths.Root != "/" {
 		t.Errorf("mutator runner %T root %q, call root %q", m.Runner, m.Paths.Root, c.Paths.Root)
+	}
+	// TC-E15: the list-reload barrier probes FTL on 127.0.0.1:53 and reads
+	// /var/log/pihole/FTL.log (on a host whose pihole-FTL.conf has no
+	// LOGFILE=, as the image's).
+	if m.DNSServer != netip.MustParseAddrPort("127.0.0.1:53") {
+		t.Errorf("mutator DNS server %v, want 127.0.0.1:53", m.DNSServer)
+	}
+	if v5.ReadFTLConf(m.Paths).LogFile == v5.DefaultFTLLogFile && m.Paths.FTLLogPath() != "/var/log/pihole/FTL.log" {
+		t.Errorf("mutator FTL log %q, want /var/log/pihole/FTL.log", m.Paths.FTLLogPath())
 	}
 	if c.DNSServer != netip.MustParseAddrPort("127.0.0.1:53") ||
 		reflect.ValueOf(c.Now).Pointer() != reflect.ValueOf(time.Now).Pointer() {

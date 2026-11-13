@@ -18,6 +18,11 @@ const (
 	DnsmasqConfFile   = "/etc/dnsmasq.conf"
 	PiholeTOMLFile    = "/etc/pihole/pihole.toml" // v6 only
 	DefaultFTLPIDFile = "/run/pihole-FTL.pid"     // V-4
+	// DefaultFTLLogFile is FTL's log when pihole-FTL.conf has no LOGFILE=
+	// (FTL v5.25.2 src/config.c getLogFilePath; the image's FTL logs "Using
+	// log file /var/log/pihole/FTL.log", WI 5.6 PROVENANCE "FTL LIST RELOAD
+	// SIGNALS").
+	DefaultFTLLogFile = "/var/log/pihole/FTL.log"
 	ProcDir           = "/proc"
 )
 
@@ -34,6 +39,9 @@ type Paths struct {
 	GravityDB   string
 	DnsmasqConf string
 	PiholeTOML  string
+	// FTLLog overrides FTL's log; empty means pihole-FTL.conf's LOGFILE=,
+	// else DefaultFTLLogFile.
+	FTLLog string
 }
 
 // Host resolves an absolute host path under Root.
@@ -76,3 +84,12 @@ func (p Paths) DnsmasqConfPath() string { return p.Host(or(p.DnsmasqConf, Dnsmas
 
 // PiholeTOMLPath is /etc/pihole/pihole.toml (v6) under Root.
 func (p Paths) PiholeTOMLPath() string { return p.Host(or(p.PiholeTOML, PiholeTOMLFile)) }
+
+// FTLLogPath is FTL's log under Root: FTLLog when set, else the first
+// LOGFILE= of pihole-FTL.conf, else /var/log/pihole/FTL.log (A-65).
+func (p Paths) FTLLogPath() string {
+	if p.FTLLog != "" {
+		return p.Host(p.FTLLog)
+	}
+	return p.Host(ReadFTLConf(p).LogFile)
+}

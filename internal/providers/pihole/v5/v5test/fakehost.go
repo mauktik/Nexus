@@ -129,7 +129,8 @@ var _ v5.Runner = (*FakeHost)(nil)
 // (BLOCKING_ENABLED=true and a WEBPASSWORD line), versions, pihole-FTL.conf,
 // a gravity.db from the v5.18.4 schema, /etc/dnsmasq.conf loading
 // /etc/dnsmasq.d, the dnsmasq.d files (03-custom-dns-names.conf empty), a
-// non-empty query log, FTL's PID file and the two binaries.
+// non-empty query log, FTL's log ending in a completed list reload, FTL's
+// PID file and the two binaries.
 func NewFakeHost(t testing.TB) *FakeHost {
 	t.Helper()
 	h := &FakeHost{t: t, root: t.TempDir(), now: start, failAdlists: map[string]bool{}, nextPID: 31000}
@@ -152,10 +153,13 @@ func NewFakeHost(t testing.TB) *FakeHost {
 		{filepath.Join(v5.ProcDir, strconv.Itoa(FakeFTLPID), "comm"), "pihole-FTL\n", 0o444},
 		{v5.DnsmasqConfFile, "conf-dir=/etc/dnsmasq.d\n", 0o644},
 		{"/etc/dnsmasq.d/01-pihole.conf", "addn-hosts=/etc/pihole/local.list\nlocalise-queries\n", 0o644},
-		{"/etc/dnsmasq.d/06-rfc6761.conf", "server=/test/\nserver=/localhost/\nserver=/invalid/\n", 0o644},
+		// The image's five Pi-hole local-only domains (WI 5.1 PROVENANCE
+		// "STUB UPSTREAM"): a healthy FTL answers *.invalid NXDOMAIN.
+		{"/etc/dnsmasq.d/06-rfc6761.conf", "server=/test/\nserver=/localhost/\nserver=/invalid/\nserver=/bind/\nserver=/onion/\n", 0o644},
 		{"/etc/dnsmasq.d/03-custom-dns-names.conf", "", 0o644},
 		{QueryLog, "Mar 14 15:00:01 dnsmasq[4242]: query[A] example.com from 127.0.0.1\n" +
 			"Mar 14 15:00:01 dnsmasq[4242]: forwarded example.com to 1.1.1.1\n", 0o644},
+		{v5.DefaultFTLLogFile, ftlLogSeed, 0o644},
 	}
 	for _, f := range files {
 		h.writeFile(f.path, f.body, f.mode)
@@ -171,6 +175,15 @@ func NewFakeHost(t testing.TB) *FakeHost {
 	})
 	return h
 }
+
+// ftlLogSeed is FTL's log after a start whose list reload completed, in
+// the captured format (TC-153 step 3, INIT=native).
+const ftlLogSeed = "[2026-03-14 15:09:20.230 4242M] Using log file /var/log/pihole/FTL.log\n" +
+	"[2026-03-14 15:09:20.230 4242M] ########## FTL started on fakehost! ##########\n" +
+	"[2026-03-14 15:09:20.230 4242M] FTL version: v5.25.2\n" +
+	"[2026-03-14 15:09:20.271 4242M] Reloading DNS cache\n" +
+	"[2026-03-14 15:09:20.376 4242/T4258] " + LogCompiled + "\n" +
+	"[2026-03-14 15:09:20.377 4242/T4258] Blocking status is enabled\n"
 
 // WebPasswordHash is the planted WEBPASSWORD value: no result, log or
 // audit record may ever contain it (FR-29).

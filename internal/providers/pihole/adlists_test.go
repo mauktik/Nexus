@@ -78,7 +78,7 @@ func isGravity(a []string) bool { return len(a) == 2 && a[0] == piholeBin && a[1
 // with the comment as its own argv element, returns the row read back,
 // created true; adding the same URL again is created false with no command.
 func TestTC88_AddAdlistCreatedThenIdempotent(t *testing.T) {
-	h, m := newV5(t)
+	h, m := newV5Lists(t)
 	got, created, err := m.AddAdlist(context.Background(), listA, "my list", &bytes.Buffer{})
 	if err != nil || !created {
 		t.Fatalf("add = %+v, %v, %v", got, created, err)
@@ -117,7 +117,7 @@ func TestTC88_AddAdlistCreatedThenIdempotent(t *testing.T) {
 // TC-ERR18 (FR-12, A-17, V-9): an add Pi-hole silently ignores (exit 0, no
 // row) is pihole-command-failed{command: "pihole -a adlist add", exitCode: 0}.
 func TestTCERR18_IgnoredAdlistAddFails(t *testing.T) {
-	h, m := newV5(t)
+	h, m := newV5Lists(t)
 	h.IgnoreCommand([]string{piholeBin, "-a", "adlist", "add"})
 	_, created, err := m.AddAdlist(context.Background(), listA, "", &bytes.Buffer{})
 	slug, pe := slugOf(t, err)
@@ -135,7 +135,7 @@ func TestTCERR18_IgnoredAdlistAddFails(t *testing.T) {
 // RemoveAdlist deletes the row in gravity.db, reloads the lists once and
 // returns the row; an id with no row is not-found with no command (A-58).
 func TestRemoveAdlistByID(t *testing.T) {
-	h, m := newV5(t)
+	h, m := newV5Lists(t)
 	idA := seedAdlist(t, h, listA)
 	idB := seedAdlist(t, h, listB)
 	got, err := m.RemoveAdlist(context.Background(), idB, &bytes.Buffer{})
@@ -160,7 +160,7 @@ func TestRemoveAdlistByID(t *testing.T) {
 // TC-91 (FR-13): gravity's output reaches the writer in the fake's order;
 // the result is info read back; exit 0; no failed lists, no warning.
 func TestTC91_UpdateGravityStreamsAndReadsBack(t *testing.T) {
-	h, m := newV5(t)
+	h, m := newV5Lists(t)
 	for _, u := range []string{listA, listB, listC} {
 		seedAdlist(t, h, u)
 	}
@@ -197,7 +197,7 @@ func TestTC91_UpdateGravityStreamsAndReadsBack(t *testing.T) {
 // TC-92 (FR-13, A-48, V-12): lists that fail to download do not fail the
 // update; they are counted, with a warning.
 func TestTC92_PartialListFailuresWarn(t *testing.T) {
-	h, m := newV5(t)
+	h, m := newV5Lists(t)
 	for _, u := range []string{listA, listB, listC} {
 		seedAdlist(t, h, u)
 	}
@@ -232,7 +232,7 @@ func (f failingGravity) Run(ctx context.Context, argv []string, stdout, stderr i
 // TC-ERR19 (FR-13): gravity exiting 1 is gravity-failed{exitCode: 1}; what
 // it printed so far stays in the log.
 func TestTCERR19_GravityExit1(t *testing.T) {
-	h, m := newV5(t)
+	h, m := newV5Lists(t)
 	h.FailCommand([]string{piholeBin, "-g"}, 1)
 	var out bytes.Buffer
 	_, err := m.UpdateGravity(context.Background(), &out)
@@ -612,7 +612,7 @@ func (r reinsertOnReload) Run(ctx context.Context, argv []string, stdout, stderr
 func TestTCERR31_RemoveAdlistFailurePaths(t *testing.T) {
 	// processed is a FakeHost with one gravity-processed adlist.
 	processed := func(t *testing.T) (*v5test.FakeHost, *v5.Mutator, int64) {
-		h, m := newV5(t)
+		h, m := newV5Lists(t)
 		id := seedAdlist(t, h, listA)
 		if code, err := h.Run(context.Background(), []string{piholeBin, "-g"}, io.Discard, io.Discard); code != 0 || err != nil {
 			t.Fatalf("gravity: %d %v", code, err)

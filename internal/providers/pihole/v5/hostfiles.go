@@ -95,19 +95,21 @@ const DefaultFTLPort = 4711
 type FTLConf struct {
 	Port    int    // FTLPORT, default 4711
 	PIDFile string // PIDFILE, a host path, default /run/pihole-FTL.pid
+	LogFile string // LOGFILE, a host path, default /var/log/pihole/FTL.log
 }
 
-// ReadFTLConf reads FTLPORT and PIDFILE from pihole-FTL.conf, as FTL does
-// (FTL v5.25.2 src/config.c parse_FTLconf, getpath): lines starting with '#'
-// or ';' are comments, the first KEY= line wins, a port outside 1..65535 and
+// ReadFTLConf reads FTLPORT, PIDFILE and LOGFILE from pihole-FTL.conf, as
+// FTL does (FTL v5.25.2 src/config.c parse_FTLconf, getpath,
+// getLogFilePath): lines starting with '#' or ';' are comments, the first
+// KEY= line wins, a port outside 1..65535, a path that is not absolute and
 // an unreadable file give the defaults.
 func ReadFTLConf(p Paths) FTLConf {
-	c := FTLConf{Port: DefaultFTLPort, PIDFile: DefaultFTLPIDFile}
+	c := FTLConf{Port: DefaultFTLPort, PIDFile: DefaultFTLPIDFile, LogFile: DefaultFTLLogFile}
 	b, err := os.ReadFile(p.FTLConfPath())
 	if err != nil {
 		return c
 	}
-	var portSeen, pidSeen bool
+	var portSeen, pidSeen, logSeen bool
 	for _, line := range strings.Split(string(b), "\n") {
 		if strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
 			continue
@@ -123,6 +125,12 @@ func ReadFTLConf(p Paths) FTLConf {
 			pidSeen = true
 			if fields := strings.Fields(v); len(fields) > 0 && filepath.IsAbs(fields[0]) {
 				c.PIDFile = fields[0]
+			}
+		}
+		if v, ok := strings.CutPrefix(line, "LOGFILE="); ok && !logSeen {
+			logSeen = true
+			if fields := strings.Fields(v); len(fields) > 0 && filepath.IsAbs(fields[0]) {
+				c.LogFile = fields[0]
 			}
 		}
 	}

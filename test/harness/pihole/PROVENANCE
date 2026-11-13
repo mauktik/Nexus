@@ -581,3 +581,156 @@ FTL RELOAD RACE (found by TC-125's control; reported, not part of any TC)
   stuck in 2 of 8 rounds, and at round 4 of a second loop. Nexus's own
   domain and adlist ops write gravity.db and then send that reload, and the
   lane can start the next op's write while the previous reload runs.
+
+
+WI 5.6 FTL LIST RELOAD SIGNALS (TC-153; the barrier's markers, A-65, A-66)
+
+captured: 2026-11-13T16:35:39Z to 16:39:17Z (INIT=native, steps 2-6, container
+          nexus-harness-20261113T163507Z-41038); 2026-11-13T16:42:54Z to
+          16:45:30Z (INIT=sysv, steps 2 and 6, nexus-harness-20261113T163936Z-56520)
+how:      make test-harness-pihole's image and setup (run.sh, a temporary hold
+          test, never committed), then the TC-153 commands by docker exec under
+          the harness's env -i; before each step the size of
+          /var/log/pihole/FTL.log was noted and only the lines after it kept.
+          No Nexus code is involved.
+image:    the WI 5.1 harness image (core v5.18.3, web v5.21, FTL v5.25.2).
+
+SOURCES (FTL v5.25.2 at the tag, raw.githubusercontent.com/pi-hole/FTL/v5.25.2/<file>)
+  src/signals.c L278-296: the real-time signal handler logs
+    logg("Received: %s (%d -> %d)", strsignal(signum), signum, rtsig) (L279) and,
+    for rtsig 0 only, set_event(RELOAD_GRAVITY), RELOAD_PRIVACY_LEVEL and
+    RELOAD_BLOCKINGSTATUS (L290-296). An event is a flag: signals during a
+    reload set it again, and one more reload follows.
+  src/dnsmasq_interface.c L1784-1811: FTL_dnsmasq_reload, on SIGHUP and at
+    start, logs "Reloading DNS cache" (L1788) and sets RELOAD_GRAVITY (L1811).
+  src/database/database-thread.c L110-128: the database thread runs
+    FTL_reload_all_domainlists for RELOAD_GRAVITY, then the privacy level and
+    blocking status events, then sleeps 100 ms (L128): the 15-120 ms below.
+  src/datastructure.c L499-522: FTL_reload_all_domainlists, under lock_shm:
+    gravityDB_reopen (L504), gravityDB_count (L507), read_regex_from_database
+    (L511), check_inaccessible_adlists (L514), per-client reset.
+  src/regex.c L744: logg("Compiled %i whitelist and %i blacklist regex filters
+    for %i clients in %.1f msec", ...), the last line of
+    read_regex_from_database.
+  src/database/gravity-db.c: gravityDB_open sets a busy timeout of 0 (L226);
+    its audit statement's prepare error L203 "gravityDB_open(\"SELECT
+    EXISTS(... domain_audit ...)\") - SQL error prepare: %s"; L1107
+    "gravityDB_count(%d): Gravity database not available"; L1155
+    "gravityDB_count(%s) - SQL error step %s"; check_inaccessible_adlists
+    L1529-1567 reads gravity.db after the Compiled line and logs nothing when
+    it succeeds, L1540 "check_inaccessible_adlists(): Gravity database not
+    available" when it cannot open it.
+  src/setupVars.c L256: logg("Blocking status is %s", ...), after the reload.
+  src/config.c L78-88: LOGFILE= in pihole-FTL.conf, default
+    /var/log/pihole/FTL.log (the image logs "Using log file
+    /var/log/pihole/FTL.log" at start).
+  src/log.c L133: every line opens the log with fopen("a+") and closes it.
+  sha256 of the fetched files: signals.c 9cc516a6..., datastructure.c
+    c697b00e..., regex.c b10a2e27..., gravity-db.c b827a26b..., config.c
+    4a2e1269..., dnsmasq_interface.c 0aa9fba2..., database-thread.c d7a46688...,
+    setupVars.c 858012e3..., log.c 816909f9...
+
+MARKERS (A-65), matched on the text after "[<time> <pid>M|/T<tid>] "
+  start:      "Received: Real-time signal 0 (34 -> 0)" (SIGRTMIN: reload-lists,
+              pihole disable/enable); "Reloading DNS cache" (SIGHUP: pihole
+              restartdns reload; and every FTL start).
+  completion: "Compiled N whitelist and M blacklist regex filters for K
+              clients in X msec". A failed reload logs it too (step 6), and
+              after it check_inaccessible_adlists still reads gravity.db, so
+              the barrier waits until the log has been quiet for 500 ms.
+  failure:    "database is locked", "Gravity database not available".
+
+STEP 2: 20 x `pihole restartdns reload-lists`, 2 s apart. Every one exited 0
+  at once and logged exactly these three lines, for example:
+    [2026-11-13 16:35:39.775 327M] Received: Real-time signal 0 (34 -> 0)
+    [2026-11-13 16:35:39.796 327/T343] Compiled 0 whitelist and 0 blacklist regex filters for 1 clients in 0.1 msec
+    [2026-11-13 16:35:39.796 327/T343] Blocking status is enabled
+  Command to the Compiled line, ms (nearest rank):
+    native: 16 25 29 39 50 51 59 65 69 72 79 83 85 88 94 98 107 107 115 119;
+            p50 72, p95 115, max 119
+    sysv:   15 18 35 38 47 50 51 52 53 55 56 58 61 72 72 83 97 100 104 107;
+            p50 55, p95 104, max 107
+
+STEP 3 (native): each exited 0.
+  pihole restartdns reload:
+    [2026-11-13 16:37:13.161 327M] Reloading DNS cache
+    [2026-11-13 16:37:13.230 327/T343] Compiled 0 whitelist and 0 blacklist regex filters for 1 clients in 0.1 msec
+    [2026-11-13 16:37:13.230 327/T343] Blocking status is enabled
+  pihole restartdns (after reset-failed), new PID 2158: the start lines, from
+    "Using log file /var/log/pihole/FTL.log" and "########## FTL started on
+    23eaaa11099e! ##########" to
+    [2026-11-13 16:37:16.271 2158M] Reloading DNS cache
+    [2026-11-13 16:37:16.376 2158/T2175] Compiled 0 whitelist and 0 blacklist regex filters for 1 clients in 0.2 msec
+    [2026-11-13 16:37:16.377 2158/T2175] Blocking status is enabled
+  pihole disable / pihole enable: "Received: Real-time signal 0 (34 -> 0)",
+    "Compiled ...", "Blocking status is disabled" / "... is enabled".
+
+STEP 4 (native): 5,000 enabled regex deny entries ^nexus-race-<n>\.invalid$
+  seeded with pihole-FTL sqlite3. A reload-lists then logs "Compiled 0
+  whitelist and 5000 blacklist regex filters for 1 clients in 43.9-82.1 msec";
+  the first also "Resizing "FTL-per-client-regex" from 4096 to (1 * 8192)".
+  Command to Compiled, 5 runs: 72 120 123 131 154 ms (p50 123, max 154).
+
+STEP 5 (native, healthy): pi.hole NOERROR 127.0.0.1;
+  nexus-probe-729298f6d40e3743.invalid NXDOMAIN (no answer, from
+  06-rfc6761.conf's server=/invalid/, never forwarded); unity.lan NOERROR
+  192.168.7.1; www.xi.example NOERROR 203.0.113.10; baseline-one.example.com
+  NOERROR 0.0.0.0; >stats domains_being_blocked 3, status enabled.
+
+STEP 6 (native): `pihole -w X && pihole -b X`, X = nexus-stuck-<i>.example,
+  2 s apart, with the 5,000 regexes: stuck at round 18 (rounds 1-17 clean).
+  The failed reload's lines, verbatim:
+    [2026-11-13 16:38:59.163 2158M] Received: Real-time signal 0 (34 -> 0)
+    [2026-11-13 16:38:59.174 2158/T2175] gravityDB_count(SELECT COUNT(DISTINCT domain) FROM vw_regex_blacklist) - SQL error step database is locked
+    [2026-11-13 16:38:59.175 2158/T2175] WARN: Database query failed, assuming there are no blacklist regex entries
+    [2026-11-13 16:38:59.175 2158/T2175] SQLite3 message: database is locked in "SELECT domain, CASE WHEN substr(domain, 1, 1) = '*' THEN '*' || substr(:input, - length(domain) + 1) ELSE :input END matcher FROM domain_audit WHERE matcher = domain;" (5)
+    [2026-11-13 16:38:59.175 2158/T2175] gravityDB_open("SELECT EXISTS(... domain_audit ...)") - SQL error prepare: database is locked
+    [2026-11-13 16:38:59.175 2158/T2175] gravityDB_count(4): Gravity database not available
+    [2026-11-13 16:38:59.175 2158/T2175] WARN: Database query failed, assuming there are no whitelist regex entries
+    [2026-11-13 16:38:59.175 2158/T2175] Compiled 0 whitelist and 0 blacklist regex filters for 1 clients in 0.2 msec
+    [2026-11-13 16:38:59.175 2158/T2175] SQLite3 message: database is locked in "SELECT domain, CASE WHEN ... FROM domain_audit WHERE matcher = domain;" (5)
+    [2026-11-13 16:38:59.175 2158/T2175] gravityDB_open("SELECT EXISTS(... domain_audit ...)") - SQL error prepare: database is locked
+    [2026-11-13 16:38:59.175 2158/T2175] check_inaccessible_adlists(): Gravity database not available
+    [2026-11-13 16:38:59.175 2158/T2175] Blocking status is enabled
+  The failed reload logs one Compiled line (with 0 regexes), and failure
+  lines after it. While stuck, and again 5 s later: pi.hole NOERROR
+  127.0.0.1; nexus-probe-25a6f69ebb7d22dc.invalid, unity.lan, www.xi.example
+  and baseline-one.example.com: no reply; >stats domains_being_blocked 3,
+  status enabled, unchanged (>stats shows nothing of it). Then
+  `pihole restartdns reload-lists` (143 ms to Compiled, 5000 regexes again)
+  and every name answered as in step 5.
+  INIT=sysv: 40 rounds (two loops of 20, 5,000 regexes) were all clean: not
+  reproduced under sysv. The race needs -b's commit to meet the reload's
+  first statements; INIT does not change FTL.
+
+GATE (WI 5.6): both premises hold. A line marks the end of every
+  reload-lists reload, failed or not (Compiled), and a stuck FTL does not
+  answer the *.invalid probe. No other signal was needed. >stats has no
+  field that marks a reload (step 5 and 6: recorded for information only).
+
+REGRESSION TESTS, RED ON THE PRE-FIX CODE (WI 5.6 commit 1: fakes and tests,
+no product change)
+  TC-158 TestPiholeListReloadRace, INIT=native, 3 runs, 3 failed
+  (containers nexus-harness-20261113T165514Z-2093, ...T165611Z-4521,
+  ...T165702Z-6848). R ladder (run 1): 5,000 117 ms, 10,000 230 ms, 20,000
+  315 ms, 40,000 895 ms, 80,000 2.63 s; R = 80,000 in every run, D 2.63 s,
+  2.585 s, 2.674 s. Every failure mode appeared in every run:
+    burst 0: race-b0.example not blocked (no answer) at the first dig after its op succeeded
+    burst 0: dig www.xi.example: no answer (FTL stuck)
+    pair 0: add-domain Succeeded <nil>, add-adlist Failed pihole-command-failed: pihole -a adlist add exited 0 but no adlist with that URL is in gravity.db afterwards; nothing was changed
+    pair 0: dig www.xi.example: no answer (FTL stuck)
+    40 new 'database is locked' lines in FTL.log: a list reload met a gravity.db write
+  Per run (not blocked / stuck / op failed / new locked lines): 5/14/10/40,
+  4/13/10/45, 4/13/10/44. The adlist add fails because FTL holds gravity.db
+  for its 2.6 s regex read and webpage.sh's sqlite3 gives up at once, which
+  `pihole -a` still reports as exit 0 (V-9).
+  TC-159 TestPiholeStuckFTLRepairedBeforeWrite, INIT=native (container
+  nexus-harness-20261113T170006Z-14661): 20 hand rounds with R = 80,000 did
+  not make FTL stuck (with a 2.6 s reload, -b's write loses the lock
+  instead; a first run that tried only them skipped as "TC-159 unverified
+  on T1"); the test's fallback, a sqlite3 shell holding BEGIN EXCLUSIVE for
+  3 s across `pihole restartdns reload-lists`, did at its third attempt.
+  Then add-adlist Succeeded in 532 ms with the op log "pihole: running
+  pihole -a adlist add / pihole: added adlist 3 to gravity.db" and
+  dig www.xi.example: no answer (FTL still stuck): an adlist add sends no
+  reload.

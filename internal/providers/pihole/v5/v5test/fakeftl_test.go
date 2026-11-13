@@ -341,3 +341,220 @@ func TestFakeFTLRollbackRestartFails(t *testing.T) {
 	}
 	answers(t, h, "kiwi.home.local", "192.168.7.5")
 }
+
+// ftlLog is FTL's log on the fake host from byte off on ("" when absent).
+func ftlLog(t *testing.T, path string, off int64) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return ""
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if off > int64(len(b)) {
+		return string(b)
+	}
+	return string(b[off:])
+}
+
+func logSize(t *testing.T, path string) int64 {
+	t.Helper()
+	fi, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return 0
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fi.Size()
+}
+
+// eventually polls cond every 5 ms for up to 2 s.
+func eventually(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(2 * time.Second); !cond(); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+	}
+}
+
+// replies reports whether FakeFTL answers name at all within 300 ms.
+func replies(h *v5test.FakeHost, name string) (dnscheck.Answer, bool) {
+	a, err := dnscheck.Query(context.Background(), h.FTL().Addr(), name, 300*time.Millisecond)
+	return a, err == nil
+}
+
+// The captured markers (PROVENANCE "FTL LIST RELOAD SIGNALS"); the test
+// matches them by their own text, not the fake's constants.
+const (
+	markRTMIN    = "] Received: Real-time signal 0 (34 -> 0)\n"
+	markHUP      = "] Reloading DNS cache\n"
+	markCompiled = "] Compiled 0 whitelist and 0 blacklist regex filters for 1 clients in "
+	markLocked   = "database is locked"
+	markNoDB     = "Gravity database not available"
+)
+
+// lastRecord is the text of the log's last reload record, from its last
+// start marker on.
+func lastRecord(log string) string {
+	i := max(strings.LastIndex(log, markRTMIN), strings.LastIndex(log, markHUP))
+	if i < 0 {
+		return log
+	}
+	return log[i:]
+}
+
+// TC-154 (NFR-7, A-64, A-65, A-66): FakeFTL encodes the asynchronous list
+// reload and the reload race as TC-153 captured them on FTL v5.25.2.
+func TestTC154_FakeFTLAsyncListReloadAndRace(t *testing.T) {
+	t.Run("1-2 every reload is asynchronous", func(t *testing.T) {
+		for _, tc := range []struct {
+			name   string
+			argv   []string
+			marker string
+		}{
+			{"reload-lists", []string{pihole, "restartdns", "reload-lists"}, markRTMIN},
+			{"reload", []string{pihole, "restartdns", "reload"}, markHUP},
+			{"restart", []string{pihole, "restartdns"}, markHUP},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				h := v5test.NewFakeHost(t)
+				f := h.FTL()
+				f.SetReloadDuration(300 * time.Millisecond)
+				path := f.LogPath()
+				if path != filepath.Join(h.Root(), "var/log/pihole/FTL.log") {
+					t.Fatalf("log path %s", path)
+				}
+				seed := ftlLog(t, path, 0)
+				if !strings.Contains(seed, markCompiled) || strings.Contains(seed, markLocked) {
+					t.Fatalf("seeded log should end in a completed reload:\n%s", seed)
+				}
+				off, before := logSize(t, path), f.ReloadsCompleted()
+				if code, _ := run(t, h, tc.argv...); code != 0 {
+					t.Fatalf("exit %d", code)
+				}
+				now := ftlLog(t, path, off)
+				if !strings.Contains(now, tc.marker) || strings.Contains(now, markCompiled) || f.ReloadsCompleted() != before {
+					t.Fatalf("at once: completed %d (was %d), log:\n%s", f.ReloadsCompleted(), before, now)
+				}
+				eventually(t, "the reload's completion", func() bool { return f.ReloadsCompleted() == before+1 })
+				if got := ftlLog(t, path, off); !strings.Contains(got, markCompiled) || strings.Contains(got, markLocked) ||
+					strings.Index(got, tc.marker) > strings.Index(got, markCompiled) {
+					t.Errorf("after the reload:\n%s", got)
+				}
+				if f.Stuck() {
+					t.Error("stuck after a clean reload")
+				}
+			})
+		}
+	})
+
+	t.Run("3-4 a commit during a reload leaves FTL stuck until a clean reload", func(t *testing.T) {
+		h := v5test.NewFakeHost(t)
+		f := h.FTL()
+		write(t, dnsFile(h), "address=/unity.lan/192.168.7.1\n")
+		run(t, h, pihole, "restartdns")
+		eventually(t, "the restart's reload", func() bool { _, ok := replies(h, "unity.lan"); return ok && !f.Reloading() })
+		path := f.LogPath()
+		off, before := logSize(t, path), f.ReloadsCompleted()
+		f.HoldReloads()
+		run(t, h, pihole, "restartdns", "reload-lists")
+		h.SeedDomain(1, "raced.example.com", "")
+		f.ReleaseReloads()
+		eventually(t, "the held reload's end", func() bool { return f.ReloadsCompleted() == before+1 })
+		rec := lastRecord(ftlLog(t, path, off))
+		if !strings.Contains(rec, markLocked) || !strings.Contains(rec, markNoDB) || !f.Stuck() {
+			t.Fatalf("stuck %v, record:\n%s", f.Stuck(), rec)
+		}
+		if a, ok := replies(h, "pi.hole"); !ok || len(a.A) != 1 {
+			t.Errorf("pi.hole while stuck: %+v %v", a, ok)
+		}
+		for _, n := range []string{"x.invalid", "unity.lan"} {
+			if a, ok := replies(h, n); ok {
+				t.Errorf("%s answered while stuck: %+v", n, a)
+			}
+		}
+		off = logSize(t, path)
+		run(t, h, pihole, "restartdns", "reload-lists")
+		eventually(t, "the clean reload", func() bool { return f.ReloadsCompleted() == before+2 })
+		if rec := lastRecord(ftlLog(t, path, off)); f.Stuck() || strings.Contains(rec, markLocked) || !strings.Contains(rec, markCompiled) {
+			t.Fatalf("stuck %v after a clean reload:\n%s", f.Stuck(), rec)
+		}
+		answers(t, h, "pi.hole", "127.0.0.1")
+		answers(t, h, "x.invalid", "")
+		answers(t, h, "unity.lan", "192.168.7.1")
+	})
+
+	t.Run("5 FailNextReloads ForceStuck ForceStuckUnlogged", func(t *testing.T) {
+		h := v5test.NewFakeHost(t)
+		f := h.FTL()
+		path := f.LogPath()
+		f.FailNextReloads(1)
+		run(t, h, pihole, "restartdns", "reload-lists")
+		eventually(t, "the failed reload", func() bool { return f.ReloadsCompleted() == 1 })
+		if rec := lastRecord(ftlLog(t, path, 0)); !f.Stuck() || !strings.Contains(rec, markLocked) {
+			t.Errorf("FailNextReloads(1): stuck %v, record:\n%s", f.Stuck(), rec)
+		}
+		run(t, h, pihole, "restartdns", "reload-lists")
+		eventually(t, "the next reload", func() bool { return f.ReloadsCompleted() == 2 })
+		if f.Stuck() {
+			t.Error("FailNextReloads(1) failed more than one reload")
+		}
+
+		h = v5test.NewFakeHost(t)
+		h.FTL().ForceStuck()
+		if rec := lastRecord(ftlLog(t, h.FTL().LogPath(), 0)); !h.FTL().Stuck() || !strings.Contains(rec, markLocked) {
+			t.Errorf("ForceStuck: stuck %v, record:\n%s", h.FTL().Stuck(), rec)
+		}
+		if _, ok := replies(h, "x.invalid"); ok {
+			t.Error("ForceStuck: x.invalid answered")
+		}
+
+		h = v5test.NewFakeHost(t)
+		off := logSize(t, h.FTL().LogPath())
+		h.FTL().ForceStuckUnlogged()
+		log := ftlLog(t, h.FTL().LogPath(), 0)
+		if rec := lastRecord(log); !h.FTL().Stuck() || strings.Contains(rec, markLocked) || !strings.Contains(rec, markCompiled) ||
+			logSize(t, h.FTL().LogPath()) != off {
+			t.Errorf("ForceStuckUnlogged: stuck %v, record:\n%s", h.FTL().Stuck(), rec)
+		}
+		if _, ok := replies(h, "x.invalid"); ok {
+			t.Error("ForceStuckUnlogged: x.invalid answered")
+		}
+	})
+
+	t.Run("6 a stopped FTL reloads nothing", func(t *testing.T) {
+		h := v5test.NewFakeHost(t)
+		path := h.FTL().LogPath()
+		h.FTL().Stop()
+		off := logSize(t, path)
+		if code, _ := run(t, h, pihole, "restartdns", "reload-lists"); code != 0 {
+			t.Fatalf("exit %d", code)
+		}
+		time.Sleep(3 * v5test.DefaultReloadDuration)
+		if got := ftlLog(t, path, off); got != "" || h.FTL().Stuck() || h.FTL().ReloadsCompleted() != 0 {
+			t.Errorf("stopped FTL: logged %q, stuck %v, completed %d", got, h.FTL().Stuck(), h.FTL().ReloadsCompleted())
+		}
+	})
+
+	t.Run("7 LOGFILE moves the log", func(t *testing.T) {
+		h := v5test.NewFakeHost(t)
+		def := h.FTL().LogPath()
+		off := logSize(t, def)
+		write(t, filepath.Join(h.Root(), "etc/pihole/pihole-FTL.conf"), "PRIVACYLEVEL=0\nLOGFILE=/var/log/alt/FTL.log\n")
+		alt := filepath.Join(h.Root(), "var/log/alt/FTL.log")
+		if h.FTL().LogPath() != alt {
+			t.Fatalf("log path %s, want %s", h.FTL().LogPath(), alt)
+		}
+		run(t, h, pihole, "restartdns", "reload-lists")
+		eventually(t, "the reload", func() bool { return h.FTL().ReloadsCompleted() == 1 })
+		if got := ftlLog(t, alt, 0); !strings.Contains(got, markRTMIN) || !strings.Contains(got, markCompiled) {
+			t.Errorf("alternate log:\n%s", got)
+		}
+		if got := ftlLog(t, def, off); got != "" {
+			t.Errorf("default log got %q", got)
+		}
+	})
+}

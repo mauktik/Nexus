@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -31,6 +32,9 @@ const (
 type Mutator struct {
 	Paths  Paths
 	Runner Runner
+	// DNSServer is FTL's DNS address, 127.0.0.1:53 in production: the list
+	// reload barrier's probe asks it (A-66).
+	DNSServer netip.AddrPort
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 	// Sleep waits d or until ctx ends; nil means a real timer. Tests advance

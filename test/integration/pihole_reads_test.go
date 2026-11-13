@@ -353,12 +353,16 @@ func phFTLDiag(t *testing.T) {
 }
 
 // phRequireFTLHealthy ends every test that restarts or stops FTL: the
-// unit's Result is success and FTL answers.
+// unit's Result is success and FTL answers, pi.hole and www.xi.example both.
+// A FTL whose list reload failed still answers pi.hole and nothing else
+// (WI 5.6, PROVENANCE "FTL LIST RELOAD SIGNALS"), so pi.hole alone does
+// not show it healthy.
 func phRequireFTLHealthy(t *testing.T) {
 	t.Helper()
-	waitUntil(t, 30*time.Second, "pihole-FTL Result=success and answering", func() (bool, string) {
+	waitUntil(t, 30*time.Second, "pihole-FTL Result=success, answering pi.hole and "+phSplit, func() (bool, string) {
 		r := showUnit(t, phFTLUnit, "Result")["Result"]
-		return r == "success" && phAnswers(), "Result=" + r
+		split := phDig(phSplit)
+		return r == "success" && phAnswers() && split.status != "", "Result=" + r + ", " + phSplit + " " + split.String()
 	})
 }
 
