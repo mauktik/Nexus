@@ -34,6 +34,57 @@ var tabledExits = map[problem.Slug]int{
 	"audit-unavailable": 1, "storage-limit-reached": 1,
 }
 
+// nginxExits are the nginx provider's non-operation-level problem types.
+// planning/nginx-provider/architecture.md (Interfaces, Problem types) tables
+// their slug and HTTP status (all 422) but has no exit column; the exit is
+// the general failure code 1 (FR-34), as for the other 4xx refusals such as
+// conflict and not-updatable. nginx-reload-failed is operation-level, so
+// the test expects exit 1 for it without tabling it, like outcome-unknown.
+var nginxExits = map[problem.Slug]int{
+	"nginx-config-invalid": 1, "nginx-config-unmanaged": 1, "nginx-not-running": 1,
+}
+
+// nginxArchitectureRows parses the slug and status columns of the nginx
+// problem table, so a slug or status change there that is not carried here
+// fails. A nil result means planning/ is absent.
+func nginxArchitectureRows(t *testing.T) map[problem.Slug]string {
+	t.Helper()
+	path := filepath.Join("..", "..", "planning", "nginx-provider", "architecture.md")
+	f, err := os.Open(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		t.Logf("%s not present; checking the copied nginx table only", path)
+		return nil
+	}
+	if err != nil {
+		t.Fatalf("open %s: %v", path, err)
+	}
+	defer f.Close()
+	row := regexp.MustCompile("^\\| `(nginx-[a-z-]+)` \\| ([^|]+?) \\|")
+	out := map[problem.Slug]string{}
+	in := false
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := sc.Text()
+		if strings.HasPrefix(line, "| Slug | Status | Extensions | Raised by |") {
+			in = true
+			continue
+		}
+		if !in {
+			continue
+		}
+		if !strings.HasPrefix(line, "|") {
+			break
+		}
+		if m := row.FindStringSubmatch(line); m != nil {
+			out[problem.Slug(m[1])] = m[2]
+		}
+	}
+	if err := sc.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
 // architectureExits parses the same column out of architecture.md, so a
 // change there that is not carried here fails.
 func architectureExits(t *testing.T) map[problem.Slug]int {
@@ -90,6 +141,23 @@ func TestExitCodeMapping(t *testing.T) {
 			}
 		}
 	}
+	if rows := nginxArchitectureRows(t); rows != nil {
+		if len(rows) != 4 {
+			t.Fatalf("parsed %d rows from the nginx problem table, want 4", len(rows))
+		}
+		for _, typ := range problem.All() {
+			if !strings.HasPrefix(string(typ.Slug), "nginx-") {
+				continue
+			}
+			want := strconv.Itoa(typ.Status)
+			if typ.OperationLevel {
+				want = "operation-level"
+			}
+			if rows[typ.Slug] != want {
+				t.Errorf("%s: nginx architecture.md says status %q, registry says %q", typ.Slug, rows[typ.Slug], want)
+			}
+		}
+	}
 	for _, typ := range problem.All() {
 		got, ok := ProblemExit(typ.Slug)
 		if !ok {
@@ -100,6 +168,9 @@ func TestExitCodeMapping(t *testing.T) {
 		if !typ.OperationLevel {
 			var tabled bool
 			want, tabled = tabledExits[typ.Slug]
+			if !tabled {
+				want, tabled = nginxExits[typ.Slug]
+			}
 			if !tabled {
 				t.Errorf("%s: registered but not in the architecture table", typ.Slug)
 				continue

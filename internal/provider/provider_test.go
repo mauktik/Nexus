@@ -400,7 +400,7 @@ func copyContractModule(t *testing.T) string {
 	for _, f := range []string{"go.mod", "go.sum"} {
 		copyFile(t, filepath.Join(src, f), filepath.Join(dst, f))
 	}
-	for _, pkg := range []string{"def", "apitypes", "problem", "provider", "detach", "oplog"} {
+	for _, pkg := range contractPackages(t, src) {
 		files, err := filepath.Glob(filepath.Join(src, "internal", pkg, "*.go"))
 		if err != nil {
 			t.Fatal(err)
@@ -413,6 +413,31 @@ func copyContractModule(t *testing.T) string {
 		}
 	}
 	return dst
+}
+
+// contractPackages is the transitive closure of the contract packages'
+// in-module imports (non-test), so a new import in any of them is copied
+// rather than failing the probe with a missing package.
+func contractPackages(t *testing.T, src string) []string {
+	t.Helper()
+	const prefix = "github.com/mauktik/nexus/internal/"
+	args := []string{"list", "-deps", "-f", "{{.ImportPath}}"}
+	for _, pkg := range []string{"def", "apitypes", "problem", "provider", "detach", "oplog"} {
+		args = append(args, "./internal/"+pkg)
+	}
+	cmd := exec.Command("go", args...)
+	cmd.Dir = src
+	outb, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("go list -deps: %v", err)
+	}
+	var pkgs []string
+	for _, line := range strings.Fields(string(outb)) {
+		if rest, ok := strings.CutPrefix(line, prefix); ok {
+			pkgs = append(pkgs, filepath.FromSlash(rest))
+		}
+	}
+	return pkgs
 }
 
 func moduleRoot(t *testing.T) string {
