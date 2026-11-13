@@ -245,12 +245,13 @@ func TestTCSM62_TheRealSystemImplementationRunsInstall(t *testing.T) {
 		t.Errorf("sleeping install.sh took %v, want it killed at about 300ms", took)
 	}
 
-	// Step 2: each captured systemctl show fixture.
+	// Step 2: each captured systemctl show fixture (real systemd 259
+	// captures from T1, TC-SM-129; testdata/systemctl-show/README).
 	want := map[string]unitState{
-		"active.txt":             {ActiveState: "active", SubState: "running", Result: "success", MainPID: 1817, NRestarts: 0},
-		"activating.txt":         {ActiveState: "activating", SubState: "start", Result: "success", MainPID: 2044, NRestarts: 0},
-		"failed-start-limit.txt": {ActiveState: "failed", SubState: "failed", Result: "start-limit-hit", MainPID: 0, NRestarts: 4},
-		"auto-restart.txt":       {ActiveState: "activating", SubState: "auto-restart", Result: "exit-code", MainPID: 0, NRestarts: 2},
+		"active.txt":             {ActiveState: "active", SubState: "running", Result: "success", MainPID: 17647, NRestarts: 0},
+		"activating.txt":         {ActiveState: "activating", SubState: "start", Result: "success", MainPID: 17689, NRestarts: 0},
+		"failed-start-limit.txt": {ActiveState: "failed", SubState: "failed", Result: "exit-code", MainPID: 0, NRestarts: 5},
+		"auto-restart.txt":       {ActiveState: "activating", SubState: "auto-restart", Result: "exit-code", MainPID: 0, NRestarts: 0},
 	}
 	for name, w := range want {
 		b, err := os.ReadFile(filepath.Join("testdata/systemctl-show", name))

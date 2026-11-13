@@ -1,43 +1,50 @@
 systemctl show fixtures for parseShow (internal/providers/nexusd/system.go)
 
-Each file is the output of
+Each file is the output, byte for byte, of
 
-    systemctl show nexusd.service -p ActiveState -p SubState -p Result -p MainPID -p NRestarts
+    systemctl show <unit> -p ActiveState -p SubState -p Result -p MainPID -p NRestarts
 
-in one unit state:
+captured from real systemd in the T1 harness container by TC-SM-129
+(test/integration/nexusd_selfmgmt_test.go, TestTCSM129_*), which logs each
+capture between "CAPTURE <file> BEGIN" and "CAPTURE <file> END" lines.
 
-    active.txt              Type=notify unit after READY=1
-    activating.txt          started, READY=1 not yet sent
-    failed-start-limit.txt  a binary that exits at start, after the start limit
-                            (StartLimitBurst=5 in StartLimitIntervalSec=10s)
-    auto-restart.txt        between a failed start and its Restart=on-failure re-spawn
+systemd version: systemd 259 (259.9-0ubuntu0.1), Ubuntu 26.04.1 LTS
+(BASE=ubuntu:latest), arm64. Captured by `make test-harness` (WI 7.2) in
+the run whose logs are build/harness/logs/20261113T210341Z (2026-11-13).
 
-Provenance: NOT captured from a running systemd. These files were written
-by hand (WI 4.1) from the documented format, because the T1 harness capture
-belongs to WI 7.2. Sources:
+The unit is nexusd-fidelity.service: a copy of deploy/nexusd.service whose
+ExecStart names /usr/local/bin/nexusd-fidelity instead of
+/usr/local/bin/nexusd, so nexusd.service itself is not touched. Type,
+Restart (on-failure, default RestartSec 100 ms), the default start limit
+(StartLimitBurst=5 in StartLimitIntervalSec=10s) and the sandbox are the
+shipped unit's.
 
-  - systemctl(1), https://www.freedesktop.org/software/systemd/man/latest/systemctl.html:
-    `show` "is intended to be used whenever computer-parsable output is
-    required"; `--value` "only print the value, and skip the property name
-    and '='" (so each line is NAME=VALUE); `-p` "If specified more than
-    once, all properties with the specified names are shown."
-  - org.freedesktop.systemd1(5), https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.systemd1.html:
-    `readonly u MainPID`, `readonly u NRestarts`, `readonly s Result`,
-    `readonly s ActiveState` (active, inactive, failed, activating,
-    deactivating, maintenance, reloading, refreshing), `readonly s SubState`.
-  - systemd.exec(5), https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html,
-    $SERVICE_RESULT: the Result values, including "exit-code" and
-    "start-limit-hit".
+    active.txt              the real nexusd v9.9.1, after READY=1
+                            (Type=notify)
+    activating.txt          a binary that never sends READY=1
+                            (`exec sleep 600`), before the start timeout
+    auto-restart.txt        the v9.9.4 stub (serve exits 1), between its
+                            first failed start and the Restart=on-failure
+                            re-spawn; caught by a tight poll
+    failed-start-limit.txt  the same stub once its re-spawns met the start
+                            limit, read right after a further blocking
+                            `systemctl restart` was refused
 
-The line order (service properties MainPID, Result, NRestarts before the
-unit properties ActiveState, SubState) is the order systemctl prints bus
-properties in, not the order of the -p flags; parseShow does not depend on
-it. The PIDs and NRestarts values are illustrative.
+Property order is systemd's own (ActiveState, SubState, MainPID, Result,
+NRestarts), not the order of the -p flags; parseShow does not depend on it.
 
-systemd version: none (hand-written; see above). TODO for WI 7.2 / TC-SM-129:
-replace each file with a capture from the T1 harness
+What these captures show about systemd 259 (TC-SM-129 logs the full
+journal):
 
-    docker exec <t1-container> systemctl show nexusd.service \
-        -p ActiveState -p SubState -p Result -p MainPID -p NRestarts
+  - At the start limit the unit is failed with Result=exit-code, not
+    start-limit-hit: the journal says "Start request repeated too quickly"
+    and then "Failed with result 'exit-code'". A blocking restart refused
+    by the limit leaves Result=exit-code too.
+  - NRestarts is 5 there: 1 explicit start and 4 re-spawns ran, and the
+    5th scheduled re-spawn ("restart counter is at 5") was the start the
+    limit refused.
+  - In auto-restart, NRestarts is still 0: it counts when the re-spawn
+    runs, not when it is scheduled.
 
-and record `docker exec <t1-container> systemctl --version | head -1` here.
+The previous, hand-written files (WI 4.1) encoded Result=start-limit-hit
+with NRestarts 4; the real values replace them.

@@ -390,3 +390,139 @@ These are marked for re-measurement at 11.1:
   more labels, mounts and ports than busybox `sleep`.
 - **Startup to ready:** with real containers, real apt state and the
   host's Docker.
+
+## nexusd self-management (WI 7.2)
+
+The T1 matrix of nexusd self-management, TC-SM-109 to TC-SM-129, in
+`test/integration/nexusd_selfmgmt_test.go`. Its NFR lines start with
+`NFR NSM-NFR-`. Run it with:
+
+```
+make test-harness RUN='^TestTCSM1(09|1[0-9]|2[0-9])_'
+```
+
+The figures below are from one such run on 2026-11-13, 21:03 to 21:10 UTC
+(harness logs `build/harness/logs/20261113T210341Z`, not committed). The
+Mac, the VM and the harness image are those of "Environment" above:
+Colima arm64, systemd 259 (259.9-0ubuntu0.1), Ubuntu 26.04.1 LTS.
+
+Every case starts from a wiped host. The v9.9.1 fixture is installed by
+its own `install.sh`, and nexusd runs under the shipped unit with no
+drop-in. The nexusd provider is enabled with the run's own release key
+trusted and the default `healthTimeout` of 30 s, with TLS auto. The CLI is
+the test binary, over the pinned certificate. The fixtures are WI 7.1's
+real `make nexusd-tree` trees (more than 64 entries each) with harness-arch
+binaries.
+
+### Summary
+
+| NFR | Target | T1 | Verdict | Re-measure on the x64 host |
+| --- | --- | --- | --- | --- |
+| NSM NFR-1 | Update: `restart-started` to `healthy`, p95 of 5 runs under 15 s | 6.21, 6.22, 6.25, 6.25, 6.25 s; p95 (the max) 6.25 s | met | yes |
+| NSM NFR-1 | Automatic rollback: `restart-started` to the post-restore `healthy` within healthTimeout + 20 s = 50 s | (b) v9.9.3 7.01 s; (c) v9.9.4 6.02 s; (d) v9.9.5 38.32 s, of which the restore took 7.01 s | met | yes |
+| NSM NFR-2 | `get` p95 under 200 ms | p95 0.16 ms (p50 0.10 ms, max 2.87 ms) over 50 calls | met | yes |
+| NSM NFR-2 | `validate-config` p95 under 200 ms | p95 0.30 ms (p50 0.13 ms, max 0.30 ms) over 50 calls | met | yes |
+| NSM NFR-2 | nexusd.prev executed at most once for repeated reads | 1 exec (`-version`) over 101 reads | met | no |
+| NSM NFR-4 | VmRSS during a 64 MiB upload under idle + 8 MiB | idle 18,468 KiB; sampled peak 18,456 KiB; VmHWM 18,560 KiB before and after: no measurable growth | met | yes |
+| NSM NFR-4 | `staging/` empty after a refused update and after an expiry sweep | empty both times | met | no |
+
+### Method
+
+- **NFR-1 (TC-SM-126):** the update helper writes `restart-started <ts>`
+  and `healthy <ts>` lines to the op log from its own clock. When
+  `install.sh` restarts the unit itself (A-33), `restart-started` is the
+  start of `install.sh`, so the figure is an upper bound on the outage.
+  About 5 s of every figure is the FR-10 stability window: health holds
+  only after the same MainPID and NRestarts stay healthy for 5 s. Case (d)
+  includes the full 30 s health timeout spent on the wrong version
+  (`v9.9.8` reported, `v9.9.5` expected) before the restore.
+- **NFR-2 (TC-SM-127):** 50 sequential REST calls of each on loopback,
+  over the pinned TLS connection with keep-alive, timed in the client,
+  with nexusd.prev present (after an update to v9.9.2). A shell wrapper
+  stood in for nexusd.prev and appended each exec to a file under
+  `/var/lib/nexus`, the only place the sandboxed nexusd may write. The
+  wrapper's own file identity is cached after the first `-version`.
+- **NFR-4 (TC-SM-128):** VmRSS of the MainPID is the mean of 20 idle
+  samples taken 50 ms apart, then sampled every 50 ms during the upload.
+  The 64 MiB upload took 105 ms on loopback, so only 3 samples fell in it.
+  VmHWM, the process's resident high-water mark, was read before and after
+  and did not move, which bounds the peak better than the samples. Step 2
+  refused the same upload (its signature is random) with
+  `update-signature-invalid`, and `staging/` was empty. Step 3 staged a
+  second upload, set its `meta.json` `expires` in the past, restarted
+  nexusd, and `staging/` was empty after the startup sweep.
+
+### T1 matrix
+
+The values read back in the run above. "MainPID a -> b" is
+`systemctl show -p MainPID` before and after.
+
+| Case | TC | Outcome | Read back |
+| --- | --- | --- | --- |
+| (a) update v9.9.2 | TC-SM-109 | pass | exit 0; `Succeeded {previousVersion v9.9.1, newVersion v9.9.2, changed, rolledBack false}`; `nexusd -version` v9.9.2, `nexusd.prev -version` v9.9.1, the saved unit equals the pre-update unit; 1 `Started` line; MainPID 472 -> 633, `/proc/633/exe -version` v9.9.2; op log `backup: ... from /proc/472/exe` (A-20), `installed nexusd v9.9.2`, `install.sh restarted nexusd.service (MainPID 633, was 472)` (A-33); upload `201 Created`; `staging/` empty; the op unit stayed active with MainPID 519 across nexusd 472 -> 633 (A-19) |
+| (b) v9.9.3 | TC-SM-110 | pass | exit 1; `Failed update-failed`, `rolledBack true`, `step install`, detail "install.sh failed with exit code 3"; binary v9.9.1; unit file and saved unit equal the shipped unit; active with a new MainPID |
+| (c) v9.9.4 | TC-SM-111 | **fail** (one assertion) | exit 1; `update-failed`, `rolledBack true`, `step install` (install.sh's blocking restart failed, exit 1); binary v9.9.1; active, `Result=success`; the journal shows the stub's `'serve' fails on purpose`. The op log has no `reset-failed` line: see finding 1 |
+| (d) v9.9.5 | TC-SM-112 | pass | exit 1; `update-failed`, `rolledBack true`, `step health`, "condition 2 ... MainPID 2604 runs nexusd v9.9.8, want v9.9.5"; binary v9.9.1. A-17 directly: with v9.9.2 renamed over the binary, `/proc/2407/exe` (`/usr/local/bin/nexusd (deleted)`) still reported v9.9.1 |
+| (e) v9.9.6 | TC-SM-113 | pass | exit 1 `update-signature-invalid`; no op; `staging/` empty; last audit record `refused`, `update-signature-invalid`, `facts.signature invalid`; MainPID unchanged |
+| (f) restart | TC-SM-114 | pass | exit 0; `Succeeded {version v9.9.1, changed}`; MainPID 4337 -> 4423; op unit active across the restart (A-19); `operation get` after the restart shows Succeeded |
+| (g) rollback twice | TC-SM-115 | pass | `{fromVersion v9.9.2, toVersion v9.9.1}` (MainPID -> 5395), then `{v9.9.1 -> v9.9.2}` (-> 5758); binaries swapped each time; both unit files' hashes back to their originals |
+| (h) fresh rollback | TC-SM-116 | pass | exit 1 `rollback-unavailable`, `path /usr/local/bin/nexusd.prev`; no op; MainPID unchanged |
+| (i) reload | TC-SM-117 | pass | `bogusKey` refused `config-invalid`, `errors[0]` at `/etc/nexus/nexusd.yaml:<last line + 1>:1`, no op; then `Succeeded {applied, restartRequired [limits]}`; MainPID 6483 throughout |
+| (j) concurrent | TC-SM-118 | pass | 27 restart attempts while the update ran: all 409 `conflict` naming the update, 25 of them answered by the new MainPID 6897 (was 6754); no restart op |
+| (k) `--follow` | TC-SM-119 | pass | exit 0; "likely restarting" at 21:05:53.6, then the followed `healthy 2026-11-13T21:05:59.80Z` at 21:05:59.9; no line twice. The followed lines are on stderr (FR-33) |
+| same version | TC-SM-120 | pass | exit 0 `Succeeded {changed false}`; MainPID 7856 unchanged; binary hash unchanged; no nexusd.prev; `staging/` empty |
+| downgrade | TC-SM-121 | pass | without the flag: exit 1 `version-downgrade` (v9.9.2, v9.9.1), upload kept, no op; with it: `Succeeded {v9.9.2 -> v9.9.1}`, binary v9.9.1 |
+| flipped byte | TC-SM-122 | pass | byte 4,649,826 of 9,299,652 flipped: exit 1 `update-signature-invalid`; no op; `staging/` empty; binary unchanged |
+| (l) v9.9.7 | TC-SM-123 | pass | CLI exit 5 after the 60 s window; before recovery `nexusd.prev -version` v9.9.1 (the stub) and nexusd.service `failed`, `Result=exit-code`, `NRestarts=5`; `exit.json` and `result.json` present; after `lib.sh install-release`, `reset-failed` and `start`: active, MainPID 9634; `Failed update-rollback-failed`, `rolledBack false`, detail with "may be down" and the recovery anchor; never `outcome-unknown` |
+| prev rejects config | TC-SM-124 | pass | exit 1 `config-invalid` with the stub's two stderr lines in order; no op; binaries unchanged (A-31: prev executed under the sandbox) |
+| reads | TC-SM-125 | pass | `get` v9.9.1, no previous, the config and executable paths, self-management available; after the update v9.9.2 with previous v9.9.1 and uptime reset; `validate-config` valid; a `nexusd:read` token gets exit 3 naming `nexusd:admin` for update and restart |
+| NFR-1, -2, -4 | TC-SM-126 to 128 | pass | above |
+| fidelity | TC-SM-129 | **fail** (by design) | real systemd differs from F-SYS: see finding 2 |
+
+### Findings for a decision
+
+1. **The update helper does not log `reset-failed` (TC-SM-111).**
+   `update_helper.go` `restore` runs `systemctl reset-failed` without a
+   step line, so the op log cannot show it. TC-SM-111 asserts one and
+   fails on that alone. In the real case (c), the restore ran at restart
+   counter 1, before the start limit, so the rollback did not depend on
+   reset-failed this time.
+2. **F-SYS does not match systemd 259 at the start limit (TC-SM-129).**
+   The captures are in `internal/providers/nexusd/testdata/systemctl-show`.
+   - A binary that exits at start ends `failed` with `Result=exit-code`
+     and `NRestarts=5`. F-SYS encodes `Result=start-limit-hit` and
+     `NRestarts=4`. The journal logs "Start request repeated too quickly"
+     and then "Failed with result 'exit-code'". systemd 259 never showed
+     `start-limit-hit` in this path, even after a further restart was
+     refused.
+   - A refused blocking `systemctl restart` exits 1 with "the control
+     process exited with error code". A refused `systemctl restart
+     --no-block` exits 0, and the start then fails on its own. F-SYS's
+     `Restart` returns an error instead.
+   - The limit lifts once StartLimitIntervalSec has passed since the
+     window began, without reset-failed. F-SYS keeps it until
+     `ResetFailed`.
+   - `systemctl reset-failed` on a stopped, unloaded unit exits 1 ("not
+     loaded"). F-SYS never fails it.
+   - Confirmed as encoded: `restart --no-block` returns in about 3 ms and
+     the new MainPID comes later; a refused start logs "Start request
+     repeated too quickly"; reset-failed clears the limit and the next
+     restart starts; `install.sh` starts nothing when the unit is
+     inactive (0 `Started` lines).
+
+   TC-SM-63 steps 3 and 4, TC-SM-ERR52 (its setup "F-SYS reaches
+   `start-limit-hit`" and its planted variant's detail), and
+   `TestRestartRefusedBySystemd` encode the F-SYS behaviour, and so does
+   TC-SM-129's own step 2 expectation in `test-cases.md`. Correcting F-SYS
+   changes those Expected values, which needs a test-case amendment. The
+   product helper worked on real systemd in every case.
+3. **An update to the running version reports empty versions.** TC-SM-120's
+   result was `{"changed":false,"previousVersion":"","newVersion":""}`,
+   the gap recorded at Phase 5.
+4. **TC-SM-119 says stdout, but `--follow` writes the followed lines to
+   stderr (FR-33).** The test checks the followed `healthy` line wherever
+   it is, and logs which stream it was on.
+5. **The 50 ms RSS sampling sees little of a 64 MiB loopback upload,**
+   which takes about 100 ms. The VmHWM read-back covers it. On the real
+   host, over the network, the upload is slower and the samples will
+   count.
