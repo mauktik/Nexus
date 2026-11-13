@@ -25,7 +25,8 @@ import (
 	"testing"
 	"time"
 
-	_ "modernc.org/sqlite" // The database/sql driver "sqlite"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 
 	"github.com/mauktik/nexus/internal/detach"
 	"github.com/mauktik/nexus/internal/providers/pihole/v5"
@@ -182,10 +183,12 @@ func (h *FakeHost) writeFile(abs, body string, mode os.FileMode) {
 
 func (h *FakeHost) path(abs string) string { return filepath.Join(h.root, abs) }
 
-// withDB runs f on the host's gravity.db, opened for this call only.
+// withDB runs f on the host's gravity.db, opened for this call only, with
+// foreign keys enforced, as `pihole-FTL sqlite3` opens it (PRAGMA
+// foreign_keys = 1 on the v5 image; WI 5.1 PROVENANCE "ADLIST REPLACEMENT").
 func (h *FakeHost) withDB(f func(*sql.DB) error) {
 	h.t.Helper()
-	db, err := sql.Open("sqlite", "file:"+h.path(v5.GravityDBFile))
+	db, err := sql.Open("sqlite", "file:"+h.path(v5.GravityDBFile)+"?_pragma=foreign_keys(1)")
 	if err != nil {
 		h.t.Fatalf("v5test: open gravity.db: %v", err)
 	}
@@ -533,7 +536,7 @@ func (h *FakeHost) pihole(args []string, stdout, stderr io.Writer) int {
 			if len(args) == 5 {
 				comment = args[4]
 			}
-			h.adlist(args[2], args[3], comment)
+			h.adlist(args[2], args[3], comment, stderr)
 			return 0
 		}
 		return unknown(argv, stderr)
@@ -625,19 +628,29 @@ func (h *FakeHost) listSh(opt, value string, stdout io.Writer) int {
 	return 0
 }
 
-// adlist is `pihole -a adlist add|del` (webpage.sh, V-9): a URL CheckUrl
-// refuses is silently not stored, a missing URL is silently not deleted,
-// FTL is not reloaded, and the exit code is always 0.
-func (h *FakeHost) adlist(verb, url, comment string) {
+// adlist is `pihole -a adlist add|del` (webpage.sh CustomizeAdLists
+// L555-577, V-9): a URL CheckUrl refuses is silently not stored, a missing
+// URL is silently not deleted, FTL is not reloaded, and the exit code is
+// always 0. A del is the bare `DELETE FROM adlist WHERE address = ...`
+// under foreign keys: while gravity rows reference the list the constraint
+// refuses it, sqlite3 prints the error, the row stays, and the command
+// still exits 0 (WI 5.1 PROVENANCE "ADLIST REPLACEMENT"). A list with no
+// gravity rows is deleted, and the schema's tr_adlist_delete trigger
+// removes its group links.
+func (h *FakeHost) adlist(verb, url, comment string, stderr io.Writer) {
 	if !checkURL.MatchString(url) {
 		return
 	}
 	h.withDB(func(db *sql.DB) error {
-		var err error
 		if verb == "add" {
-			_, err = db.Exec(`INSERT OR IGNORE INTO adlist (address, comment) VALUES (?, ?)`, url, comment)
-		} else {
-			_, err = db.Exec(`DELETE FROM adlist WHERE address = ?`, url)
+			_, err := db.Exec(`INSERT OR IGNORE INTO adlist (address, comment) VALUES (?, ?)`, url, comment)
+			return err
+		}
+		_, err := db.Exec(`DELETE FROM adlist WHERE address = ?`, url)
+		var se *sqlite.Error
+		if errors.As(err, &se) && se.Code() == sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY {
+			fmt.Fprintln(stderr, "Error: stepping, FOREIGN KEY constraint failed (19)")
+			return nil
 		}
 		return err
 	})
@@ -646,10 +659,19 @@ func (h *FakeHost) adlist(verb, url, comment string) {
 // gravityListDomains is how many domains each successful list holds.
 const gravityListDomains = 3
 
+// GravityDomain is the i-th (from 0) gravity domain `pihole -g` stores for
+// the adlist with id: unique per list.
+func GravityDomain(id int64, i int) string {
+	return fmt.Sprintf("d%d.adlist%d.example", i, id)
+}
+
 // gravity is `pihole -g` (V-12): one progress block per adlist, in id
 // order, status 1 (updated) or 4 (failed, no cache) for a URL given to
 // FailAdlistDownload, info.updated = now in seconds and gravity_count. It
-// exits 0 even when lists fail.
+// replaces every gravity row: each list that downloads gets
+// gravityListDomains rows (GravityDomain, adlist_id), a failed one none,
+// so a processed list is referenced by gravity.adlist_id. It exits 0 even
+// when lists fail.
 func (h *FakeHost) gravity(stdout io.Writer) int {
 	fmt.Fprintln(stdout, "  [i] Neutrino emissions detected...")
 	h.withDB(func(db *sql.DB) error {
@@ -673,6 +695,9 @@ func (h *FakeHost) gravity(stdout io.Writer) int {
 		if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 			return err
 		}
+		if _, err := db.Exec(`DELETE FROM gravity`); err != nil {
+			return err
+		}
 		total := 0
 		for _, l := range lists {
 			fmt.Fprintf(stdout, "  [i] Target: %s\n", l.addr)
@@ -686,6 +711,11 @@ func (h *FakeHost) gravity(stdout io.Writer) int {
 				fmt.Fprintf(stdout, "  [i] Received %d domains\n", number)
 			}
 			total += number
+			for i := range number {
+				if _, err := db.Exec(`INSERT INTO gravity (domain, adlist_id) VALUES (?, ?)`, GravityDomain(l.id, i), l.id); err != nil {
+					return err
+				}
+			}
 			if _, err := db.Exec(`UPDATE adlist SET status = ?, number = ?, date_updated = ? WHERE id = ?`,
 				status, number, h.now.Unix(), l.id); err != nil {
 				return err
@@ -854,6 +884,61 @@ func (h *FakeHost) AdlistStatus(url string) int {
 		return err
 	})
 	return status
+}
+
+// AdlistRefs counts the gravity and adlist_by_group rows that reference
+// the adlist with id.
+func (h *FakeHost) AdlistRefs(id int64) (gravity, groups int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.withDB(func(db *sql.DB) error {
+		return db.QueryRow(`SELECT (SELECT count(*) FROM gravity WHERE adlist_id = ?),
+			(SELECT count(*) FROM adlist_by_group WHERE adlist_id = ?)`, id, id).Scan(&gravity, &groups)
+	})
+	return gravity, groups
+}
+
+// ForeignKeys is PRAGMA foreign_keys on the handle FakeHost's own commands
+// use: 1 when they enforce foreign keys.
+func (h *FakeHost) ForeignKeys() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	on := -1
+	h.withDB(func(db *sql.DB) error {
+		return db.QueryRow(`PRAGMA foreign_keys`).Scan(&on)
+	})
+	return on
+}
+
+// ForeignKeyViolations is the number of rows PRAGMA foreign_key_check
+// reports for the whole database.
+func (h *FakeHost) ForeignKeyViolations() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	n := 0
+	h.withDB(func(db *sql.DB) error {
+		rows, err := db.Query(`PRAGMA foreign_key_check`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			n++
+		}
+		return rows.Err()
+	})
+	return n
+}
+
+// ExecGravityDB runs one statement on gravity.db, foreign keys on, as a test
+// hook: planting a table or re-inserting a row as a gravity swap would.
+func (h *FakeHost) ExecGravityDB(query string, args ...any) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.withDB(func(db *sql.DB) error {
+		_, err := db.Exec(query, args...)
+		return err
+	})
 }
 
 // FailAdlistDownload makes `pihole -g` fail to download url.

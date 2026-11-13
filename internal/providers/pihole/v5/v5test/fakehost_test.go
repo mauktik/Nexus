@@ -1,6 +1,6 @@
 // Cases: TC-70 (a-h) in planning/pihole-dns-zones/test-cases.md (WI 3.1),
-// plus self-tests of FakeHost's fault injection, FTL events and planted
-// gravity process.
+// TC-146 (WI 5.4), plus self-tests of FakeHost's fault injection, FTL events
+// and planted gravity process.
 //
 // These are the fake-fidelity self-tests: each asserts that FakeHost
 // reproduces a verified Pi-hole v5.18.4 behavior (architecture V-9, V-12,
@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mauktik/nexus/internal/providers/pihole/gravitydb"
 	"github.com/mauktik/nexus/internal/providers/pihole/v5"
 	"github.com/mauktik/nexus/internal/providers/pihole/v5/v5test"
 )
@@ -342,5 +343,95 @@ func TestFakeHostGravityProcess(t *testing.T) {
 	stop()
 	if _, ok := v5.GravityRunning(h.Paths()); ok {
 		t.Error("the run is still visible after stop")
+	}
+}
+
+// adlistID is the id of the adlist with url, read back independently.
+func adlistID(t *testing.T, h *v5test.FakeHost, url string) int64 {
+	t.Helper()
+	db, err := gravitydb.OpenReadOnly(context.Background(), h.Paths().GravityDBPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := db.Adlists(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.URL == url {
+			return r.PiholeID
+		}
+	}
+	t.Fatalf("no adlist %s", url)
+	return 0
+}
+
+// TC-146 (NFR-7, A-58): FakeHost encodes the adlist foreign key as the v5
+// image showed it (WI 5.1 PROVENANCE "ADLIST REPLACEMENT"; webpage.sh
+// CustomizeAdLists L555-577). Its handle enforces foreign keys; `pihole -g`
+// replaces the gravity rows, giving each downloaded list its own; `pihole -a
+// adlist del` of a list gravity references fails the constraint, prints
+// sqlite3's error, keeps the row and still exits 0; one with no gravity rows
+// is deleted together with its group link.
+func TestTC146_FakeHostEncodesAdlistForeignKey(t *testing.T) {
+	const (
+		ok    = "https://lists.example/ok.txt"
+		fails = "https://lists.example/fails.txt"
+		never = "https://lists.example/never.txt"
+	)
+	h := v5test.NewFakeHost(t)
+	if on := h.ForeignKeys(); on != 1 {
+		t.Fatalf("PRAGMA foreign_keys = %d, want 1 (pihole-FTL sqlite3 enforces them)", on)
+	}
+
+	run(t, h, pihole, "-a", "adlist", "add", ok)
+	run(t, h, pihole, "-a", "adlist", "add", fails)
+	idOK, idFails := adlistID(t, h, ok), adlistID(t, h, fails)
+	h.FailAdlistDownload(fails)
+	if code, _ := run(t, h, pihole, "-g"); code != 0 {
+		t.Fatalf("gravity exit %d", code)
+	}
+	if g, _ := h.AdlistRefs(idOK); g != 3 {
+		t.Errorf("downloaded list has %d gravity rows, want 3", g)
+	}
+	if g, _ := h.AdlistRefs(idFails); g != 0 {
+		t.Errorf("failed list has %d gravity rows, want 0", g)
+	}
+	// A second run replaces the rows rather than adding to them.
+	h.ExecGravityDB(`INSERT INTO gravity (domain, adlist_id) VALUES ('stale.example', ?)`, idOK)
+	run(t, h, pihole, "-g")
+	if g, _ := h.AdlistRefs(idOK); g != 3 {
+		t.Errorf("after a second run the list has %d gravity rows, want 3 (replaced)", g)
+	}
+
+	code, out := run(t, h, pihole, "-a", "adlist", "del", ok)
+	if code != 0 || !strings.Contains(out, "Error: stepping, FOREIGN KEY constraint failed (19)") {
+		t.Errorf("del of a processed list: exit %d, output %q; want exit 0 and the FK error", code, out)
+	}
+	if !slices.Contains(h.Adlists(), ok) {
+		t.Error("the processed list was deleted; the real del is refused by the foreign key")
+	}
+	if g, grp := h.AdlistRefs(idOK); g != 3 || grp != 1 {
+		t.Errorf("processed list refs after the refused del: gravity %d, groups %d; want 3, 1", g, grp)
+	}
+
+	run(t, h, pihole, "-a", "adlist", "add", never)
+	idNever := adlistID(t, h, never)
+	if _, grp := h.AdlistRefs(idNever); grp != 1 {
+		t.Fatalf("new list has %d group links, want 1 (tr_adlist_add)", grp)
+	}
+	code, out = run(t, h, pihole, "-a", "adlist", "del", never)
+	if code != 0 || strings.Contains(out, "FOREIGN KEY") {
+		t.Errorf("del of a never-downloaded list: exit %d, output %q", code, out)
+	}
+	if slices.Contains(h.Adlists(), never) {
+		t.Error("the never-downloaded list was not deleted")
+	}
+	if _, grp := h.AdlistRefs(idNever); grp != 0 {
+		t.Errorf("its group links %d, want 0 (tr_adlist_delete)", grp)
+	}
+	if n := h.ForeignKeyViolations(); n != 0 {
+		t.Errorf("foreign_key_check reports %d rows", n)
 	}
 }

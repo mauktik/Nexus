@@ -1,9 +1,9 @@
 // Cases: TC-88 to TC-95, TC-ERR18 and TC-ERR19 in
-// planning/pihole-dns-zones/test-cases.md (WI 3.5): the v5 adlist and
-// gravity methods against a FakeHost, and add-adlist, remove-adlist and
-// update-gravity through the Dispatcher, the operation manager and the
-// helper. Shared helpers are in service_test.go, helper_test.go and
-// domains_test.go.
+// planning/pihole-dns-zones/test-cases.md (WI 3.5), and TC-145 (WI 5.4): the
+// v5 adlist and gravity methods against a FakeHost, and add-adlist,
+// remove-adlist and update-gravity through the Dispatcher, the operation
+// manager and the helper. Shared helpers are in service_test.go,
+// helper_test.go and domains_test.go.
 //
 // Regression for the verified v5 hazard "pihole -a adlist always exits 0"
 // (V-9, A-17): webpage.sh's CustomizeAdLists silently stores nothing for a
@@ -495,5 +495,95 @@ func TestTC95_GravityOutputReachesLogInOrder(t *testing.T) {
 	res := readResult(t, filepath.Join(w.opsDir, id))
 	if _, ok := res["error"]; ok {
 		t.Errorf("result.json has an error: %s", res["error"])
+	}
+}
+
+// removeAdlistOp runs remove-adlist as the core does: Admit, Prepare, the
+// helper on the operation's directory, then Finalize. It returns the typed
+// result or the operation's problem, and the operation log.
+func removeAdlistOp(w *helperWorld, id string, in spec.AdlistRemoveInput) (spec.AdlistRemoveResult, string, error) {
+	w.t.Helper()
+	var df provider.DetachedFuncs
+	for _, b := range w.p.Bindings() {
+		if b.Op().ID == spec.RemoveAdlist.Op().ID {
+			df, _ = b.Detached()
+		}
+	}
+	if df.Prepare == nil {
+		w.t.Fatal("remove-adlist is not bound")
+	}
+	ctx := context.Background()
+	if err := df.Admit(ctx, in); err != nil {
+		w.t.Fatalf("Admit: %v", err)
+	}
+	if _, err := df.Prepare(ctx, in, provider.NewRun(id, nil)); err != nil {
+		w.t.Fatalf("Prepare: %v", err)
+	}
+	var out bytes.Buffer
+	code := runHelper(ctx, filepath.Join(w.opsDir, id), &out, &out, w.inject())
+	res, err := df.Finalize(ctx, in, detach.Exit{ExitCode: code}, provider.NewRun(id, nil))
+	if err != nil {
+		return spec.AdlistRemoveResult{}, out.String(), err
+	}
+	return res.(spec.AdlistRemoveResult), out.String(), nil
+}
+
+func isAdlistDel(a []string) bool {
+	return slices.Contains(a, "-a") && slices.Contains(a, "adlist") && slices.Contains(a, "del")
+}
+
+// TC-145 (FR-12, CON-2, CON-7, A-58): regression for the remove-adlist
+// foreign-key bug found on the real v5 image (WI 5.1 PROVENANCE "ADLIST
+// REPLACEMENT"): gravity.adlist_id REFERENCES adlist(id), pihole-FTL sqlite3
+// enforces foreign keys, so `pihole -a adlist del` cannot delete a list gravity
+// has processed, yet exits 0. remove-adlist, run end to end through the
+// helper action, must delete the list's gravity rows, group links and the
+// list in one transaction, then reload the lists once.
+func TestTC145_RemoveAdlistDeletesGravityRowsInOneTransaction(t *testing.T) {
+	w := newHelperWorld(t)
+	idA := seedAdlist(t, w.h, listA)
+	idB := seedAdlist(t, w.h, listB)
+	if code, err := w.h.Run(context.Background(), []string{piholeBin, "-g"}, io.Discard, io.Discard); code != 0 || err != nil {
+		t.Fatalf("gravity: %d %v", code, err)
+	}
+	for _, id := range []int64{idA, idB} {
+		if g, grp := w.h.AdlistRefs(id); g != 3 || grp != 1 {
+			t.Fatalf("setup: adlist %d has %d gravity rows, %d group links; want 3, 1", id, g, grp)
+		}
+	}
+	w.h.ResetArgvs()
+
+	res, log, err := removeAdlistOp(w, "op-tc145", spec.AdlistRemoveInput{ID: idA})
+	if err != nil {
+		t.Fatalf("remove-adlist of a gravity-processed list failed: %v\nlog:\n%s", err, log)
+	}
+	if !res.Changed || res.Removed.PiholeID != idA || res.Removed.URL != listA || res.Gravity != nil {
+		t.Errorf("result %+v, want adlist %d (%s)", res, idA, listA)
+	}
+
+	if slices.Contains(w.h.Adlists(), listA) {
+		t.Error("adlist A is still in gravity.db")
+	}
+	if g, grp := w.h.AdlistRefs(idA); g != 0 || grp != 0 {
+		t.Errorf("adlist A refs: gravity %d, groups %d; want 0, 0", g, grp)
+	}
+	if g, grp := w.h.AdlistRefs(idB); g != 3 || grp != 1 || !slices.Contains(w.h.Adlists(), listB) {
+		t.Errorf("adlist B touched: gravity %d, groups %d, adlists %q", g, grp, w.h.Adlists())
+	}
+	if n := w.h.ForeignKeyViolations(); n != 0 {
+		t.Errorf("foreign_key_check reports %d rows", n)
+	}
+
+	if hasArgv(w.h, isAdlistDel) {
+		t.Errorf("pihole -a adlist del was run: %q", w.h.Argvs())
+	}
+	want := [][]string{{piholeBin, "restartdns", "reload-lists"}}
+	if argvs := w.h.Argvs(); !slices.EqualFunc(argvs, want, slices.Equal[[]string]) {
+		t.Errorf("argvs %q, want %q", argvs, want)
+	}
+	line := fmt.Sprintf("pihole: removed adlist %d and its 3 gravity rows from gravity.db", idA)
+	committed, reloaded := strings.Index(log, line), strings.Index(log, "pihole: running pihole restartdns reload-lists")
+	if committed < 0 || reloaded < committed {
+		t.Errorf("log does not show the commit (%q) before the reload:\n%s", line, log)
 	}
 }
