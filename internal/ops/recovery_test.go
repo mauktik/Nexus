@@ -187,13 +187,19 @@ func testRecoveryClassifiesEveryTableRow(t *testing.T, backend detachtest.Backen
 	var before oplog.Page
 	deadline := time.Now().Add(10 * time.Second)
 	for {
+		// Up to and including "before": the process backend without a
+		// cgroup writes its CON-10 note as a frame first.
 		p, err := reader.Read(0, 0)
-		if err == nil && len(p.Frames) > 0 {
+		var text strings.Builder
+		for _, f := range p.Frames {
+			text.WriteString(f.D)
+		}
+		if err == nil && strings.Contains(text.String(), "before\n") {
 			before = p
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("the live supervisor printed nothing: %v", err)
+			t.Fatalf("the live supervisor did not print before: %v %q", err, text.String())
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
