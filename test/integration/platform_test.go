@@ -108,9 +108,15 @@ type testResult struct {
 	name, verdict, reason string
 }
 
-var resultLine = regexp.MustCompile(`^\s*--- (PASS|FAIL|SKIP): (\S+) \(`)
+var (
+	resultLine = regexp.MustCompile(`^(\s*)--- (PASS|FAIL|SKIP): (\S+) \(`)
+	headerLine = regexp.MustCompile(`^=== (?:RUN|CONT|NAME|PAUSE)\s+(\S+)`)
+)
 
-// readResults parses a `go test -v` log.
+// readResults parses a `go test -v` log. A test's output, its skip reason
+// included, streams between its === header and its --- result, so the
+// reason is the output since the test's last header. A result whose output
+// was not streamed has it after the --- line, indented further.
 func readResults(t *testing.T, path string) []testResult {
 	t.Helper()
 	f, err := os.Open(path)
@@ -118,18 +124,41 @@ func readResults(t *testing.T, path string) []testResult {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	var out []testResult
+	var (
+		out     []testResult
+		current string
+		trailer = -1 // Index in out of a SKIP whose reason may follow it
+		indent  string
+	)
+	output := map[string]string{}
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
 	for sc.Scan() {
 		line := sc.Text()
-		if m := resultLine.FindStringSubmatch(line); m != nil {
-			out = append(out, testResult{name: m[2], verdict: m[1]})
+		if m := headerLine.FindStringSubmatch(line); m != nil {
+			current, trailer = m[1], -1
 			continue
 		}
-		// The reason of a SKIP follows its line, indented further.
-		if n := len(out); n > 0 && out[n-1].verdict == "SKIP" && strings.HasPrefix(line, "    ") {
-			out[n-1].reason += strings.TrimSpace(line) + "\n"
+		if m := resultLine.FindStringSubmatch(line); m != nil {
+			r := testResult{name: m[3], verdict: m[2]}
+			if r.verdict == "SKIP" {
+				r.reason = output[r.name]
+			}
+			out = append(out, r)
+			trailer, indent = -1, m[1]
+			if r.verdict == "SKIP" && r.reason == "" {
+				trailer = len(out) - 1
+			}
+			current = ""
+			continue
+		}
+		switch {
+		case trailer >= 0 && strings.HasPrefix(line, indent+"    "):
+			out[trailer].reason += strings.TrimSpace(line) + "\n"
+		case current != "" && strings.HasPrefix(line, "    "):
+			output[current] += strings.TrimSpace(line) + "\n"
+		default:
+			trailer = -1
 		}
 	}
 	if err := sc.Err(); err != nil {
