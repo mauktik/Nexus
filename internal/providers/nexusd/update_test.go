@@ -1157,3 +1157,31 @@ func TestUpdateAdmissionCancelledByTheCallerKeepsTheUpload(t *testing.T) {
 		t.Error("the staged upload was deleted by a cancellation")
 	}
 }
+
+// Prepare re-run after a crash (CR-2): nexusd died during an extraction, so
+// ops/<id>/pkg holds part of the package, and recovery runs Prepare again
+// for the same operation. It extracts afresh instead of refusing the valid
+// package as having duplicate entries.
+func TestUpdatePrepareRerunsOverAPartialExtraction(t *testing.T) {
+	setRunningVersion(t, "v9.9.1")
+	r := newUpdateRig(t)
+	in := spec.UpdateInput{UploadID: r.stage(t, updatePackage(t, "v9.9.2", "v9.9.2"))}
+	if err := r.funcs.Admit(t.Context(), in); err != nil {
+		t.Fatalf("Admit = %v", err)
+	}
+	id := "op-crashed"
+	partial := filepath.Join(r.opsDir, id, pkgDirName, updateTop("v9.9.2"), "nexusd")
+	writeFile(t, partial, "a half-written file from the first attempt\n")
+	stale := filepath.Join(r.opsDir, id, pkgDirName, "stale-from-first-attempt")
+	writeFile(t, stale, "x")
+
+	if _, err := r.funcs.Prepare(t.Context(), in, provider.NewRun(id, nil)); err != nil {
+		t.Fatalf("Prepare after a partial extraction = %v, want it to extract afresh", err)
+	}
+	if got := readFile(t, partial); !strings.HasPrefix(got, "#!/bin/sh") {
+		t.Errorf("pkg/<top>/nexusd is %q, want the package's file", got)
+	}
+	if pkgExists(stale) {
+		t.Error("a file of the first attempt survived the second extraction")
+	}
+}
