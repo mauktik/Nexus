@@ -23,6 +23,7 @@ import (
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/def"
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/providers/docker"
@@ -612,6 +613,24 @@ func TestDockerNameValidationAndNotFound(t *testing.T) {
 	}
 }
 
+// dockerEngine stops or starts the nested Engine: docker.service and
+// docker.socket under systemd, the docker service under OpenRC.
+func dockerEngine(verb string) error {
+	var out string
+	var err error
+	if detectedInit() == platform.OpenRC {
+		out, err = sh(2*time.Minute, "rc-service", "docker", verb)
+	} else if verb == "stop" {
+		out, err = sh(2*time.Minute, "systemctl", "stop", "docker.service", "docker.socket")
+	} else {
+		out, err = sh(2*time.Minute, "systemctl", "start", "docker.socket", "docker.service")
+	}
+	if err != nil {
+		return fmt.Errorf("%s the Engine: %v\n%s", verb, err, out)
+	}
+	return nil
+}
+
 // TC-ERR31 (second-state): with the real Engine stopped, container calls
 // fail with a 503 while scripts keep answering and capabilities show the
 // reason; once the Engine is back, the same nexusd process serves
@@ -622,14 +641,16 @@ func TestDockerOutageIsIsolatedAndSelfHealing(t *testing.T) {
 	n := newNexusd(t, "tcerr31", dockerSection(dockerSocket)+"  scripts: {enabled: true}\n")
 	pid := n.mainPID()
 	t.Cleanup(func() {
-		_, _ = sh(2*time.Minute, "systemctl", "start", "docker.socket", "docker.service")
+		_ = dockerEngine("start")
 	})
 
 	var list apitypes.List[spec.Container]
 	n.mustGet(containersAt, &list)
 
 	// Step 1.
-	mustSh(t, "systemctl", "stop", "docker.service", "docker.socket")
+	if err := dockerEngine("stop"); err != nil {
+		t.Fatal(err)
+	}
 	code, slug, p := n.problem(containersAt)
 	t.Logf("container list with Docker stopped: %d %s %v", code, slug, p.Extensions)
 	if code != 503 || (slug != problem.DependencyUnavailable && slug != problem.CapabilityUnavailable) ||
@@ -658,7 +679,9 @@ func TestDockerOutageIsIsolatedAndSelfHealing(t *testing.T) {
 	}
 
 	// Step 2.
-	mustSh(t, "systemctl", "start", "docker.socket", "docker.service")
+	if err := dockerEngine("start"); err != nil {
+		t.Fatal(err)
+	}
 	waitUntil(t, 2*time.Minute, "docker info", func() (bool, string) {
 		out, err := sh(30*time.Second, "docker", "info", "--format", "{{.ServerVersion}}")
 		return err == nil, out

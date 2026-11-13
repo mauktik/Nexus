@@ -390,7 +390,15 @@ func TestNFRAdditiveCompatibility(t *testing.T) {
 	// Control: the same command against the current nexusd, which serves
 	// the op, succeeds.
 	r = compatCLI(t, home, "packageupdate", "get", "--host", "current", "-o", "jsonl")
-	mustExit(r, 0, "packageupdate get on current")
+	if detectedInit() == platform.OpenRC {
+		// Served, but apt is unavailable on Alpine: not route-not-found.
+		mustExit(r, 4, "packageupdate get on current (no apt on this host)")
+		if !strings.Contains(r.stderr, "capability-unavailable") || strings.Contains(r.stderr, "route-not-found") {
+			t.Fatalf("packageupdate get on current: stderr %q, want capability-unavailable", r.stderr)
+		}
+	} else {
+		mustExit(r, 0, "packageupdate get on current")
+	}
 
 	// The older CLI against the newer server: existing commands work and
 	// the unknown fields and provider are tolerated.

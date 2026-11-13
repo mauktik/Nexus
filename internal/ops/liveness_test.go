@@ -99,6 +99,11 @@ func TestWatcherLivenessPollingWhileTheDaemonIsUp(t *testing.T) {
 }
 
 func testWatcherLivenessPollingWhileTheDaemonIsUp(t *testing.T, _ detachtest.Backend) {
+	// Step 4 counts every watcher goroutine of the process: the watchers
+	// of earlier tests' operations, outside this test's bubble, must have
+	// ended first (seen on the T1 harnesses, where a whole package runs in
+	// one process).
+	waitNoWatcher(t)
 	synctest.Test(t, func(t *testing.T) {
 		units := &scriptedUnits{answer: map[string]func(context.Context) (detach.UnitState, error){},
 			calls: map[string][]time.Time{}}

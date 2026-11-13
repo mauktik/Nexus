@@ -1,11 +1,8 @@
 //go:build integration
 
-// Stub-style: SKIP-only (nginx-provider)
-//
-// Stubs of planning/nginx-provider/test-cases.md. Each test skips until its
-// work item lands; the developer of that work item replaces the skip with
-// the assertions written in the comment above the test. An un-skipped
-// passing test is the GREEN signal (test-strategy.md, RED Stub Style).
+// install.sh and uninstall.sh on both init systems (nginx-provider TC-33,
+// TC-47, TC-48 and TC-ERR7), run with sh: dash on Ubuntu, BusyBox ash on
+// Alpine.
 
 package integration
 
@@ -14,7 +11,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -22,8 +21,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mauktik/nexus/internal/apitypes"
+	"github.com/mauktik/nexus/internal/detach"
 	"github.com/mauktik/nexus/internal/platform"
+	"github.com/mauktik/nexus/internal/providers/scripts/spec"
 )
+
+// fileSHA is the SHA-256 of a file's bytes.
+func fileSHA(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(b))
+}
 
 // nginx-provider TC-33: The systemd branch of the installer behaves exactly as before, under dash
 // Owner WI 3.2. Requirements: FR-24, NFR-9.
@@ -163,7 +175,77 @@ func withoutTimestamps(s string) string {
 //	  - Step 3 leaves the config hash unchanged.
 //	  - Step 4 restarts nexusd: the PID changes and the service is started.
 func TestOpenRCInstallFirstAndUpgrade(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-47 (WI 3.4)")
+	requireInit(t, platform.OpenRC)
+	freshHost(t)
+	t.Cleanup(func() { _, _ = sh(time.Minute, "rc-service", "nexusd", "stop") })
+
+	// Step 1 and 2.
+	out := runInstall(t)
+	requireMode(t, nexusdBin, 0o755)
+	requireMode(t, openrcScript, 0o755)
+	requireMode(t, nexusdConfig, 0o600)
+	got, err := os.ReadFile(nexusdConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(filepath.Join(releaseTree, "nexusd.default.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("%s is not the default configuration", nexusdConfig)
+	}
+	if show := mustSh(t, "rc-update", "show", "-v"); regexp.MustCompile(`(?m)^\s*nexusd\s*\|\s*\S`).MatchString(show) {
+		t.Fatalf("rc-update show lists nexusd in a runlevel:\n%s", show)
+	}
+	if st := rcStatus(t); st != "stopped" {
+		t.Fatalf("rc-service nexusd status: %s, want stopped", st)
+	}
+	for _, next := range []string{"rc-update add nexusd default", "rc-service nexusd start"} {
+		if !strings.Contains(out, next) {
+			t.Errorf("install.sh output lacks %q", next)
+		}
+	}
+	listen := regexp.MustCompile(`(?m)^listen:.*$`).FindString(string(got))
+	if !regexp.MustCompile(`^listen:\s*\[\s*"?127\.0\.0\.1:\d+"?\s*\]`).MatchString(listen) {
+		t.Fatalf("default config %q does not listen on loopback only", listen)
+	}
+	t.Logf("first install: %s; %s", listen, strings.TrimSpace(mustSh(t, "ls", "-l", nexusdBin, openrcScript, nexusdConfig)))
+
+	// Step 3: an operator's edit survives a reinstall.
+	f, err := os.OpenFile(nexusdConfig, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("# operator edit tc47\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before := fileSHA(t, nexusdConfig)
+	out = runInstall(t)
+	if after := fileSHA(t, nexusdConfig); after != before {
+		t.Fatalf("install.sh changed the edited config: %s -> %s", before, after)
+	}
+	if !strings.Contains(out, "kept the existing") {
+		t.Errorf("install.sh output does not say it kept the config:\n%s", out)
+	}
+
+	// Step 4: on a running service, install.sh restarts it.
+	lib(t, "start-nexusd")
+	pid := openrcMainPID(t)
+	out = runInstall(t)
+	var pid2 int
+	waitUntil(t, 30*time.Second, "a new nexusd after the upgrade", func() (bool, string) {
+		pid2 = openrcMainPID(t)
+		return pid2 != 0 && pid2 != pid, fmt.Sprint(pid2)
+	})
+	if st := rcStatus(t); st != "started" || !strings.Contains(out, "restarted the running nexusd service") {
+		t.Fatalf("after the upgrade: status %s, output:\n%s", st, out)
+	}
+	t.Logf("upgrade restarted nexusd: pid %d -> %d", pid, pid2)
+
 }
 
 // nginx-provider TC-48: uninstall.sh on OpenRC keeps data unless purged and warns about live supervisors
@@ -184,7 +266,74 @@ func TestOpenRCInstallFirstAndUpgrade(t *testing.T) {
 //	  - Step 2 also removes /etc/nexus, /var/lib/nexus, /var/log/nexus and
 //	    /etc/conf.d/nexusd.
 func TestOpenRCUninstallAndPurge(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-48 (WI 3.4)")
+	requireInit(t, platform.OpenRC)
+	freshHost(t)
+	ensureUsers(t)
+	runInstall(t)
+	dir := testDir(t, "tc48")
+	m := markers(t, "tc48", "root")
+	script := sleepThenMark(t, filepath.Join(dir, "sleeper.sh"), filepath.Join(m, "marker"), 300)
+	writeConfig(t, fmt.Sprintf("host: {name: harness}\nlisten: [%q]\ntls: {mode: off}\nproviders:\n  scripts:\n    enabled: true\n    catalog:\n%s",
+		exactAddr, catalogYAML(entry{id: "sleeper", path: script})))
+	d := &scriptsd{t: t, stateDir: nexusdState, auditDir: logDir, listen: exactAddr,
+		tokens: map[string]string{"run": createToken(t, "tc48", spec.RunScope, spec.ReadScope)},
+		client: &http.Client{Timeout: 30 * time.Second}}
+	mustSh(t, "rc-update", "add", "nexusd", "default")
+	lib(t, "start-nexusd")
+	op := d.invoke("sleeper", nil)
+	d.waitStatus(op.ID, apitypes.StatusRunning)
+	ident := supervisorOf(t, d, op.ID)
+	t.Cleanup(func() { killOpUnit(t, detach.Unit(op.ID)) })
+
+	// Step 1: uninstall keeps the data and the running supervisor.
+	out, err := sh(3*time.Minute, "sh", uninstallSh)
+	t.Logf("sh uninstall.sh: %v\n%s", err, out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "operation supervisors still running") || !strings.Contains(out, op.ID) {
+		t.Errorf("uninstall.sh does not warn about the running supervisor of %s", op.ID)
+	}
+	if o, err := sh(10*time.Second, "pgrep", "-x", "nexusd"); err == nil {
+		t.Errorf("nexusd still runs after uninstall: %s", o)
+	}
+	if links, _ := filepath.Glob("/etc/runlevels/*/nexusd"); len(links) > 0 {
+		t.Errorf("nexusd is still in runlevels: %v", links)
+	}
+	for _, gone := range []string{openrcScript, nexusdBin} {
+		if exists(gone) {
+			t.Errorf("%s remains after uninstall", gone)
+		}
+	}
+	for _, kept := range []string{"/etc/nexus", nexusdState, logDir} {
+		if !exists(kept) {
+			t.Errorf("%s was removed without --purge", kept)
+		}
+	}
+	if audit, _ := os.ReadDir(logDir); len(audit) == 0 {
+		t.Errorf("the audit log in %s is gone", logDir)
+	}
+	if !pidAlive(ident.PID) || readProcStat(t, ident.PID).startTicks != ident.StartTicks {
+		t.Errorf("supervisor %d of %s was killed by uninstall", ident.PID, op.ID)
+	}
+	t.Logf("after uninstall: supervisor %d alive; kept /etc/nexus, %s, %s", ident.PID, nexusdState, logDir)
+
+	// Step 2: --purge removes the data and conf.d too.
+	runInstall(t)
+	if err := os.WriteFile(openrcConfD, []byte("# tc48\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err = sh(3*time.Minute, "sh", uninstallSh, "--purge")
+	t.Logf("sh uninstall.sh --purge: %v\n%s", err, out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, gone := range []string{"/etc/nexus", nexusdState, logDir, openrcConfD, openrcScript, nexusdBin} {
+		if exists(gone) {
+			t.Errorf("%s remains after --purge", gone)
+		}
+	}
+
 }
 
 // nginx-provider TC-ERR7: install.sh refuses on an unsupported init system and changes nothing
@@ -199,5 +348,21 @@ func TestOpenRCUninstallAndPurge(t *testing.T) {
 //	  - A non-zero exit, with stderr naming systemd and OpenRC.
 //	  - The snapshot is unchanged.
 func TestInstallRefusesUnknownInit(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-ERR7 (WI 3.4)")
+	roots := []string{"/usr/local/bin", "/etc/init.d", "/etc/systemd/system", "/etc/nexus"}
+	before := recordTrees(t, roots)
+	cmd := exec.Command("unshare", "-m", "sh", "-c", "mount -t tmpfs none /run && sh "+installSh)
+	var stdout, stderr strings.Builder
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	err := cmd.Run()
+	t.Logf("%s: %v\nstdout: %s\nstderr: %s", detectedInit(), err, stdout.String(), stderr.String())
+	if err == nil {
+		t.Fatal("install.sh succeeded with /run hidden")
+	}
+	if !strings.Contains(stderr.String(), "systemd") || !strings.Contains(stderr.String(), "OpenRC") {
+		t.Errorf("stderr does not name systemd and OpenRC: %q", stderr.String())
+	}
+	if after := recordTrees(t, roots); after != before {
+		t.Errorf("install.sh changed the host:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+
 }
