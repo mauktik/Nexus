@@ -42,6 +42,17 @@ const (
 // FakeFTLPID is the PID the seeded PID file and /proc/<pid>/comm name.
 const FakeFTLPID = 4242
 
+// FTLUnit is the native systemd unit of FTL on the v5 image.
+const FTLUnit = "pihole-FTL.service"
+
+// The start limit of FTLUnit: core v5.18.4
+// advanced/Templates/pihole-FTL.systemd L14-16 (StartLimitBurst=5,
+// StartLimitIntervalSec=60s; WI 5.1 found it on the image, A-60).
+const (
+	ftlStartLimitBurst    = 5
+	ftlStartLimitInterval = 60 * time.Second
+)
+
 // checkURL is webpage.sh CheckUrl of Pi-hole core v5.18.4 (webpage.sh:542),
 // as captured in internal/providers/pihole/spec/testdata/upstream-validators.txt.
 var checkURL = regexp.MustCompile(`^[a-zA-Z0-9:/?&%=~._()-;]*$`)
@@ -104,6 +115,12 @@ type FakeHost struct {
 	failAdlists map[string]bool
 	nextPID     int
 	ftl         *FakeFTL
+
+	// FTLUnit's start rate limit, as systemd v247's ratelimit_below keeps
+	// it: a window that opens at its first start, and the starts in it.
+	limitBegin time.Time
+	limitNum   int
+	limitHit   bool // Result=start-limit-hit until reset-failed or a start
 }
 
 var _ v5.Runner = (*FakeHost)(nil)
@@ -298,10 +315,19 @@ func (h *FakeHost) FTL() *FakeFTL { return h.ftl }
 // ftlEvent sends a restartdns variant to FTL and records it. A full restart
 // returns the command's exit code; reload and reload-lists exit 0 and are
 // not recorded when FTL is not running, as `pihole` then sends no signal
-// (V-17). Callers hold mu.
+// (V-17). A full restart is `systemctl restart pihole-FTL.service`, one
+// start of FTLUnit: past the start limit the stop half has already run,
+// the start is refused, and FTL stays stopped (A-60). Callers hold mu.
 func (h *FakeHost) ftlEvent(ev string, stdout io.Writer) int {
 	if ev == EventRestart {
 		h.events = append(h.events, ev)
+		if !h.ftlStartAllowed() {
+			h.ftl.Stop()
+			h.limitHit = true
+			fmt.Fprintf(stdout, "  [✗] Job for %s failed because start of the service was attempted too often.\n", FTLUnit)
+			return 1
+		}
+		h.limitHit = false
 		return h.ftl.restart(stdout)
 	}
 	if h.ftl.signal(ev) {
@@ -310,6 +336,33 @@ func (h *FakeHost) ftlEvent(ev string, stdout io.Writer) int {
 		fmt.Fprintln(stdout, "  [i] FTL is not running")
 	}
 	return 0
+}
+
+// ftlStartAllowed is systemd v247's ratelimit_below (src/basic/ratelimit.c
+// L11-38) for FTLUnit at the fake clock's time: a start more than the
+// interval after the window opened opens a new one; otherwise it is allowed
+// while fewer than the burst have started in the window, and counted. A
+// refused start is not counted. Callers hold mu.
+func (h *FakeHost) ftlStartAllowed() bool {
+	if h.limitBegin.IsZero() || h.now.Sub(h.limitBegin) > ftlStartLimitInterval {
+		h.limitBegin, h.limitNum = h.now, 0
+	}
+	if h.limitNum >= ftlStartLimitBurst {
+		return false
+	}
+	h.limitNum++
+	return true
+}
+
+// PrimeFTLStarts records n starts of FTLUnit at the fake clock's time, as
+// if FTL had been (re)started n times outside Nexus. Starts past the limit
+// are refused and not counted, as systemd's are.
+func (h *FakeHost) PrimeFTLStarts(n int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for range n {
+		h.ftlStartAllowed()
+	}
 }
 
 // BlockingEnabled is BLOCKING_ENABLED in setupVars.conf, "" when absent.
@@ -776,13 +829,17 @@ func (h *FakeHost) systemdRun(args []string, stdout, stderr io.Writer) int {
 }
 
 // systemctl is `systemctl stop|show|reset-failed <unit>` for the fake's
-// transient timers.
+// transient timers, and `systemctl reset-failed|show --property=Result` for
+// FTLUnit.
 func (h *FakeHost) systemctl(args []string, stdout, stderr io.Writer) int {
 	argv := append([]string{detach.Systemctl}, args...)
 	if len(args) < 2 {
 		return unknown(argv, stderr)
 	}
 	unit := args[1]
+	if unit == FTLUnit {
+		return h.systemctlFTL(argv, args, stdout, stderr)
+	}
 	tm := h.timer(unit)
 	switch {
 	case args[0] == "stop" && len(args) == 2:
@@ -804,6 +861,26 @@ func (h *FakeHost) systemctl(args []string, stdout, stderr io.Writer) int {
 			return 0
 		}
 		fmt.Fprintf(stdout, "SubState=waiting\nDescription=%s\n", tm.description)
+		return 0
+	}
+	return unknown(argv, stderr)
+}
+
+// systemctlFTL is systemctl for FTLUnit. reset-failed flushes the start
+// rate limit counter and the failed result (systemctl(1) reset-failed);
+// show --property=Result reads start-limit-hit after a refused start and
+// success otherwise.
+func (h *FakeHost) systemctlFTL(argv, args []string, stdout, stderr io.Writer) int {
+	switch {
+	case args[0] == "reset-failed" && len(args) == 2:
+		h.limitBegin, h.limitNum, h.limitHit = time.Time{}, 0, false
+		return 0
+	case args[0] == "show" && len(args) == 3 && args[2] == "--property=Result":
+		result := "success"
+		if h.limitHit {
+			result = "start-limit-hit"
+		}
+		fmt.Fprintf(stdout, "Result=%s\n", result)
 		return 0
 	}
 	return unknown(argv, stderr)

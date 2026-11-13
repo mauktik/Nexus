@@ -1,5 +1,5 @@
 // Cases: TC-96 to TC-103, TC-E11, TC-E12, TC-ERR20 to TC-ERR25 in
-// planning/pihole-dns-zones/test-cases.md, and the WI 4.1 branch tests
+// planning/pihole-dns-zones/test-cases.md, TC-149 (WI 5.5), and the WI 4.1 branch tests
 // (every syntax-test failure form, the backup failure, a duplicate covering
 // line).
 //
@@ -36,9 +36,10 @@ import (
 )
 
 const (
-	piholeBin = "/usr/local/bin/pihole"
-	ftlBin    = "/usr/bin/pihole-FTL"
-	basename  = "03-custom-dns-names.conf"
+	piholeBin    = "/usr/local/bin/pihole"
+	ftlBin       = "/usr/bin/pihole-FTL"
+	systemctlBin = "/usr/bin/systemctl"
+	basename     = "03-custom-dns-names.conf"
 )
 
 type env struct {
@@ -542,6 +543,47 @@ func TestTCERR25_RollbackRestartFails(t *testing.T) {
 	}
 	if rb, err := os.ReadFile(copyPath); err != nil || !bytes.Equal(rb, e.orig) {
 		t.Errorf("rollback copy: %v", err)
+	}
+}
+
+// TC-149 (A-60, A-61): FTL's systemd start limit is 5 starts a minute. With
+// 4 starts already in the window, a record add's restart is the fifth and
+// its rollback restart would be the sixth. The rollback is not refused: the
+// write ends dns-verification-failed{rolledBack:true}, the live file is the
+// original, FTL answers the original records, and each of the two
+// restarts is preceded by `systemctl reset-failed pihole-FTL.service`.
+func TestTC149_RollbackNotRefusedByStartLimit(t *testing.T) {
+	e := setup(t, nil)
+	e.h.Advance(time.Minute + time.Second) // The seed restart's window closes
+	e.h.PrimeFTLStarts(4)
+	e.h.FTL().SetFault(v5test.FaultWrongAnswer)
+	_, perr := e.apply(t, nil, "", dnsfile.AddZone{Zone: "app.lan"}, dnsfile.AddRecord{FQDN: "x.app.lan", IPv4: "192.168.7.9"})
+	if perr == nil || perr.Slug() != "dns-verification-failed" || perr.Extensions["rolledBack"] != true {
+		t.Fatalf("got %v %q %+v; want dns-verification-failed rolledBack:true (log:\n%s)", perr.Slug(), perr.Detail, perr.Extensions, e.log.String())
+	}
+	if !bytes.Equal(e.live(t), e.orig) {
+		t.Error("live file is not the original")
+	}
+	e.h.FTL().SetFault()
+	if _, err := dnscheck.WaitReady(context.Background(), e.h.FTL().Addr(), 2*time.Second); err != nil {
+		t.Fatalf("FTL not answering after the rollback: %v", err)
+	}
+	if a := query(t, e, "unity.lan"); len(a.A) != 1 || a.A[0] != netip.MustParseAddr("192.168.7.1") {
+		t.Errorf("unity.lan = %+v, want the original 192.168.7.1", a)
+	}
+	if a := query(t, e, "x.app.lan"); len(a.A) != 0 {
+		t.Errorf("x.app.lan = %+v after the rollback, want no address", a)
+	}
+	reset := []string{systemctlBin, "reset-failed", "pihole-FTL.service"}
+	var restarts [][]string
+	for _, a := range e.h.Argvs() {
+		if slices.Equal(a, reset) || slices.Equal(a, []string{piholeBin, "restartdns"}) {
+			restarts = append(restarts, a)
+		}
+	}
+	want := slices.Repeat([][]string{reset, {piholeBin, "restartdns"}}, 2)
+	if !slices.EqualFunc(restarts, want, slices.Equal) {
+		t.Errorf("reset-failed and restartdns argvs %q, want %q", restarts, want)
 	}
 }
 

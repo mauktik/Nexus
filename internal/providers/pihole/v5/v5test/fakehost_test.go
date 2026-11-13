@@ -1,5 +1,5 @@
 // Cases: TC-70 (a-h) in planning/pihole-dns-zones/test-cases.md (WI 3.1),
-// TC-146 (WI 5.4), plus self-tests of FakeHost's fault injection, FTL events
+// TC-146 (WI 5.4), TC-148 step 3 (WI 5.5), plus self-tests of FakeHost's fault injection, FTL events
 // and planted gravity process.
 //
 // These are the fake-fidelity self-tests: each asserts that FakeHost
@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mauktik/nexus/internal/providers/pihole/dnscheck"
 	"github.com/mauktik/nexus/internal/providers/pihole/gravitydb"
 	"github.com/mauktik/nexus/internal/providers/pihole/v5"
 	"github.com/mauktik/nexus/internal/providers/pihole/v5/v5test"
@@ -434,4 +435,108 @@ func TestTC146_FakeHostEncodesAdlistForeignKey(t *testing.T) {
 	if n := h.ForeignKeyViolations(); n != 0 {
 		t.Errorf("foreign_key_check reports %d rows", n)
 	}
+}
+
+// TC-148 step 3 (hazard control, A-60): pihole-FTL.service allows 5 starts
+// a minute (core v5.18.4 pihole-FTL.systemd L14-16). Six bare `pihole
+// restartdns` on an unmoving clock: the sixth exits 1 "start of the service
+// was attempted too often", FTL is stopped and stays down, and Result reads
+// start-limit-hit. `systemctl reset-failed pihole-FTL.service` flushes the
+// counter, so the next restart starts FTL again.
+func TestTC148_FakeHostEncodesFTLStartLimit(t *testing.T) {
+	h := v5test.NewFakeHost(t)
+	showResult := func() string {
+		t.Helper()
+		code, out := run(t, h, systemctl, "show", v5test.FTLUnit, "--property=Result")
+		if code != 0 {
+			t.Fatalf("show Result: exit %d", code)
+		}
+		return strings.TrimSpace(out)
+	}
+	for i := 1; i <= 5; i++ {
+		if code, out := run(t, h, pihole, "restartdns"); code != 0 {
+			t.Fatalf("restart %d: exit %d %q; 5 starts a minute are allowed", i, code, out)
+		}
+	}
+	if got := showResult(); got != "Result=success" {
+		t.Errorf("after 5 starts: %q, want Result=success", got)
+	}
+	if a := query(t, h, "pi.hole"); a.RCode == "" {
+		t.Fatal("FTL does not answer after 5 restarts")
+	}
+	code, out := run(t, h, pihole, "restartdns")
+	if code != 1 || !strings.Contains(out, "Job for pihole-FTL.service failed because start of the service was attempted too often.") {
+		t.Errorf("sixth restart: exit %d %q; want 1, start attempted too often", code, out)
+	}
+	if h.FTL().PID() != 0 {
+		t.Errorf("FTL PID %d after the refused start; the stop half ran, want 0", h.FTL().PID())
+	}
+	if _, err := dnscheck.Query(context.Background(), h.FTL().Addr(), "pi.hole", 300*time.Millisecond); err == nil {
+		t.Error("FTL answered after the refused start")
+	}
+	if got := showResult(); got != "Result=start-limit-hit" {
+		t.Errorf("after the refused start: %q, want Result=start-limit-hit", got)
+	}
+	if code, _ := run(t, h, pihole, "restartdns"); code != 1 {
+		t.Errorf("seventh restart without reset-failed: exit %d, want 1 (still limited)", code)
+	}
+
+	if code, out := run(t, h, systemctl, "reset-failed", v5test.FTLUnit); code != 0 {
+		t.Fatalf("reset-failed: exit %d %q", code, out)
+	}
+	if got := showResult(); got != "Result=success" {
+		t.Errorf("after reset-failed: %q, want Result=success", got)
+	}
+	if code, out := run(t, h, pihole, "restartdns"); code != 0 || h.FTL().PID() == 0 {
+		t.Fatalf("restart after reset-failed: exit %d, pid %d %q", code, h.FTL().PID(), out)
+	}
+	if a := query(t, h, "pi.hole"); a.RCode == "" {
+		t.Error("FTL does not answer after reset-failed and a restart")
+	}
+}
+
+// The start limit is systemd's fixed window (v247 src/basic/ratelimit.c):
+// it opens at the first start, and a start more than 60 s later opens a new
+// one. PrimeFTLStarts(n) counts n starts at the current fake time; reload
+// and reload-lists are signals, not starts, and never count.
+func TestFakeHostFTLStartLimitWindow(t *testing.T) {
+	t.Run("window expires", func(t *testing.T) {
+		h := v5test.NewFakeHost(t)
+		h.PrimeFTLStarts(5)
+		h.Advance(60 * time.Second)
+		if code, _ := run(t, h, pihole, "restartdns"); code != 1 {
+			t.Errorf("start at exactly 60 s: exit %d, want 1 (the window is still open)", code)
+		}
+		h.Advance(time.Second)
+		if code, _ := run(t, h, pihole, "restartdns"); code != 0 {
+			t.Errorf("start at 61 s: exit %d, want 0 (a new window)", code)
+		}
+	})
+	t.Run("prime", func(t *testing.T) {
+		h := v5test.NewFakeHost(t)
+		h.PrimeFTLStarts(4)
+		if code, _ := run(t, h, pihole, "restartdns"); code != 0 {
+			t.Fatalf("fifth start: exit %d, want 0", code)
+		}
+		if code, _ := run(t, h, pihole, "restartdns"); code != 1 {
+			t.Errorf("sixth start: exit %d, want 1", code)
+		}
+	})
+	t.Run("signals are not starts", func(t *testing.T) {
+		h := v5test.NewFakeHost(t)
+		for range 10 {
+			run(t, h, pihole, "restartdns", "reload")
+			run(t, h, pihole, "restartdns", "reload-lists")
+		}
+		h.PrimeFTLStarts(4)
+		if code, _ := run(t, h, pihole, "restartdns"); code != 0 {
+			t.Errorf("fifth start after 20 signals: exit %d, want 0", code)
+		}
+	})
+	t.Run("unknown verb", func(t *testing.T) {
+		h := v5test.NewFakeHost(t)
+		if code, _ := run(t, h, systemctl, "show", v5test.FTLUnit, "--property=MainPID"); code != 127 {
+			t.Errorf("unencoded show: exit %d, want 127", code)
+		}
+	})
 }

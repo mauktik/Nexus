@@ -333,6 +333,7 @@ func TestFakeFTLRollbackRestartFails(t *testing.T) {
 	}
 	answers(t, h, "kiwi.home.local", "192.168.7.5")
 	h.FTL().SetFault()
+	h.Advance(time.Minute + time.Second) // Four starts so far; a sixth within 60 s is refused (A-60)
 	for i := 0; i < 2; i++ {
 		if code, _ := run(t, h, pihole, "restartdns"); code != 0 {
 			t.Errorf("SetFault(): restart exit %d", code)

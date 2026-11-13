@@ -1,5 +1,6 @@
 // Cases: TC-75, TC-76, TC-ERR12, TC-ERR13 and TC-ERR29 in
-// planning/pihole-dns-zones/test-cases.md (WI 3.2): the v5 service methods,
+// planning/pihole-dns-zones/test-cases.md (WI 3.2), and TC-148 and TC-ERR32
+// (WI 5.5, which also changes TC-75's argv): the v5 service methods,
 // and the restart-dns and flush-cache helper actions run through Prepare,
 // the helper and Finalize against a FakeHost and its FakeFTL.
 package pihole
@@ -50,13 +51,24 @@ func slugOf(t *testing.T, err error) (problem.Slug, *problem.Error) {
 	return pe.Slug(), pe
 }
 
+// resetFailedArgv is the reset of FTL's systemd start limit that precedes
+// every restart Nexus makes (A-61).
+var resetFailedArgv = []string{systemctlBin, "reset-failed", "pihole-FTL.service"}
+
+// restartArgvs is n restarts as RestartDNS runs them: reset-failed, then
+// `pihole restartdns`.
+func restartArgvs(n int) [][]string {
+	return slices.Repeat([][]string{resetFailedArgv, {piholeBin, "restartdns"}}, n)
+}
+
 // hasArgv reports whether any recorded argv satisfies pred.
 func hasArgv(h *v5test.FakeHost, pred func([]string) bool) bool {
 	return slices.ContainsFunc(h.Argvs(), pred)
 }
 
-// TC-75: RestartDNS runs exactly `pihole restartdns`; FTL comes back with a
-// new PID and answers on loopback.
+// TC-75: RestartDNS runs `systemctl reset-failed pihole-FTL.service`, then
+// exactly `pihole restartdns`; FTL comes back with a new PID and answers on
+// loopback.
 func TestTC75_RestartDNS(t *testing.T) {
 	h, m := newV5(t)
 	pid := h.FTL().PID()
@@ -64,8 +76,8 @@ func TestTC75_RestartDNS(t *testing.T) {
 	if err := m.RestartDNS(context.Background(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if got := h.Argvs(); len(got) != 1 || !slices.Equal(got[0], []string{piholeBin, "restartdns"}) {
-		t.Errorf("argv %q, want [[pihole restartdns]]", got)
+	if got := h.Argvs(); !slices.EqualFunc(got, restartArgvs(1), slices.Equal) {
+		t.Errorf("argv %q, want %q", got, restartArgvs(1))
 	}
 	if h.FTL().PID() == pid {
 		t.Error("PID unchanged after restart")
@@ -105,6 +117,71 @@ func TestTCERR12_RestartFailure(t *testing.T) {
 	slug, pe := slugOf(t, err)
 	if slug != "pihole-command-failed" || pe.Extensions["command"] != "pihole restartdns" || pe.Extensions["exitCode"] != 1 {
 		t.Errorf("got %v %+v", slug, pe.Extensions)
+	}
+}
+
+// TC-ERR32 (A-60, A-61): (a) a start refused by FTL's systemd start limit,
+// here because reset-failed silently did nothing, is pihole-command-failed
+// {command:"pihole restartdns", exitCode:1} whose detail names the start
+// limit and the recovery command, read from `systemctl show
+// pihole-FTL.service --property=Result`; (b) a reset-failed that exits 1, or
+// (c) cannot run, is logged and the restart still runs and decides the
+// outcome.
+func TestTCERR32_StartLimitNamed(t *testing.T) {
+	const recovery = "systemctl reset-failed pihole-FTL.service && pihole restartdns"
+	showArgv := []string{systemctlBin, "show", "pihole-FTL.service", "--property=Result"}
+	t.Run("start limit hit", func(t *testing.T) {
+		h, m := newV5(t)
+		h.PrimeFTLStarts(5)
+		h.IgnoreCommand(resetFailedArgv)
+		err := m.RestartDNS(context.Background(), &bytes.Buffer{})
+		if err == nil {
+			t.Fatalf("restart past the start limit succeeded; argvs %q", h.Argvs())
+		}
+		slug, pe := slugOf(t, err)
+		if slug != problem.PiholeCommandFailed || pe.Extensions["command"] != "pihole restartdns" || pe.Extensions["exitCode"] != 1 {
+			t.Errorf("got %v %+v", slug, pe.Extensions)
+		}
+		if !strings.Contains(pe.Detail, "systemd start limit") || !strings.Contains(pe.Detail, recovery) {
+			t.Errorf("detail %q does not name the start limit and %q", pe.Detail, recovery)
+		}
+		if !hasArgv(h, func(a []string) bool { return slices.Equal(a, showArgv) }) {
+			t.Errorf("argvs %q lack %q", h.Argvs(), showArgv)
+		}
+	})
+	t.Run("other restart failure has no hint", func(t *testing.T) {
+		h, m := newV5(t)
+		h.FailCommand([]string{piholeBin, "restartdns"}, 1)
+		_, pe := slugOf(t, m.RestartDNS(context.Background(), &bytes.Buffer{}))
+		if strings.Contains(pe.Detail, "start limit") {
+			t.Errorf("detail %q names the start limit; Result is success", pe.Detail)
+		}
+	})
+	for _, tc := range []struct {
+		name  string
+		fault func(*v5test.FakeHost)
+		log   string
+	}{
+		{"reset-failed exits 1", func(h *v5test.FakeHost) { h.FailCommand(resetFailedArgv, 1) },
+			"pihole: systemctl reset-failed pihole-FTL.service exited 1; restarting anyway"},
+		{"reset-failed cannot run", func(h *v5test.FakeHost) { h.FailCommandStart(resetFailedArgv) },
+			"pihole: systemctl reset-failed pihole-FTL.service exited -1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, m := newV5(t)
+			tc.fault(h)
+			pid := h.FTL().PID()
+			var out bytes.Buffer
+			if err := m.RestartDNS(context.Background(), &out); err != nil {
+				t.Fatalf("restart after a failed reset-failed: %v", err)
+			}
+			if !strings.Contains(out.String(), tc.log) || !strings.Contains(out.String(), "restarting anyway") {
+				t.Errorf("output %q lacks %q ... restarting anyway", out.String(), tc.log)
+			}
+			if got := h.Argvs(); !slices.EqualFunc(got, restartArgvs(1), slices.Equal) || h.FTL().PID() == pid {
+				t.Errorf("argvs %q pid %d -> %d; want %q and a new PID", got, pid, h.FTL().PID(), restartArgvs(1))
+			}
+		})
 	}
 }
 
@@ -187,8 +264,8 @@ func pidStr(p *int) string {
 	return strconv.Itoa(*p)
 }
 
-// TC-75, action half (FR-14): restart-dns runs `pihole restartdns` once and
-// returns a ServiceResult with the PID before, FTL's new PID and how long
+// TC-75, action half (FR-14): restart-dns runs `systemctl reset-failed
+// pihole-FTL.service` and `pihole restartdns` once each and returns a ServiceResult with the PID before, FTL's new PID and how long
 // FTL took to answer.
 func TestTC75_RestartDNSAction(t *testing.T) {
 	w := newHelperWorld(t)
@@ -196,8 +273,8 @@ func TestTC75_RestartDNSAction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("restart-dns: %v\n%s", err, out)
 	}
-	if got := w.h.Argvs(); len(got) != 1 || !slices.Equal(got[0], []string{piholeBin, "restartdns"}) {
-		t.Errorf("argv %q, want [[pihole restartdns]]", got)
+	if got := w.h.Argvs(); !slices.EqualFunc(got, restartArgvs(1), slices.Equal) {
+		t.Errorf("argv %q, want %q", got, restartArgvs(1))
 	}
 	newPID := w.h.FTL().PID()
 	if !res.Changed || res.FTLPidBefore == nil || *res.FTLPidBefore != v5test.FakeFTLPID ||
@@ -209,6 +286,38 @@ func TestTC75_RestartDNSAction(t *testing.T) {
 		if !strings.Contains(out, step) {
 			t.Errorf("output lacks %q:\n%s", step, out)
 		}
+	}
+}
+
+// TC-148 (hazard: start limit, A-60, A-61): six restart-dns ops on an
+// unmoving fake clock all succeed, each with a new PID and FTL answering,
+// though pihole-FTL.service allows 5 starts a minute: every `pihole
+// restartdns` is preceded by `systemctl reset-failed pihole-FTL.service`,
+// and FTL's Result stays success.
+func TestTC148_SixRestartDNSOpsWithinAMinute(t *testing.T) {
+	w := newHelperWorld(t)
+	pid := w.h.FTL().PID()
+	for i := 1; i <= 6; i++ {
+		res, out, err := serviceOp(w, spec.RestartDNS, "op-restart-"+strconv.Itoa(i), 0)
+		if err != nil {
+			t.Fatalf("restart-dns %d of 6 within a minute: %v\n%s", i, err, out)
+		}
+		newPID := w.h.FTL().PID()
+		if newPID == 0 || newPID == pid || res.FTLPidAfter == nil || *res.FTLPidAfter != newPID {
+			t.Errorf("restart-dns %d: pid %d -> %d, ftlPidAfter %s; want a new running FTL", i, pid, newPID, pidStr(res.FTLPidAfter))
+		}
+		pid = newPID
+	}
+	if _, err := dnscheck.WaitReady(context.Background(), w.h.FTL().Addr(), 2*time.Second); err != nil {
+		t.Errorf("FTL not answering after the sixth restart: %v", err)
+	}
+	if got := w.h.Argvs(); !slices.EqualFunc(got, restartArgvs(6), slices.Equal) {
+		t.Errorf("argvs %q, want each pihole restartdns preceded by reset-failed: %q", got, restartArgvs(6))
+	}
+	var show bytes.Buffer
+	if code, err := w.h.Run(context.Background(), []string{systemctlBin, "show", "pihole-FTL.service", "--property=Result"}, &show, &show); code != 0 || err != nil ||
+		strings.TrimSpace(show.String()) != "Result=success" {
+		t.Errorf("show Result: %d %v %q; want Result=success", code, err, show.String())
 	}
 }
 
