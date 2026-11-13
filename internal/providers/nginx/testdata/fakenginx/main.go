@@ -28,10 +28,20 @@
 //     line first. Real nginx needs at least the pid and log paths at -t
 //     (CON-2); requiring all three is the stricter superset.
 //
-// `-v` prints `nginx version: nginx/1.26.3` to stderr. Every other argument
-// list (-T, -s, -c, -g, ...) exits 2 and is appended to <path>.json.denied:
-// the provider never runs `nginx -T` (OOS-2) or `nginx -s` (it reloads
-// through the init system).
+// `-v` prints `nginx version: nginx/1.26.3` to stderr. `-V` prints nginx's
+// build information to stderr, as nginx does: the version line, the
+// OpenSSL lines and the configure arguments, whose --pid-path= is
+// <pidDir>/nginx.pid, the pid file -t probes, as a real build's compiled-in
+// pid path is the one its -t opens. Without a sidecar it prints no
+// --pid-path=. Every other argument list (-T, -s, -c, -g, ...) exits 2 and
+// is appended to <path>.json.denied: the provider never runs `nginx -T`
+// (OOS-2) or `nginx -s` (it reloads through the init system).
+//
+// A pidDir that does not exist fails -t as nginx does on Alpine after a
+// boot, where /run is a tmpfs and only the init script's start_pre makes
+// /run/nginx: `open() "/run/nginx/nginx.pid" failed (2: No such file or
+// directory)`, after `syntax is ok` (captured on 2026-11-13 from nginx
+// 1.26.3 on Alpine Linux 3.21 under OpenRC, through the helper).
 //
 // Test controls, each off unless the sidecar's controls set it, observe or
 // pace a test and never model an nginx outcome: warnLines (a [warn] line per
@@ -40,7 +50,9 @@
 // counted in <path>.json.blockcount, block on reading the FIFO), sleepMs (a
 // delay before the verdict) and hangV (-v blocks). Every invocation that
 // ends appends {argv, includedFiles, exitCode} to <path>.json.calls; one
-// killed while blocked writes nothing.
+// killed while blocked writes nothing. A -V invocation appends to
+// <path>.json.vcalls instead: the helper runs it before a -t to find the
+// pid path, and .calls stays the record of the tests and -v.
 //
 // The texts are nginx's own, captured on 2026-11-13 from nginx 1.26.3-r3
 // on Alpine Linux 3.21 (alpine:3.21 with `apk add nginx`) and nginx
@@ -50,6 +62,9 @@
 // a timestamp and PID). Captured lines, with the include paths shown:
 //
 //	nginx version: nginx/1.26.3
+//	built with OpenSSL 3.3.7 7 Apr 2026
+//	TLS SNI support enabled
+//	configure arguments: --prefix=/var/lib/nginx --sbin-path=/usr/sbin/nginx [...] --pid-path=/run/nginx/nginx.pid [...]
 //	nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
 //	nginx: configuration file /etc/nginx/nginx.conf test is successful
 //	nginx: [emerg] unknown directive "INVALID" in /etc/nginx/http.d/a.conf:3
@@ -93,6 +108,16 @@ const (
 	mainConf = "/etc/nginx/nginx.conf"
 	// warnMessage is the captured [warn] message, used for each WARN token.
 	warnMessage = `the "listen ... http2" directive is deprecated, use the "http2" directive instead`
+	// builtWith are the lines of -V between the version and the configure
+	// arguments, and configurePrefix and configureSuffix the arguments
+	// before and after --pid-path=, all from Alpine's nginx 1.26.3-r3 (the
+	// suffix shortened: it lists every module).
+	builtWith       = "built with OpenSSL 3.3.7 7 Apr 2026\nTLS SNI support enabled\n"
+	configurePrefix = "--prefix=/var/lib/nginx --sbin-path=/usr/sbin/nginx --modules-path=/usr/lib/nginx/modules " +
+		"--conf-path=/etc/nginx/nginx.conf"
+	configureSuffix = "--lock-path=/run/nginx/nginx.lock " +
+		"--http-client-body-temp-path=/var/lib/nginx/tmp/client_body --http-proxy-temp-path=/var/lib/nginx/tmp/proxy " +
+		"--user=nginx --group=nginx --with-threads --with-file-aio --with-http_ssl_module --with-http_v2_module"
 )
 
 // sidecar is <path>.json, written by the test.
@@ -132,8 +157,12 @@ func main() {
 	self := selfPath()
 	c := call{Argv: os.Args, IncludedFiles: []string{}}
 	c.ExitCode = run(self, &c, os.Stdout, os.Stderr)
+	log := self + ".json.calls"
+	if slices.Equal(os.Args[1:], []string{"-V"}) {
+		log = self + ".json.vcalls"
+	}
 	if b, err := json.Marshal(c); err == nil {
-		appendLine(self+".json.calls", string(b))
+		appendLine(log, string(b))
 	}
 	os.Exit(c.ExitCode)
 }
@@ -164,6 +193,14 @@ func run(self string, c *call, stdout, stderr io.Writer) int {
 			hang()
 		}
 		fmt.Fprintf(stderr, "nginx version: nginx/%s\n", version)
+		return 0
+	case len(args) == 1 && args[0] == "-V":
+		configure := configurePrefix + " "
+		if sc != nil && sc.PidDir != "" {
+			configure += "--pid-path=" + filepath.Join(sc.PidDir, "nginx.pid") + " "
+		}
+		fmt.Fprintf(stderr, "nginx version: nginx/%s\n%sconfigure arguments: %s\n", version, builtWith,
+			configure+configureSuffix)
 		return 0
 	case len(args) == 1 && args[0] == "-t":
 		if sc == nil {
