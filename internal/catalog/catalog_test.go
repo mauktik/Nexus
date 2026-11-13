@@ -1,12 +1,17 @@
 package catalog
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/mauktik/nexus/internal/def"
+	nexusd "github.com/mauktik/nexus/internal/providers/nexusd/spec"
 )
 
 const modulePath = "github.com/mauktik/nexus"
@@ -240,5 +245,132 @@ func TestAllListsUniqueOps(t *testing.T) {
 	}
 	if len(Ops()) != len(seen) {
 		t.Errorf("Ops() = %d ops, All() lists %d", len(Ops()), len(seen))
+	}
+}
+
+// cliUploadViolations checks the CLI.Upload of every op of every spec (CON-3,
+// A-49): the op it names exists in the same ProviderSpec, is KindUpload, and
+// its output has a string field whose JSON name is CLI.Upload.Field. core.New
+// checks only bound ops; this is the spec-level half. visited lists the ops
+// with a CLI.Upload, so a caller can show the check was not vacuous.
+func cliUploadViolations(specs []def.ProviderSpec) (violations, visited []string) {
+	for _, spec := range specs {
+		for _, op := range spec.Ops {
+			u := op.CLI.Upload
+			if u == nil {
+				continue
+			}
+			visited = append(visited, op.ID)
+			i := slices.IndexFunc(spec.Ops, func(o def.Op) bool { return o.ID == u.Op })
+			var reason string
+			switch {
+			case i < 0:
+				reason = fmt.Sprintf("names %q, which is not an op of provider %q", u.Op, spec.Name)
+			case spec.Ops[i].Kind != def.KindUpload:
+				reason = fmt.Sprintf("names %q, which is %s, not %s", u.Op, spec.Ops[i].Kind, def.KindUpload)
+			default:
+				reason = outputFieldProblem(spec.Ops[i], u.Field)
+			}
+			if reason != "" {
+				violations = append(violations, fmt.Sprintf("%s: CLI.Upload %s", op.ID, reason))
+			}
+		}
+	}
+	return violations, visited
+}
+
+// outputFieldProblem says why upload's output has no string field with JSON
+// name field, or returns "".
+func outputFieldProblem(upload def.Op, field string) string {
+	t := upload.OutputType()
+	if t != nil && t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t == nil || t.Kind() != reflect.Struct {
+		return fmt.Sprintf("names %q, whose output %v is not a struct", upload.ID, t)
+	}
+	for _, f := range reflect.VisibleFields(t) {
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if !f.IsExported() || f.Anonymous || name != field {
+			continue
+		}
+		if f.Type.Kind() != reflect.String {
+			return fmt.Sprintf("field %q: output field of %q is %v, not a string", field, upload.ID, f.Type)
+		}
+		return ""
+	}
+	return fmt.Sprintf("field %q: %q has no output field with that JSON name", field, upload.ID)
+}
+
+// Planted upload ops for TC-SM-93 step 3: def.Define registers IDs
+// globally, so each is declared once, at package level.
+type (
+	plantedNoField struct {
+		SHA256 string `json:"sha256"`
+	}
+	plantedIntField struct {
+		UploadID int64 `json:"uploadId"`
+	}
+)
+
+func plantedUpload(id string) def.Op {
+	op := nexusd.Upload.Op()
+	op.ID = id
+	return op
+}
+
+var (
+	plantedUploadNoField  = def.Define[nexusd.UploadInput, plantedNoField](plantedUpload("nexusd.uploads.planted-no-field"))
+	plantedUploadIntField = def.Define[nexusd.UploadInput, plantedIntField](plantedUpload("nexusd.uploads.planted-int-field"))
+)
+
+// plantedNexusd returns a copy of the nexusd spec whose update's CLI.Upload
+// names ref, with extra ops appended. Neither the shared ops nor their
+// CLI.Upload are changed.
+func plantedNexusd(ref string, extra ...def.Op) def.ProviderSpec {
+	s := nexusd.Spec()
+	s.Ops = append(slices.Clone(s.Ops), extra...)
+	for i, op := range s.Ops {
+		if op.ID == nexusd.Update.Op().ID {
+			u := *op.CLI.Upload
+			u.Op = ref
+			s.Ops[i].CLI.Upload = &u
+		}
+	}
+	return s
+}
+
+// TC-SM-93 (WI 6.1; FR-1, FR-17, FR-13): The catalog golden gains exactly
+// the seven nexusd rows (steps 2 and 3; step 1 is TestCatalogMatchesGoldenTable).
+func TestTCSM93_TheCatalogGoldenGainsExactlyThe(t *testing.T) {
+	// Step 2: the catalog has no violation, and the check visited update.
+	got, visited := cliUploadViolations(All())
+	if len(got) != 0 {
+		t.Errorf("catalog CLI.Upload violations: %q", got)
+	}
+	update := nexusd.Update.Op().ID
+	if !slices.Contains(visited, update) {
+		t.Errorf("the check visited %q, not %s: it is vacuous", visited, update)
+	}
+
+	// Step 3: each planted spec yields exactly one violation naming the op
+	// and the rule.
+	for _, c := range []struct {
+		name string
+		spec def.ProviderSpec
+		want string
+	}{
+		{"absent", plantedNexusd("nexusd.uploads.missing"), "is not an op of provider"},
+		{"list", plantedNexusd(nexusd.List.Op().ID), "not upload"},
+		{"no field", plantedNexusd(plantedUploadNoField.Op().ID, plantedUploadNoField.Op()), "has no output field"},
+		{"not a string", plantedNexusd(plantedUploadIntField.Op().ID, plantedUploadIntField.Op()), "not a string"},
+	} {
+		got, _ := cliUploadViolations([]def.ProviderSpec{c.spec})
+		if len(got) != 1 || !strings.HasPrefix(got[0], update+": ") || !strings.Contains(got[0], c.want) {
+			t.Errorf("%s: violations %q, want exactly one for %s containing %q", c.name, got, update, c.want)
+		}
+	}
+	if s := nexusd.Update.Op().CLI.Upload.Op; s != nexusd.Upload.Op().ID {
+		t.Errorf("planting changed the shared declaration: update's CLI.Upload.Op is %q", s)
 	}
 }

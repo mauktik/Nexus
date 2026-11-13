@@ -179,6 +179,11 @@ func TestEveryOpHasACommand(t *testing.T) {
 			fromOps := map[string][]string{}
 			for _, spec := range tc.specs {
 				for _, op := range spec.Ops {
+					// A KindUpload op has no command: the CLI reaches it
+					// through another op's CLI.Upload (def, groupOps).
+					if op.Kind == def.KindUpload {
+						continue
+					}
 					k := op.CLI.Noun + " " + op.CLI.Verb
 					fromOps[k] = append(fromOps[k], op.ID)
 				}

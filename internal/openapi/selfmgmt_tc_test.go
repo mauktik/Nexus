@@ -5,7 +5,6 @@ package openapi_test
 
 import (
 	"fmt"
-	"maps"
 	"net/http"
 	"reflect"
 	"slices"
@@ -123,12 +122,12 @@ func TestTCSM24_TheDocumentWithAnUploadRoute(t *testing.T) {
 		t.Fatalf("%s: document %q, served %q; want tp.uploads.add in both", upload, document[upload], served[upload])
 	}
 
-	// The nexusd spec, not in the catalog yet, documents its upload op
-	// validly too.
-	ops := slices.Concat(catalog.Ops(), nexusdspec.Spec().Ops)
-	scopes := maps.Clone(readScopes())
-	scopes[nexusdspec.Name] = nexusdspec.ReadScope
-	gen, err := openapi.Build(ops, openapi.Options{Version: "dev", ReadScopes: scopes})
+	// The catalog, which lists the nexusd spec since WI 6.1, documents its
+	// upload op validly too.
+	if !slices.ContainsFunc(catalog.All(), func(s def.ProviderSpec) bool { return s.Name == nexusdspec.Name }) {
+		t.Fatalf("the catalog does not list %s", nexusdspec.Name)
+	}
+	gen, err := openapi.Build(catalog.Ops(), openapi.Options{Version: "dev", ReadScopes: readScopes()})
 	if err != nil {
 		t.Fatal(err)
 	}

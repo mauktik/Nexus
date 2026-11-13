@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -30,6 +32,10 @@ const (
 
 var fixtureTime = time.Date(2026, 11, 7, 12, 0, 0, 5, time.UTC)
 
+// fixtureUploadID is the upload ID the fixture server answers an upload
+// with: 32 lowercase hex digits.
+var fixtureUploadID = strings.Repeat("a", 32)
+
 // fixtureFor is a real-shape answer to op, built from its apitypes output
 // type: a 202 operation for a long-running op, NDJSON frames for a stream,
 // and otherwise the output type with its identity fields set.
@@ -43,6 +49,16 @@ func fixtureFor(t *testing.T, op def.Op) (status int, contentType string, body [
 		return b
 	}
 	switch {
+	case op.Kind == def.KindUpload:
+		// Every string field, the one a CLI.Upload names included, holds
+		// an upload ID the op it feeds accepts.
+		v := reflect.New(op.OutputType()).Elem()
+		for i := range v.NumField() {
+			if f := v.Field(i); f.Kind() == reflect.String {
+				f.SetString(fixtureUploadID)
+			}
+		}
+		return http.StatusCreated, "application/json", marshal(v.Interface())
 	case op.Mode == def.ModeLongRunning:
 		return http.StatusAccepted, "application/json", marshal(apitypes.Operation{ID: fixtureOpID, Host: fixtureHost,
 			Action: op.ID, Provider: op.Provider, Status: apitypes.StatusQueued, Created: fixtureTime})
@@ -164,8 +180,17 @@ func argsFor(c *opCommand, op def.Op) []string {
 	return args
 }
 
+// noID lists the ops whose printed result has a host but no id, with why.
+var noID = map[string]string{
+	// The architecture fixes its result as {host, valid, configPath,
+	// errors} (nexusd-self-management F2): a check of a file, not a
+	// resource.
+	"nexusd.actions.validate-config": "a sync validation result, not a resource",
+}
+
 // TC-166: every object every data command prints has a host and an id, log
-// frames included, with the locator ids of the Interfaces section.
+// frames included, with the locator ids of the Interfaces section. A command
+// with a CLI.Upload uploads a file first, so the upload op runs too.
 func TestEveryObjectHasHostAndID(t *testing.T) {
 	specs := catalog.All()
 	srv := startFixtureServer(t, specs)
@@ -174,10 +199,27 @@ func TestEveryObjectHasHostAndID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	file := filepath.Join(t.TempDir(), "upload.bin")
+	if err := os.WriteFile(file, []byte("fixture upload\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	ran := map[string]bool{}
 	for _, g := range groups {
 		for _, op := range g.ops {
-			args := append(argsFor(g, op), "-o", "jsonl")
+			args := argsFor(g, op)
+			if u := op.CLI.Upload; u != nil {
+				args = append(args, "--"+u.FileFlag, file)
+				for _, sc := range u.Sidecars {
+					// A signature's form: 64 bytes in padded base64.
+					side := file + sc.Suffix
+					if err := os.WriteFile(side, []byte(strings.Repeat("A", 86)+"==\n"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+					args = append(args, "--"+sc.Flag, side)
+				}
+				ran[u.Op] = true
+			}
+			args = append(args, "-o", "jsonl")
 			r := runSpecsCLI(env, specs, args...)
 			if r.code != 0 {
 				t.Errorf("nexus %v exited %d: %s", args, r.code, r.stderr)
@@ -191,7 +233,7 @@ func TestEveryObjectHasHostAndID(t *testing.T) {
 				if h, _ := o["host"].(string); h == "" {
 					t.Errorf("nexus %v: object without host: %v", args, o)
 				}
-				if id, _ := o["id"].(string); id == "" {
+				if id, _ := o["id"].(string); id == "" && noID[op.ID] == "" {
 					t.Errorf("nexus %v: object without id: %v", args, o)
 				}
 			}

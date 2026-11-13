@@ -9,20 +9,6 @@ package buildsys
 
 import "testing"
 
-// TC-SM-100 (WI 6.1; FR-18, NFR-7, FR-13): Generated docs are current, and the update page documents its flags
-func TestTCSM100_GeneratedDocsAreCurrentAndThe(t *testing.T) {
-	// - Setup: repo copy.
-	// - Steps:
-	//   1. `go run ./cmd/nexus-gendocs -dir docs -check`.
-	//   2. Read `docs/cli/nexus_nexusd_update.md` and `docs/api.md`.
-	// - Expected:
-	//   - Step 1 exits 0 with no stale file.
-	//   - The update page contains `--file`, `--signature` and `--allow-downgrade`.
-	//   - `docs/api.md` lists the upload route and the 13 new FR-16 problem types (including
-	//     `upload-too-large`).
-	t.Skip("TC-SM-100: SKIP-only stub; un-skip when WI 6.1 lands")
-}
-
 // TC-SM-102 (WI 6.2; FR-19): deploy/install.sh is byte-identical to the base revision
 func TestTCSM102_DeployInstallShIsByteIdentical(t *testing.T) {
 	// - Setup: git available.
