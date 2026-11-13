@@ -87,14 +87,12 @@ func TestAlpineHarnessSelfCheck(t *testing.T) {
 	if err := os.Remove(probe); err != nil {
 		t.Fatalf("rmdir %s: %v", probe, err)
 	}
-	osr, err := os.ReadFile("/etc/os-release")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !regexp.MustCompile(`(?m)^ID=alpine$`).Match(osr) {
-		t.Fatalf("/etc/os-release has no ID=alpine:\n%s", osr)
-	}
+	// ID=alpine, as platform parses the base's identification file; the
+	// suite reads no release data itself (TC-141).
 	p := platform.Current()
+	if p.OS.ID != "alpine" {
+		t.Fatalf("platform.Current().OS.ID = %q, want alpine (%+v)", p.OS.ID, p.OS)
+	}
 	if p.Init != platform.OpenRC || !p.OS.IsAlpine() {
 		t.Fatalf("platform.Current() = %+v, want OpenRC on alpine", p)
 	}
