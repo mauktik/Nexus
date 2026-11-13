@@ -834,7 +834,8 @@ var errPkgProbeTimeout = errors.New("-version did not finish in time")
 // probeVersion runs "bin -version" for at most pkgProbeTimeout (5 s) and
 // requires it to print "nexusd <want>". A run that fails, exits non-zero,
 // times out or prints anything else fails version-probe; another version
-// fails version-mismatch.
+// fails version-mismatch. A run that ends because ctx ended returns ctx's
+// error, not a package error.
 func probeVersion(ctx context.Context, run Runner, bin, want string) error {
 	if !filepath.IsAbs(bin) {
 		return fmt.Errorf("probe: %s is not an absolute path", bin)
@@ -844,6 +845,11 @@ func probeVersion(ctx context.Context, run Runner, bin, want string) error {
 	start := time.Now()
 	res, err := run.Run(runCtx, []string{bin, "-version"})
 	if err != nil {
+		if ctx.Err() != nil {
+			// The caller left: the run's failure is the cancellation's, not
+			// the package's (the probe's own timeout ends only runCtx).
+			return fmt.Errorf("version probe: %w", context.Cause(ctx))
+		}
 		return pkgFail(pkgCheckVersionProbe, err, "the package's nexusd -version failed after %s",
 			time.Since(start).Round(time.Millisecond))
 	}

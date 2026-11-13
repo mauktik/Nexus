@@ -113,7 +113,8 @@ func (p *Provider) rollbackUnavailable(detail string) error {
 // a regular file, `<prev> validate-config --config <configPath>` must exit
 // 0 within 10 s, so nexusd would start again on that binary with the
 // configuration in use, and `<prev> -version` must print
-// "nexusd <version>" within 5 s.
+// "nexusd <version>" within 5 s. A run that fails because ctx ended returns
+// ctx's error, not rollback-unavailable.
 func (p *Provider) checkPrev(ctx context.Context, configPath string) (string, error) {
 	prev := p.paths.Prev
 	fi, err := os.Lstat(prev)
@@ -136,6 +137,9 @@ func (p *Provider) checkPrev(ctx context.Context, configPath string) (string, er
 	res, err := p.run.Run(vctx, []string{prev, "validate-config", "--config", configPath})
 	cancel()
 	if err != nil {
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("nexusd: validate-config of the rollback binary: %w", context.Cause(ctx))
+		}
 		return "", p.rollbackUnavailable(fmt.Sprintf("%s validate-config could not run: %v", prev, err))
 	}
 	if res.ExitCode != 0 {
@@ -146,6 +150,8 @@ func (p *Provider) checkPrev(ctx context.Context, configPath string) (string, er
 	res, err = p.run.Run(vctx, []string{prev, "-version"})
 	cancel()
 	switch {
+	case err != nil && ctx.Err() != nil:
+		return "", fmt.Errorf("nexusd: -version of the rollback binary: %w", context.Cause(ctx))
 	case err != nil:
 		return "", p.rollbackUnavailable(fmt.Sprintf("%s -version could not run: %v", prev, err))
 	case res.ExitCode != 0:
