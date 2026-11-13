@@ -80,16 +80,16 @@ type Provider struct {
 	paths     v5.Paths
 	dnsServer netip.AddrPort
 	systemd   func() detach.Availability
-	// runner is the backend's Runner. Preflight never uses it; it is nil
-	// until the exec runner exists, and a nil Runner makes the reader's
-	// re-enable timer unknown rather than failing.
+	// runner is the backend Reader's Runner: the real exec runner, which
+	// only ever runs `systemctl show` for the re-enable timer. Preflight
+	// never uses it; a nil Runner makes that timer unknown, not a failure.
 	runner v5.Runner
 }
 
 // New returns the provider with the default settings until Configure.
 func New(opts Options) *Provider {
 	p := &Provider{host: opts.Host, log: opts.Logger, preflight: opts.Preflight,
-		dnsServer: defaultDNSServer, systemd: detach.SystemdAvailable}
+		dnsServer: defaultDNSServer, systemd: detach.SystemdAvailable, runner: v5.Exec{}}
 	if p.log == nil {
 		p.log = slog.Default()
 	}

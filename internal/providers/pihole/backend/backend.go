@@ -71,22 +71,25 @@ type AdlistMutator interface {
 
 // Deps are the seams Select passes to a backend.
 type Deps struct {
-	Runner    v5.Runner      // the exec runner in production
-	DNSServer netip.AddrPort // 127.0.0.1:53 in production
+	Runner    v5.Runner        // the exec runner in production
+	DNSServer netip.AddrPort   // 127.0.0.1:53 in production
+	Now       func() time.Time // the Mutator's clock; nil means time.Now
 }
+
+// The v5-cli Mutator implements the base Mutator; each area interface is
+// asserted beside it by the work item that adds its methods.
+var _ Mutator = (*v5.Mutator)(nil)
 
 // ErrNotDetected is Select's answer when no Pi-hole major was detected.
 var ErrNotDetected = errors.New("pi-hole version not detected (no /etc/pihole/versions, no FTL API, no pihole.toml)")
 
 // Select picks the backend from detected versions: Major 5 is v5-cli,
 // Major 6 is Unsupported, anything else is (nil, nil, "", ErrNotDetected).
-//
-// For v5-cli the Mutator is nil until the v5 Mutator exists (WI 3.1, which
-// returns it here); no caller uses a Mutator before then.
 func Select(v Versions, p v5.Paths, deps Deps) (Reader, Mutator, string, error) {
 	switch v.Major {
 	case 5:
-		return &v5.Reader{Paths: p, Runner: deps.Runner, DNSServer: deps.DNSServer}, nil, spec.BackendV5CLI, nil
+		return &v5.Reader{Paths: p, Runner: deps.Runner, DNSServer: deps.DNSServer},
+			&v5.Mutator{Paths: p, Runner: deps.Runner, Now: deps.Now}, spec.BackendV5CLI, nil
 	case 6:
 		return Unsupported{}, Unsupported{}, spec.BackendUnsupported, nil
 	}

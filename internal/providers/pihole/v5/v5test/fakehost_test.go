@@ -1,8 +1,6 @@
-//go:build pihole_red
-
-// Stub-style: SKIP-only (WI 3.1). Excluded from `make test` by the
-// pihole_red build tag; the WI 3.1 developer deletes the //go:build line and
-// these must pass. Cases: TC-70 (a-h) in planning/pihole-dns-zones/test-cases.md.
+// Cases: TC-70 (a-h) in planning/pihole-dns-zones/test-cases.md (WI 3.1),
+// plus self-tests of FakeHost's fault injection, FTL events and planted
+// gravity process.
 //
 // These are the fake-fidelity self-tests: each asserts that FakeHost
 // reproduces a verified Pi-hole v5.18.4 behavior (architecture V-9, V-12,
@@ -14,11 +12,14 @@ package v5test_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/mauktik/nexus/internal/providers/pihole/v5"
 	"github.com/mauktik/nexus/internal/providers/pihole/v5/v5test"
 )
 
@@ -213,5 +214,129 @@ func TestTC70g_ArgvRecordedUnknownIs127(t *testing.T) {
 	want := [][]string{{pihole, "enable"}, {"/bin/sh", "-c", "pihole enable"}}
 	if got := h.Argvs(); !slices.EqualFunc(got, want, slices.Equal) {
 		t.Errorf("argvs %q, want %q", got, want)
+	}
+}
+
+// Fault injection reports through the real runner's contract (A-19): a
+// death by signal is (128+sig, nil) with the signal named on stderr, a
+// start failure is (-1, err); the one-shot forms fail once, then the
+// command runs. A faulted command has no effect.
+func TestFakeHostFaults(t *testing.T) {
+	h := v5test.NewFakeHost(t)
+	ftlTest := []string{"/usr/bin/pihole-FTL", "--test"}
+	h.FailCommandSignal(ftlTest, syscall.SIGSEGV)
+	for range 2 {
+		var errb bytes.Buffer
+		code, err := h.Run(context.Background(), ftlTest, &bytes.Buffer{}, &errb)
+		if code != 139 || err != nil || !strings.Contains(errb.String(), "killed by signal SIGSEGV") {
+			t.Errorf("signal fault: (%d, %v) %q, want (139, nil) naming SIGSEGV", code, err, errb.String())
+		}
+	}
+
+	h.FailCommandSignalOnce([]string{pihole, "restartdns"}, syscall.SIGKILL)
+	if code, _ := run(t, h, pihole, "restartdns"); code != 137 {
+		t.Errorf("one-shot signal: exit %d, want 137", code)
+	}
+	if code, _ := run(t, h, pihole, "restartdns"); code != 0 || countEvents(h, v5test.EventRestart) != 1 {
+		t.Errorf("after the one-shot: exit %d, events %v", code, h.FTLEvents())
+	}
+
+	h.FailCommandStartOnce([]string{pihole, "enable"})
+	if code, err := h.Run(context.Background(), []string{pihole, "enable"}, &bytes.Buffer{}, &bytes.Buffer{}); code != -1 || err == nil {
+		t.Errorf("one-shot start failure: (%d, %v), want (-1, err)", code, err)
+	}
+	if code, _ := run(t, h, pihole, "enable"); code != 0 {
+		t.Errorf("after the one-shot start failure: exit %d", code)
+	}
+
+	h.FailCommandStart([]string{systemdRun})
+	for range 2 {
+		if code, err := h.Run(context.Background(), []string{systemdRun, "--unit=x", "--on-active=5s", pihole, "enable"},
+			&bytes.Buffer{}, &bytes.Buffer{}); code != -1 || err == nil {
+			t.Errorf("start failure: (%d, %v), want (-1, err)", code, err)
+		}
+	}
+	if _, ok := h.TimerPending(); ok {
+		t.Error("a command that failed to start created a timer")
+	}
+
+	h.FailCommandOnce([]string{pihole, "disable"}, 1)
+	if code, _ := run(t, h, pihole, "disable"); code != 1 || h.BlockingEnabled() != "true" {
+		t.Errorf("one-shot exit fault: exit %d, BLOCKING_ENABLED=%s; want 1 with no effect", code, h.BlockingEnabled())
+	}
+	h.IgnoreCommand([]string{pihole, "disable"})
+	if code, _ := run(t, h, pihole, "disable"); code != 0 || h.BlockingEnabled() != "true" {
+		t.Errorf("ignored command: exit %d, BLOCKING_ENABLED=%s; want 0 with no effect", code, h.BlockingEnabled())
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if code, err := h.Run(ctx, []string{pihole, "enable"}, &bytes.Buffer{}, &bytes.Buffer{}); code != -1 || !errors.Is(err, context.Canceled) {
+		t.Errorf("ended ctx: (%d, %v), want (-1, context.Canceled)", code, err)
+	}
+}
+
+// restartdns and its reload variants signal FTL; `pihole flush` empties the
+// query log and does not touch FTL (FR-15).
+func TestFakeHostRestartFlush(t *testing.T) {
+	h := v5test.NewFakeHost(t)
+	run(t, h, pihole, "restartdns")
+	run(t, h, pihole, "restartdns", "reload")
+	run(t, h, pihole, "restartdns", "reload-lists")
+	want := []string{v5test.EventRestart, v5test.EventReload, v5test.EventReloadLists}
+	if got := h.FTLEvents(); !slices.Equal(got, want) {
+		t.Errorf("events %v, want %v", got, want)
+	}
+	if h.QueryLogLines() == 0 {
+		t.Fatal("the seeded query log is empty")
+	}
+	if code, _ := run(t, h, pihole, "flush"); code != 0 || h.QueryLogLines() != 0 || len(h.FTLEvents()) != 3 {
+		t.Errorf("flush: exit %d, %d log lines, events %v", code, h.QueryLogLines(), h.FTLEvents())
+	}
+	if pid, ok := v5.FTLPID(h.Paths()); !ok || pid != v5test.FakeFTLPID {
+		t.Errorf("FTLPID = %d, %v; want the seeded %d", pid, ok, v5test.FakeFTLPID)
+	}
+}
+
+// A second systemd-run of a loaded unit fails as systemd's does; show of an
+// unloaded unit reports dead; reset-failed of one is not loaded.
+func TestFakeHostTimerUnit(t *testing.T) {
+	h := v5test.NewFakeHost(t)
+	args := []string{systemdRun, "--unit=nexus-pihole-reenable", "--on-active=30s", pihole, "enable"}
+	if code, _ := run(t, h, args...); code != 0 {
+		t.Fatalf("systemd-run exit %d", code)
+	}
+	if code, _ := run(t, h, args...); code == 0 {
+		t.Error("a second timer of the same unit was created")
+	}
+	if code, _ := run(t, h, systemctl, "stop", "nexus-pihole-reenable.timer"); code != 0 {
+		t.Errorf("stop of the pending timer: exit %d", code)
+	}
+	if _, show := run(t, h, systemctl, "show", "nexus-pihole-reenable.timer", "--property=SubState,Description"); !strings.Contains(show, "SubState=dead") {
+		t.Errorf("show of an unloaded timer:\n%s", show)
+	}
+	if code, _ := run(t, h, systemctl, "reset-failed", "nexus-pihole-reenable.timer"); code == 0 {
+		t.Error("reset-failed of an unloaded unit exited 0")
+	}
+	h.Advance(time.Minute)
+	if h.BlockingEnabled() != "true" || countEvents(h, v5test.EventReloadLists) != 0 {
+		t.Errorf("a stopped timer fired: events %v", h.FTLEvents())
+	}
+}
+
+// A planted gravity run is a /proc/<pid>/cmdline naming gravity.sh until
+// stopped (A-16).
+func TestFakeHostGravityProcess(t *testing.T) {
+	h := v5test.NewFakeHost(t)
+	if _, ok := v5.GravityRunning(h.Paths()); ok {
+		t.Fatal("a gravity run before any was planted")
+	}
+	pid, stop := h.PlantGravityProcess()
+	if got, ok := v5.GravityRunning(h.Paths()); !ok || got != pid {
+		t.Errorf("GravityRunning = %d, %v; want %d", got, ok, pid)
+	}
+	stop()
+	if _, ok := v5.GravityRunning(h.Paths()); ok {
+		t.Error("the run is still visible after stop")
 	}
 }
