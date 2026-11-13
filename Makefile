@@ -36,7 +36,7 @@ RELEASE_KEY ?= $(or $(NEXUS_RELEASE_KEY),$(HOME)/.config/nexus/release-signing.k
 # recurses into make.
 export NEXUS_IN_MAKE := 1
 
-.PHONY: build build-release test vet vuln check docs docs-check test-harness release release-version release-key release-key-check nexusd-tree test-emu nfr nfr-sizes
+.PHONY: build build-release test vet vuln check docs docs-check test-harness release release-version release-key release-key-check nexusd-tree nexusd-tarball test-emu nfr nfr-sizes
 
 # Host-arch binaries for local use.
 build:
@@ -118,6 +118,15 @@ nexusd-tree:
 	cp -R docs/. $(TREE_DIR)/docs/
 	chmod -R u=rwX,go=rX $(TREE_DIR)
 	chmod 0755 $(TREE_DIR)/nexusd $(TREE_DIR)/install.sh $(TREE_DIR)/uninstall.sh
+
+# nexusd-tarball TREE_DIR=<dir> TARBALL=<file>: pack one nexusd tree as the
+# release packs it, with TAR_FLAGS, the tree's directory name as the single
+# top-level entry. The T1 harness packs its self-update fixtures with it.
+nexusd-tarball:
+	@[ -n '$(TREE_DIR)' ] && [ -n '$(TARBALL)' ] || { echo "nexusd-tarball: set TREE_DIR and TARBALL" >&2; exit 2; }
+	@[ -d '$(TREE_DIR)' ] || { echo "nexusd-tarball: $(TREE_DIR) is not a directory" >&2; exit 2; }
+	mkdir -p '$(dir $(abspath $(TARBALL)))'
+	cd '$(dir $(abspath $(TREE_DIR)))' && COPYFILE_DISABLE=1 tar $(TAR_FLAGS) -czf '$(abspath $(TARBALL))' '$(notdir $(abspath $(TREE_DIR)))'
 
 # T1: real systemd in a privileged container on the Docker CLI's current
 # context, native architecture. Test-only binaries go to build/harness/,

@@ -12,12 +12,24 @@
 # release tree install.sh installs from (make nexusd-tree, with the harness
 # nexusd) goes to /harness/release/nexusd.
 #
-# The Docker CLI's current context is used as is: no socket is hardcoded.
+# The self-update fixtures (WI 7.1) go to /harness/selfupdate: one signed
+# nexusd-<v>-linux-<goarch>.tar.gz per fixture version (see build_fixtures),
+# each with its .sig, and release-test.pub, the public half of a key made for
+# this run only (build/harness/release-test.key; never the real key under
+# ~/.config/nexus). Each signature is checked on the host before the copy-in.
+# run.sh's own output is kept in logs/<stamp>/run.log and copied in as
+# /harness/run.log just before the tests run.
+#
+# The Docker CLI's current context is used, but only when its endpoint is a
+# local unix:// socket (CON-1, A-42): the container is privileged, and a
+# context pointing at another host, such as the live server, must never
+# receive it. Nothing but `docker context inspect` runs before that check.
 #
 # Environment: BASE (image base), RUN (-test.run regex), TESTFLAGS (more
 # test binary flags), NEXUS_HARNESS_EXPECT_FAIL (passed to the tests: a
 # deliberate failure that proves logs are collected and the container is
-# removed when a test fails).
+# removed when a test fails), NEXUS_HARNESS_ALLOW_REMOTE=1 (run on a
+# non-local Docker endpoint anyway: only for a disposable test host).
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
@@ -43,6 +55,48 @@ dist_state() {
 	else
 		echo "dist absent"
 	fi
+}
+
+# docker_guard refuses a Docker endpoint that is not a local unix:// socket
+# unless NEXUS_HARNESS_ALLOW_REMOTE=1. `docker context inspect` reads the
+# CLI's own configuration (DOCKER_HOST and DOCKER_CONTEXT included) and
+# connects to nothing, so a refused endpoint is never contacted.
+docker_guard() {
+	local endpoint
+	endpoint=$(docker context inspect --format '{{.Endpoints.docker.Host}}') ||
+		die "cannot read the endpoint of the current Docker context (docker context inspect)"
+	case $endpoint in
+	unix://?*)
+		say "docker endpoint $endpoint (local socket)"
+		;;
+	*)
+		[ "${NEXUS_HARNESS_ALLOW_REMOTE:-}" = 1 ] ||
+			die "the current Docker context's endpoint '$endpoint' is not a local unix:// socket. The harness starts a privileged container and does not send it to another host (CON-1). Switch to a local context (docker context use <name>), or set NEXUS_HARNESS_ALLOW_REMOTE=1 if that endpoint is a disposable test host"
+		echo "harness: WARNING: docker endpoint '$endpoint' is not a local socket; running anyway because NEXUS_HARNESS_ALLOW_REMOTE=1" >&2
+		;;
+	esac
+}
+docker_guard
+
+# Everything from here on is also kept in logs/<stamp>/run.log.
+mkdir -p "$LOGS"
+exec > >(tee -a "$LOGS/run.log") 2> >(tee -a "$LOGS/run.log" >&2)
+
+# The real release-signing key must not change during a run: run.sh only
+# ever names its own per-run keys.
+HOST_KEY=${HOME:-}/.config/nexus/release-signing.key
+host_key_state() {
+	if [ -e "$HOST_KEY" ] || [ -L "$HOST_KEY" ]; then
+		echo "mtime $(stat -c %Y "$HOST_KEY" 2>/dev/null || stat -f %m "$HOST_KEY")"
+	else
+		echo absent
+	fi
+}
+host_key_before=$(host_key_state)
+check_host_key() {
+	[ "$(host_key_state)" = "$host_key_before" ] ||
+		die "host signing key $HOST_KEY changed during the run (was $host_key_before, now $(host_key_state))"
+	say "host signing key $HOST_KEY unchanged ($host_key_before)"
 }
 
 # Architecture of the daemon that runs the container, not of this machine.
@@ -117,20 +171,152 @@ if [ "${1:-}" = emu ]; then
 	emu_smoke
 fi
 
+# Self-update fixtures (WI 7.1). Every tree is a `make nexusd-tree` tree
+# named nexusd-<v>-linux-<goarch> (A-13) with a harness-arch nexusd built as
+# <v>, changed only as its T1 case needs:
+#   v9.9.1  the base, installed by hand
+#   v9.9.2  a good update
+#   v9.9.3  install.sh exits 3 right after the binary mv
+#   v9.9.4  nexusd is a stub: -version prints nexusd v9.9.4, validate-config
+#           succeeds, serve exits 1
+#   v9.9.5  install.sh installs the bundled nexusd-alt, built as v9.9.8
+#   v9.9.6  signed by a second key, which the per-run public key does not
+#           trust
+#   v9.9.7  the restore fails (FR-8, A-44): before the binary mv, install.sh
+#           copies the bundled nexusd-restore-stub (-version prints nexusd
+#           v9.9.1, validate-config succeeds, serve exits 1) over
+#           /usr/local/bin/nexusd.prev, then exits 3; the helper's backup
+#           ran before install.sh, so its restore installs the stub
+FIXTURES="v9.9.1 v9.9.2 v9.9.3 v9.9.4 v9.9.5 v9.9.6 v9.9.7"
+UNTRUSTED_FIXTURE=v9.9.6
+FIX=$OUT/selfupdate
+KEY=$OUT/release-test.key
+UNTRUSTED_KEY=$OUT/release-untrusted.key
+VERSION_VAR=github.com/mauktik/nexus/internal/version.Version
+# The install.sh lines the fixture patches anchor on.
+# shellcheck disable=SC2016 # Literal lines of install.sh.
+INSTALL_BIN_LINE='install -o root -g root -m 0755 "$SRC/nexusd" "$BIN.new"'
+# shellcheck disable=SC2016
+MV_BIN_LINE='mv -f "$BIN.new" "$BIN"'
+
+# write_stub FILE VERSION writes a serve-failing nexusd stand-in, mode 0755.
+write_stub() {
+	cat >"$1" <<STUB
+#!/bin/sh
+# T1 self-update fixture: a nexusd that reports $2 and never serves.
+case \${1:-} in
+-version | --version) echo "nexusd $2" ;;
+validate-config) exit 0 ;;
+*) echo "nexusd stub $2: '\${1:-}' fails on purpose" >&2; exit 1 ;;
+esac
+STUB
+	chmod 0755 "$1"
+}
+
+# patch_install TREE MODE LINE TEXT rewrites TREE/install.sh, inserting TEXT
+# before or after LINE, or replacing it (MODE before, after or replace).
+# LINE must occur exactly once; a \n in TEXT is a line break.
+patch_install() {
+	local f=$1/install.sh
+	awk -v mode="$2" -v line="$3" -v text="$4" '
+		$0 == line {
+			n++
+			if (mode == "before") print text
+			if (mode == "replace") print text; else print
+			if (mode == "after") print text
+			next
+		}
+		{ print }
+		END { exit n == 1 ? 0 : 1 }' "$f" >"$f.new" ||
+		die "patching $(basename "$1")/install.sh: the line '$3' does not occur exactly once"
+	mv -f "$f.new" "$f"
+	chmod 0755 "$f"
+}
+
+# build_fixtures builds the fixture binaries for the harness architecture
+# (the caller exports GOOS, GOARCH and CGO_ENABLED), then the trees and their
+# tarballs in $FIX.
+build_fixtures() {
+	local v tree
+	rm -rf "$FIX"
+	mkdir -p "$FIX/bin" "$FIX/trees" "$FIX/pkg"
+	for v in v9.9.1 v9.9.2 v9.9.3 v9.9.5 v9.9.6 v9.9.7 v9.9.8; do
+		go build -trimpath -ldflags "-X $VERSION_VAR=$v" -o "$FIX/bin/nexusd-$v" ./cmd/nexusd
+	done
+	write_stub "$FIX/bin/nexusd-v9.9.4" v9.9.4
+	for v in $FIXTURES; do
+		tree=$FIX/trees/nexusd-$v-linux-$goarch
+		make --no-print-directory -s nexusd-tree TREE_BIN="$FIX/bin/nexusd-$v" TREE_DIR="$tree"
+		case $v in
+		v9.9.3)
+			patch_install "$tree" after "$MV_BIN_LINE" 'exit 3'
+			;;
+		v9.9.5)
+			install -m 0755 "$FIX/bin/nexusd-v9.9.8" "$tree/nexusd-alt"
+			# shellcheck disable=SC2016
+			patch_install "$tree" replace "$INSTALL_BIN_LINE" 'install -o root -g root -m 0755 "$SRC/nexusd-alt" "$BIN.new"'
+			;;
+		v9.9.7)
+			write_stub "$tree/nexusd-restore-stub" v9.9.1
+			# shellcheck disable=SC2016
+			patch_install "$tree" before "$INSTALL_BIN_LINE" 'install -o root -g root -m 0755 "$SRC/nexusd-restore-stub" /usr/local/bin/nexusd.prev\nexit 3'
+			;;
+		esac
+		make --no-print-directory -s nexusd-tarball TREE_DIR="$tree" TARBALL="$FIX/pkg/nexusd-$v-linux-$goarch.tar.gz"
+	done
+}
+
+# sign_fixtures TOOL signs each fixture tarball with a key made for this run
+# (the untrusted fixture with a second one), writes the trusted public key to
+# release-test.pub, and checks every signature on the host: each trusted
+# fixture must verify against that key, and the untrusted one must not.
+sign_fixtures() {
+	local tool=$1 v t pub untrusted_pub out trusted=()
+	rm -f "$KEY" "$UNTRUSTED_KEY"
+	"$tool" keygen --key "$KEY" >/dev/null 2>&1 || die "nexus-release keygen --key $KEY failed"
+	"$tool" keygen --key "$UNTRUSTED_KEY" >/dev/null 2>&1 || die "nexus-release keygen --key $UNTRUSTED_KEY failed"
+	pub=$("$tool" pubkey --key "$KEY")
+	untrusted_pub=$("$tool" pubkey --key "$UNTRUSTED_KEY")
+	printf '%s\n' "$pub" >"$FIX/pkg/release-test.pub"
+	say "per-run signing key ${KEY#"$ROOT"/}, public key $pub; untrusted key ${UNTRUSTED_KEY#"$ROOT"/}"
+	for v in $FIXTURES; do
+		[ "$v" = "$UNTRUSTED_FIXTURE" ] || trusted+=("$FIX/pkg/nexusd-$v-linux-$goarch.tar.gz")
+	done
+	"$tool" sign --key "$KEY" "${trusted[@]}" >/dev/null
+	"$tool" sign --key "$UNTRUSTED_KEY" "$FIX/pkg/nexusd-$UNTRUSTED_FIXTURE-linux-$goarch.tar.gz" >/dev/null
+	for v in $FIXTURES; do
+		t=$FIX/pkg/nexusd-$v-linux-$goarch.tar.gz
+		if [ "$v" = "$UNTRUSTED_FIXTURE" ]; then
+			if "$tool" verify --pubkey "$pub" "$t" >/dev/null 2>&1; then
+				die "fixture $v verifies against the per-run key; it must not"
+			fi
+			"$tool" verify --pubkey "$untrusted_pub" "$t" >/dev/null || die "fixture $v does not verify against its own key"
+			say "fixture $v: refused by the per-run key, as intended (signed by ${UNTRUSTED_KEY#"$ROOT"/})"
+		else
+			out=$("$tool" verify --pubkey "$pub" "$t") || die "fixture $v does not verify against the per-run key"
+			say "fixture $v: $out"
+		fi
+	done
+}
+
 dist_before=$(dist_state)
 mkdir -p "$OUT" "$LOGS"
 
+# The image first: a Docker problem fails the run before the slower Go builds.
+tag="nexus-harness:$(echo "$BASE" | tr ':/@' '---')"
+say "building image $tag"
+docker build --quiet --build-arg "BASE=$BASE" -t "$tag" test/harness >/dev/null
 say "building linux/$goarch test-only binaries into build/harness/"
 export CGO_ENABLED=0 GOOS=linux GOARCH=$goarch
 go build -trimpath -o "$OUT/nexusd" ./cmd/nexusd
 go build -trimpath -o "$OUT/opsd" ./test/integration/cmd/opsd
 go test -c -trimpath -tags integration -o "$OUT/integration.test" ./test/integration
+say "building the self-update fixtures ($FIXTURES) into ${FIX#"$ROOT"/}"
+build_fixtures
 unset CGO_ENABLED GOOS GOARCH
 make --no-print-directory -s nexusd-tree TREE_BIN="$OUT/nexusd" TREE_DIR="$OUT/release/nexusd"
-
-tag="nexus-harness:$(echo "$BASE" | tr ':/@' '---')"
-say "building image $tag"
-docker build --quiet --build-arg "BASE=$BASE" -t "$tag" test/harness >/dev/null
+go build -o "$OUT/host/nexus-release" ./cmd/nexus-release
+sign_fixtures "$OUT/host/nexus-release"
 
 name="nexus-harness-$STAMP-$$"
 container=""
@@ -150,6 +336,10 @@ collect_and_remove() {
 		else
 			say "container $name removed"
 		fi
+	fi
+	if [ "$(host_key_state)" != "$host_key_before" ]; then
+		echo "harness: FAIL: host signing key $HOST_KEY changed during the run" >&2
+		rc=1
 	fi
 	if [ "$(dist_state)" != "$dist_before" ]; then
 		echo "harness: FAIL: dist/ changed during the harness run" >&2
@@ -213,9 +403,15 @@ docker cp test/harness/fixtures "$container:/harness/fixtures"
 # extracts it for root.
 docker cp "$OUT/release" "$container:/harness/release"
 docker exec "$container" chown -R root:root /harness/release
+check_host_key
+(cd "$FIX/pkg" && ls -l) | sed 's/^/harness: fixture file: /'
+say "copying the self-update fixtures into /harness/selfupdate"
+docker cp "$FIX/pkg" "$container:/harness/selfupdate"
+docker exec "$container" chown -R root:root /harness/selfupdate
 docker exec "$container" sh -c 'chown root:root /usr/local/bin/nexusd /usr/local/bin/opsd /harness/integration.test /harness/lib.sh /harness/deploy/nexusd.service && chmod 0755 /usr/local/bin/nexusd /usr/local/bin/opsd /harness/integration.test /harness/lib.sh'
 
 say "running tests"
+docker cp "$LOGS/run.log" "$container:/harness/run.log"
 args=(-test.v -test.count=1 -test.timeout=30m)
 [ -z "$RUN" ] || args+=(-test.run "$RUN")
 # shellcheck disable=SC2206 # TESTFLAGS is word-split on purpose.

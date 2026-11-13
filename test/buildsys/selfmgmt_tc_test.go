@@ -43,37 +43,3 @@ func TestTCSM102_DeployInstallShIsByteIdentical(t *testing.T) {
 	}
 	t.Logf("deploy/install.sh equals %s:deploy/install.sh (%d bytes)", base, len(got))
 }
-
-// TC-SM-106 (WI 7.1; CON-1): The harness refuses a non-local Docker context
-func TestTCSM106_TheHarnessRefusesANonLocal(t *testing.T) {
-	// - Setup: a stub `docker` script first on `PATH`. It answers `context inspect` with endpoint
-	//   `tcp://192.168.7.5:2376` (run 1) or `unix:///…/colima/default/docker.sock` (run 2), answers
-	//   `info` with `aarch64`, and logs every invocation to a file. No real Docker is used.
-	// - Steps:
-	//   1. Run 1: `bash test/harness/run.sh`.
-	//   2. Run 1 again with `NEXUS_HARNESS_ALLOW_REMOTE=1`.
-	//   3. Run 2: `bash test/harness/run.sh` (stop the stub at the first `docker build` by exiting
-	//     99).
-	// - Expected:
-	//   - Step 1: non-zero exit, stderr names the endpoint, and the log has no `run`, `build` or `cp`
-	//     invocation.
-	//   - Step 2: proceeds past the guard (reaches `docker build`).
-	//   - Step 3: proceeds past the guard.
-	t.Skip("TC-SM-106: SKIP-only stub; un-skip when WI 7.1 lands")
-}
-
-// TC-SM-108 (WI 7.1; FR-7): The real nexusd tarball's entry count exceeds 64 and stays within the 1024 limit
-func TestTCSM108_TheRealNexusdTreeSEntry(t *testing.T) {
-	// - Setup: repo copy; `skipUnderMake`; a host-arch nexusd built with `-X …Version=v9.9.2`.
-	// - Steps:
-	//   1. `make nexusd-tree TREE_BIN=… TREE_DIR=$tmp/nexusd-v9.9.2-linux-<goarch>`.
-	//   2. `make nexusd-tarball TREE_DIR=… TARBALL=$tmp/t.tar.gz`.
-	//   3. Read every header of the tarball with `compress/gzip` and `archive/tar`.
-	// - Expected:
-	//   - The entry count is greater than 64 (66 or more after this feature's docs) and at most 1024.
-	//     The 1024 is hard-coded in the test with a comment citing A-43; the test does not import the
-	//     unexported scan constant.
-	//   - The tarball was packed with `TAR_FLAGS`: every header has uid and gid 0 and no xattr or PAX
-	//     `SCHILY.xattr.*` records (the `readTarball` checks).
-	t.Skip("TC-SM-108: SKIP-only stub; un-skip when WI 7.1 lands")
-}

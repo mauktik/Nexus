@@ -11,6 +11,12 @@
 #   stop-nexusd             stop nexusd and clear a failed state
 #   dropin NAME FILE        install FILE as nexusd.service.d/NAME.conf
 #   remove-dropins          remove every nexusd.service drop-in
+#   install-release TREE    run TREE's install.sh as an operator does (bash
+#                           install.sh) and exit with its status; TREE is an
+#                           unpacked nexusd-<v>-linux-<goarch> tree, or such a
+#                           .tar.gz (e.g. in /harness/selfupdate), unpacked
+#                           into a temporary directory first
+#   nexusd-version [BIN]    print BIN -version (default /usr/local/bin/nexusd)
 set -euo pipefail
 
 UNIT_SRC=/harness/deploy/nexusd.service
@@ -61,6 +67,36 @@ remove_dropins() {
 	systemctl daemon-reload
 }
 
+install_release() {
+	local src=$1 tmp="" tree rc=0
+	if [ -d "$src" ]; then
+		tree=$src
+	else
+		case $src in
+		*.tar.gz) [ -f "$src" ] || die "no release tarball $src" ;;
+		*) die "install-release: $src is neither a release tree nor a .tar.gz" ;;
+		esac
+		tmp=$(mktemp -d)
+		tar -xzf "$src" -C "$tmp" || {
+			rm -rf "$tmp"
+			die "cannot unpack $src"
+		}
+		tree=$tmp/$(basename "$src" .tar.gz)
+	fi
+	if [ -f "$tree/install.sh" ]; then
+		bash "$tree/install.sh" || rc=$?
+	else
+		echo "lib.sh: no install.sh in $tree" >&2
+		rc=1
+	fi
+	[ -z "$tmp" ] || rm -rf "$tmp"
+	return $rc
+}
+
+nexusd_version() {
+	"${1:-/usr/local/bin/nexusd}" -version
+}
+
 cmd=${1:-}
 [ -n "$cmd" ] || die "no command"
 shift
@@ -71,5 +107,7 @@ start-nexusd) start_nexusd ;;
 stop-nexusd) stop_nexusd ;;
 dropin) [ $# -eq 2 ] || die "usage: dropin NAME FILE"; dropin "$1" "$2" ;;
 remove-dropins) remove_dropins ;;
+install-release) [ $# -eq 1 ] || die "usage: install-release TREE"; install_release "$1" ;;
+nexusd-version) [ $# -le 1 ] || die "usage: nexusd-version [BIN]"; nexusd_version "$@" ;;
 *) die "unknown command $cmd" ;;
 esac

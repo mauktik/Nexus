@@ -11,24 +11,6 @@ package integration
 
 import "testing"
 
-// TC-SM-107 (WI 7.1; NFR-6, FR-15, CON-1): Fixture tarballs are signed with a per-run key and verified on the host
-func TestTCSM107_FixtureTarballsAreSignedWithA(t *testing.T) {
-	// - Setup: inside T1, `/harness/selfupdate/`.
-	// - Steps:
-	//   1. List the tarballs, `.sig` files and `release-test.pub`.
-	//   2. `release.Verify` each against the per-run public key.
-	//   3. Read `build/harness/logs/<stamp>/run.log` on the host (the run.sh output is captured into
-	//     the T1 log).
-	// - Expected:
-	//   - Tarballs `v9.9.1`…`v9.9.6` exist, plus `v9.9.7` if TC-SM-123's fixture is adopted, each with
-	//     a `.sig`.
-	//   - Verify is true for every version except `v9.9.6`, which is false.
-	//   - Each top-level dir is `nexusd-<v>-linux-<goarch>`.
-	//   - The log shows `nexus-release verify` passing for each trusted fixture before the copy-in.
-	//   - The host's `~/.config/nexus/release-signing.key` mtime is unchanged, or the file is absent.
-	t.Skip("TC-SM-107: SKIP-only stub; un-skip when WI 7.1 lands")
-}
-
 // TC-SM-109 (WI 7.2; FR-7, FR-9, FR-10, FR-14, NFR-6): T1 (a): an update from v9.9.1 to v9.9.2 succeeds with exactly one restart
 func TestTCSM109_T1AAnUpdateFromV9(t *testing.T) {
 	// - Setup: T1 clean host with `v9.9.1` installed through `install.sh`, the provider enabled, the
