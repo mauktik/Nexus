@@ -149,6 +149,9 @@ func TestHandWrittenDocsNameRealCommands(t *testing.T) {
 	pages := append(slices.Clone(handWritten), "../README.md")
 	nexusRE := regexp.MustCompile(`\bnexus ([a-z]+)(?: ([a-z]+))?`)
 	nexusdRE := regexp.MustCompile(`\bnexusd ([a-z][a-z-]*)(?: ([a-z]+))?`)
+	// OpenRC's commands name the nexusd service, not a nexusd command:
+	// rc-service nexusd start, rc-update add nexusd default.
+	serviceRE := regexp.MustCompile(`\b(rc-service|rc-update (?:add|del)) nexusd\b`)
 	// Words that can follow "nexus" in a code span without naming a command,
 	// such as a comment in an example.
 	prose := map[string]bool{"is": true, "and": true, "or": true, "on": true, "to": true, "the": true}
@@ -175,7 +178,7 @@ func TestHandWrittenDocsNameRealCommands(t *testing.T) {
 					t.Errorf("%s names %q, which is not a nexus command", page, m[0])
 				}
 			}
-			for _, m := range nexusdRE.FindAllStringSubmatch(code, -1) {
+			for _, m := range nexusdRE.FindAllStringSubmatch(serviceRE.ReplaceAllString(code, "$1"), -1) {
 				subs, ok := nexusdCommands[m[1]]
 				if !ok || (len(subs) > 0 && m[2] != "" && !slices.Contains(subs, m[2])) {
 					t.Errorf("%s names %q, which is not a nexusd command", page, m[0])
