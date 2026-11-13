@@ -1,9 +1,7 @@
-//go:build pihole_red
-
-// Stub-style: SKIP-only (WI 4.1). Excluded from `make test` by the
-// pihole_red build tag; the WI 4.1 developer deletes the //go:build line and
-// these must pass. Cases: TC-96 to TC-103, TC-E11, TC-E12, TC-ERR20 to
-// TC-ERR25 in planning/pihole-dns-zones/test-cases.md.
+// Cases: TC-96 to TC-103, TC-E11, TC-E12, TC-ERR20 to TC-ERR25 in
+// planning/pihole-dns-zones/test-cases.md, and the WI 4.1 branch tests
+// (every syntax-test failure form, the backup failure, a duplicate covering
+// line).
 //
 // The pipeline runs against FakeHost + FakeFTL (WI 3.1/3.2), which encode the
 // verified v5 behavior: dnsmasq serves a snapshot of the conf files taken at
@@ -54,7 +52,9 @@ type env struct {
 }
 
 // setup seeds the fake host's dnsFile with fixture bytes (the FR-23 7-line
-// file unless overridden), starts FTL on it, and clears the argv record.
+// file unless overridden), starts FTL on it, waits until that FTL answers
+// and its PID file names it (unless the seed stops it), and clears the argv
+// record.
 func setup(t *testing.T, content []byte) *env {
 	t.Helper()
 	if content == nil {
@@ -74,8 +74,31 @@ func setup(t *testing.T, content []byte) *env {
 	if code, err := h.Run(context.Background(), []string{piholeBin, "restartdns"}, io.Discard, io.Discard); code != 0 || err != nil {
 		t.Fatalf("seed restart: %d %v", code, err)
 	}
+	if h.FTL().PID() != 0 { // A planted invalid line stops FTL at start, as dnsmasq dies
+		if _, err := dnscheck.WaitReady(context.Background(), h.FTL().Addr(), 5*time.Second); err != nil {
+			t.Fatalf("seed FTL not ready: %v", err)
+		}
+		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+			if pid, ok := v5.FTLPID(h.Paths()); ok && pid == h.FTL().PID() {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("seed FTL never wrote its PID file")
+			}
+		}
+	}
 	h.ResetArgvs()
 	return e
+}
+
+// noTemp fails when a dot-prefixed temp file is left beside dnsFile.
+func noTemp(t *testing.T, e *env) {
+	t.Helper()
+	for _, en := range mustReadDir(t, filepath.Dir(e.file)) {
+		if strings.HasPrefix(en.Name(), ".") {
+			t.Errorf("temp file %s survived", en.Name())
+		}
+	}
 }
 
 func (e *env) apply(t *testing.T, mut dnswrite.Mutator, ifMatch string, cs ...dnsfile.Change) (spec.DNSChangeResult, *problem.Error) {
@@ -471,6 +494,8 @@ func TestTCERR23_VerificationFailsRollsBack(t *testing.T) {
 	e := setup(t, nil)
 	e.h.FTL().SetFault(v5test.FaultWrongAnswer)
 	restarts := e.h.FTL().Restarts()
+	pid := e.h.FTL().PID()
+	events := len(e.h.FTLEvents())
 	_, perr := e.apply(t, nil, "", dnsfile.AddZone{Zone: "app.lan"}, dnsfile.AddRecord{FQDN: "x.app.lan", IPv4: "192.168.7.9"})
 	if perr == nil || perr.Slug() != "dns-verification-failed" || perr.Extensions["rolledBack"] != true {
 		t.Fatalf("got %v", perr)
@@ -482,6 +507,13 @@ func TestTCERR23_VerificationFailsRollsBack(t *testing.T) {
 	if got := e.h.FTL().Restarts() - restarts; got != 2 {
 		t.Errorf("%d restarts, want 2 (change + rollback, NFR-2)", got)
 	}
+	if ev := e.h.FTLEvents()[events:]; len(ev) != 2 || ev[0] != v5test.EventRestart || ev[1] != v5test.EventRestart || e.h.FTL().PID() == pid || e.h.FTL().PID() == 0 {
+		t.Errorf("FTL events %v, pid %d -> %d: want two restarts, each a new PID", ev, pid, e.h.FTL().PID())
+	}
+	if fi := mustStat(t, filepath.Join(e.opDir, "dnsfile.rollback")); fi.Mode().Perm() != 0o600 {
+		t.Errorf("rollback copy mode %v, want 0600", fi.Mode().Perm())
+	}
+	noTemp(t, e)
 }
 
 // TC-ERR24: a failed restart rolls back and reports pihole-command-failed
@@ -517,4 +549,128 @@ func sameOwner(a, b os.FileInfo) bool {
 	sa, ok1 := a.Sys().(*syscall.Stat_t)
 	sb, ok2 := b.Sys().(*syscall.Stat_t)
 	return ok1 && ok2 && sa.Uid == sb.Uid && sa.Gid == sb.Gid
+}
+
+// The syntax-test gate (A-19) for every failure form the runner reports,
+// each with preExisting false (the restored file passes the re-test) and
+// true (it fails too): the FakeFTL default SIGSEGV on a bad line (139),
+// SetTestExit(1) (1), and a test that cannot start (-1). Every form
+// restores the original bytes and never restarts.
+func TestConfigTestFailureForms(t *testing.T) {
+	bad := "address=/bad.lan/999.1.1.1\n" // unmanaged, preserved by every write
+	cases := []struct {
+		name        string
+		planted     bool
+		arrange     func(h *v5test.FakeHost)
+		code        int
+		preExisting bool
+	}{
+		{"sigsegv once", false, func(h *v5test.FakeHost) { h.FailCommandSignalOnce([]string{ftlBin, "--test"}, syscall.SIGSEGV) }, 139, false},
+		{"sigsegv default on a planted line", true, func(*v5test.FakeHost) {}, 139, true},
+		{"exit 1 once", false, func(h *v5test.FakeHost) { h.FailCommandOnce([]string{ftlBin, "--test"}, 1) }, 1, false},
+		{"exit 1 on a planted line", true, func(h *v5test.FakeHost) { h.FTL().SetTestExit(1) }, 1, true},
+		{"cannot start once", false, func(h *v5test.FakeHost) { h.FailCommandStartOnce([]string{ftlBin, "--test"}) }, -1, false},
+		{"cannot start", false, func(h *v5test.FakeHost) { h.FailCommandStart([]string{ftlBin, "--test"}) }, -1, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var seed []byte
+			if tc.planted {
+				orig := mustRead(t, "../dnsfile/testdata/fr23-seven-lines.conf")
+				seed = append(append([]byte{}, orig...), bad...)
+			}
+			e := setup(t, seed)
+			tc.arrange(e.h)
+			restarts := e.h.FTL().Restarts()
+			_, perr := e.apply(t, nil, "", dnsfile.AddZone{Zone: "app.lan"}, dnsfile.AddRecord{FQDN: "x.app.lan", IPv4: "192.168.7.9"})
+			if perr == nil || perr.Slug() != "dns-config-test-failed" {
+				t.Fatalf("got %v, want dns-config-test-failed", perr)
+			}
+			if perr.Extensions["exitCode"] != tc.code || perr.Extensions["rolledBack"] != true || perr.Extensions["preExisting"] != tc.preExisting {
+				t.Errorf("extensions %+v, want exitCode %d, rolledBack, preExisting %v", perr.Extensions, tc.code, tc.preExisting)
+			}
+			if tc.code == -1 && !strings.Contains(perr.Detail, "could not run") {
+				t.Errorf("detail %q does not say the syntax test could not run", perr.Detail)
+			}
+			if !bytes.Equal(e.live(t), e.orig) {
+				t.Error("not restored byte-identical")
+			}
+			if e.count(ftlBin, "--test") != 2 || e.count(piholeBin, "restartdns") != 0 || e.h.FTL().Restarts() != restarts {
+				t.Errorf("argvs %q: want the test and its re-test, and no restart", e.h.Argvs())
+			}
+			noTemp(t, e)
+		})
+	}
+}
+
+// A duplicate covering line (carry-forward of the WI 1.5 review): removing
+// photos.xi.example leaves it covered by xi.example, which is on two lines, so
+// dnsmasq answers both addresses. The removed address is one of them, so
+// verification compares the whole set and passes.
+func TestRemoveCoveredByDuplicateLine(t *testing.T) {
+	e := setup(t, []byte("# nexus:zone xi.example\naddress=/photos.xi.example/192.168.7.9\n"+
+		"address=/xi.example/192.168.7.9\naddress=/xi.example/192.168.7.10\n"))
+	res, perr := e.apply(t, nil, "", dnsfile.RemoveRecord{FQDN: "photos.xi.example"})
+	if perr != nil {
+		t.Fatalf("Apply: %v (log:\n%s)", perr, e.log.String())
+	}
+	if len(res.Verified) != 1 || !res.Verified[0].Passed ||
+		!slices.Equal(res.Verified[0].Expected, []string{"192.168.7.9", "192.168.7.10"}) {
+		t.Errorf("verified %+v, want both xi.example addresses expected and passed", res.Verified)
+	}
+}
+
+// An ifMatch equal to the current etag is not a conflict.
+func TestIfMatchCurrentEtagApplies(t *testing.T) {
+	e := setup(t, nil)
+	res, perr := e.apply(t, nil, etag(e.orig), dnsfile.AddZone{Zone: "app.lan"})
+	if perr != nil || !res.Changed || res.Etag != etag(e.live(t)) {
+		t.Fatalf("got %+v %v", res, perr)
+	}
+}
+
+// A pre-Nexus backup that cannot be made stops the write before anything
+// is written or run (FR-23).
+func TestBackupFailureWritesNothing(t *testing.T) {
+	e := setup(t, nil)
+	if err := os.MkdirAll(e.stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(e.stateDir, "backups"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, perr := e.apply(t, nil, "", dnsfile.AddZone{Zone: "app.lan"})
+	if perr == nil {
+		t.Fatal("Apply succeeded without a backup")
+	}
+	if !bytes.Equal(e.live(t), e.orig) || len(e.h.Argvs()) != 0 {
+		t.Error("the file changed, or a command ran")
+	}
+	if _, err := os.Stat(filepath.Join(e.opDir, "dnsfile.rollback")); err == nil {
+		t.Error("a rollback copy was written")
+	}
+	noTemp(t, e)
+}
+
+// The pre-Nexus backup is never overwritten: after the first write, a hand
+// edit that strips every marker makes the file look unmanaged again, and the
+// next write keeps the original backup untouched and does not report it.
+func TestBackupNeverOverwritten(t *testing.T) {
+	e := setup(t, nil)
+	if _, perr := e.apply(t, nil, "", dnsfile.AddZone{Zone: "app.lan"}); perr != nil {
+		t.Fatal(perr)
+	}
+	bk := filepath.Join(e.stateDir, "backups", basename+".pre-nexus")
+	fi := mustStat(t, bk)
+	hand := append(append([]byte{}, e.orig...), "address=/hand.home.local/192.168.7.44\n"...)
+	if err := os.WriteFile(e.file, hand, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, perr := e.apply(t, nil, "", dnsfile.AddZone{Zone: "home.local"})
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	if res.PreNexusBackup != "" || !bytes.Equal(mustRead(t, bk), e.orig) || !mustStat(t, bk).ModTime().Equal(fi.ModTime()) {
+		t.Errorf("the backup was rewritten or reported again: %q", res.PreNexusBackup)
+	}
 }

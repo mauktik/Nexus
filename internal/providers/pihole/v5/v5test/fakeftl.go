@@ -21,7 +21,8 @@ import (
 	"github.com/mauktik/nexus/internal/providers/pihole/v5"
 )
 
-// Fault is an injectable FTL misbehavior (SetFault).
+// Fault is an injectable FTL misbehavior (SetFault). Several can be set at
+// once.
 type Fault int
 
 const (
@@ -36,6 +37,10 @@ const (
 	// FaultWrongAnswer makes FTL answer every address= name with
 	// WrongAnswerIP instead of the line's address.
 	FaultWrongAnswer
+	// FaultRollbackRestartFails lets the first restart after SetFault
+	// succeed and makes every later one fail as FaultRestartFails does: the
+	// change's restart works and the rollback's restart does not.
+	FaultRollbackRestartFails
 )
 
 // WrongAnswerIP is the address FaultWrongAnswer answers (TEST-NET-1).
@@ -113,7 +118,8 @@ type FakeFTL struct {
 	rules    map[string]ftlRule
 	upstream map[string]netip.Addr
 	cache    map[string]netip.Addr
-	fault    Fault
+	faults   map[Fault]bool
+	faulted  int // Restarts since the last SetFault
 	testExit int // 0: --test dies by SIGSEGV on a bad line
 	restarts int
 	flushes  int
@@ -131,7 +137,7 @@ func newFakeFTL(t testing.TB, root string) *FakeFTL {
 	f := &FakeFTL{
 		t: t, root: root, conn: conn, addr: conn.LocalAddr().(*net.UDPAddr).AddrPort(),
 		state: ftlAnswering, wake: make(chan struct{}), pid: FakeFTLPID, nextPID: FakeFTLPID,
-		upstream: map[string]netip.Addr{}, cache: map[string]netip.Addr{},
+		upstream: map[string]netip.Addr{}, cache: map[string]netip.Addr{}, faults: map[Fault]bool{},
 	}
 	f.rules, _ = f.snapshot()
 	f.serv.Add(1)
@@ -188,11 +194,18 @@ func (f *FakeFTL) CacheFlushes() int {
 	return f.flushes
 }
 
-// SetFault sets the fault for the following restarts, reloads and answers.
-func (f *FakeFTL) SetFault(x Fault) {
+// SetFault replaces the faults of the following restarts, reloads and
+// answers with xs; FaultNone alone, or nothing, clears them.
+func (f *FakeFTL) SetFault(xs ...Fault) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.fault = x
+	f.faults = map[Fault]bool{}
+	f.faulted = 0
+	for _, x := range xs {
+		if x != FaultNone {
+			f.faults[x] = true
+		}
+	}
 }
 
 // SetTestExit makes `pihole-FTL --test` exit code on a bad address= line
@@ -252,7 +265,9 @@ func (f *FakeFTL) restart(stdout io.Writer) int {
 		f.stale = append(f.stale, f.pid)
 	}
 	f.cache = map[string]netip.Addr{}
-	if f.fault == FaultRestartFails {
+	later := f.faulted > 0
+	f.faulted++
+	if f.faults[FaultRestartFails] || later && f.faults[FaultRollbackRestartFails] {
 		f.reapStale()
 		f.setState(ftlStopped)
 		fmt.Fprintln(stdout, "  [✗] Job for pihole-FTL.service failed because the control process exited with error code.")
@@ -270,7 +285,7 @@ func (f *FakeFTL) restart(stdout io.Writer) int {
 		f.reapStale()
 		f.setState(ftlStopped)
 		return 0
-	case f.fault == FaultNeverReady:
+	case f.faults[FaultNeverReady]:
 		f.reapStale()
 		f.setState(ftlHung)
 		return 0
@@ -307,7 +322,7 @@ func (f *FakeFTL) signal(ev string) bool {
 		// SIGHUP clears the cache; the conf files are not re-read.
 		f.flushes++
 		f.cache = map[string]netip.Addr{}
-		if f.fault == FaultNeverReady {
+		if f.faults[FaultNeverReady] {
 			f.setState(ftlHung)
 		}
 	}
@@ -619,7 +634,7 @@ func (f *FakeFTL) resolve(name string) (dnsmessage.RCode, []netip.Addr) {
 		if r, ok := f.rules[d]; ok {
 			switch {
 			case len(r.a) > 0:
-				if f.fault == FaultWrongAnswer {
+				if f.faults[FaultWrongAnswer] {
 					return dnsmessage.RCodeSuccess, []netip.Addr{WrongAnswerIP}
 				}
 				return dnsmessage.RCodeSuccess, r.a

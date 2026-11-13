@@ -300,3 +300,43 @@ func TestFakeFTLRestartOntoBadConfig(t *testing.T) {
 	run(t, h, pihole, "restartdns")
 	answers(t, h, "good.lan", "192.168.7.3")
 }
+
+// FaultRollbackRestartFails (WI 4.1): the first restart after SetFault
+// works and every later one fails with FTL stopped, so a pipeline's change
+// restart succeeds and its rollback restart fails. Faults combine:
+// FaultWrongAnswer still applies to the restart that worked, and a new
+// SetFault starts the count again.
+func TestFakeFTLRollbackRestartFails(t *testing.T) {
+	h := v5test.NewFakeHost(t)
+	write(t, dnsFile(h), "address=/kiwi.home.local/192.168.7.5\n")
+	h.FTL().SetFault(v5test.FaultWrongAnswer, v5test.FaultRollbackRestartFails)
+	if code, _ := run(t, h, pihole, "restartdns"); code != 0 {
+		t.Fatalf("first restart after SetFault: exit %d, want 0", code)
+	}
+	if a := query(t, h, "kiwi.home.local"); len(a.A) != 1 || a.A[0] != v5test.WrongAnswerIP {
+		t.Errorf("combined FaultWrongAnswer: kiwi.home.local = %+v, want %s", a, v5test.WrongAnswerIP)
+	}
+	for i := 0; i < 2; i++ {
+		if code, _ := run(t, h, pihole, "restartdns"); code == 0 {
+			t.Errorf("restart %d after the first: exit 0, want a failure", i+2)
+		}
+		if h.FTL().PID() != 0 {
+			t.Errorf("restart %d after the first left FTL running (pid %d)", i+2, h.FTL().PID())
+		}
+	}
+	if _, err := dnscheck.Query(context.Background(), h.FTL().Addr(), "pi.hole", 300*time.Millisecond); err == nil {
+		t.Error("FTL answered after the failed rollback restart")
+	}
+	h.FTL().SetFault(v5test.FaultRollbackRestartFails)
+	if code, _ := run(t, h, pihole, "restartdns"); code != 0 {
+		t.Fatalf("first restart after a new SetFault: exit %d, want 0", code)
+	}
+	answers(t, h, "kiwi.home.local", "192.168.7.5")
+	h.FTL().SetFault()
+	for i := 0; i < 2; i++ {
+		if code, _ := run(t, h, pihole, "restartdns"); code != 0 {
+			t.Errorf("SetFault(): restart exit %d", code)
+		}
+	}
+	answers(t, h, "kiwi.home.local", "192.168.7.5")
+}
