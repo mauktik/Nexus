@@ -822,8 +822,10 @@ func (d *Dispatcher) upload(ctx context.Context, op def.Op, req InvokeRequest, b
 }
 
 // acceptsContentType reports whether a Content-Type header names one of the
-// accepted media types. Media types compare case-insensitively, and
-// parameters are ignored (RFC 9110, section 8.3.1).
+// accepted media types. The type and subtype compare case-insensitively
+// (RFC 9110, section 8.3.1). Parameters are ignored: that is this server's
+// choice, not the RFC's, which leaves their significance to each media
+// type; the upload types take none that change how the body is stored.
 func acceptsContentType(accepted []string, header string) bool {
 	mt, _, err := mime.ParseMediaType(header)
 	if err != nil {
