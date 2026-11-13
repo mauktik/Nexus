@@ -192,7 +192,7 @@ func (s *Server) opHandler(disp *core.Dispatcher, op def.Op, names []string, fie
 		var body *provider.UploadBody
 		if upload != nil {
 			body = &provider.UploadBody{
-				Reader:      &uploadReader{body: r.Body, extend: func() { s.extendUploadDeadlines(w, r, op, upload()) }},
+				Reader:      &uploadReader{body: r.Body, extend: func() { s.extendUploadDeadlines(w, r, op, uploadWindowBytes(r.ContentLength, upload())) }},
 				ContentType: r.Header.Get("Content-Type"), ContentLength: r.ContentLength,
 			}
 		}
@@ -241,8 +241,18 @@ func (u *uploadReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// uploadWindowBytes is the size an upload's deadlines are computed for: the
+// length the request declares, bounded by the route's cap. An undeclared
+// length (chunked, -1) gets the cap, as the body may be that long.
+func uploadWindowBytes(declared, maxBytes int64) int64 {
+	if declared < 0 || declared > maxBytes {
+		return maxBytes
+	}
+	return declared
+}
+
 // extendUploadDeadlines moves the read deadline of an upload to allow its
-// whole cap at UploadMinRate, and the write deadline past that (A-5). A
+// declared length, at most the cap, at UploadMinRate, and the write deadline past that (A-5). A
 // writer without deadlines keeps the server's; the upload may then be cut.
 func (s *Server) extendUploadDeadlines(w http.ResponseWriter, r *http.Request, op def.Op, maxBytes int64) {
 	read := time.Now().Add(uploadReadWindow(maxBytes))

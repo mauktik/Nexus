@@ -39,7 +39,8 @@ var StreamWriteDeadline = 30 * time.Second
 
 // Upload deadlines (A-5). ReadTimeout would cut a large upload on a slow
 // link, so an upload route moves the request's read deadline, once the body
-// is first read, to now + UploadDeadlineGrace + cap/UploadMinRate, and its
+// is first read, to now + UploadDeadlineGrace + length/UploadMinRate (the
+// declared length, bounded by the cap; the cap if undeclared), and its
 // write deadline UploadDeadlineGrace past that.
 const (
 	UploadDeadlineGrace = 30 * time.Second
