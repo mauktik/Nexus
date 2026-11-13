@@ -18,6 +18,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -270,5 +271,5 @@ func (p *Provider) Bindings() []provider.Binding {
 		provider.Sync(spec.RecordsList, p.listRecords),
 		provider.Sync(spec.RecordsGet, p.getRecord),
 	}
-	return append(append(reads, p.serviceBindings()...), p.blockingBindings()...)
+	return slices.Concat(reads, p.serviceBindings(), p.blockingBindings(), p.domainBindings())
 }

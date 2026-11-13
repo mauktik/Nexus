@@ -80,6 +80,7 @@ type helperInject struct {
 type helperCall struct {
 	In        helperInput
 	Mutator   backend.Mutator
+	Reader    backend.Reader // The same backend's reads, such as the domain list
 	Paths     v5.Paths
 	Runner    v5.Runner // Host commands; actions read with it, such as the re-enable timer's state
 	DNSServer netip.AddrPort
@@ -101,6 +102,7 @@ func newHelperActions() map[string]helperAction {
 	m := map[string]helperAction{}
 	registerServiceActions(m)
 	registerBlockingActions(m)
+	registerDomainActions(m)
 	return m
 }
 
@@ -229,12 +231,12 @@ func helperRun(ctx context.Context, dir string, stdout io.Writer, inject *helper
 	}
 	s := helperSeams(inject)
 	paths := v5.Paths{Root: s.Root}
-	_, m, _, err := backend.Select(v, paths, backend.Deps{Runner: s.Runner, DNSServer: s.DNSServer, Now: s.Now})
+	rd, m, _, err := backend.Select(v, paths, backend.Deps{Runner: s.Runner, DNSServer: s.DNSServer, Now: s.Now})
 	if err != nil {
 		return errorResult(problem.New(problem.InternalError,
 			fmt.Sprintf("the pi-hole helper cannot select backend %q: %v; nothing was changed", in.Backend, err)))
 	}
-	out, err := action(ctx, &helperCall{In: in, Mutator: m, Paths: paths, Runner: s.Runner, DNSServer: s.DNSServer, Now: s.Now,
+	out, err := action(ctx, &helperCall{In: in, Mutator: m, Reader: rd, Paths: paths, Runner: s.Runner, DNSServer: s.DNSServer, Now: s.Now,
 		ReadyWindow: s.ReadyWindow, Out: stdout})
 	if err != nil {
 		var pe *problem.Error
