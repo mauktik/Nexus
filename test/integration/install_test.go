@@ -823,12 +823,26 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 
 	var caps apitypes.Capabilities
 	n.mustGet("/v1/capabilities?refresh=true", &caps)
+	// The providers this config enables are enabled. nginx is compiled in
+	// but not configured here: its ops join this test with the nginx T1
+	// suite, until then it must be off by configuration, nothing else.
+	enabled := 0
 	for _, pc := range caps.Providers {
-		if pc.Status != apitypes.ProviderEnabled {
-			t.Fatalf("provider %s %s: %s", pc.Name, pc.Status, pc.Reason)
+		want := apitypes.ProviderEnabled
+		if pc.Name == "nginx" {
+			want = apitypes.ProviderDisabled
+		}
+		if pc.Status != want {
+			t.Fatalf("provider %s %s, want %s: %s", pc.Name, pc.Status, want, pc.Reason)
+		}
+		if pc.Status == apitypes.ProviderEnabled {
+			enabled++
 		}
 	}
-	ok("capabilities", "%d providers enabled", len(caps.Providers))
+	if enabled != 3 {
+		t.Fatalf("%d providers enabled, want docker, apt and scripts", enabled)
+	}
+	ok("capabilities", "%d providers enabled (docker, apt, scripts); nginx disabled by configuration", enabled)
 
 	// docker
 	var list apitypes.List[dockerspec.Container]
