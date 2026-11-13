@@ -1,9 +1,3 @@
-//go:build pihole_red
-
-// Stub-style: SKIP-only (WI 2.3). Excluded from `make test` by the
-// pihole_red build tag; the WI 2.3 developer un-skips it by deleting the
-// //go:build line, and it must then pass. Until then,
-// `go test -tags pihole_red ./internal/providers/pihole/dnscheck/` shows it RED.
 // Cases: TC-48 to TC-51, TC-ERR8 in planning/pihole-dns-zones/test-cases.md.
 // The responder below is a real UDP DNS server built with the same
 // golang.org/x/net/dns/dnsmessage codec the production client uses; it is
@@ -12,6 +6,7 @@ package dnscheck_test
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/netip"
 	"sync/atomic"
@@ -225,5 +220,40 @@ func TestTC51_NoSystemResolver(t *testing.T) {
 	}
 	if r.queries.Load() != 1 {
 		t.Errorf("server saw %d queries, want 1", r.queries.Load())
+	}
+}
+
+// WI 2.3 timeouts (A-1, A-45): a name whose every try times out passes for a
+// remove and fails for an add; a reply is evaluated by Check, not retried.
+func TestVerifyTimeoutPolicy(t *testing.T) {
+	r := serve(t, map[string]behavior{
+		"gone.lan.": {silent: true},
+		"kiwi.lan.": {a: []netip.Addr{ip7}},
+	})
+	ctx := context.Background()
+	var none netip.Addr
+	rmWant := dnscheck.Want{Kind: dnscheck.WantRemove, IP: ip5, CoveredIP: none}
+	setWant := dnscheck.Want{Kind: dnscheck.WantSet, IP: ip5}
+
+	before := r.queries.Load()
+	if _, ok, err := dnscheck.Verify(ctx, r.addr, "gone.lan", rmWant, 100*time.Millisecond, 3); !ok || err != nil {
+		t.Errorf("remove, all tries timed out: ok=%v err=%v, want pass", ok, err)
+	}
+	if n := r.queries.Load() - before; n != 3 {
+		t.Errorf("remove: server saw %d queries, want 3 tries", n)
+	}
+	_, ok, err := dnscheck.Verify(ctx, r.addr, "gone.lan", setWant, 100*time.Millisecond, 3)
+	if ok || !errors.Is(err, dnscheck.ErrTimeout) {
+		t.Errorf("add, all tries timed out: ok=%v err=%v, want fail with ErrTimeout", ok, err)
+	}
+	before = r.queries.Load()
+	if ans, ok, err := dnscheck.Verify(ctx, r.addr, "kiwi.lan", setWant, time.Second, 3); ok || err != nil {
+		t.Errorf("add, old IP served: %+v ok=%v err=%v, want fail without error", ans, ok, err)
+	}
+	if n := r.queries.Load() - before; n != 1 {
+		t.Errorf("a reply was retried: server saw %d queries, want 1", n)
+	}
+	if _, ok, err := dnscheck.Verify(ctx, r.addr, "kiwi.lan", dnscheck.Want{Kind: dnscheck.WantSet, IP: ip7}, time.Second, 3); !ok || err != nil {
+		t.Errorf("add, commanded IP served: ok=%v err=%v, want pass", ok, err)
 	}
 }
