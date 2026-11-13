@@ -687,6 +687,10 @@ func (w *world) serve(configure ...func(*http.Server)) {
 	w.srv = srv
 	w.base = "http://" + ln.Addr().String()
 	t.Cleanup(func() {
+		// A burst leaves connections the client dialed but never used;
+		// Shutdown counts those as active for 5 s (net/http, issue 22682),
+		// as long as its whole deadline. Closing them here ends them now.
+		client.CloseIdleConnections()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(ctx); err != nil {
