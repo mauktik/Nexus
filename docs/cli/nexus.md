@@ -41,15 +41,15 @@ nexus [flags]
 | [`nexus package`](nexus_package.md) | Verbs: get, update, install, remove |
 | [`nexus packageindex`](nexus_packageindex.md) | Verbs: update |
 | [`nexus packageupdate`](nexus_packageupdate.md) | Verbs: get |
+| [`nexus pihole`](nexus_pihole.md) | Verbs: get |
 | [`nexus piholeadlist`](nexus_piholeadlist.md) | Verbs: get, add, remove |
 | [`nexus piholeblocking`](nexus_piholeblocking.md) | Verbs: get, stop, start |
 | [`nexus piholecache`](nexus_piholecache.md) | Verbs: remove |
-| [`nexus piholedns`](nexus_piholedns.md) | Verbs: restart |
 | [`nexus piholednsbatch`](nexus_piholednsbatch.md) | Verbs: invoke |
 | [`nexus piholedomain`](nexus_piholedomain.md) | Verbs: get, add, remove |
 | [`nexus piholegravity`](nexus_piholegravity.md) | Verbs: update |
 | [`nexus piholerecord`](nexus_piholerecord.md) | Verbs: get, add, update, remove |
-| [`nexus piholestatus`](nexus_piholestatus.md) | Verbs: get |
+| [`nexus piholeresolver`](nexus_piholeresolver.md) | Verbs: restart |
 | [`nexus piholesummary`](nexus_piholesummary.md) | Verbs: get |
 | [`nexus piholezone`](nexus_piholezone.md) | Verbs: get, add, remove |
 | [`nexus script`](nexus_script.md) | Verbs: get, invoke |
@@ -83,6 +83,7 @@ nexus [flags]
 | [`nexus package update`](nexus_package_update.md) | Upgrade packages |
 | [`nexus packageindex update`](nexus_packageindex_update.md) | Refresh the package indexes |
 | [`nexus packageupdate get`](nexus_packageupdate_get.md) | List upgradable packages |
+| [`nexus pihole get`](nexus_pihole_get.md) | Get Pi-hole status |
 | [`nexus piholeadlist add`](nexus_piholeadlist_add.md) | Add a Pi-hole blocklist |
 | [`nexus piholeadlist get`](nexus_piholeadlist_get.md) | List Pi-hole blocklists, or with NAME, get a Pi-hole blocklist |
 | [`nexus piholeadlist remove`](nexus_piholeadlist_remove.md) | Remove a Pi-hole blocklist |
@@ -90,7 +91,6 @@ nexus [flags]
 | [`nexus piholeblocking start`](nexus_piholeblocking_start.md) | Start Pi-hole blocking |
 | [`nexus piholeblocking stop`](nexus_piholeblocking_stop.md) | Stop Pi-hole blocking |
 | [`nexus piholecache remove`](nexus_piholecache_remove.md) | Flush Pi-hole's DNS cache |
-| [`nexus piholedns restart`](nexus_piholedns_restart.md) | Restart Pi-hole DNS |
 | [`nexus piholednsbatch invoke`](nexus_piholednsbatch_invoke.md) | Apply DNS zone and record changes |
 | [`nexus piholedomain add`](nexus_piholedomain_add.md) | Add a Pi-hole allow or deny entry |
 | [`nexus piholedomain get`](nexus_piholedomain_get.md) | List Pi-hole allow and deny entries, or with NAME, get a Pi-hole allow or deny entry |
@@ -100,7 +100,7 @@ nexus [flags]
 | [`nexus piholerecord get`](nexus_piholerecord_get.md) | List local A records, or with NAME, get a local A record |
 | [`nexus piholerecord remove`](nexus_piholerecord_remove.md) | Delete a local A record |
 | [`nexus piholerecord update`](nexus_piholerecord_update.md) | Change a local A record's address |
-| [`nexus piholestatus get`](nexus_piholestatus_get.md) | Get Pi-hole status |
+| [`nexus piholeresolver restart`](nexus_piholeresolver_restart.md) | Restart Pi-hole DNS |
 | [`nexus piholesummary get`](nexus_piholesummary_get.md) | Get today's Pi-hole summary |
 | [`nexus piholezone add`](nexus_piholezone_add.md) | Declare a DNS zone |
 | [`nexus piholezone get`](nexus_piholezone_get.md) | List DNS zones, or with NAME, get a DNS zone |

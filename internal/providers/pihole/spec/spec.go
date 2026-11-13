@@ -689,7 +689,7 @@ var (
 			"unknown rather than an error. Read-only; runs no Pi-hole command. Fails capability-unavailable when " +
 			"the provider is unavailable.",
 		Scope: def.Scope{Name: ReadScope}, Risk: def.RiskReadOnly, Mode: def.ModeSync, Idempotent: true,
-		CLI: def.CLIBinding{Noun: "piholestatus", Verb: "get"},
+		CLI: def.CLIBinding{Noun: "pihole", Verb: "get"},
 		MCP: &def.MCPBinding{Tool: "get_pihole_status",
 			Description: "Pi-hole versions, FTL and DNS health, blocking state, gravity size."},
 		Columns: statusColumns,
@@ -916,7 +916,7 @@ var (
 			" Fails pihole-command-failed when the restart command fails, and dns-verification-failed when FTL " +
 			"does not answer in time.",
 		Scope: def.Scope{Name: WriteScope}, Risk: def.RiskMutating, Mode: def.ModeLongRunning,
-		CLI: def.CLIBinding{Noun: "piholedns", Verb: "restart"},
+		CLI: def.CLIBinding{Noun: "piholeresolver", Verb: "restart"},
 		MCP: &def.MCPBinding{Tool: "restart_pihole_dns",
 			Description: "Fully restart Pi-hole's DNS service (brief outage)."},
 	})

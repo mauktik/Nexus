@@ -38,7 +38,7 @@ const (
 
 // The Operation catalog table of architecture.md, in catalog order.
 var catalog = []opRow{
-	{"pihole.status.get", def.KindList, r, def.RiskReadOnly, "piholestatus", "get", "", "get_pihole_status", false},
+	{"pihole.status.get", def.KindList, r, def.RiskReadOnly, "pihole", "get", "", "get_pihole_status", false},
 	{"pihole.summary.get", def.KindList, r, def.RiskReadOnly, "piholesummary", "get", "", "get_pihole_summary", false},
 	{"pihole.blocking.get", def.KindList, r, def.RiskReadOnly, "piholeblocking", "get", "", "get_pihole_blocking", false},
 	{"pihole.actions.stop-blocking", def.KindProviderAction, w, def.RiskMutating, "piholeblocking", "stop", "", "stop_pihole_blocking", false},
@@ -52,7 +52,7 @@ var catalog = []opRow{
 	{"pihole.actions.add-adlist", def.KindProviderAction, w, def.RiskMutating, "piholeadlist", "add", "", "add_pihole_adlist", true},
 	{"pihole.actions.remove-adlist", def.KindProviderAction, w, def.RiskDestructive, "piholeadlist", "remove", "", "remove_pihole_adlist", true},
 	{"pihole.actions.update-gravity", def.KindProviderAction, w, def.RiskMutating, "piholegravity", "update", "", "update_pihole_gravity", false},
-	{"pihole.actions.restart-dns", def.KindProviderAction, w, def.RiskMutating, "piholedns", "restart", "", "restart_pihole_dns", false},
+	{"pihole.actions.restart-dns", def.KindProviderAction, w, def.RiskMutating, "piholeresolver", "restart", "", "restart_pihole_dns", false},
 	{"pihole.actions.flush-cache", def.KindProviderAction, w, def.RiskMutating, "piholecache", "remove", "", "flush_pihole_cache", false},
 	{"pihole.zones.list", def.KindList, r, def.RiskReadOnly, "piholezone", "get", "", "list_pihole_zones", false},
 	{"pihole.zones.get", def.KindGet, r, def.RiskReadOnly, "piholezone", "get", "name", "get_pihole_zone", false},
