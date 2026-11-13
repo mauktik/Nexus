@@ -135,12 +135,12 @@ func helperRestartMode(ctx context.Context, h *helperRun, in helperInput) helper
 	}
 	st, err := h.sys.Show(ctx)
 	if err != nil {
-		return unhealthy(1, fmt.Sprintf("cannot read %s before restarting it (%v); it was not restarted", unit, err))
+		return unhealthy(0, fmt.Sprintf("cannot read %s before restarting it (%v); it was not restarted", unit, err))
 	}
 	pid0 := st.MainPID
 	step(h.out, fmt.Sprintf("restarting %s (MainPID %d, %s)", unit, pid0, st.ActiveState))
 	if err := h.sys.Restart(ctx); err != nil {
-		return unhealthy(1, fmt.Sprintf("systemd refused to restart %s: %v", unit, err))
+		return unhealthy(0, fmt.Sprintf("systemd refused to restart %s: %v", unit, err))
 	}
 	step(h.out, fmt.Sprintf("health check: %s within %s", in.Health.URL, in.Health.Timeout))
 	version, err := waitHealthy(ctx, h.sys, in.Health, "", pid0)

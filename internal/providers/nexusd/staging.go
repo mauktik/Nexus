@@ -193,7 +193,7 @@ func (s *staging) receive(ctx context.Context, signature string, body io.Reader)
 
 	s.mu.Lock()
 	for _, u := range s.stored {
-		if u.meta.SHA256 == digest && u.meta.Signature == signature {
+		if u.meta.SHA256 == digest && u.meta.Signature == signature && s.now().Before(u.meta.Expires) {
 			existing := u.meta
 			s.mu.Unlock()
 			if err := os.RemoveAll(dir); err != nil {

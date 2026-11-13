@@ -1,10 +1,4 @@
-// nexusd-self-management test stubs: planning/nexusd-self-management/test-cases.md.
-//
-// Stub style: SKIP-only. Every test here compiles today and skips with its
-// TC ID. The developer of the owning work item replaces the t.Skip with the
-// assertions described in the comment above the test; the test passing
-// un-skipped is the GREEN signal. Keep the function name so that
-// `grep TestTCSM` traces the case back to test-cases.md.
+// Tests for TC-SM-64 (nexusd-self-management): planning/nexusd-self-management/test-cases.md.
 package client
 
 import (

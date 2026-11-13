@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -147,6 +148,10 @@ func (p *Provider) admitUpdate(ctx context.Context, in spec.UpdateInput) error {
 	refuse := func(err error) error {
 		perr, ok := pkgProblem(err)
 		if !ok {
+			if errors.Is(err, fs.ErrNotExist) {
+				// The upload expired or was removed while admission read it.
+				return uploadNotFound(in.UploadID)
+			}
 			return fmt.Errorf("nexusd: %w", err)
 		}
 		if perr.Slug() == problem.UpdateSignatureInvalid {
@@ -252,6 +257,12 @@ func (p *Provider) prepareUpdate(_ context.Context, in spec.UpdateInput, r *prov
 			}
 		}
 	}()
+	// Crash recovery re-runs Prepare for a Queued operation, and a previous
+	// attempt may have died mid-extraction. Start from an empty pkg, since
+	// extraction creates every file with O_EXCL.
+	if err := os.RemoveAll(pkg); err != nil {
+		return detach.Spec{}, fmt.Errorf("nexusd: clear %s: %w", pkg, err)
+	}
 	if err := va.extractAll(pkg); err != nil {
 		return detach.Spec{}, pkgRefusal(err)
 	}
