@@ -15,7 +15,17 @@ import (
 
 var wantEnv = []string{"LC_ALL=C", "LANG=C", "DEBIAN_FRONTEND=noninteractive", "APT_LISTCHANGES_FRONTEND=none"}
 
-// TC-122 step 1: no non-test Go under internal/ reads the release (D-7).
+// osReleaseReaders is the explicit allowlist of directories (relative to
+// internal/) that may mention "os-release". D-7 still holds for every other
+// package: apt and the providers never branch on the release. internal/platform
+// is the single sanctioned reader, added for FR-18 (nginx-provider): it detects
+// the init system and OS to pick the nginx include-dir default and to report
+// the host OS in capabilities. Do not widen this list; the test below fails if
+// any other package mentions os-release.
+var osReleaseReaders = []string{"platform"}
+
+// TC-122 step 1: no non-test Go under internal/ reads the release (D-7),
+// except the sanctioned internal/platform reader (FR-18).
 func TestNoReleaseSpecificLogic(t *testing.T) {
 	root := filepath.Join("..", "..")
 	if _, err := os.Stat(filepath.Join(root, "providers", "apt", "exec.go")); err != nil {
@@ -37,7 +47,17 @@ func TestNoReleaseSpecificLogic(t *testing.T) {
 			return err
 		}
 		scanned++
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		// Exempt by top-level package directory (first path element), never by
+		// prefix, so a sibling like "platformx" is not exempt.
+		sanctioned := slices.Contains(osReleaseReaders, strings.Split(filepath.ToSlash(rel), "/")[0])
 		for _, banned := range []string{"os-release", "lsb_release", "VERSION_CODENAME"} {
+			if banned == "os-release" && sanctioned {
+				continue
+			}
 			if strings.Contains(string(b), banned) {
 				t.Errorf("%s mentions %s", path, banned)
 			}
