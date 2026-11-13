@@ -48,7 +48,8 @@ func TestTCSM100_GeneratedDocsAreCurrentAndThe(t *testing.T) {
 	// - Expected:
 	//   - Step 1 exits 0 with no stale file.
 	//   - The update page contains `--file`, `--signature` and `--allow-downgrade`.
-	//   - `docs/api.md` lists the upload route and the 14 new problem types.
+	//   - `docs/api.md` lists the upload route and the 13 new FR-16 problem types (including
+	//     `upload-too-large`).
 	t.Skip("TC-SM-100: SKIP-only stub; un-skip when WI 6.1 lands")
 }
 
@@ -105,21 +106,19 @@ func TestTCSM106_TheHarnessRefusesANonLocal(t *testing.T) {
 	t.Skip("TC-SM-106: SKIP-only stub; un-skip when WI 7.1 lands")
 }
 
-// TC-SM-108 (WI 7.1; FR-7): The real nexusd tree's entry count exceeds 64 and passes scan at the 1024 limit
+// TC-SM-108 (WI 7.1; FR-7): The real nexusd tarball's entry count exceeds 64 and stays within the 1024 limit
 func TestTCSM108_TheRealNexusdTreeSEntry(t *testing.T) {
 	// - Setup: repo copy; `skipUnderMake`; a host-arch nexusd built with `-X …Version=v9.9.2`.
 	// - Steps:
 	//   1. `make nexusd-tree TREE_BIN=… TREE_DIR=$tmp/nexusd-v9.9.2-linux-<goarch>`.
 	//   2. `make nexusd-tarball TREE_DIR=… TARBALL=$tmp/t.tar.gz`.
-	//   3. Sign it with a test key.
-	//   4. Run `verifySignature` and `scan`, through an exported test helper or by calling the nexusd
-	//     package from a `buildsys` test.
+	//   3. Read every header of the tarball with `compress/gzip` and `archive/tar`.
 	// - Expected:
-	//   - The tarball's entry count is above 64 (66 or more after this feature's docs) and at most
-	//     1024.
-	//   - Scan succeeds.
-	//   - The tarball was packed with `TAR_FLAGS`: uid and gid 0, no xattrs (the `readTarball`
-	//     checks).
+	//   - The entry count is greater than 64 (66 or more after this feature's docs) and at most 1024.
+	//     The 1024 is hard-coded in the test with a comment citing A-43; the test does not import the
+	//     unexported scan constant.
+	//   - The tarball was packed with `TAR_FLAGS`: every header has uid and gid 0 and no xattr or PAX
+	//     `SCHILY.xattr.*` records (the `readTarball` checks).
 	t.Skip("TC-SM-108: SKIP-only stub; un-skip when WI 7.1 lands")
 }
 

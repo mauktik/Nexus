@@ -115,12 +115,15 @@ func TestTCSM56_AReloadWithAnIdempotencyKey(t *testing.T) {
 
 // TC-SM-57 (WI 4.1; FR-10): waitHealthy passes when all four FR-10 conditions hold
 func TestTCSM57_WaitHealthyPassesWhenAllFourFR(t *testing.T) {
-	// - Setup: F-SYS with the unit active; MainPID 200 running `#!fake nexusd v9.9.2 ok`; F-CLK;
-	//   target `{Timeout: 30s, Stability: 5s, Poll: 1s}`.
+	// - Setup: F-SYS with the unit active; MainPID 200 running `#!fake nexusd v9.9.2 ok`; F-CLK; target
+	//   `{Timeout: 30s, Stability: 5s, Poll: 1s}`.
 	// - Steps:
-	//   1. Call `waitHealthy(ctx, sys, target, "v9.9.2", excludePID 100)`.
+	//   1. Call `waitHealthy(ctx, sys, target, "v9.9.2", excludePID 100)`, assigning the result to `var
+	//     version string; var err error` (an `error`-typed variable, as the helper modes do).
 	// - Expected:
-	//   - It returns version `v9.9.2` and a nil error.
+	//   - It returns version `v9.9.2`, and `err == nil` holds on the `error`-typed variable. This is
+	//     the typed-nil guard (`go/typed-nil-interface`): `waitHealthy` returns `error`, never a nil
+	//     `*conditionError` wrapped in a non-nil interface.
 	//   - The virtual time elapsed is 5 s to 6 s (the stability window).
 	//   - F-SYS recorded at least 6 `Show` calls, at most 1 s apart.
 	//   - `ExeVersion("/proc/200/exe")` was called once, because it is cached per PID.
@@ -759,11 +762,15 @@ func TestTCSM99_NexusCommandGetListsSixNexusd(t *testing.T) {
 
 // TC-SM-E3 (WI 5.1; FR-6): Re-uploading a staged upload while 2 are staged is refused 409 before the body is read
 func TestTCSME3_ReUploadingAStagedUploadWhile(t *testing.T) {
-	// - Setup: nexusd T0 stack with uploads A and B staged.
+	// - Setup: nexusd T0 stack with F-CLK as `Options.Now`. Upload A at virtual t0, advance 10 min,
+	//   upload B. Keep each 201 response's `expiresAt` string (`spec.UploadResult.ExpiresAt`).
 	// - Steps:
 	//   1. Upload A's exact bytes and signature again.
 	// - Expected:
 	//   - 409 `conflict`.
+	//   - The problem `detail` contains A's `expiresAt` exactly as A's upload response returned it (the
+	//     earliest staged expiry, t0 + 1h), so the user knows when to retry. It does not contain B's
+	//     `expiresAt`, which proves the earliest one is chosen.
 	//   - The staging dirs are still exactly {A, B}.
 	//   - The body was not read (a server-side counting wrapper shows 0 bytes).
 	t.Skip("TC-SM-E3: SKIP-only stub; un-skip when WI 5.1 lands")
@@ -786,16 +793,25 @@ func TestTCSME4_Exactly1024EntriesAndExactly256(t *testing.T) {
 	t.Skip("TC-SM-E4: SKIP-only stub; un-skip when WI 5.2 lands")
 }
 
-// TC-SM-E5 (WI 5.2; FR-7, NFR-5): Duplicate entry names never write outside dst
+// TC-SM-E5 (WI 5.2; FR-7, NFR-5): Duplicate entry names are refused at scan, and extraction refuses them as a backstop
 func TestTCSME5_DuplicateEntryNamesNeverWriteOutside(t *testing.T) {
-	// - Setup: a signed tarball with `top/nexusd` appearing twice with different contents.
+	// - Setup: in-test generated tarballs, each an otherwise valid package (correct top dir, all 5
+	//   required files) validly signed by K, so the duplicate is the only defect. The second occurrence's
+	//   content is the marker `SECOND-COPY-5e1d`:
+	//   - (i) `top/nexusd` twice, file/file, different contents;
+	//   - (ii) `top/nexusd` and then `top/./nexusd` (equal after `path.Clean`);
+	//   - (iii) a file `top/docs` and then a directory `top/docs/` (file/dir);
+	//   - (iv) a directory `top/docs/` twice (dir/dir).
 	// - Steps:
-	//   1. Run `scan`.
-	//   2. If scan passed, run `extractAll(dst)`.
+	//   1. For each, `verifySignature`, then `scan(runtime.GOARCH)`.
+	//   2. For (i), (ii) and (iii), call `extractAll(dst)` directly on the same `verifiedArchive`
+	//     (without the scan result), with `dst` a fresh path under `t.TempDir()`.
 	// - Expected:
-	//   - Either scan fails with `update-package-invalid`, or `extractAll` fails (`O_EXCL`) and `dst`
-	//     is removed.
-	//   - In no case is a file with the second content left anywhere, nor any file outside `dst`.
+	//   - Step 1: each fails `update-package-invalid` with `check: duplicate-entry`, and scan writes
+	//     nothing.
+	//   - Step 2: each `extractAll` fails at the second entry; no file anywhere under the temp root
+	//     contains `SECOND-COPY-5e1d`; `dst` does not exist afterwards; and nothing was created outside
+	//     `dst`.
 	t.Skip("TC-SM-E5: SKIP-only stub; un-skip when WI 5.2 lands")
 }
 
@@ -968,7 +984,8 @@ func TestTCSMERR29_EachFR10ConditionFailingAlone(t *testing.T) {
 	// - Steps:
 	//   1. Run `waitHealthy` for each scenario.
 	// - Expected:
-	//   - Each returns a `conditionError` whose condition number is 1, 2, 3 or 4 respectively.
+	//   - Each returns a non-nil `error` from which `errors.As(err, &ce)` (with `var ce
+	//     *conditionError`) extracts a condition whose number is 1, 2, 3 or 4 respectively.
 	//   - Details:
 	//     - (1) contains `ActiveState=activating`;
 	//     - (2) contains `v9.9.8` and `v9.9.5`;
@@ -1097,15 +1114,22 @@ func TestTCSMERR37_ARollbackThatFailsHealthSwaps(t *testing.T) {
 
 // TC-SM-ERR38 (WI 5.1; FR-6): A third concurrent or staged upload is refused 409
 func TestTCSMERR38_AThirdConcurrentOrStagedUpload(t *testing.T) {
-	// - Setup: nexusd T0 stack. In run A, two uploads are in flight (their bodies blocked mid-stream).
-	//   In run B, two uploads are staged.
+	// - Setup: nexusd T0 stack with F-CLK as `Options.Now`. In run A, two uploads are in flight (their
+	//   bodies blocked mid-stream). In run B, two different uploads are staged at virtual t0 and t0 + 10
+	//   min; keep each 201 response's `expiresAt`.
 	// - Steps:
 	//   1. Start a third upload in each run.
+	//   2. In run A, let the first blocked upload finish, advance F-CLK 10 min, let the second finish
+	//     (keep both `expiresAt` values), then start a further upload.
 	// - Expected:
 	//   - 409 `conflict` in both runs.
 	//   - No new staging dir.
-	//   - In run A, after the two blocked uploads finish, a further upload is still refused, because 2
-	//     are staged.
+	//   - Run B: the `detail` contains the earlier upload's `expiresAt` exactly as its upload response
+	//     returned it, and not the later one's.
+	//   - Run A step 2: the further upload is still refused 409, because 2 are staged, and its `detail`
+	//     contains the first-finished upload's `expiresAt` and not the second's.
+	//   - Run A step 1 (nothing staged yet, only reservations in flight) asserts only the 409
+	//     `conflict`; the detail has no staged expiry to name.
 	t.Skip("TC-SM-ERR38: SKIP-only stub; un-skip when WI 5.1 lands")
 }
 
@@ -1184,6 +1208,7 @@ func TestTCSMERR42_MaliciousAndMalformedArchivesAreRefused(t *testing.T) {
 	//      | top named `nexusd-9.9.2-linux-<goarch>` (no `v`) | `layout` |
 	//      | top named `foo` | `layout` |
 	//      | each of the 5 required files missing, one row per file | `required-file` |
+	//      | `top/nexusd` twice (variants in TC-SM-E5) | `duplicate-entry` |
 	//      | a non-gzip body | `layout` or format |
 	//      | a truncated gzip stream | `layout` or format |
 	//      | a gzip that is valid but whose tar is truncated mid-header | `layout` or format |
@@ -1342,6 +1367,12 @@ func TestTCSMERR51_InstallShExit3IsRolled(t *testing.T) {
 	//   - `UnitFile == U1`.
 	//   - The F-SYS call order after install is `DaemonReload`, `ResetFailed`, `Restart`.
 	//   - Health was checked against `v9.9.1`, excluding pidR.
+	//   - After the helper returns, `packageDir` (`ops/<id>/pkg`) does not exist and `result.json`
+	//     does: the helper removes the extracted package on every terminal path once `result.json` is
+	//     written.
+	//   - Finalize cleanup: re-create `ops/<id>/pkg` with one file, call `Finalize`, and `ops/<id>/pkg`
+	//     is gone; call `Finalize` again with it already absent, and it returns no error (idempotent
+	//     removal, which also covers Prepare failures and `outcome-unknown`).
 	t.Skip("TC-SM-ERR51: SKIP-only stub; un-skip when WI 5.4 lands")
 }
 
@@ -1382,7 +1413,9 @@ func TestTCSMERR54_ARestoreThatFailsItsHealth(t *testing.T) {
 	//   - The detail contains `nexusd may be down` and
 	//     `docs/install.md#recovering-from-a-failed-update`.
 	//   - The helper exits 0.
-	//   - Finalize maps the result to that problem.
+	//   - After the helper returns, `packageDir` (`ops/<id>/pkg`) does not exist and `result.json`
+	//     does.
+	//   - Finalize maps the result to that problem, and `ops/<id>/pkg` is still absent afterwards.
 	t.Skip("TC-SM-ERR54: SKIP-only stub; un-skip when WI 5.4 lands")
 }
 

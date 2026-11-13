@@ -9,8 +9,8 @@ package problem
 
 import "testing"
 
-// TC-SM-5 (WI 1.2; FR-16, FR-4, FR-5, FR-6, FR-7, FR-8, FR-12): The 14 new problem types are registered with status, exit and extensions
-func TestTCSM5_The14NewProblemTypesAre(t *testing.T) {
+// TC-SM-5 (WI 1.2; FR-16, FR-4, FR-5, FR-6, FR-7, FR-8, FR-12): The 13 new problem types are registered with status, exit and extensions
+func TestTCSM5_The13NewProblemTypesAre(t *testing.T) {
 	// - Setup: an expected table copied from architecture.md "Problem types":
 	//
 	//   | Slug | Status | Exit | Extensions | Operation-level |
@@ -26,8 +26,7 @@ func TestTCSM5_The14NewProblemTypesAre(t *testing.T) {
 	//   | `config-apply-failed` | 0 | 1 | — | yes |
 	//   | `restart-unhealthy` | 0 | 1 | `condition`, `version` | yes |
 	//   | `update-failed` | 0 | 1 | `rolledBack`, `step`, `previousVersion`, `newVersion` | yes |
-	//   | `update-rollback-failed` | 0 | 1 | `rolledBack`, `step`, `previousVersion`, `newVersion` |
-	//     yes |
+	//   | `update-rollback-failed` | 0 | 1 | `rolledBack`, `step`, `previousVersion`, `newVersion` | yes |
 	//   | `rollback-failed` | 0 | 1 | `rolledBack`, `condition`, `fromVersion`, `toVersion` | yes |
 	// - Steps:
 	//   1. For each row, look up the slug's `Type`.

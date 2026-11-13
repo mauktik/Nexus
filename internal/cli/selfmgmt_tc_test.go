@@ -76,16 +76,19 @@ func TestTCSM36_FR14AcceptanceA20S(t *testing.T) {
 	// - Setup:
 	//   - the real server with a gate-style long-running test op declaring `ReconnectWindow: 60s`;
 	//   - F-PROXY in `refuse` mode for virtual `[t+2s, t+22s)`;
-	//   - F-CLK injected into the reconnector;
+	//   - F-CLK injected through the WI 2.5 seam: F-CLK's `Now` as `reconnector.now` and F-CLK's
+	//     `Sleep` as `reconnector.sleep`, which also drives the regular `await` poll interval and the
+	//     `followFrames` retry gap;
 	//   - the op releases at virtual t+25s.
 	// - Steps:
 	//   1. Run `gate gadget start gated` (the gated op), which waits by default.
 	// - Expected:
 	//   - Exit 0, and stdout is the Succeeded operation.
 	//   - stderr contains `is unreachable, likely restarting; retrying (0s of 60s)` and later progress
-	//     lines at intervals of at most 10 s.
-	//   - The number of failed polls is about 20, one per virtual second.
-	//   - Wall time is under 5 s.
+	//     lines at intervals of at most 10 s of virtual time. The progress cadence is computed from
+	//     `now`, so the elapsed values printed (`10s of 60s`, `20s of 60s`) match F-CLK, not wall time.
+	//   - The number of failed polls is 20 ± 1, one per virtual second.
+	//   - Wall time is under 5 s, which proves no real `time.Sleep` sits on the poll or retry path.
 	t.Skip("TC-SM-36: SKIP-only stub; un-skip when WI 2.5 lands")
 }
 
@@ -104,7 +107,8 @@ func TestTCSM37_FR14AcceptanceA61S(t *testing.T) {
 // TC-SM-38 (WI 2.5; FR-14): --follow tolerates the outage and resumes the log from the last offset
 func TestTCSM38_FollowToleratesTheOutageAndResumes(t *testing.T) {
 	// - Setup: a counter op printing lines `1`…`40`, one per virtual second, with `ReconnectWindow:
-	//   60s`. F-PROXY refuses for 20 s after line 10, then 61 s in a second run.
+	//   60s`. F-PROXY refuses for 20 s after line 10, then 61 s in a second run. F-CLK is injected as in
+	//   TC-SM-36; the `followFrames` stream retry gap sleeps through the same injected `sleep`.
 	// - Steps:
 	//   1. Run 1: `gate gadget start counter --follow` with the 20 s outage.
 	//   2. Run 2: the same with the 61 s outage.
@@ -112,6 +116,7 @@ func TestTCSM38_FollowToleratesTheOutageAndResumes(t *testing.T) {
 	//   - Run 1: exit 0. The printed lines are exactly `1`…`40`, with no duplicate and no gap.
 	//   - Run 1: the number of streams opened after the outage is 1, from the stored offset.
 	//   - Run 2: exit 5 with the op ID.
+	//   - Both runs finish in under 5 s of wall time.
 	t.Skip("TC-SM-38: SKIP-only stub; un-skip when WI 2.5 lands")
 }
 
@@ -129,13 +134,17 @@ func TestTCSM39_503CountsAsRetryableAndA(t *testing.T) {
 
 // TC-SM-40 (WI 2.5; FR-14): The real-time short window exercises real sleeps
 func TestTCSM40_TheRealTimeShortWindowExercises(t *testing.T) {
-	// - Setup: a test op with `ReconnectWindow: 3s` and the real clock; a real proxy outage.
+	// - Setup: a test op with `ReconnectWindow: 3s` and the real clock (the package-level defaults
+	//   `time.Now` and the ctx-aware sleep, no injection); a real proxy outage.
 	// - Steps:
 	//   1. Run with a 1 s outage, then the op ends.
 	//   2. Run with a 4 s outage.
+	//   3. Call the package-level default sleep with `d = 10s` and a ctx cancelled after 50 ms.
 	// - Expected:
 	//   - Run 1 → exit 0.
 	//   - Run 2 → exit 5 after 3 s to 4.5 s of continuous failure.
+	//   - Step 3 returns `context.Canceled` within 200 ms, so the default sleep selects on `ctx.Done()`
+	//     (`go/select-on-ctx-done`).
 	t.Skip("TC-SM-40: SKIP-only stub; un-skip when WI 2.5 lands")
 }
 

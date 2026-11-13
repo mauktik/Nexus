@@ -81,6 +81,9 @@ func TestTCSM109_T1AAnUpdateFromV9(t *testing.T) {
 	//   - The journal for `nexusd.service` since the start shows exactly one `Started` line, and the
 	//     new MainPID is not pid0.
 	//   - The op log contains the `install.sh` output (`installed nexusd v9.9.2`).
+	//   - The real tree passes `scan`: the tarball is a real `make nexusd-tree` + `make nexusd-tarball`
+	//     output (7.1, more than 64 entries per TC-SM-108), its upload answered 201, and the update op
+	//     was created rather than refused `update-package-invalid`.
 	//   - `staging/` is empty.
 	//   - The `nexus-op-<id>` unit ran (`journalctl -u nexus-op-<id>` is non-empty).
 	//   - The op never passed through `outcome-unknown`.
@@ -267,18 +270,27 @@ func TestTCSM122_T1ATarballWithOneByte(t *testing.T) {
 
 // TC-SM-123 (WI 7.2; FR-8, FR-9, FR-18): T1: update-rollback-failed is recorded by the next nexusd to start
 func TestTCSM123_T1UpdateRollbackFailedIsRecorded(t *testing.T) {
-	// - Setup: clean `v9.9.1` host.
+	// - Setup: clean `v9.9.1` host; the known-good `v9.9.1` fixture tree from 7.1 available in the
+	//   container.
 	// - Steps:
-	//   1. Update to `v9.9.7` (the CLI may exit 5 when its reconnect window expires).
-	//   2. Wait until `nexus-op-<id>` is inactive.
-	//   3. Follow `docs/install.md#recovering-from-a-failed-update` literally (the six commands), but
-	//     restore from a known-good `v9.9.1`, since prev is the clobbered stub.
-	//   4. `nexus operation get <id>`.
+	//   1. `nexus nexusd update --file …/nexusd-v9.9.7-….tar.gz`. Record the op ID (from the CLI output
+	//     or `nexus operation list`). The CLI may exit 5 here, because nexusd stays down past the
+	//     reconnect window (A-6); the test accepts exit 0, 1 or 5 and asserts nothing else about this
+	//     exit.
+	//   2. Wait (`waitUntil`, bounded by the op's MaxRuntime) until `systemctl show nexus-op-<id> -p
+	//     ActiveState` is `inactive` or `failed`.
+	//   3. Recover by hand: `lib.sh install-release` from the known-good `v9.9.1` tree, then `systemctl
+	//     reset-failed nexusd.service`, then `systemctl start nexusd.service`.
+	//   4. `nexus operation get <id> -o json`.
 	// - Expected:
+	//   - Before step 3, `/usr/local/bin/nexusd.prev -version` prints `nexusd v9.9.1` (the clobbering
+	//     stub) and `nexusd.service` is not `active`, proving the restore really failed on systemd.
 	//   - `/var/lib/nexus/ops/<id>/exit.json` and `result.json` exist before step 3.
-	//   - Step 4 shows `Failed` with `update-rollback-failed`, `rolledBack: false`, and a detail
-	//     containing "may be down" and the docs anchor.
-	//   - The op is not `outcome-unknown`.
+	//   - After step 3, `/usr/local/bin/nexusd -version` is `nexusd v9.9.1` and the unit is `active`.
+	//   - Step 4 shows `Failed` with `error.type` ending `update-rollback-failed`, `rolledBack: false`,
+	//     and a detail containing "may be down" and `docs/install.md#recovering-from-a-failed-update`.
+	//   - The op is never `outcome-unknown`: neither in step 4 nor in any `nexus operation get` poll
+	//     made between steps 2 and 4.
 	t.Skip("TC-SM-123: SKIP-only stub; un-skip when WI 7.2 lands")
 }
 

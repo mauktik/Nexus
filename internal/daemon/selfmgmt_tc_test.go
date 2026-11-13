@@ -110,9 +110,22 @@ func TestTCSMERR25_ReloadReturnsPromptlyAfterShutdownOr(t *testing.T) {
 	//   1. Cancel the `Run` context; after `stopping` closes, call `Reload(ctx)`.
 	//   2. With the daemon running and the loop blocked in a slow reload, call `Reload` with a context
 	//     cancelled at 50 ms.
+	//   3. Reply-path case: a fresh running `Daemon` whose reload apply is gated by a test hook that
+	//     signals `entered` and then waits for `release`. Call `Reload(ctx)`; after `entered` (the Run
+	//     loop has taken the request), cancel `ctx`; then close `release`.
+	//   4. After step 3, send SIGHUP through the daemon harness's existing signal path (`h.signal(t,
+	//     syscall.SIGHUP)`, `daemon_test.go`), with a changed config on disk.
+	//   5. Cancel the `Run` context.
 	// - Expected:
 	//   - Step 1 returns an error within 1 s.
 	//   - Step 2 returns `context.Canceled` within 200 ms.
+	//   - Step 3: `Reload` returns `context.Canceled` within 200 ms of the cancel, while the apply is
+	//     still gated. After `release`, the taken reload runs to completion (the applied config
+	//     generation increments once) and its result is dropped: the Run loop's reply send does not
+	//     block, because each request carries its own reply channel with a buffer of exactly 1.
+	//   - Step 4: the SIGHUP is served, and the generation increments again within 2 s. This is the
+	//     observable proof that the Run loop did not block on the abandoned reply.
+	//   - Step 5: `Run` returns within `ShutdownTimeout`.
 	//   - Neither goroutine leaks (`goleak`-style count check).
 	t.Skip("TC-SM-ERR25: SKIP-only stub; un-skip when WI 3.3 lands")
 }

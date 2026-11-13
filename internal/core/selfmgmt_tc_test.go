@@ -146,15 +146,27 @@ func TestTCSMERR14_AnAdmitRefusalReturnsItsProblem(t *testing.T) {
 
 // TC-SM-ERR15 (WI 2.2; FR-13, CON-3): The registry rejects bad CLI.Upload references
 func TestTCSMERR15_TheRegistryRejectsBadCLIUpload(t *testing.T) {
-	// - Setup: a provider whose update op's `CLI.Upload.Op` is:
-	//   - (a) a missing ID;
-	//   - (b) a `KindList` op;
-	//   - (c) another provider's upload op;
-	//   - (d) a declared but unbound upload op;
-	//   - (e) an upload op whose output lacks the `uploadId` string field.
+	// - Setup: `core.New` checks only bound ops that carry `CLI.Upload` (the spec-level rules are
+	//   TC-SM-93's catalog check). A test provider declares an update op with `CLI.Upload{Op: <ref>}` and
+	//   an upload op `tp.uploads.add`; each row varies `<ref>` and which ops are bound:
+	//
+	//   | Row | Update op bound | `CLI.Upload.Op` refers to | Referenced op bound | Expected |
+	//   |---|---|---|---|---|
+	//   | (a) | yes | a missing ID | — | error |
+	//   | (b) | yes | a bound `KindList` op of the same provider | yes | error |
+	//   | (c) | yes | another provider's bound upload op | yes | error |
+	//   | (d) | yes | `tp.uploads.add`, declared in the spec | no | error |
+	//   | (e) | yes | `tp.uploads.add` | yes | success (positive control) |
+	//   | (f) | no | `tp.uploads.add` | no | success (the nexusd T0 stack before WI 5.1 and 5.3) |
+	//   | (g) | no | `tp.uploads.add` | yes | success (the stack between WI 5.1 and 5.3) |
 	// - Steps:
-	//   1. Call `core.New` for each.
-	// - Expected: each returns an error naming the op and the reason, and no registry is built.
+	//   1. Call `core.New` for each row.
+	// - Expected:
+	//   - Rows (a)–(d) each return an error naming the update op, the referenced op ID and the reason
+	//     (missing / not bound / not `KindUpload` / other provider), and no registry is built.
+	//   - Rows (e)–(g) return a registry and no error. Row (f) guards the partially bound nexusd stack:
+	//     in WIs 3.5 and 4.1–4.3 the spec declares the update op's `CLI.Upload` but neither op is bound,
+	//     and `core.New` must still succeed.
 	t.Skip("TC-SM-ERR15: SKIP-only stub; un-skip when WI 2.2 lands")
 }
 
