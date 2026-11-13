@@ -116,8 +116,8 @@ func TestTCERR13_TestConfigExitCode(t *testing.T) {
 	if err := os.WriteFile(f, []byte("address=/bad.lan/999.1.1.1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if code, _ := m.TestConfig(context.Background(), &bytes.Buffer{}); code != 1 {
-		t.Errorf("bad line: exit %d, want 1", code)
+	if code, err := m.TestConfig(context.Background(), &bytes.Buffer{}); err != nil || code != 1 {
+		t.Errorf("bad line: exit %d, %v; want exit 1 with a nil error (err is reserved for failing to run the command)", code, err)
 	}
 	if last := h.Argvs()[len(h.Argvs())-1]; !slices.Equal(last, []string{piholeFTLBin, "--test"}) {
 		t.Errorf("argv %q, want [pihole-FTL --test]", last)

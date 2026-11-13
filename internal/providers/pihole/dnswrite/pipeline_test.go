@@ -121,6 +121,33 @@ func etag(b []byte) string {
 	return "sha256:" + hex.EncodeToString(s[:])
 }
 
+func mustStat(t *testing.T, p string) os.FileInfo {
+	t.Helper()
+	fi, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fi
+}
+
+func mustRead(t *testing.T, p string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func mustReadDir(t *testing.T, p string) []os.DirEntry {
+	t.Helper()
+	ents, err := os.ReadDir(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ents
+}
+
 var zones = []dnsfile.Change{dnsfile.AddZone{Zone: "home.local"}, dnsfile.AddZone{Zone: "app.lan"}, dnsfile.AddZone{Zone: "xi.example"}}
 
 // TC-96: a record add runs the whole pipeline once: one syntax test, exactly
@@ -175,8 +202,8 @@ func TestTC97_PreNexusBackupOnce(t *testing.T) {
 	if err != nil || !bytes.Equal(b, e.orig) {
 		t.Fatalf("backup bytes differ from the original: %v", err)
 	}
-	fi, _ := os.Stat(bk)
-	di, _ := os.Stat(filepath.Dir(bk))
+	fi := mustStat(t, bk)
+	di := mustStat(t, filepath.Dir(bk))
 	if fi.Mode().Perm() != 0o600 || di.Mode().Perm() != 0o700 {
 		t.Errorf("modes file %v dir %v, want 0600 / 0700", fi.Mode().Perm(), di.Mode().Perm())
 	}
@@ -189,8 +216,8 @@ func TestTC97_PreNexusBackupOnce(t *testing.T) {
 	if perr != nil {
 		t.Fatal(perr)
 	}
-	fi2, _ := os.Stat(bk)
-	b2, _ := os.ReadFile(bk)
+	fi2 := mustStat(t, bk)
+	b2 := mustRead(t, bk)
 	if res2.PreNexusBackup != "" || !fi2.ModTime().Equal(mt) || !bytes.Equal(b2, e.orig) {
 		t.Errorf("second write touched or reported the backup: %q", res2.PreNexusBackup)
 	}
@@ -206,7 +233,7 @@ func TestTC98_CommentOnlyNoRestart(t *testing.T) {
 	if perr != nil {
 		t.Fatal(perr)
 	}
-	want, _ := os.ReadFile("../dnsfile/testdata/fr23-seven-lines.rendered.conf")
+	want := mustRead(t, "../dnsfile/testdata/fr23-seven-lines.rendered.conf")
 	if !bytes.Equal(e.live(t), want) {
 		t.Errorf("file\n%s\nwant FR-23 rendering\n%s", e.live(t), want)
 	}
@@ -218,14 +245,14 @@ func TestTC98_CommentOnlyNoRestart(t *testing.T) {
 // TC-99: a change that renders identical bytes is changed:false with no
 // write (same inode and mtime) and no command.
 func TestTC99_NoOpChange(t *testing.T) {
-	rendered, _ := os.ReadFile("../dnsfile/testdata/fr23-seven-lines.rendered.conf")
+	rendered := mustRead(t, "../dnsfile/testdata/fr23-seven-lines.rendered.conf")
 	e := setup(t, rendered)
-	before, _ := os.Stat(e.file)
+	before := mustStat(t, e.file)
 	res, perr := e.apply(t, nil, "", dnsfile.UpdateRecord{FQDN: "kiwi.home.local", IPv4: "192.168.7.5"})
 	if perr != nil {
 		t.Fatal(perr)
 	}
-	after, _ := os.Stat(e.file)
+	after := mustStat(t, e.file)
 	if res.Changed || res.Restarted || len(e.h.Argvs()) != 0 || !os.SameFile(before, after) || !after.ModTime().Equal(before.ModTime()) {
 		t.Errorf("no-op wrote or ran something: %+v argvs %q", res, e.h.Argvs())
 	}
@@ -266,9 +293,8 @@ func TestTC101_OnlyDNSFileChanges(t *testing.T) {
 	dir := filepath.Dir(e.file)
 	snap := func() map[string][]byte {
 		m := map[string][]byte{}
-		ents, _ := os.ReadDir(dir)
-		for _, en := range ents {
-			b, _ := os.ReadFile(filepath.Join(dir, en.Name()))
+		for _, en := range mustReadDir(t, dir) {
+			b := mustRead(t, filepath.Join(dir, en.Name()))
 			m[en.Name()] = b
 		}
 		return m
@@ -365,11 +391,11 @@ func TestTCE12_ModeAndOwnerPreserved(t *testing.T) {
 	if err := os.Chmod(e.file, 0o640); err != nil {
 		t.Fatal(err)
 	}
-	before, _ := os.Stat(e.file)
+	before := mustStat(t, e.file)
 	if _, perr := e.apply(t, nil, "", dnsfile.AddZone{Zone: "app.lan"}); perr != nil {
 		t.Fatal(perr)
 	}
-	after, _ := os.Stat(e.file)
+	after := mustStat(t, e.file)
 	if after.Mode() != before.Mode() || !sameOwner(before, after) {
 		t.Errorf("mode %v -> %v, owner preserved=%v", before.Mode(), after.Mode(), sameOwner(before, after))
 	}
@@ -397,15 +423,18 @@ func TestTCERR21_HandEditRace(t *testing.T) {
 	_, perr := dnswrite.Apply(context.Background(),
 		dnswrite.Request{DNSFile: e.file, StateDir: e.stateDir, OpDir: e.opDir, Changes: []dnsfile.Change{dnsfile.AddZone{Zone: "app.lan"}}},
 		dnswrite.Deps{Mutator: e.m, DNSServer: e.h.FTL().Addr(), Out: &e.log, Now: e.h.Now,
-			BeforeSwap: func() { os.WriteFile(e.file, edited, 0o644) }})
+			BeforeSwap: func() {
+				if err := os.WriteFile(e.file, edited, 0o644); err != nil {
+					t.Errorf("BeforeSwap hand edit: %v", err)
+				}
+			}})
 	if perr == nil || perr.Slug() != "dns-file-conflict" {
 		t.Fatalf("got %v", perr)
 	}
 	if !bytes.Equal(e.live(t), edited) {
 		t.Error("the hand edit was overwritten")
 	}
-	ents, _ := os.ReadDir(filepath.Dir(e.file))
-	for _, en := range ents {
+	for _, en := range mustReadDir(t, filepath.Dir(e.file)) {
 		if strings.HasPrefix(en.Name(), ".") {
 			t.Errorf("temp file %s survived", en.Name())
 		}
@@ -446,7 +475,7 @@ func TestTCERR23_VerificationFailsRollsBack(t *testing.T) {
 	if perr == nil || perr.Slug() != "dns-verification-failed" || perr.Extensions["rolledBack"] != true {
 		t.Fatalf("got %v", perr)
 	}
-	rb, _ := os.ReadFile(filepath.Join(e.opDir, "dnsfile.rollback"))
+	rb := mustRead(t, filepath.Join(e.opDir, "dnsfile.rollback"))
 	if !bytes.Equal(e.live(t), rb) || !bytes.Equal(rb, e.orig) {
 		t.Error("live file is not the rollback copy of the original")
 	}

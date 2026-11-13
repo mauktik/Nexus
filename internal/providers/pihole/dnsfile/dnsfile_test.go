@@ -142,7 +142,10 @@ func TestTC18_RenderIdempotent(t *testing.T) {
 
 // FuzzTC18 (TC-18, TC-29 property): for any input, rendering is idempotent,
 // keeps the multiset of record lines, and never emits a non-blank line that
-// was not already in the input (so it can never invent local=/server=).
+// was not already in the input, except exactly "# nexus:unzoned", which FR-23
+// requires whenever a record is unzoned (TC-28, TC-E6). Zone markers appear
+// only if the input had them: the fuzz path declares no zones. So the
+// renderer can never invent local=/server= or any other line (CON-6).
 func FuzzTC18_RenderIdempotent(f *testing.F) {
 	for _, s := range [][]byte{tc22Input, []byte("# nexus:zone a.b\naddress=/x.a.b/1.2.3.4\n\n\n# x\n"), []byte("")} {
 		f.Add(s)
@@ -160,7 +163,7 @@ func FuzzTC18_RenderIdempotent(f *testing.F) {
 			inSet[l] = true
 		}
 		for _, l := range lines(r1) {
-			if l != "" && !inSet[l] {
+			if l != "" && l != "# nexus:unzoned" && !inSet[l] {
 				t.Fatalf("render invented line %q", l)
 			}
 		}
@@ -502,9 +505,6 @@ var recLine = regexp.MustCompile(`^address=/([a-z0-9-]+(?:\.[a-z0-9-]+)+)/((?:[0
 func TestTC30_Live53LineFile(t *testing.T) {
 	prov := string(read(t, "PROVENANCE"))
 	live := prov[strings.Index(prov, "live-53-lines.conf"):]
-	if strings.Contains(live, "DEFERRED") {
-		t.Skip("live-53-lines.conf capture DEFERRED to WI 6.1 step 0 (TC-135 fails until it is captured)")
-	}
 	orig := read(t, "live-53-lines.conf")
 	sum := sha256.Sum256(orig)
 	if !strings.Contains(live, hex.EncodeToString(sum[:])) {

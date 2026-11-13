@@ -75,21 +75,38 @@ func serve(t *testing.T, rules map[string]behavior) *responder {
 				id++
 			}
 			rh := dnsmessage.Header{ID: id, Response: true, RecursionDesired: true, RecursionAvailable: true, RCode: b.rcode, Truncated: b.truncate}
-			bld := dnsmessage.NewBuilder(nil, rh)
-			bld.EnableCompression()
-			_ = bld.StartQuestions()
-			_ = bld.Question(q)
-			_ = bld.StartAnswers()
-			for _, ip := range b.a {
-				_ = bld.AResource(dnsmessage.ResourceHeader{Name: q.Name, Class: dnsmessage.ClassINET, TTL: 0}, dnsmessage.AResource{A: ip.As4()})
+			out, err := buildReply(rh, q, b.a)
+			if err != nil {
+				// A reply the fake cannot build is never sent; the test under
+				// way then fails on its query timeout rather than passing.
+				continue
 			}
-			out, err := bld.Finish()
-			if err == nil {
-				pc.WriteTo(out, from)
+			if _, err := pc.WriteTo(out, from); err != nil {
+				return // the listener was closed by t.Cleanup
 			}
 		}
 	}()
 	return r
+}
+
+func buildReply(rh dnsmessage.Header, q dnsmessage.Question, as []netip.Addr) ([]byte, error) {
+	bld := dnsmessage.NewBuilder(nil, rh)
+	bld.EnableCompression()
+	if err := bld.StartQuestions(); err != nil {
+		return nil, err
+	}
+	if err := bld.Question(q); err != nil {
+		return nil, err
+	}
+	if err := bld.StartAnswers(); err != nil {
+		return nil, err
+	}
+	for _, ip := range as {
+		if err := bld.AResource(dnsmessage.ResourceHeader{Name: q.Name, Class: dnsmessage.ClassINET, TTL: 0}, dnsmessage.AResource{A: ip.As4()}); err != nil {
+			return nil, err
+		}
+	}
+	return bld.Finish()
 }
 
 var (

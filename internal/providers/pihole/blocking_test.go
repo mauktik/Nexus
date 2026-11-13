@@ -102,8 +102,16 @@ func TestTCE10_NeverNativeTimedDisable(t *testing.T) {
 func TestTC79_SecondStopReplacesTimer(t *testing.T) {
 	h, m := newV5(t)
 	ctx := context.Background()
-	m.StopBlocking(ctx, 60*time.Second, &bytes.Buffer{})
-	got, _ := m.StopBlocking(ctx, 120*time.Second, &bytes.Buffer{})
+	if _, err := m.StopBlocking(ctx, 60*time.Second, &bytes.Buffer{}); err != nil {
+		t.Fatalf("first stop: %v", err)
+	}
+	got, err := m.StopBlocking(ctx, 120*time.Second, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("second stop: %v", err)
+	}
+	if got.ReenableAt == nil {
+		t.Fatalf("second stop %+v: want reenableAt set", got)
+	}
 	h.EndUnit()
 	if at, ok := h.TimerPending(); !ok || !at.Equal(*got.ReenableAt) {
 		t.Fatalf("pending %v %v, want the second stop's %v", at, ok, got.ReenableAt)
@@ -118,8 +126,14 @@ func TestTC79_SecondStopReplacesTimer(t *testing.T) {
 	}
 
 	h, m = newV5(t)
-	m.StopBlocking(ctx, 60*time.Second, &bytes.Buffer{})
-	if got, _ := m.StopBlocking(ctx, 0, &bytes.Buffer{}); got.ReenableAt != nil {
+	if _, err := m.StopBlocking(ctx, 60*time.Second, &bytes.Buffer{}); err != nil {
+		t.Fatalf("timed stop: %v", err)
+	}
+	got, err = m.StopBlocking(ctx, 0, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("indefinite stop: %v", err)
+	}
+	if got.ReenableAt != nil {
 		t.Errorf("indefinite stop kept reenableAt %v", got.ReenableAt)
 	}
 	h.EndUnit()
@@ -134,7 +148,9 @@ func TestTC79_SecondStopReplacesTimer(t *testing.T) {
 func TestTC80_StartCancelsTimer(t *testing.T) {
 	h, m := newV5(t)
 	ctx := context.Background()
-	m.StopBlocking(ctx, 60*time.Second, &bytes.Buffer{})
+	if _, err := m.StopBlocking(ctx, 60*time.Second, &bytes.Buffer{}); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
 	got, err := m.StartBlocking(ctx, &bytes.Buffer{})
 	if err != nil || got.State != "enabled" || got.ReenableAt != nil {
 		t.Fatalf("start = %+v, %v", got, err)
@@ -186,13 +202,16 @@ func TestTC81_BlockingReadFollowsState(t *testing.T) {
 	if b, err := r.Blocking(ctx); err != nil || b.State != "enabled" || b.ReenableAt != nil {
 		t.Fatalf("state A: %+v %v", b, err)
 	}
-	stop, _ := m.StopBlocking(ctx, 60*time.Second, &bytes.Buffer{})
-	if b, _ := r.Blocking(ctx); b.State != "disabled" || b.ReenableAt == nil || !b.ReenableAt.Equal(*stop.ReenableAt) {
-		t.Fatalf("state A': %+v, want disabled until %v", b, stop.ReenableAt)
+	stop, err := m.StopBlocking(ctx, 60*time.Second, &bytes.Buffer{})
+	if err != nil || stop.ReenableAt == nil {
+		t.Fatalf("stop: %+v %v", stop, err)
+	}
+	if b, err := r.Blocking(ctx); err != nil || b.State != "disabled" || b.ReenableAt == nil || !b.ReenableAt.Equal(*stop.ReenableAt) {
+		t.Fatalf("state A': %+v %v, want disabled until %v", b, err, stop.ReenableAt)
 	}
 	h.EndUnit()
 	h.Advance(61 * time.Second)
-	if b, _ := r.Blocking(ctx); b.State != "enabled" || b.ReenableAt != nil {
-		t.Fatalf("after re-enable: %+v", b)
+	if b, err := r.Blocking(ctx); err != nil || b.State != "enabled" || b.ReenableAt != nil {
+		t.Fatalf("after re-enable: %+v %v", b, err)
 	}
 }
