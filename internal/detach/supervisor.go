@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -26,6 +27,28 @@ const PipeWaitDelay = 3 * time.Second
 // child's process group is gone before the grace period ends.
 const groupPoll = 50 * time.Millisecond
 
+// SuperviseMode is how a supervisor was started.
+type SuperviseMode int
+
+const (
+	// ModeUnit is the main process of a systemd unit (`op-supervise --dir`).
+	ModeUnit SuperviseMode = iota
+	// ModeProcess is a supervisor process started by the process backend
+	// (`op-supervise --dir --process`).
+	ModeProcess
+)
+
+// handshakePoll is how often a ModeProcess supervisor looks for its
+// identity, and handshakeTimeout how long it looks.
+var (
+	handshakePoll    = 20 * time.Millisecond
+	handshakeTimeout = LaunchTimeout
+)
+
+// diagHook, when set by a test, runs with the supervisor's diagnostics
+// function once a ModeProcess supervisor has its identity.
+var diagHook func(logf func(format string, args ...any))
+
 // Supervise is `nexusd op-supervise --dir dir`, the main process of an
 // operation's unit. It reads and unlinks dir/spec.json, runs the child in
 // its own session with stdin on /dev/null and stdout and stderr framed into
@@ -36,7 +59,20 @@ const groupPoll = 50 * time.Millisecond
 // when there is no spec.
 //
 // Diagnostics go to diag, the unit's journal.
-func Supervise(dir string, diag io.Writer) int {
+//
+// ModeProcess is the same after three steps (Data Flow 1, step 3). It sets
+// the umask to 0022 before anything else, the umask systemd gives a
+// transient unit, so the child and all it starts create files as they would
+// under systemd rather than with nexusd's OpenRC umask 077 (L-47). It caps
+// diag, which is supervisor.log, at oplog.DefaultCapBytes. And it waits for
+// supervisor.json to name its own process, exiting 1 without taking the
+// spec if that does not happen within LaunchTimeout: a launch that failed
+// before recording the identity leaves no work running (L-51).
+func Supervise(dir string, diag io.Writer, mode SuperviseMode) int {
+	if mode == ModeProcess {
+		syscall.Umask(0o022)
+		diag = &cappedWriter{w: diag, left: oplog.DefaultCapBytes}
+	}
 	// SIGHUP and SIGPIPE are caught and dropped rather than set to SIG_IGN:
 	// a caught signal is reset to its default across exec, so the child does
 	// not inherit an ignored SIGPIPE. Being caught also makes a write to a
@@ -49,6 +85,16 @@ func Supervise(dir string, diag io.Writer) int {
 		// The journal may be gone; there is nowhere else to report that.
 		if _, err := fmt.Fprintf(diag, "op-supervise: "+format+"\n", args...); err != nil {
 			return
+		}
+	}
+
+	if mode == ModeProcess {
+		if err := awaitIdentity(dir); err != nil {
+			logf("%v; nothing was run", err)
+			return 1
+		}
+		if diagHook != nil {
+			diagHook(logf)
 		}
 	}
 
@@ -250,4 +296,72 @@ func (s *sink) Write(p []byte) (int, error) {
 		s.report(err)
 	}
 	return len(p), nil
+}
+
+// awaitIdentity waits until dir/supervisor.json names this process in this
+// boot, polling every handshakePoll for up to handshakeTimeout.
+func awaitIdentity(dir string) error {
+	deadline := time.Now().Add(handshakeTimeout)
+	for {
+		id, err := ReadIdentity(dir)
+		switch {
+		case err == nil && id.PID == os.Getpid():
+			return verifySelf(id)
+		case err != nil && !errors.Is(err, fs.ErrNotExist):
+			// supervisor.json is written by atomic rename: a bad one stays bad.
+			return err
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%s did not name this process (%d) within %s", IdentityFile, os.Getpid(), handshakeTimeout)
+		}
+		time.Sleep(handshakePoll)
+	}
+}
+
+// verifySelf checks that id, which names this PID, also has this process's
+// start time and this boot.
+func verifySelf(id Identity) error {
+	st, err := procStat("/proc", os.Getpid())
+	if err != nil {
+		return err
+	}
+	boot, err := bootID("/proc")
+	if err != nil {
+		return err
+	}
+	if id.StartTicks != st.StartTicks || id.BootID != boot {
+		return fmt.Errorf("%s names pid %d but not this process: %+v", IdentityFile, id.PID, id)
+	}
+	return nil
+}
+
+// cappedWriter passes at most left bytes on, then one truncation line, then
+// nothing. It drops a write that does not fit whole, so every line it
+// passes is complete.
+type cappedWriter struct {
+	mu        sync.Mutex
+	w         io.Writer
+	left      int64
+	truncated bool
+}
+
+// truncationLine ends a capped supervisor.log.
+const truncationLine = "op-supervise: diagnostics truncated: supervisor.log reached its cap\n"
+
+func (c *cappedWriter) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.truncated {
+		return len(p), nil
+	}
+	if int64(len(p)) > c.left {
+		c.truncated = true
+		if _, err := io.WriteString(c.w, truncationLine); err != nil {
+			return 0, err
+		}
+		return len(p), nil
+	}
+	n, err := c.w.Write(p)
+	c.left -= int64(n)
+	return n, err
 }

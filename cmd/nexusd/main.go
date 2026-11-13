@@ -108,11 +108,13 @@ func validateConfig(args []string, stdout, stderr io.Writer) int {
 }
 
 // opSupervise runs one detached operation from its directory's spec.json.
-// systemd-run starts it as the main process of nexus-op-<id>.service.
+// systemd-run starts it as the main process of nexus-op-<id>.service; the
+// process backend starts it with --process on a host without systemd.
 func opSupervise(args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet(name+" op-supervise", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dir := fs.String("dir", "", "the operation's directory")
+	process := fs.Bool("process", false, "started by the process backend, not as a systemd unit")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -120,10 +122,14 @@ func opSupervise(args []string, stderr io.Writer) int {
 		return 2
 	}
 	if *dir == "" || fs.NArg() > 0 {
-		fmt.Fprintf(stderr, "%s op-supervise: usage: %s op-supervise --dir dir\n", name, name)
+		fmt.Fprintf(stderr, "%s op-supervise: usage: %s op-supervise --dir dir [--process]\n", name, name)
 		return 2
 	}
-	return detach.Supervise(*dir, stderr)
+	mode := detach.ModeUnit
+	if *process {
+		mode = detach.ModeProcess
+	}
+	return detach.Supervise(*dir, stderr, mode)
 }
 
 // serve runs the daemon until SIGTERM. Logs go to stdout as JSON; only

@@ -1,148 +1,552 @@
 //go:build linux
 
-// Stub-style: SKIP-only (nginx-provider)
+package detach_test
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/detach/detachtest"
+	"github.com/mauktik/nexus/internal/oplog"
+)
+
+// TestMain lets this test binary stand in for nexusd where a test needs a
+// seam inside the supervisor or a process that launches and exits:
 //
-// Stubs of planning/nginx-provider/test-cases.md. Each test skips until its
-// work item lands; the developer of that work item replaces the skip with
-// the assertions written in the comment above the test. An un-skipped
-// passing test is the GREEN signal (test-strategy.md, RED Stub Style).
+//   - `<test binary> op-supervise --dir D [--process]` is nexusd's
+//     op-supervise. NEXUS_TEST_HANDSHAKE_TIMEOUT shortens the identity wait,
+//     and a file flood-diag in D makes the supervisor write diagnostics past
+//     the supervisor.log cap.
+//   - GO_WANT_LAUNCHER=1 launches one operation with a process backend and
+//     exits at once, as a nexusd that is killed or restarted does.
+func TestMain(m *testing.M) {
+	if len(os.Args) > 1 && os.Args[1] == "op-supervise" {
+		os.Exit(fakeNexusdSupervise(os.Args[2:]))
+	}
+	if os.Getenv("GO_WANT_LAUNCHER") == "1" {
+		if err := launchAndExit(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
 
-package detach
+func fakeNexusdSupervise(args []string) int {
+	fs := flag.NewFlagSet("op-supervise", flag.ContinueOnError)
+	dir := fs.String("dir", "", "")
+	process := fs.Bool("process", false, "")
+	if err := fs.Parse(args); err != nil || *dir == "" {
+		return 2
+	}
+	if v := os.Getenv("NEXUS_TEST_HANDSHAKE_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return 2
+		}
+		*detach.HandshakeTimeout = d
+	}
+	if _, err := os.Stat(filepath.Join(*dir, "flood-diag")); err == nil {
+		*detach.DiagHook = func(logf func(string, ...any)) {
+			for i := 0; i < int(oplog.DefaultCapBytes/64)+1000; i++ {
+				logf("diagnostic line %08d %s", i, strings.Repeat("x", 40))
+			}
+		}
+	}
+	mode := detach.ModeUnit
+	if *process {
+		mode = detach.ModeProcess
+	}
+	return detach.Supervise(*dir, os.Stderr, mode)
+}
 
-import "testing"
+// launchAndExit is the GO_WANT_LAUNCHER helper.
+func launchAndExit() error {
+	ops, id := os.Getenv("NEXUS_TEST_OPS"), os.Getenv("NEXUS_TEST_ID")
+	cfg := detach.ProcessConfig{OpsDir: ops, Executable: os.Getenv("NEXUS_TEST_SUPERVISOR"), CgroupRoot: "-"}
+	l, err := detach.New(detach.Config{OpsDir: ops, Executable: cfg.Executable}, detach.ProcessBackend(cfg))
+	if err != nil {
+		return err
+	}
+	return l.Start(context.Background(), id, shSpec(filepath.Join(ops, id), "sleep 1.5; exit 7"))
+}
 
-// nginx-provider TC-13: The process backend launches a session-leader supervisor and records its identity
-// Owner WI 2.1. Requirements: FR-20 (items 1, 2), CON-11, NFR-8.
-//
-//	Setup: Linux. ProcessBackend(ProcessConfig{Executable:
-//	detachtest.Supervisor(), CgroupRoot: "-"}) wired into detach.New. The op's
-//	spec runs a child that writes its /proc/self/environ, cwd, stdin target
-//	and the Umask: line of /proc/self/status to a marker, creates a file
-//	umask-probe with os.OpenFile(..., O_CREATE|O_WRONLY, 0666), then sleeps 2
-//	s. Before Launcher.Start the test sets its own umask to 077 with
-//	syscall.Umask(0o077) (the value nexusd runs with under OpenRC) and
-//	restores the old value in t.Cleanup. The umask is process-wide, so this
-//	test must not call t.Parallel.
-//	Steps:
-//	  1. Launcher.Start.
-//	  2. Read ops/<id>/supervisor.json.
-//	  3. Read /proc/<pid>/stat, /proc/<pid>/cmdline and /proc/<pid>/status of
-//	     the supervisor.
-//	  4. Read the child's marker and stat the umask-probe file.
-//	Expected:
-//	  - The identity's pid is the supervisor's PID.
-//	  - startTicks equals field 22 of its stat, parsed independently by the
-//	    test.
-//	  - bootId equals /proc/sys/kernel/random/boot_id trimmed.
-//	  - The file mode is 0600.
-//	  - The supervisor's session ID equals its PID.
-//	  - cmdline is [<exe> op-supervise --dir <ops/id> --process].
-//	  - The supervisor's own environment is empty, its cwd is /, and fd 0 is
-//	    /dev/null.
-//	  - The child's Umask: is 0022, although the launching process ran with
-//	    0077. The supervisor sets umask(0022) before it starts the child,
-//	    matching the default of systemd's transient units (L-47, NFR-8). The
-//	    umask-probe file's mode is 0644 (0666 &^ 0022, computed in the test).
-//	  - The test process's own umask is still 077 after Launcher.Start, so the
-//	    backend does not change nexusd's umask (FR-23).
+// processLauncher is a launcher with the process backend over a fresh ops
+// directory. exe empty means the real nexusd.
+func processLauncher(t *testing.T, exe string) (*detach.Launcher, detach.Options, string) {
+	t.Helper()
+	if exe == "" {
+		exe = nexusd(t)
+	}
+	ops := t.TempDir()
+	opts := detach.ProcessBackend(detach.ProcessConfig{OpsDir: ops, Executable: exe, CgroupRoot: "-"})
+	l, err := detach.New(detach.Config{OpsDir: ops, Executable: exe}, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return l, opts, ops
+}
+
+// testBinary is this test binary, which TestMain makes a stand-in nexusd.
+func testBinary(t *testing.T) string {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return exe
+}
+
+// statOf parses /proc/<pid>/stat independently of the package: field n,
+// counted with the fields after the last ')' starting at 3.
+func statOf(t *testing.T, pid, n int) string {
+	t.Helper()
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := strings.Fields(string(b[bytes.LastIndexByte(b, ')')+1:]))
+	return f[n-3]
+}
+
+// endSupervisorAtCleanup kills the operation's supervisor if a failed test
+// left it running.
+func endSupervisorAtCleanup(t *testing.T, dir string) {
+	t.Cleanup(func() {
+		if id, err := detach.ReadIdentity(dir); err == nil {
+			_ = syscall.Kill(id.PID, syscall.SIGKILL) // Gone already, normally
+		}
+	})
+}
+
+func waitFile(t *testing.T, path string, limit time.Duration) []byte {
+	t.Helper()
+	deadline := time.Now().Add(limit)
+	for {
+		b, err := os.ReadFile(path)
+		if err == nil && len(b) > 0 {
+			return b
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s did not appear within %s (%v)", path, limit, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func waitExit(t *testing.T, dir string, limit time.Duration) detach.Exit {
+	t.Helper()
+	waitFile(t, filepath.Join(dir, detach.ExitFile), limit)
+	return readExit(t, dir)
+}
+
+func umaskOf(t *testing.T, statusFile string) string {
+	t.Helper()
+	b, err := os.ReadFile(statusFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for line := range strings.Lines(string(b)) {
+		if v, ok := strings.CutPrefix(line, "Umask:"); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	t.Fatalf("no Umask: in %s", statusFile)
+	return ""
+}
+
+func liveness(t *testing.T, opts detach.Options, id string) detach.Liveness {
+	t.Helper()
+	st, err := opts.UnitState(context.Background(), detach.Unit(id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lv, err := st.Liveness()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return lv
+}
+
+// nginx-provider TC-13: the process backend launches a session-leader
+// supervisor and records its identity (FR-20 items 1 and 2, CON-11, NFR-8).
+// Not parallel: the umask is process-wide.
 func TestProcessLaunchRecordsIdentityInOwnSession(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-13 (WI 2.1)")
+	l, _, _ := processLauncher(t, "")
+	const id = "01JTC13"
+	dir := l.Dir(id)
+	endSupervisorAtCleanup(t, dir)
+	spec := shSpec(dir, `grep '^Umask:' /proc/self/status > "$DIR/marker.tmp"
+readlink /proc/self/fd/0 >> "$DIR/marker.tmp"
+: > "$DIR/umask-probe"
+mv "$DIR/marker.tmp" "$DIR/marker"
+sleep 2`)
+
+	old := syscall.Umask(0o077) // nexusd's umask under OpenRC
+	t.Cleanup(func() { syscall.Umask(old) })
+	if err := l.Start(context.Background(), id, spec); err != nil {
+		t.Fatal(err)
+	}
+	if got := umaskOf(t, "/proc/self/status"); got != "0077" {
+		t.Fatalf("Start changed the launching process's umask to %s", got)
+	}
+
+	ident, err := detach.ReadIdentity(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid := ident.PID
+	if fi, err := os.Stat(filepath.Join(dir, detach.IdentityFile)); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("%s: %v, %v; want mode 0600", detach.IdentityFile, fi, err)
+	}
+	if got := statOf(t, pid, 22); got != strconv.FormatUint(ident.StartTicks, 10) {
+		t.Errorf("startTicks %d, stat field 22 %s", ident.StartTicks, got)
+	}
+	boot, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ident.BootID != strings.TrimSpace(string(boot)) {
+		t.Errorf("bootId %q, want %q", ident.BootID, strings.TrimSpace(string(boot)))
+	}
+	if got := statOf(t, pid, 6); got != strconv.Itoa(pid) {
+		t.Errorf("supervisor session %s, want its own pid %d", got, pid)
+	}
+	cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCmd := []string{nexusd(t), "op-supervise", "--dir", dir, "--process"}
+	if got := strings.Split(strings.TrimSuffix(string(cmdline), "\x00"), "\x00"); !slices.Equal(got, wantCmd) {
+		t.Errorf("cmdline %q, want %q", got, wantCmd)
+	}
+	if env, err := os.ReadFile(fmt.Sprintf("/proc/%d/environ", pid)); err != nil || len(env) != 0 {
+		t.Errorf("supervisor environment %q, %v; want empty", env, err)
+	}
+	if cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid)); err != nil || cwd != "/" {
+		t.Errorf("supervisor cwd %q, %v; want /", cwd, err)
+	}
+	if in, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/0", pid)); err != nil || in != "/dev/null" {
+		t.Errorf("supervisor stdin %q, %v; want /dev/null", in, err)
+	}
+
+	marker := strings.Split(strings.TrimSpace(string(waitFile(t, filepath.Join(dir, "marker"), 10*time.Second))), "\n")
+	if len(marker) != 2 || strings.TrimSpace(strings.TrimPrefix(marker[0], "Umask:")) != "0022" || marker[1] != "/dev/null" {
+		t.Errorf("child marker %q, want Umask 0022 and stdin /dev/null", marker)
+	}
+	fi, err := os.Stat(filepath.Join(dir, "umask-probe"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := fs.FileMode(0o666 &^ 0o022); fi.Mode().Perm() != want {
+		t.Errorf("umask-probe mode %v, want %v", fi.Mode().Perm(), want)
+	}
+	if x := waitExit(t, dir, 10*time.Second); x.ExitCode != 0 {
+		t.Errorf("exit.json %+v, want exit code 0", x)
+	}
 }
 
-// nginx-provider TC-14: A supervisor outlives the process that launched it and is finalized from exit.json
-// Owner WI 2.1. Requirements: FR-20 (items 1, 3), FR-21.
-//
-//	Setup: Linux. A helper subprocess (the test binary re-executed with
-//	GO_WANT_LAUNCHER=1) creates a ProcessBackend, launches an op whose child
-//	sleeps 1.5 s then exits 7, and exits at once.
-//	Steps:
-//	  1. Wait for the helper to exit.
-//	  2. Create a fresh ProcessBackend in the test process and call
-//	    UnitState(Unit(id)) at once.
-//	  3. Poll until exit.json exists, then call UnitState again.
-//	Expected:
-//	  - Step 2: the supervisor's PPID is not the helper's PID, and the state is
-//	    {active, loaded}, which is Live.
-//	  - Step 3: exit.json has exit code 7, and the state is {inactive, not-
-//	    found}, which is Absent.
+// nginx-provider TC-14: a supervisor outlives the process that launched it
+// and is finalized from exit.json (FR-20 items 1 and 3, FR-21).
 func TestSupervisorOutlivesLauncherProcess(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-14 (WI 2.1)")
+	ops := t.TempDir()
+	const id = "01JTC14"
+	dir := filepath.Join(ops, id)
+	endSupervisorAtCleanup(t, dir)
+	helper := exec.Command(testBinary(t))
+	helper.Env = append(os.Environ(), "GO_WANT_LAUNCHER=1", "NEXUS_TEST_OPS="+ops, "NEXUS_TEST_ID="+id,
+		"NEXUS_TEST_SUPERVISOR="+nexusd(t))
+	out, err := helper.CombinedOutput()
+	if err != nil {
+		t.Fatalf("launcher helper: %v\n%s", err, out)
+	}
+	helperPID := helper.Process.Pid
+
+	opts := detach.ProcessBackend(detach.ProcessConfig{OpsDir: ops, CgroupRoot: "-"})
+	st, err := opts.UnitState(context.Background(), detach.Unit(id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lv, err := st.Liveness(); st != (detach.UnitState{ActiveState: "active", LoadState: "loaded"}) || lv != detach.Live || err != nil {
+		t.Fatalf("after the launcher exited: %+v (%v, %v), want active/loaded, Live", st, lv, err)
+	}
+	ident, err := detach.ReadIdentity(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ppid := statOf(t, ident.PID, 4); ppid == strconv.Itoa(helperPID) {
+		t.Errorf("supervisor's parent is still the exited launcher %d", helperPID)
+	}
+
+	if x := waitExit(t, dir, 15*time.Second); x.ExitCode != 7 {
+		t.Fatalf("exit.json %+v, want exit code 7", x)
+	}
+	// The supervisor exits right after writing exit.json.
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		st, err = opts.UnitState(context.Background(), detach.Unit(id))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st == (detach.UnitState{ActiveState: "inactive", LoadState: "not-found"}) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("after exit.json: %+v, want inactive/not-found", st)
+		}
+	}
+	if lv, _ := st.Liveness(); lv != detach.Absent {
+		t.Fatalf("liveness %v, want Absent", lv)
+	}
 }
 
-// nginx-provider TC-15: Signal reaches only a verified supervisor, and cancel behaves as today
-// Owner WI 2.1. Requirements: FR-20 (item 3).
-//
-//	Setup: Linux. An op whose child (in its own process group) traps SIGTERM,
-//	writes term to a marker and exits, with grace 2 s.
-//	Steps:
-//	  1. Launch the op.
-//	  2. Signal(ctx, Unit(id), SIGTERM).
-//	  3. Wait for exit.json.
-//	Expected:
-//	  - The marker says term, and exit.json records the cancel outcome exactly
-//	    as the detachtest.Local run of the same op does. The test runs both and
-//	    compares the two exit.json files field by field, apart from timestamps and
-//	    PIDs.
+// nginx-provider TC-15: Signal reaches only a verified supervisor, and
+// cancel behaves as with detachtest.Local (FR-20 item 3).
 func TestSignalCancelsVerifiedSupervisor(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-15 (WI 2.1)")
+	exe := nexusd(t)
+	run := func(name string, backend func(ops string) detach.Options) (detach.Exit, string) {
+		ops := t.TempDir()
+		opts := backend(ops)
+		l, err := detach.New(detach.Config{OpsDir: ops, Executable: exe}, opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		const id = "01JTC15"
+		dir := l.Dir(id)
+		endSupervisorAtCleanup(t, dir)
+		spec := shSpec(dir, `trap 'echo term > "$DIR/marker"; exit 3' TERM
+echo ready > "$DIR/ready"
+while :; do sleep 0.1; done`)
+		spec.Grace = 2 * time.Second
+		if err := l.Start(context.Background(), id, spec); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		waitFile(t, filepath.Join(dir, "ready"), 10*time.Second)
+		if err := opts.Signal(context.Background(), detach.Unit(id), syscall.SIGTERM); err != nil {
+			t.Fatalf("%s: Signal: %v", name, err)
+		}
+		x := waitExit(t, dir, 10*time.Second)
+		return x, strings.TrimSpace(string(waitFile(t, filepath.Join(dir, "marker"), time.Second)))
+	}
+	px, pmarker := run("process", func(ops string) detach.Options {
+		return detach.ProcessBackend(detach.ProcessConfig{OpsDir: ops, Executable: exe, CgroupRoot: "-"})
+	})
+	lx, lmarker := run("local", func(string) detach.Options { return detachtest.Local() })
+
+	if pmarker != "term" || lmarker != "term" {
+		t.Errorf("markers: process %q, local %q; want term", pmarker, lmarker)
+	}
+	if !px.Canceled || px.ExitCode != 3 {
+		t.Errorf("process exit.json %+v, want canceled with exit code 3", px)
+	}
+	px.Started, px.Ended, lx.Started, lx.Ended = time.Time{}, time.Time{}, time.Time{}, time.Time{}
+	if px != lx {
+		t.Errorf("exit.json differs:\nprocess %+v\nlocal   %+v", px, lx)
+	}
 }
 
-// nginx-provider TC-16: ListUnits reports only live identities, as unit labels
-// Owner WI 2.1. Requirements: FR-20 (item 3), FR-21.
-//
-//	Setup: Linux. Three op directories:
-//	  - a: live supervisor;
-//	  - b: exited (identity present, process gone);
-//	  - c: forged identity with a different bootId.
-//	Steps:
-//	  1. ListUnits(ctx).
-//	Expected: Exactly [detach.Unit("a")], which parses through the existing
-//	recovery.go:511 orphan parsing to ID a.
+// nginx-provider TC-16: ListUnits reports only live identities, as unit
+// labels (FR-20 item 3, FR-21).
 func TestListUnitsReturnsLiveIdentitiesOnly(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-16 (WI 2.1)")
+	l, opts, ops := processLauncher(t, "")
+	endSupervisorAtCleanup(t, l.Dir("a"))
+	if err := l.Start(context.Background(), "a", shSpec(l.Dir("a"), "sleep 30")); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := l.Cancel(context.Background(), "a"); err == nil {
+			waitExit(t, l.Dir("a"), 10*time.Second)
+		}
+	})
+
+	// b: its process has exited and been reaped.
+	gone := exec.Command("sleep", "30")
+	if err := gone.Start(); err != nil {
+		t.Fatal(err)
+	}
+	b := identityOf(t, gone.Process.Pid)
+	_ = gone.Process.Kill() // Ends it; Wait reaps it
+	_ = gone.Wait()
+	// c: a live process, with another boot's ID.
+	c := identityOf(t, os.Getpid())
+	c.BootID = "00000000-1111-2222-3333-444444444444"
+	for name, ident := range map[string]detach.Identity{"b": b, "c": c} {
+		dir := filepath.Join(ops, name)
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := detach.WriteIdentity(dir, ident); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	units, err := opts.ListUnits(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{detach.Unit("a")}; !slices.Equal(units, want) {
+		t.Fatalf("ListUnits %q, want %q", units, want)
+	}
+	// As restart recovery parses an orphan unit (internal/ops/recovery.go).
+	if id := strings.TrimSuffix(strings.TrimPrefix(units[0], detach.UnitPrefix), ".service"); id != "a" {
+		t.Fatalf("unit %s parses to %q", units[0], id)
+	}
 }
 
-// nginx-provider TC-17: Supervisor diagnostics go to supervisor.log and are capped
-// Owner WI 2.1. Requirements: FR-20 (item 5).
-//
-//	Setup: Linux. A diag writer test seam that produces more than
-//	oplog.DefaultCapBytes of diagnostic lines (for example a spec whose child is
-//	missing, repeated through the cap hook).
-//	Steps:
-//	  1. Run Supervise(dir, diag, ModeProcess) with a valid identity in place.
-//	Expected:
-//	  - ops/<id>/supervisor.log exists with mode 0600.
-//	  - Its size is at most oplog.DefaultCapBytes plus one truncation marker
-//	    line.
-//	  - Nothing is written to the supervisor's stderr beyond the file.
+// identityOf is process pid's identity, read as the launcher reads it.
+func identityOf(t *testing.T, pid int) detach.Identity {
+	t.Helper()
+	ticks, err := strconv.ParseUint(statOf(t, pid, 22), 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	boot, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return detach.Identity{PID: pid, StartTicks: ticks, BootID: strings.TrimSpace(string(boot))}
+}
+
+// nginx-provider TC-17: supervisor diagnostics go to supervisor.log and are
+// capped (FR-20 item 5). The supervisor is this test binary, whose
+// op-supervise floods its diagnostics once it has its identity.
 func TestSupervisorLogIsCapped(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-17 (WI 2.1)")
+	l, _, _ := processLauncher(t, testBinary(t))
+	const id = "01JTC17"
+	dir := l.Dir(id)
+	endSupervisorAtCleanup(t, dir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "flood-diag"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Start(context.Background(), id, shSpec(dir, "exit 0")); err != nil {
+		t.Fatal(err)
+	}
+	if x := waitExit(t, dir, 60*time.Second); x.ExitCode != 0 {
+		t.Fatalf("exit.json %+v", x)
+	}
+	path := filepath.Join(dir, detach.SupervisorLog)
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Errorf("%s mode %v, want 0600", detach.SupervisorLog, fi.Mode().Perm())
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
+	marker := lines[len(lines)-1]
+	if !strings.Contains(marker, "truncated") {
+		t.Fatalf("last line %q is not the truncation marker", marker)
+	}
+	if max := oplog.DefaultCapBytes + int64(len(marker)+1); fi.Size() > max || fi.Size() < oplog.DefaultCapBytes/2 {
+		t.Errorf("%s is %d bytes, want the cap's worth and at most %d", detach.SupervisorLog, fi.Size(), max)
+	}
+	// Everything the supervisor wrote is its own diagnostics, complete lines.
+	for i, line := range lines {
+		if !strings.HasPrefix(line, "op-supervise: ") {
+			t.Fatalf("line %d of %s is %q", i+1, detach.SupervisorLog, line)
+		}
+	}
 }
 
-// nginx-provider TC-ERR3: A supervisor that never sees its identity exits without running anything
-// Owner WI 2.1. Requirements: FR-20 (item 2), L-51.
-//
-//	Setup: Linux. An op dir with spec.json whose child would create a marker,
-//	and no supervisor.json. The launch timeout is injected at 500 ms.
-//	Steps:
-//	  1. Run nexusd op-supervise --dir D --process directly.
-//	Expected:
-//	  - Exit 1 within 2 s.
-//	  - spec.json is still present, and there is no exit.json and no marker.
+// nginx-provider TC-ERR3: a supervisor that never sees its identity exits
+// without running anything (FR-20 item 2, L-51).
 func TestHandshakeTimeoutRunsNothing(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-ERR3 (WI 2.1)")
+	dir := t.TempDir()
+	if err := detach.WriteSpec(dir, shSpec(dir, `: > "$DIR/marker"`)); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(testBinary(t), "op-supervise", "--dir", dir, "--process")
+	cmd.Env = []string{"NEXUS_TEST_HANDSHAKE_TIMEOUT=500ms"}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	var diag bytes.Buffer
+	cmd.Stderr = &diag
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		var ee *exec.ExitError
+		if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+			t.Fatalf("supervisor: %v, want exit status 1; diagnostics:\n%s", err, diag.String())
+		}
+	case <-time.After(2 * time.Second):
+		_ = cmd.Process.Kill() // Fails the test either way
+		<-done
+		t.Fatal("supervisor still waiting after 2s")
+	}
+	if !strings.Contains(diag.String(), "did not name this process") {
+		t.Errorf("diagnostics %q do not explain the exit", diag.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, detach.SpecFile)); err != nil {
+		t.Errorf("spec.json was taken: %v", err)
+	}
+	for _, name := range []string{detach.ExitFile, "marker"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("%s exists (%v)", name, err)
+		}
+	}
 }
 
-// nginx-provider TC-ERR4: A failed identity write kills the supervisor and fails the launch
-// Owner WI 2.1. Requirements: FR-20 (item 2).
-//
-//	Setup: Linux. The hook writeIdentity returns EIO.
-//	Steps:
-//	  1. Launcher.Start.
-//	Expected:
-//	  - Start returns an error.
-//	  - The spawned supervisor PID is gone within 1 s (SIGKILL).
-//	  - spec.json is removed, and the child marker never appears.
+// nginx-provider TC-ERR4: a failed identity write kills the supervisor and
+// fails the launch (FR-20 item 2).
 func TestIdentityWriteFailureKillsSupervisor(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-ERR4 (WI 2.1)")
+	l, _, _ := processLauncher(t, "")
+	var tried detach.Identity
+	saved := *detach.WriteIdentityHook
+	*detach.WriteIdentityHook = func(_ string, id detach.Identity) error {
+		tried = id
+		return syscall.EIO
+	}
+	t.Cleanup(func() { *detach.WriteIdentityHook = saved })
+
+	const id = "01JTCERR4"
+	dir := l.Dir(id)
+	if err := l.Start(context.Background(), id, shSpec(dir, `: > "$DIR/marker"`)); !errors.Is(err, syscall.EIO) {
+		t.Fatalf("Start: %v, want EIO", err)
+	}
+	if tried.PID == 0 {
+		t.Fatal("the identity write was never attempted")
+	}
+	for deadline := time.Now().Add(time.Second); ; time.Sleep(10 * time.Millisecond) {
+		b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", tried.PID))
+		if errors.Is(err, fs.ErrNotExist) {
+			break
+		}
+		if err == nil && !strings.Contains(string(b), " "+strconv.FormatUint(tried.StartTicks, 10)+" ") {
+			break // The PID was reused by another process
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("supervisor %d still exists after 1s", tried.PID)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, detach.SpecFile)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("spec.json not removed (%v)", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if _, err := os.Stat(filepath.Join(dir, "marker")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the child ran (%v)", err)
+	}
 }

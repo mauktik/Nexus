@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -505,5 +506,53 @@ func TestMissingSpecPreventsAnyRerun(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("the supervisor left %v: no child may start and no exit.json be written", entries)
+	}
+}
+
+// Work item 2.1: `nexusd op-supervise --dir D --process` takes nothing until
+// supervisor.json names it, then runs the operation as a unit's supervisor
+// does, with the umask a systemd transient unit has (L-47, L-51).
+func TestProcessModeWaitsForItsIdentity(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the process mode reads /proc")
+	}
+	dir := t.TempDir()
+	spec := shSpec(dir, `grep '^Umask:' /proc/self/status > "$DIR/marker"`)
+	s := startSupervisor(t, dir, &spec, func(c *exec.Cmd) { c.Args = append(c.Args, "--process") })
+
+	time.Sleep(300 * time.Millisecond)
+	if _, err := os.Stat(filepath.Join(dir, detach.SpecFile)); err != nil {
+		t.Fatalf("spec.json taken before the identity was written: %v", err)
+	}
+	pid := s.cmd.Process.Pid
+	stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := strings.Fields(string(stat[bytes.LastIndexByte(stat, ')')+1:]))
+	ticks, err := strconv.ParseUint(fields[22-3], 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	boot, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := detach.WriteIdentity(dir, detach.Identity{PID: pid, StartTicks: ticks, BootID: strings.TrimSpace(string(boot))}); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := s.wait(t, 20*time.Second); code != 0 {
+		t.Fatalf("supervisor exit status %d; diagnostics:\n%s", code, s.diag.String())
+	}
+	if x := readExit(t, dir); x.ExitCode != 0 {
+		t.Fatalf("exit = %+v", x)
+	}
+	marker, err := os.ReadFile(filepath.Join(dir, "marker"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(strings.TrimPrefix(string(marker), "Umask:")); got != "0022" {
+		t.Fatalf("child umask %q, want 0022", got)
 	}
 }

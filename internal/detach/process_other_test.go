@@ -1,23 +1,30 @@
 //go:build !linux
 
-// Stub-style: SKIP-only (nginx-provider)
-//
-// Stubs of planning/nginx-provider/test-cases.md. Each test skips until its
-// work item lands; the developer of that work item replaces the skip with
-// the assertions written in the comment above the test. An un-skipped
-// passing test is the GREEN signal (test-strategy.md, RED Stub Style).
-
 package detach
 
-import "testing"
+import (
+	"context"
+	"strings"
+	"syscall"
+	"testing"
+)
 
-// nginx-provider TC-ERR5: The process backend refuses on non-Linux hosts
-// Owner WI 2.1. Requirements: FR-20, OOS-12.
-//
-//	Setup: macOS (the dev host).
-//	Steps:
-//	  1. Call each seam of ProcessBackend(ProcessConfig{}).
-//	Expected: Each returns an error containing detached processes need Linux.
+// nginx-provider TC-ERR5: the process backend refuses on non-Linux hosts
+// (FR-20, OOS-12).
 func TestProcessBackendNeedsLinux(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-ERR5 (WI 2.1)")
+	b := ProcessBackend(ProcessConfig{})
+	ctx := context.Background()
+	const want = "detached processes need Linux"
+	_, stateErr := b.UnitState(ctx, Unit("x"))
+	_, listErr := b.ListUnits(ctx)
+	for name, err := range map[string]error{
+		"Launch":    b.Launch(ctx, Invocation{ID: "x", Unit: Unit("x")}),
+		"UnitState": stateErr,
+		"Signal":    b.Signal(ctx, Unit("x"), syscall.SIGTERM),
+		"ListUnits": listErr,
+	} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v, want an error containing %q", name, err, want)
+		}
+	}
 }

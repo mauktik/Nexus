@@ -56,11 +56,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fs := flag.NewFlagSet("opsd op-supervise", flag.ContinueOnError)
 		fs.SetOutput(stderr)
 		dir := fs.String("dir", "", "the operation's directory")
+		process := fs.Bool("process", false, "started by the process backend, not as a systemd unit")
 		if err := fs.Parse(args[1:]); err != nil || *dir == "" || fs.NArg() > 0 {
-			fmt.Fprintln(stderr, "usage: opsd op-supervise --dir dir")
+			fmt.Fprintln(stderr, "usage: opsd op-supervise --dir dir [--process]")
 			return 2
 		}
-		return detach.Supervise(*dir, stderr)
+		mode := detach.ModeUnit
+		if *process {
+			mode = detach.ModeProcess
+		}
+		return detach.Supervise(*dir, stderr, mode)
 	}
 	fmt.Fprintf(stderr, "opsd: unknown command %q\n", args[0])
 	return 2
