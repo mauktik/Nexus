@@ -2,11 +2,12 @@
 // service and lists and reads the site configuration files of one include
 // directory. Its declarations live in the spec subpackage.
 //
-// Everything here runs inside nexusd, which on systemd is sandboxed with a
-// read-only file system, so this code only reads: the service state through
+// The Provider runs inside nexusd, which on systemd is sandboxed with a
+// read-only file system, so it only reads: the service state through
 // svcctl, `nginx -v`, and lstat and reads of includeDir. It never writes
-// includeDir and never runs `nginx -t`; changes run in detached operations.
-// The service, the binary and the directory come only from code and the
+// includeDir and never runs `nginx -t`. Those run in detached operations,
+// in the hidden `nexusd nginx-op` helper (Helper) outside the sandbox. The
+// service, the binary and the directory come only from code and the
 // root-owned configuration (CON-3), never from a request.
 package nginx
 
@@ -75,12 +76,18 @@ type Provider struct {
 
 	versions       versionCache
 	versionTimeout time.Duration // VersionTimeout outside tests
+
+	// executable is the nexusd that runs the helper: os.Executable outside
+	// tests. afterPrepare, set only by tests, runs on the operation's
+	// directory once input.json is written.
+	executable   func() (string, error)
+	afterPrepare func(dir string)
 }
 
 // New returns the provider with the default settings until Configure.
 func New(opts Options) *Provider {
 	p := &Provider{host: opts.Host, log: opts.Logger, services: opts.Services, detach: opts.Detach,
-		nginx: opts.Nginx, preflight: opts.Preflight, versionTimeout: VersionTimeout}
+		nginx: opts.Nginx, preflight: opts.Preflight, versionTimeout: VersionTimeout, executable: os.Executable}
 	if p.log == nil {
 		p.log = slog.Default()
 	}
@@ -198,13 +205,14 @@ func (p *Provider) Preflight(ctx context.Context) provider.Status {
 	}}
 }
 
-// Bindings binds the synchronous reads. Each detached operation's work item
-// appends its binding.
+// Bindings binds the synchronous reads and the detached operations. Each
+// detached operation's work item appends its binding.
 func (p *Provider) Bindings() []provider.Binding {
 	return []provider.Binding{
 		provider.Sync(spec.Status, p.status),
 		provider.Sync(spec.List, p.list),
 		provider.Sync(spec.Get, p.get),
 		provider.Sync(spec.Content, p.content),
+		p.testBinding(),
 	}
 }

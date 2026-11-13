@@ -19,6 +19,7 @@ import (
 	"github.com/mauktik/nexus/internal/daemon"
 	"github.com/mauktik/nexus/internal/detach"
 	"github.com/mauktik/nexus/internal/providers/docker"
+	"github.com/mauktik/nexus/internal/providers/nginx"
 	"github.com/mauktik/nexus/internal/tlsutil"
 	"github.com/mauktik/nexus/internal/version"
 )
@@ -48,6 +49,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 			// operation's unit (D-8). Its progress goes to stdout, which
 			// the supervisor frames into the operation's output.
 			return docker.UpdateHelper(args[1:], stdout, stderr)
+		case nginx.HelperCommand:
+			// Hidden: one nginx operation, run by op-supervise outside
+			// nexusd's sandbox (CON-2). Its progress and nginx's output go
+			// to stdout, which the supervisor frames into the operation's
+			// output.
+			return nginx.Helper(args[1:], stdout, stderr)
 		}
 	}
 

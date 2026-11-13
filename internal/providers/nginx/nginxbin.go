@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 // DefaultNginx is the nginx binary on both supported distributions (FR-2a).
@@ -37,47 +40,110 @@ const (
 // or `nginx version: nginx/1.28.3 (Ubuntu)`, which nginx prints on stderr.
 var versionRE = regexp.MustCompile(`nginx/([0-9.]+)`)
 
-// env is the whole environment nginx runs with: no variable of nexusd's
-// reaches it.
-func env() []string { return []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL=C"} }
+// TestOutputCap is the most of `nginx -t`'s output a result holds (FR-4).
+// The operation log has all of it, up to the output cap.
+const TestOutputCap = 64 << 10
+
+// errTimedOut marks a run of nginx that its bound stopped.
+var errTimedOut = errors.New("nginx did not finish in time")
+
+// nginxEnv is the whole environment nginx runs with: no variable of
+// nexusd's reaches it.
+func nginxEnv() []string { return []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL=C"} }
 
 // nginxBin runs the configured nginx binary: an absolute path, executed
 // directly with a fixed environment, no shell and no stdin, in a process
-// group of its own that is killed whole when the bound expires.
+// group of its own that is killed whole when the bound expires or ctx ends.
 type nginxBin struct {
 	path string
+	// testTimeout bounds Test, and log receives Test's output as nginx
+	// writes it: in the helper, the operation log. A nil log discards it.
+	testTimeout time.Duration
+	log         io.Writer
+}
+
+// run runs nginx with args, bounded by timeout, writing its combined output
+// to w, and returns its exit code. The error wraps errTimedOut when the
+// bound stopped it.
+func (n nginxBin) run(ctx context.Context, timeout time.Duration, w io.Writer, args ...string) (int, error) {
+	if !filepath.IsAbs(n.path) {
+		return 0, fmt.Errorf("refusing to run nginx %q: the path must be absolute", n.path)
+	}
+	bounded, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(bounded, n.path, args...)
+	cmd.Env = nginxEnv()
+	cmd.Dir = "/"
+	// One writer for both streams: exec shares one pipe and one copying
+	// goroutine, so the writer needs no lock.
+	cmd.Stdout, cmd.Stderr = w, w
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = waitDelay
+	err := cmd.Run()
+	switch {
+	case ctx.Err() != nil:
+		return 0, fmt.Errorf("%s %v was stopped: %w", n.path, args, ctx.Err())
+	case bounded.Err() != nil:
+		return 0, fmt.Errorf("%s %v did not finish within %s: %w", n.path, args, timeout, errTimedOut)
+	}
+	var exitErr *exec.ExitError
+	switch {
+	case err == nil || errors.Is(err, exec.ErrWaitDelay):
+		return cmd.ProcessState.ExitCode(), nil
+	case errors.As(err, &exitErr) && exitErr.ExitCode() >= 0:
+		return exitErr.ExitCode(), nil
+	}
+	return 0, err
 }
 
 // output runs nginx with args, bounded by timeout, and returns its combined
 // output, capped at max, and its exit code.
 func (n nginxBin) output(ctx context.Context, timeout time.Duration, max int, args ...string) ([]byte, int, error) {
-	if !filepath.IsAbs(n.path) {
-		return nil, 0, fmt.Errorf("refusing to run nginx %q: the path must be absolute", n.path)
-	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 	out := &capWriter{max: max}
-	cmd := exec.CommandContext(ctx, n.path, args...)
-	cmd.Env = env()
-	cmd.Dir = "/"
-	// One writer for both streams: exec shares one pipe and one copying
-	// goroutine, so the writer needs no lock.
-	cmd.Stdout, cmd.Stderr = out, out
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
-	cmd.WaitDelay = waitDelay
-	err := cmd.Run()
-	if ctx.Err() != nil {
-		return out.buf, 0, fmt.Errorf("%s %v did not finish within %s", n.path, args, timeout)
-	}
-	var exitErr *exec.ExitError
+	code, err := n.run(ctx, timeout, out, args...)
+	return out.buf, code, err
+}
+
+// TestOutput is one `nginx -t`: its verdict and its combined output, at
+// most TestOutputCap bytes.
+type TestOutput struct {
+	Valid     bool // nginx -t exited 0
+	Output    string
+	Truncated bool // The output was longer than TestOutputCap
+}
+
+// Test runs `nginx -t`, bounded by testTimeout. Its output goes to the log
+// as nginx writes it, and the first TestOutputCap bytes into the result.
+// An invalid configuration is a TestOutput with Valid false; the error is
+// for a test that could not run or did not finish.
+func (n nginxBin) Test(ctx context.Context) (TestOutput, error) {
+	w := &capWriter{max: TestOutputCap, tee: n.log}
+	code, err := n.run(ctx, n.testTimeout, w, "-t")
+	var pathErr *fs.PathError
 	switch {
-	case err == nil || errors.Is(err, exec.ErrWaitDelay):
-		return out.buf, cmd.ProcessState.ExitCode(), nil
-	case errors.As(err, &exitErr) && exitErr.ExitCode() >= 0:
-		return out.buf, exitErr.ExitCode(), nil
+	case errors.Is(err, errTimedOut):
+		return TestOutput{}, fmt.Errorf("nginx -t did not finish within %s", n.testTimeout)
+	case errors.As(err, &pathErr):
+		return TestOutput{}, fmt.Errorf("the nginx binary %s cannot be run: %v", n.path, pathErr.Err)
+	case err != nil:
+		return TestOutput{}, fmt.Errorf("nginx -t could not run: %v", err)
 	}
-	return out.buf, 0, err
+	// A failed write to the log only stops the copy there (capWriter): the
+	// result still has the output, which is what the test reports.
+	return TestOutput{Valid: code == 0, Output: string(validUTF8Prefix(w.buf)), Truncated: w.dropped}, nil
+}
+
+// validUTF8Prefix drops a multi-byte character the cap cut in two, so the
+// output stays valid UTF-8 through JSON.
+func validUTF8Prefix(b []byte) []byte {
+	for i := 0; i < utf8.UTFMax && len(b) > 0; i++ {
+		if utf8.Valid(b) {
+			return b
+		}
+		b = b[:len(b)-1]
+	}
+	return b
 }
 
 // Version runs `nginx -v` and parses the version from its output.
@@ -94,15 +160,28 @@ func (n nginxBin) Version(ctx context.Context, timeout time.Duration) (string, e
 }
 
 // capWriter keeps the first max bytes written to it and discards the rest,
-// so nginx never blocks on a full pipe.
+// so nginx never blocks on a full pipe. With tee set it also copies every
+// write there, until the first write to tee fails.
 type capWriter struct {
-	buf []byte
-	max int
+	buf     []byte
+	max     int
+	dropped bool // More than max bytes were written
+	tee     io.Writer
+	teeErr  error // The failed write to tee, after which nothing more is copied
 }
 
 func (w *capWriter) Write(p []byte) (int, error) {
-	if room := w.max - len(w.buf); room > 0 {
+	room := w.max - len(w.buf)
+	if len(p) > room {
+		w.dropped = true
+	}
+	if room > 0 {
 		w.buf = append(w.buf, p[:min(room, len(p))]...)
+	}
+	if w.tee != nil && w.teeErr == nil {
+		if _, err := w.tee.Write(p); err != nil {
+			w.teeErr = err
+		}
 	}
 	return len(p), nil
 }
