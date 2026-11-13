@@ -873,11 +873,12 @@ var (
 	RemoveAdlist = def.Define[AdlistRemoveInput, AdlistRemoveResult](def.Op{
 		ID: Name + ".actions.remove-adlist", Provider: Name, Kind: def.KindProviderAction, Action: "remove-adlist",
 		Summary: "Remove a Pi-hole blocklist",
-		Description: "Removes one blocklist (pihole -a adlist del), named either by id or by url (otherwise 400 " +
+		Description: "Removes one blocklist, named either by id or by url (otherwise 400 " +
 			"validation-failed); an adlist that does not exist answers 404 not-found before any operation exists. " +
-			"Neither reloads lists nor restarts DNS: its domains stay blocked until the next gravity update, " +
-			"unless updateGravity is true, when pihole -g runs in the same operation and its output streams to " +
-			"the operation log. The result holds the removed adlist. " + "Side effects: removes the adlist from gravity.db (pihole -a adlist del); with updateGravity, " +
+			"The adlist, its group links and its downloaded domains are deleted from gravity.db in one transaction, " +
+			"then pihole restartdns reload-lists makes FTL stop blocking them; DNS is not restarted. With " +
+			"updateGravity true, pihole -g also runs in the same operation and its output streams to " +
+			"the operation log. The result holds the removed adlist. " + "Side effects: deletes the adlist and its gravity rows from gravity.db and reloads FTL's lists; with updateGravity, " +
 			"also runs pihole -g, which downloads every enabled adlist and replaces gravity.db. " + laneSuffix + " Waits for a running " +
 			"external gravity update first, failing pihole-busy after 30 minutes; fails pihole-command-failed " +
 			"when the read-back still shows the adlist, and gravity-failed, with pihole -g's exit code, when " +
