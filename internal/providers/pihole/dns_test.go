@@ -1,0 +1,529 @@
+// Cases: TC-104 to TC-108 and TC-ERR26 in
+// planning/pihole-dns-zones/test-cases.md (WI 4.2): add-zone and
+// zones.remove through the Dispatcher (schema, the shared DNS Admit, lane),
+// the operation manager and the helper, whose dnswrite pipeline runs against
+// FakeHost + FakeFTL. Also the worked example of A-44 and the helper's own
+// re-check of conf-dir.
+//
+// FakeFTL encodes the verified v5 behavior the pipeline depends on: dnsmasq
+// serves the conf files as read at (re)start, and a restart gives FTL a new
+// PID. A zone add changes comment lines only, so it must leave both the
+// restart count and the PID as they were (NFR-3, A-42).
+package pihole
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/mauktik/nexus/internal/audit"
+	"github.com/mauktik/nexus/internal/auth"
+	"github.com/mauktik/nexus/internal/core"
+	"github.com/mauktik/nexus/internal/def"
+	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/ops"
+	"github.com/mauktik/nexus/internal/problem"
+	"github.com/mauktik/nexus/internal/provider"
+	"github.com/mauktik/nexus/internal/providers/pihole/backend"
+	"github.com/mauktik/nexus/internal/providers/pihole/dnscheck"
+	"github.com/mauktik/nexus/internal/providers/pihole/dnswrite"
+	"github.com/mauktik/nexus/internal/providers/pihole/spec"
+	"github.com/mauktik/nexus/internal/providers/pihole/v5"
+	"github.com/mauktik/nexus/internal/store"
+)
+
+const dnsTestFile = "/etc/dnsmasq.d/03-custom-dns-names.conf"
+
+var dnsCaller = auth.Principal{TokenID: "tok-dns", Name: "dns", Scopes: []string{spec.ReadScope, spec.DNSScope}}
+
+func dnsFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("dnsfile", "testdata", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// dnsWorld runs the DNS mutations as the server does: the Dispatcher, the
+// operation manager, and a detach launcher whose unit runs the helper
+// in-process over the FakeHost, with the helper's DNS server set to the
+// FakeFTL.
+type dnsWorld struct {
+	*helperWorld
+	st   *store.Store
+	disp *core.Dispatcher
+	file string // dnsTestFile on the fake host
+}
+
+// newDNSWorld seeds the DNS file with content, starts FTL on it and waits
+// until that FTL answers and its PID file names it.
+func newDNSWorld(t *testing.T, content []byte) *dnsWorld {
+	t.Helper()
+	w := &dnsWorld{helperWorld: newHelperWorld(t)}
+	w.file = w.h.Paths().Host(dnsTestFile)
+	if err := os.WriteFile(w.file, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, err := w.h.Run(context.Background(), []string{piholeBin, "restartdns"}, io.Discard, io.Discard); code != 0 || err != nil {
+		t.Fatalf("seed restart: %d %v", code, err)
+	}
+	if _, err := dnscheck.WaitReady(context.Background(), w.h.FTL().Addr(), 5*time.Second); err != nil {
+		t.Fatalf("seed FTL not ready: %v", err)
+	}
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if pid, ok := v5.FTLPID(w.h.Paths()); ok && pid == w.h.FTL().PID() {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("seed FTL never wrote its PID file")
+		}
+	}
+	w.h.ResetArgvs()
+
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	launcher, err := detach.New(detach.Config{OpsDir: w.opsDir, Logger: log}, detach.Options{
+		Launch: func(_ context.Context, inv detach.Invocation) error {
+			if err := os.Remove(filepath.Join(inv.Dir, detach.SpecFile)); err != nil {
+				return err
+			}
+			inj := w.inject()
+			inj.DNSServer = w.h.FTL().Addr()
+			started := time.Now()
+			code := runHelper(context.Background(), inv.Dir, io.Discard, io.Discard, inj)
+			return detach.WriteExit(inv.Dir, detach.Exit{ExitCode: code, Started: started, Ended: time.Now()})
+		},
+		UnitState: func(context.Context, string) (detach.UnitState, error) {
+			return detach.UnitState{ActiveState: "inactive", LoadState: "not-found"}, nil
+		},
+		Signal:    func(context.Context, string, syscall.Signal) error { return errors.New("no signals") },
+		ListUnits: func(context.Context) ([]string, error) { return nil, nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	alog, err := audit.Open(audit.Options{Dir: t.TempDir(), Host: "h", Logger: log})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = alog.Close() })
+	st, err := store.Open(filepath.Dir(w.opsDir), store.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr, err := ops.New(ops.Options{Store: st, Audit: alog, Dir: w.opsDir, Host: "h", Logger: log, Detach: launcher})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := mgr.Shutdown(ctx); err != nil {
+			t.Errorf("manager shutdown: %v", err)
+		}
+		if err := st.Close(); err != nil {
+			t.Errorf("store close: %v", err)
+		}
+	})
+	reg, err := core.New([]provider.Provider{w.p}, core.Options{Host: "h", Logger: log, Audit: alog, Ops: mgr,
+		Providers: pfConfigs(true, nil)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.st, w.disp = st, core.NewDispatcher(reg, core.DispatcherOptions{Logger: log})
+	return w
+}
+
+// invoke calls op with the JSON input as REST does. It returns the problem
+// of a refusal, or else the finished operation's record.
+func (w *dnsWorld) invoke(op def.Op, input string) (store.OpRecord, *problem.Error) {
+	w.t.Helper()
+	res, err := w.disp.Invoke(context.Background(), core.InvokeRequest{
+		Caller: dnsCaller, Surface: core.SurfaceREST, Op: op, Input: json.RawMessage(input)})
+	if err != nil {
+		var pe *problem.Error
+		if !errors.As(err, &pe) {
+			w.t.Fatalf("%s: error %T %v is not a problem", op.ID, err, err)
+		}
+		return store.OpRecord{}, pe
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		rec, err := w.st.Get(res.OperationID)
+		if err == nil && rec.Status.Terminal() {
+			return rec, nil
+		}
+		if time.Now().After(deadline) {
+			w.t.Fatalf("operation %s: %+v (%v)", res.OperationID, rec, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func (w *dnsWorld) opCount() int {
+	w.t.Helper()
+	page, err := w.st.List(store.ListQuery{Limit: store.MaxListLimit})
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	return len(page.Records)
+}
+
+func (w *dnsWorld) live() []byte {
+	w.t.Helper()
+	b, err := os.ReadFile(w.file)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	return b
+}
+
+// zoneCounts is the zone list read through the provider, as zone=count.
+func (w *dnsWorld) zoneCounts() []string {
+	w.t.Helper()
+	l, err := w.p.listZones(context.Background(), spec.NoInput{})
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	out := []string{}
+	for _, z := range l.Items {
+		out = append(out, z.Name+"="+strconv.Itoa(z.Properties.Records))
+	}
+	return out
+}
+
+// ranConfigTest reports whether `pihole-FTL --test` ran.
+func (w *dnsWorld) ranConfigTest() bool {
+	return hasArgv(w.h, func(a []string) bool { return slices.Contains(a, "--test") })
+}
+
+// noLocalLine fails when the file holds a local= line, which would NXDOMAIN
+// the public names of a split-horizon zone such as xi.example.
+func noLocalLine(t *testing.T, b []byte) {
+	t.Helper()
+	for _, l := range strings.Split(string(b), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), "local=") {
+			t.Errorf("the DNS file has a local= line: %q", l)
+		}
+	}
+}
+
+// TC-104 (FR-18, FR-19, NFR-3, FR-23, A-42): three zone adds on the FR-23
+// 7-line file grow the zone list 0 -> 1 -> 2 -> 3 with record counts 1, 2,
+// 2 and leave exactly the FR-23 rendering; no add tests or restarts DNS or
+// changes FTL's PID; the first reorganizes the file and names the pre-Nexus
+// backup. Each result.json, as runHelper wrote it, has a result and no
+// error member (the typed-nil guard on the first real dnswrite caller).
+func TestTC104_ZoneAddSecondState(t *testing.T) {
+	orig := dnsFixture(t, "fr23-seven-lines.conf")
+	w := newDNSWorld(t, orig)
+	pid, restarts := w.h.FTL().PID(), w.h.FTL().Restarts()
+	if got := w.zoneCounts(); len(got) != 0 {
+		t.Fatalf("zones before %v, want none", got)
+	}
+	steps := []struct {
+		zone  string
+		zones []string
+	}{
+		{"app.lan", []string{"app.lan=1"}},
+		{"home.local", []string{"app.lan=1", "home.local=2"}},
+		{"xi.example", []string{"app.lan=1", "home.local=2", "xi.example=2"}},
+	}
+	backup := w.p.backupPath(dnsTestFile)
+	for i, s := range steps {
+		rec, pe := w.invoke(spec.AddZone.Op(), `{"zone":"`+s.zone+`"}`)
+		if pe != nil {
+			t.Fatalf("add %s: %s %q", s.zone, pe.Slug(), pe.Detail)
+		}
+		raw := readResult(t, filepath.Join(w.opsDir, rec.ID))
+		if _, ok := raw["error"]; ok {
+			t.Errorf("add %s: result.json has an error member: %s", s.zone, raw["error"])
+		}
+		if _, ok := raw["result"]; !ok {
+			t.Errorf("add %s: result.json has no result member: %v", s.zone, raw)
+		}
+		res := succeeded[spec.DNSChangeResult](t, rec)
+		if !res.Changed || res.Restarted || res.FTLPidBefore == nil || *res.FTLPidBefore != pid ||
+			res.FTLPidAfter == nil || *res.FTLPidAfter != pid || len(res.Verified) != 0 || res.Etag != etagOf(w.live()) {
+			t.Errorf("add %s: result %+v, want changed, not restarted, pid %d throughout", s.zone, res, pid)
+		}
+		wantBackup := ""
+		if i == 0 {
+			wantBackup = backup
+		}
+		if res.PreNexusBackup != wantBackup {
+			t.Errorf("add %s: preNexusBackup %q, want %q", s.zone, res.PreNexusBackup, wantBackup)
+		}
+		if got := w.zoneCounts(); !slices.Equal(got, s.zones) {
+			t.Errorf("after %s: zones %v, want %v", s.zone, got, s.zones)
+		}
+		if w.h.FTL().Restarts() != restarts || w.h.FTL().PID() != pid {
+			t.Errorf("after %s: restarts %d pid %d, want %d and %d", s.zone, w.h.FTL().Restarts(), w.h.FTL().PID(), restarts, pid)
+		}
+	}
+	if got, want := w.live(), dnsFixture(t, "fr23-seven-lines.rendered.conf"); string(got) != string(want) {
+		t.Errorf("final file:\n%s\nwant the FR-23 rendering:\n%s", got, want)
+	}
+	noLocalLine(t, w.live())
+	if w.ranConfigTest() {
+		t.Errorf("a zone add ran the configuration test: %q", w.h.Argvs())
+	}
+	if b, err := os.ReadFile(backup); err != nil || string(b) != string(orig) {
+		t.Errorf("pre-Nexus backup %s: %v, want the original 7 lines, got %q", backup, err, b)
+	}
+}
+
+// TC-105 (FR-19): adding a declared zone is 409 conflict at Admit; no
+// operation; the file is unchanged.
+func TestTC105_AddExistingZoneRefused(t *testing.T) {
+	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
+	w := newDNSWorld(t, rendered)
+	_, pe := w.invoke(spec.AddZone.Op(), `{"zone":"app.lan"}`)
+	wantProblem(t, "add app.lan", pe, problem.Conflict, 409, "")
+	if n := w.opCount(); n != 0 || string(w.live()) != string(rendered) {
+		t.Errorf("%d operations; file changed: %v", n, string(w.live()) != string(rendered))
+	}
+}
+
+// TC-106 (FR-19, FR-24): removing a zone with records is 409 naming the
+// count, with no operation; cascade deletes both records and the marker
+// with one restart and verifies each name absent.
+func TestTC106_RemoveZoneNonEmptyThenCascade(t *testing.T) {
+	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
+	w := newDNSWorld(t, rendered)
+	restarts := w.h.FTL().Restarts()
+
+	_, pe := w.invoke(spec.ZonesRemove.Op(), `{"name":"home.local"}`)
+	wantProblem(t, "remove home.local", pe, problem.Conflict, 409, "")
+	if !strings.Contains(pe.Detail, "2 records") {
+		t.Errorf("detail %q does not state 2 records", pe.Detail)
+	}
+	if n := w.opCount(); n != 0 || string(w.live()) != string(rendered) {
+		t.Fatalf("refusal: %d operations, file changed %v", n, string(w.live()) != string(rendered))
+	}
+
+	rec, pe := w.invoke(spec.ZonesRemove.Op(), `{"name":"home.local","cascade":true}`)
+	if pe != nil {
+		t.Fatalf("cascade: %s %q", pe.Slug(), pe.Detail)
+	}
+	res := succeeded[spec.DNSChangeResult](t, rec)
+	if !res.Changed || !res.Restarted || w.h.FTL().Restarts() != restarts+1 {
+		t.Errorf("cascade: %+v, restarts %d -> %d, want changed and one restart", res, restarts, w.h.FTL().Restarts())
+	}
+	var names []string
+	for _, v := range res.Verified {
+		names = append(names, v.FQDN)
+		if !v.Passed || len(v.Expected) != 0 || len(v.Observed) != 0 {
+			t.Errorf("verified %+v, want passed and absent", v)
+		}
+	}
+	if want := []string{"kiwi.home.local", "photon.home.local"}; !slices.Equal(names, want) {
+		t.Errorf("verified %v, want %v", names, want)
+	}
+	live := string(w.live())
+	for _, gone := range []string{"# nexus:zone home.local", "kiwi.home.local", "photon.home.local"} {
+		if strings.Contains(live, gone) {
+			t.Errorf("%q is still in the file:\n%s", gone, live)
+		}
+	}
+	if got, want := w.zoneCounts(), []string{"app.lan=1", "xi.example=2"}; !slices.Equal(got, want) {
+		t.Errorf("zones %v, want %v", got, want)
+	}
+	noLocalLine(t, w.live())
+}
+
+// TC-107 (FR-19, NFR-3): removing an empty zone removes its marker only:
+// no configuration test, no restart, the PID unchanged.
+func TestTC107_RemoveEmptyZoneNoRestart(t *testing.T) {
+	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
+	w := newDNSWorld(t, append(slices.Clone(rendered), "\n# nexus:zone empty.lan\n"...))
+	pid, restarts := w.h.FTL().PID(), w.h.FTL().Restarts()
+
+	rec, pe := w.invoke(spec.ZonesRemove.Op(), `{"name":"empty.lan"}`)
+	if pe != nil {
+		t.Fatalf("remove empty.lan: %s %q", pe.Slug(), pe.Detail)
+	}
+	res := succeeded[spec.DNSChangeResult](t, rec)
+	if !res.Changed || res.Restarted || res.FTLPidAfter == nil || *res.FTLPidAfter != pid {
+		t.Errorf("result %+v, want changed without a restart, pid %d", res, pid)
+	}
+	if string(w.live()) != string(rendered) {
+		t.Errorf("file:\n%s\nwant the marker gone:\n%s", w.live(), rendered)
+	}
+	if w.ranConfigTest() || w.h.FTL().Restarts() != restarts || w.h.FTL().PID() != pid {
+		t.Errorf("config test %v, restarts %d -> %d, pid %d -> %d", w.ranConfigTest(), restarts,
+			w.h.FTL().Restarts(), pid, w.h.FTL().PID())
+	}
+}
+
+// A-44 worked example: the unmanaged lines inside a removed zone's section
+// move to the end of the preamble and are never dropped; the change is
+// comment lines only, so nothing restarts.
+func TestA44_RemovedSectionLinesMoveToPreamble(t *testing.T) {
+	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
+	seed := "# hand-written header\n\n# nexus:zone empty.lan\n# printer, ask Bob\n\n" + string(rendered)
+	w := newDNSWorld(t, []byte(seed))
+	restarts := w.h.FTL().Restarts()
+
+	rec, pe := w.invoke(spec.ZonesRemove.Op(), `{"name":"empty.lan"}`)
+	if pe != nil {
+		t.Fatalf("remove empty.lan: %s %q", pe.Slug(), pe.Detail)
+	}
+	if res := succeeded[spec.DNSChangeResult](t, rec); res.Restarted {
+		t.Errorf("result %+v, want no restart", res)
+	}
+	want := "# hand-written header\n# printer, ask Bob\n\n" + string(rendered)
+	if got := string(w.live()); got != want {
+		t.Errorf("file:\n%s\nwant:\n%s", got, want)
+	}
+	if w.h.FTL().Restarts() != restarts {
+		t.Error("DNS restarted")
+	}
+}
+
+// TC-108 (FR-3, FR-22, ASM-6, A-19): DNS writes are refused at Admit with
+// 503 capability-unavailable when dnsmasq would not load the DNS file's
+// directory, checked live, and on the v6 backend; no operation either way.
+func TestTC108_DNSWritesRefusedNoConfDirOrV6(t *testing.T) {
+	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
+
+	w := newDNSWorld(t, rendered)
+	if err := os.WriteFile(w.h.Paths().Host(v5.DnsmasqConfFile), []byte("# no conf-dir here\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, pe := w.invoke(spec.AddZone.Op(), `{"zone":"new.lan"}`)
+	wantProblem(t, "no conf-dir", pe, problem.CapabilityUnavailable, 503, "")
+	const reason = "dnsmasq does not load /etc/dnsmasq.d (no conf-dir in /etc/dnsmasq.conf)"
+	if pe.Detail != reason || pe.Extensions["reason"] != reason || pe.Extensions["provider"] != spec.Name {
+		t.Errorf("no conf-dir: %q %+v, want %q", pe.Detail, pe.Extensions, reason)
+	}
+	if n := w.opCount(); n != 0 || string(w.live()) != string(rendered) {
+		t.Errorf("no conf-dir: %d operations, file changed %v", n, string(w.live()) != string(rendered))
+	}
+
+	w = newDNSWorld(t, rendered)
+	w.p.reader.Store(&readerBox{r: backend.Unsupported{}}) // What Preflight selects on a v6 host
+	_, pe = w.invoke(spec.AddZone.Op(), `{"zone":"new.lan"}`)
+	wantProblem(t, "v6", pe, problem.CapabilityUnavailable, 503, "")
+	if pe.Extensions["reason"] != backend.ReasonV6DNSWrites || !strings.Contains(pe.Detail, backend.ReasonV6DNSWrites) {
+		t.Errorf("v6: %q %+v, want reason %q", pe.Detail, pe.Extensions, backend.ReasonV6DNSWrites)
+	}
+	if n := w.opCount(); n != 0 || string(w.live()) != string(rendered) {
+		t.Errorf("v6: %d operations, file changed %v", n, string(w.live()) != string(rendered))
+	}
+}
+
+// TC-ERR26 (FR-18, FR-19, FR-22): removing an undeclared zone is 404; an
+// add with a stale ifMatch is 409 dns-file-conflict naming both etags; no
+// operation.
+func TestTCERR26_ZoneRefusals(t *testing.T) {
+	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
+	w := newDNSWorld(t, rendered)
+
+	_, pe := w.invoke(spec.ZonesRemove.Op(), `{"name":"nope.lan"}`)
+	wantProblem(t, "remove nope.lan", pe, problem.NotFound, 404, "")
+
+	stale := "sha256:" + strings.Repeat("0", 64)
+	_, pe = w.invoke(spec.AddZone.Op(), `{"zone":"new.lan","ifMatch":"`+stale+`"}`)
+	wantProblem(t, "stale ifMatch", pe, problem.DNSFileConflict, 409, "")
+	if pe.Extensions["expectedEtag"] != stale || pe.Extensions["currentEtag"] != etagOf(rendered) {
+		t.Errorf("stale ifMatch: extensions %+v, want expected %s current %s", pe.Extensions, stale, etagOf(rendered))
+	}
+	if n := w.opCount(); n != 0 || string(w.live()) != string(rendered) {
+		t.Errorf("%d operations, file changed %v", n, string(w.live()) != string(rendered))
+	}
+
+	// The current etag passes.
+	if _, pe := w.invoke(spec.AddZone.Op(), `{"zone":"new.lan","ifMatch":"`+etagOf(rendered)+`"}`); pe != nil {
+		t.Errorf("current ifMatch: %s %q", pe.Slug(), pe.Detail)
+	}
+}
+
+// The helper checks conf-dir again under the lane: a dnsmasq.conf changed
+// after Admit fails the operation with capability-unavailable and nothing
+// written.
+func TestDNSHelperRechecksConfDir(t *testing.T) {
+	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
+	w := newDNSWorld(t, rendered)
+	var df provider.DetachedFuncs
+	for _, b := range w.p.Bindings() {
+		if b.Op().ID == spec.AddZone.Op().ID {
+			df, _ = b.Detached()
+		}
+	}
+	if df.Prepare == nil {
+		t.Fatal("add-zone is not bound")
+	}
+	const id = "op-zone-recheck"
+	if _, err := df.Prepare(context.Background(), spec.ZoneAddInput{Zone: "new.lan"}, provider.NewRun(id, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(w.h.Paths().Host(v5.DnsmasqConfFile), []byte("\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inj := w.inject()
+	inj.DNSServer = w.h.FTL().Addr()
+	if code := runHelper(context.Background(), filepath.Join(w.opsDir, id), io.Discard, io.Discard, inj); code != 0 {
+		t.Fatalf("helper exit %d", code)
+	}
+	_, err := df.Finalize(context.Background(), spec.ZoneAddInput{Zone: "new.lan"}, detach.Exit{}, provider.NewRun(id, nil))
+	if slug, _ := slugOf(t, err); slug != problem.CapabilityUnavailable {
+		t.Errorf("got %s, want capability-unavailable", slug)
+	}
+	if string(w.live()) != string(rendered) {
+		t.Error("the DNS file changed")
+	}
+}
+
+// add-zone and zones.remove run up to 10 min (A-3); a unit lost without a
+// result is outcome-unknown naming the rollback copy in the op directory.
+func TestZoneOpsMaxRuntimeAndLostDetail(t *testing.T) {
+	w := newHelperWorld(t)
+	check := func(name string, df provider.DetachedFuncs, in any) {
+		t.Helper()
+		id := "op-" + name
+		run := provider.NewRun(id, nil)
+		s, err := df.Prepare(context.Background(), in, run)
+		if err != nil || s.MaxRuntime != 10*time.Minute {
+			t.Errorf("%s: MaxRuntime %s, %v; want 10m", name, s.MaxRuntime, err)
+		}
+		want := "the DNS file may have been replaced; the previous bytes are at " +
+			filepath.Join(w.opsDir, id, dnswrite.RollbackCopyName)
+		if df.LostDetail == nil || !strings.HasPrefix(df.LostDetail(run, in), want) {
+			t.Fatalf("%s: LostDetail does not start %q", name, want)
+		}
+		_, err = df.Finalize(context.Background(), in, detach.Exit{ExitCode: -1, Signal: "SIGKILL"}, run)
+		if slug, pe := slugOf(t, err); slug != problem.OutcomeUnknown || !strings.Contains(pe.Detail, df.LostDetail(run, in)) {
+			t.Errorf("%s: lost unit: %s %q", name, slug, pe.Detail)
+		}
+	}
+	found := 0
+	for _, b := range w.p.Bindings() {
+		df, ok := b.Detached()
+		switch b.Op().ID {
+		case spec.AddZone.Op().ID:
+			check("add-zone", df, spec.ZoneAddInput{Zone: "a.lan"})
+		case spec.ZonesRemove.Op().ID:
+			check("remove-zone", df, spec.ZoneRemoveInput{Name: "a.lan"})
+		default:
+			continue
+		}
+		if !ok {
+			t.Errorf("%s is not detached", b.Op().ID)
+		}
+		found++
+	}
+	if found != 2 {
+		t.Errorf("%d of add-zone and zones.remove bound, want 2", found)
+	}
+}

@@ -202,7 +202,7 @@ func (p *Provider) Preflight(ctx context.Context) provider.Status {
 		dnsWrites = backend.ReasonV6DNSWrites
 	default:
 		if !v5.ConfDirLoads(p.paths, dnsFile) {
-			dnsWrites = fmt.Sprintf("dnsmasq does not load %s (no conf-dir in %s)", filepath.Dir(dnsFile), v5.DnsmasqConfFile)
+			dnsWrites = confDirReason(dnsFile)
 		}
 	}
 
@@ -271,5 +271,6 @@ func (p *Provider) Bindings() []provider.Binding {
 		provider.Sync(spec.RecordsList, p.listRecords),
 		provider.Sync(spec.RecordsGet, p.getRecord),
 	}
-	return slices.Concat(reads, p.serviceBindings(), p.blockingBindings(), p.domainBindings(), p.adlistBindings())
+	return slices.Concat(reads, p.serviceBindings(), p.blockingBindings(), p.domainBindings(), p.adlistBindings(),
+		p.dnsBindings())
 }
