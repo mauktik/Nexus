@@ -196,9 +196,9 @@ func (tp) Bindings() []provider.Binding {
 			Run: func(context.Context, nameIn, *provider.Run) (restartOut, error) { return restartOut{}, nil }}),
 		provider.InProcess(tpCheck, provider.InProcessSpec[checkIn, restartOut]{
 			Run: func(context.Context, checkIn, *provider.Run) (restartOut, error) { return restartOut{}, nil }}),
-		// The document and the route set depend on the declaration only, so
-		// a sync binding stands in for the upload binding here.
-		provider.Sync(tpUpload, func(context.Context, uploadIn) (uploadOut, error) { return uploadOut{}, nil }),
+		// The server requires an upload binding for a KindUpload op.
+		provider.Upload(tpUpload, provider.UploadSpec[uploadIn, uploadOut]{
+			Receive: func(context.Context, uploadIn, provider.UploadBody) (uploadOut, error) { return uploadOut{}, nil }}),
 	}
 }
 

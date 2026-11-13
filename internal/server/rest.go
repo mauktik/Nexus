@@ -23,6 +23,7 @@ import (
 	"github.com/mauktik/nexus/internal/openapi"
 	"github.com/mauktik/nexus/internal/ops"
 	"github.com/mauktik/nexus/internal/problem"
+	"github.com/mauktik/nexus/internal/provider"
 )
 
 // APIPrefix is the path prefix of every catalog route.
@@ -53,7 +54,8 @@ func RouteFor(op def.Op) (Route, error) {
 
 // registerREST registers one route per binding in the registry, and records
 // each registration. Every route calls disp, the one Dispatcher New builds:
-// it is the only path from a route to a handler.
+// it is the only path from a route to a handler. An upload route's cap, its
+// binding's MaxBytes, goes to uploadCaps for limitBody.
 func (s *Server) registerREST(disp *core.Dispatcher) error {
 	for _, e := range s.reg.Entries() {
 		op := e.Binding.Op()
@@ -68,7 +70,17 @@ func (s *Server) registerREST(disp *core.Dispatcher) error {
 				return fmt.Errorf("op %q: route wildcard {%s} is not an input field", op.ID, n)
 			}
 		}
-		if err := handle(s.mux, rt.Method+" "+rt.Path, s.opHandler(disp, op, names, fields)); err != nil {
+		var upload func() int64
+		if funcs, ok := e.Binding.Upload(); ok {
+			if len(names) > 0 {
+				return fmt.Errorf("op %q: an upload route has no wildcards, got %s", op.ID, rt.Path)
+			}
+			upload = funcs.MaxBytes
+			s.uploadCaps[rt.Path] = upload
+		} else if op.Kind == def.KindUpload {
+			return fmt.Errorf("op %q: a KindUpload op needs an upload binding (provider.Upload), got %s", op.ID, e.Binding.Kind())
+		}
+		if err := handle(s.mux, rt.Method+" "+rt.Path, s.opHandler(disp, op, names, fields, upload)); err != nil {
 			return fmt.Errorf("op %q: %w", op.ID, err)
 		}
 		s.routes = append(s.routes, rt)
@@ -163,20 +175,30 @@ func handle(mux *http.ServeMux, pattern string, h http.Handler) (err error) {
 // opHandler serves one route: it assembles the op's input from the request
 // and calls the Dispatcher, which alone authorizes, checks availability,
 // validates and runs the handler. Nothing here decides whether a call may
-// proceed.
-func (s *Server) opHandler(disp *core.Dispatcher, op def.Op, names []string, fields map[string]reflect.Type) http.Handler {
+// proceed. upload is non-nil on an upload route, and returns its cap: the
+// input then comes from the query, and the body is handed to the Dispatcher
+// unread, as the upload.
+func (s *Server) opHandler(disp *core.Dispatcher, op def.Op, names []string, fields map[string]reflect.Type,
+	upload func() int64) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// A request without a principal cannot pass the authentication
 		// middleware; if one ever did, the Dispatcher refuses the zero value.
 		caller, _ := auth.PrincipalFrom(r.Context())
-		raw, inputErr := buildInput(r, names, fields)
+		raw, inputErr := buildInput(r, names, fields, upload != nil)
 		var target string
 		if len(names) > 0 {
 			target = r.PathValue(names[0])
 		}
+		var body *provider.UploadBody
+		if upload != nil {
+			body = &provider.UploadBody{
+				Reader:      &uploadReader{body: r.Body, extend: func() { s.extendUploadDeadlines(w, r, op, upload()) }},
+				ContentType: r.Header.Get("Content-Type"), ContentLength: r.ContentLength,
+			}
+		}
 		res, err := disp.Invoke(r.Context(), core.InvokeRequest{
 			Caller: caller, Surface: core.SurfaceREST, Op: op, Target: target,
-			Input: raw, InputError: inputErr, IdempotencyKey: idempotencyKey(r.Header),
+			Input: raw, InputError: inputErr, IdempotencyKey: idempotencyKey(r.Header), Upload: body,
 		})
 		switch {
 		case err != nil:
@@ -192,6 +214,52 @@ func (s *Server) opHandler(disp *core.Dispatcher, op def.Op, names []string, fie
 			s.writeJSON(w, r, op, res.Status, res.Body)
 		}
 	})
+}
+
+// uploadReader is an upload's body as Receive reads it. Its first read
+// extends the request's deadlines, so a request refused before Receive
+// reads (scope, Admit, a declared oversize) keeps the base timeouts. A read
+// past the route's cap fails with an error wrapping core.ErrUploadTooLarge,
+// which the Dispatcher answers as upload-too-large. Reads come from one
+// goroutine at a time, as io.Reader requires of its callers.
+type uploadReader struct {
+	body     io.Reader
+	extend   func()
+	extended bool
+}
+
+func (u *uploadReader) Read(p []byte) (int, error) {
+	if !u.extended {
+		u.extended = true
+		u.extend()
+	}
+	n, err := u.body.Read(p)
+	var mbe *http.MaxBytesError
+	if err != nil && errors.As(err, &mbe) {
+		err = fmt.Errorf("%w: %w", core.ErrUploadTooLarge, err)
+	}
+	return n, err
+}
+
+// extendUploadDeadlines moves the read deadline of an upload to allow its
+// whole cap at UploadMinRate, and the write deadline past that (A-5). A
+// writer without deadlines keeps the server's; the upload may then be cut.
+func (s *Server) extendUploadDeadlines(w http.ResponseWriter, r *http.Request, op def.Op, maxBytes int64) {
+	read := time.Now().Add(uploadReadWindow(maxBytes))
+	rc := http.NewResponseController(w)
+	if err := rc.SetReadDeadline(read); err != nil {
+		s.log.Warn("cannot extend the upload read deadline", "op", op.ID, "path", r.URL.Path, "error", err.Error())
+	}
+	if err := rc.SetWriteDeadline(read.Add(UploadDeadlineGrace)); err != nil {
+		s.log.Warn("cannot extend the upload write deadline", "op", op.ID, "path", r.URL.Path, "error", err.Error())
+	}
+}
+
+// uploadReadWindow is UploadDeadlineGrace plus the time maxBytes takes at
+// UploadMinRate, rounded up to a whole second.
+func uploadReadWindow(maxBytes int64) time.Duration {
+	secs := (max(maxBytes, 0) + UploadMinRate - 1) / UploadMinRate
+	return UploadDeadlineGrace + time.Duration(secs)*time.Second
 }
 
 // idempotencyKey reads the Idempotency-Key header. The IETF draft makes its
@@ -294,18 +362,19 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, op def.Op,
 	}
 }
 
-// buildInput assembles an op's JSON input: query parameters for GET, the JSON
-// object body for POST, and the route wildcards, which name input fields. It
+// buildInput assembles an op's JSON input: query parameters for GET and for
+// an upload (fromQuery), whose body is not input, the JSON object body for
+// any other POST, and the route wildcards, which name input fields. It
 // refuses nothing: an input it cannot assemble, an oversize body included
 // (payload-too-large), comes back as inputErr for the Dispatcher to report
 // at its validation step, after the scope and capability checks, so a
 // refused mutating request is audited (FR-24). The wildcards are always
 // present in raw, so the Dispatcher can authorize by target.
-func buildInput(r *http.Request, names []string, fields map[string]reflect.Type) (raw json.RawMessage, inputErr *problem.Error) {
+func buildInput(r *http.Request, names []string, fields map[string]reflect.Type, fromQuery bool) (raw json.RawMessage, inputErr *problem.Error) {
 	var tooLarge *problem.Error
 	obj := map[string]any{}
-	switch r.Method {
-	case http.MethodGet:
+	switch {
+	case r.Method == http.MethodGet || fromQuery:
 		for key, vals := range r.URL.Query() {
 			t, ok := fields[key]
 			if !ok || slices.Contains(names, key) {
