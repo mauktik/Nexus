@@ -4,7 +4,7 @@
 
 Start Pi-hole blocking
 
-Enables Pi-hole's blocking (pihole enable) and cancels any pending Nexus re-enable timer. Reloads Pi-hole's lists; does not restart DNS. Blocking already on reports changed false. The result is the state read back. Long-running: answers 202 with an operation, queued in order behind every other Pi-hole operation (the pihole lane); it runs as root in its own systemd unit outside nexusd's sandbox, so it survives a restart of nexusd. A queued operation can be canceled; a running one cannot. Fails pihole-command-failed when a command fails or the read-back shows blocking still off.
+Enables Pi-hole's blocking (pihole enable) and cancels any pending Nexus re-enable timer. Reloads Pi-hole's lists; does not restart DNS. Blocking already on reports changed false. The result is the state read back. Side effects: runs pihole enable as root, stops any pending nexus-pihole-reenable timer, and reloads Pi-hole's lists. Long-running: answers 202 with an operation, queued in order behind every other Pi-hole operation (the pihole lane); it runs as root in its own systemd unit outside nexusd's sandbox, so it survives a restart of nexusd. A queued operation can be canceled; a running one cannot. Fails pihole-command-failed when a command fails or the read-back shows blocking still off.
 
 ## Usage
 

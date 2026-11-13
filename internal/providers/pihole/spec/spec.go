@@ -727,7 +727,8 @@ var (
 			"blocking is disabled, re-enables it when the time elapses, even after the operation ended and across " +
 			"a restart of nexusd; without it, blocking stays off until start-blocking. A new stop replaces any " +
 			"pending re-enable with its own. Reloads Pi-hole's lists; does not restart DNS. The result is the " +
-			"state read back, with reenableAt. " + laneSuffix + " Fails pihole-command-failed when a command " +
+			"state read back, with reenableAt. " + "Side effects: runs pihole disable as root; with durationSeconds, creates (or replaces) the " +
+			"transient systemd timer nexus-pihole-reenable; reloads Pi-hole's lists. " + laneSuffix + " Fails pihole-command-failed when a command " +
 			"fails or the read-back shows blocking still on.",
 		Scope: def.Scope{Name: WriteScope}, Risk: def.RiskMutating, Mode: def.ModeLongRunning,
 		CLI: def.CLIBinding{Noun: "piholeblocking", Verb: "stop"},
@@ -741,7 +742,8 @@ var (
 		Summary: "Start Pi-hole blocking",
 		Description: "Enables Pi-hole's blocking (pihole enable) and cancels any pending Nexus re-enable timer. " +
 			"Reloads Pi-hole's lists; does not restart DNS. Blocking already on reports changed false. The result " +
-			"is the state read back. " + laneSuffix + " Fails pihole-command-failed when a command fails or the " +
+			"is the state read back. " + "Side effects: runs pihole enable as root, stops any pending nexus-pihole-reenable timer, " +
+			"and reloads Pi-hole's lists. " + laneSuffix + " Fails pihole-command-failed when a command fails or the " +
 			"read-back shows blocking still off.",
 		Scope: def.Scope{Name: WriteScope}, Risk: def.RiskMutating, Mode: def.ModeLongRunning,
 		CLI: def.CLIBinding{Noun: "piholeblocking", Verb: "start"},
@@ -789,7 +791,8 @@ var (
 			"conflict naming that entry, never moved; already on the same list, it succeeds with created false. " +
 			"The entry is written to gravity.db as a bound parameter in one transaction, then Pi-hole reloads its " +
 			"lists (pihole restartdns reload-lists): no full DNS restart. The result is the entry read back. " +
-			laneSuffix + " Waits for a running external gravity update first, failing pihole-busy after 30 " +
+			"Side effects: inserts a row into gravity.db and reloads Pi-hole's lists " +
+			"(pihole restartdns reload-lists). " + laneSuffix + " Waits for a running external gravity update first, failing pihole-busy after 30 " +
 			"minutes; fails pihole-command-failed when the reload fails. " + untrustedSuffix,
 		Scope: def.Scope{Name: WriteScope}, Risk: def.RiskMutating, Mode: def.ModeLongRunning,
 		Untrusted: true,
@@ -805,7 +808,8 @@ var (
 		Description: "Removes one allow or deny entry, named either by id or by list, kind and value together " +
 			"(otherwise 400 validation-failed); an entry that does not exist answers 404 not-found before any " +
 			"operation exists. The row is deleted from gravity.db, then Pi-hole reloads its lists (pihole " +
-			"restartdns reload-lists): no full DNS restart. The result holds the removed entry. " + laneSuffix +
+			"restartdns reload-lists): no full DNS restart. The result holds the removed entry. " + "Side effects: deletes a row from gravity.db and reloads Pi-hole's lists " +
+			"(pihole restartdns reload-lists). " + laneSuffix +
 			" Waits for a running external gravity update first, failing pihole-busy after 30 minutes; fails " +
 			"pihole-command-failed when the reload fails. " + untrustedSuffix,
 		Scope: def.Scope{Name: WriteScope}, Risk: def.RiskDestructive, Mode: def.ModeLongRunning,
@@ -854,7 +858,8 @@ var (
 			"already listed succeeds with created false. Neither reloads lists nor restarts DNS: the list takes " +
 			"effect at the next gravity update, unless updateGravity is true, when pihole -g runs in the same " +
 			"operation, its output streams to the operation log, and the result holds its gravity result. The " +
-			"result is the adlist read back. " + laneSuffix + " Waits for a running external gravity update " +
+			"result is the adlist read back. " + "Side effects: adds an adlist to gravity.db (pihole -a adlist add); with updateGravity, also " +
+			"runs pihole -g, which downloads every enabled adlist and replaces gravity.db. " + laneSuffix + " Waits for a running external gravity update " +
 			"first, failing pihole-busy after 30 minutes; fails pihole-command-failed when the read-back shows " +
 			"no such adlist, and gravity-failed, with pihole -g's exit code, when gravity fails. " + untrustedSuffix,
 		Scope: def.Scope{Name: WriteScope}, Risk: def.RiskMutating, Mode: def.ModeLongRunning,
@@ -872,7 +877,8 @@ var (
 			"validation-failed); an adlist that does not exist answers 404 not-found before any operation exists. " +
 			"Neither reloads lists nor restarts DNS: its domains stay blocked until the next gravity update, " +
 			"unless updateGravity is true, when pihole -g runs in the same operation and its output streams to " +
-			"the operation log. The result holds the removed adlist. " + laneSuffix + " Waits for a running " +
+			"the operation log. The result holds the removed adlist. " + "Side effects: removes the adlist from gravity.db (pihole -a adlist del); with updateGravity, " +
+			"also runs pihole -g, which downloads every enabled adlist and replaces gravity.db. " + laneSuffix + " Waits for a running " +
 			"external gravity update first, failing pihole-busy after 30 minutes; fails pihole-command-failed " +
 			"when the read-back still shows the adlist, and gravity-failed, with pihole -g's exit code, when " +
 			"gravity fails. " + untrustedSuffix,
@@ -891,7 +897,8 @@ var (
 			"and replaces gravity.db. Its output streams live to the operation log. Nexus runs no DNS restart for " +
 			"it. Can take many minutes, up to the 1-hour limit. The result holds the blocklist domain count and " +
 			"the new gravity time, read back, and failedAdlists, the lists that failed to download, which do not " +
-			"fail the operation. " + laneSuffix + " Waits for a running external gravity update first, failing " +
+			"fail the operation. " + "Side effects: runs pihole -g, which downloads every enabled adlist over the network and " +
+			"replaces gravity.db. " + laneSuffix + " Waits for a running external gravity update first, failing " +
 			"pihole-busy after 30 minutes; fails gravity-failed, with pihole -g's exit code, when it exits non-zero.",
 		Scope: def.Scope{Name: WriteScope}, Risk: def.RiskMutating, Mode: def.ModeLongRunning,
 		CLI: def.CLIBinding{Noun: "piholegravity", Verb: "update"},
@@ -904,7 +911,8 @@ var (
 		Summary: "Restart Pi-hole DNS",
 		Description: "Fully restarts Pi-hole's DNS service, FTL (pihole restartdns): DNS stops answering for " +
 			"every client for a few seconds. Succeeds once FTL answers a query on 127.0.0.1 within 15 seconds. " +
-			"The result holds FTL's PID before and after and how long it took to answer. " + laneSuffix +
+			"The result holds FTL's PID before and after and how long it took to answer. " + "Side effects: runs pihole restartdns, which fully restarts FTL; DNS stops answering " +
+			"for every client for a few seconds. " + laneSuffix +
 			" Fails pihole-command-failed when the restart command fails, and dns-verification-failed when FTL " +
 			"does not answer in time.",
 		Scope: def.Scope{Name: WriteScope}, Risk: def.RiskMutating, Mode: def.ModeLongRunning,
@@ -918,7 +926,8 @@ var (
 		Summary: "Flush Pi-hole's DNS cache",
 		Description: "Flushes FTL's DNS cache without a restart (pihole restartdns reload, a SIGHUP); never " +
 			"pihole flush, which would delete the query log. Succeeds once FTL answers a query on 127.0.0.1 " +
-			"within 15 seconds. " + laneSuffix + " Fails pihole-command-failed when the command fails, and " +
+			"within 15 seconds. " + "Side effects: runs pihole restartdns reload, which clears FTL's DNS cache; DNS keeps " +
+			"answering. " + laneSuffix + " Fails pihole-command-failed when the command fails, and " +
 			"dns-verification-failed when FTL does not answer in time.",
 		Scope: def.Scope{Name: WriteScope}, Risk: def.RiskMutating, Mode: def.ModeLongRunning,
 		CLI: def.CLIBinding{Noun: "piholecache", Verb: "remove"},
@@ -961,7 +970,9 @@ var (
 		Description: "Declares a DNS zone in Pi-hole's local DNS records file: an empty zone, or one that groups " +
 			"the existing records under its name. A zone that exists answers 409 conflict. It changes only " +
 			"comment lines, so it never restarts DNS, runs no configuration test and changes no answer. " +
-			dnsWriteSuffix + " " + laneSuffix,
+			dnsWriteSuffix + " " +
+			"Side effects: atomically rewrites Pi-hole's local DNS records file (comment lines only) " +
+			"and, on the first Nexus write, saves a pre-Nexus backup of it. " + laneSuffix,
 		Scope: def.Scope{Name: DNSScope}, Risk: def.RiskMutating, Mode: def.ModeLongRunning,
 		CLI:    def.CLIBinding{Noun: "piholezone", Verb: "add"},
 		MCP:    &def.MCPBinding{Tool: "add_pihole_zone", Description: "Declare a DNS zone; never restarts DNS."},
@@ -975,7 +986,9 @@ var (
 		Description: "Removes a zone's declaration. A zone that still has records is refused with 409 conflict " +
 			"and the count, unless cascade is true, which also deletes those records; an undeclared zone answers " +
 			"404 not-found. Removing only the declaration changes comment lines and does not restart DNS; " +
-			"deleting records restarts it. " + dnsRestartSuffix + " " + dnsWriteSuffix + " " + laneSuffix,
+			"deleting records restarts it. " + dnsRestartSuffix + " " + dnsWriteSuffix + " " +
+			"Side effects: atomically rewrites Pi-hole's local DNS records file, saving a pre-Nexus backup " +
+			"on the first Nexus write; with cascade, deletes the zone's records and restarts DNS. " + laneSuffix,
 		Scope: def.Scope{Name: DNSScope}, Risk: def.RiskDestructive, Mode: def.ModeLongRunning,
 		CLI: def.CLIBinding{Noun: "piholezone", Verb: "remove", Positional: "name"},
 		MCP: &def.MCPBinding{Tool: "remove_pihole_zone",
@@ -1020,7 +1033,8 @@ var (
 			"answers for the name's subdomains. The name must fall under a declared zone (otherwise 422 " +
 			"dns-name-unzoned) and must not already have an A record (409 conflict); 0.0.0.0 and " +
 			"255.255.255.255 are refused. Restarts DNS. " + dnsRestartSuffix + " " + dnsWriteSuffix + " " +
-			laneSuffix,
+			"Side effects: atomically rewrites Pi-hole's local DNS records file, saving a pre-Nexus backup " +
+			"on the first Nexus write, then tests the configuration and restarts DNS. " + laneSuffix,
 		Scope: def.Scope{Name: DNSScope}, Risk: def.RiskMutating, Mode: def.ModeLongRunning,
 		CLI: def.CLIBinding{Noun: "piholerecord", Verb: "add"},
 		MCP: &def.MCPBinding{Tool: "add_pihole_record",
@@ -1036,7 +1050,9 @@ var (
 			"replacement, so the record never disappears in between. Works on unzoned records too. An unknown " +
 			"record answers 404 not-found and a duplicate one 409 conflict; 0.0.0.0 and 255.255.255.255 are " +
 			"refused; the same address reports changed false. Restarts DNS. " + dnsRestartSuffix + " " +
-			dnsWriteSuffix + " " + laneSuffix,
+			dnsWriteSuffix + " " +
+			"Side effects: atomically rewrites Pi-hole's local DNS records file, saving a pre-Nexus backup " +
+			"on the first Nexus write, then tests the configuration and restarts DNS. " + laneSuffix,
 		Scope: def.Scope{Name: DNSScope}, Risk: def.RiskMutating, Mode: def.ModeLongRunning,
 		CLI: def.CLIBinding{Noun: "piholerecord", Verb: "update", Positional: "name"},
 		MCP: &def.MCPBinding{Tool: "update_pihole_record",
@@ -1050,7 +1066,9 @@ var (
 		Summary: "Delete a local A record",
 		Description: "Deletes an A record's line. Works on unzoned records too. An unknown record answers 404 " +
 			"not-found and a duplicate one 409 conflict. Restarts DNS. " + dnsRestartSuffix + " " +
-			dnsWriteSuffix + " " + laneSuffix,
+			dnsWriteSuffix + " " +
+			"Side effects: atomically rewrites Pi-hole's local DNS records file, saving a pre-Nexus backup " +
+			"on the first Nexus write, then tests the configuration and restarts DNS. " + laneSuffix,
 		Scope: def.Scope{Name: DNSScope}, Risk: def.RiskDestructive, Mode: def.ModeLongRunning,
 		CLI:    def.CLIBinding{Noun: "piholerecord", Verb: "remove", Positional: "name"},
 		MCP:    &def.MCPBinding{Tool: "remove_pihole_record", Description: "Delete an A record; restarts DNS."},
@@ -1067,7 +1085,9 @@ var (
 			"changes left it, by the same rules as the single operations. A failing change refuses the whole " +
 			"batch with 422 dns-batch-rejected naming its changeIndex, and nothing is written. Runs one " +
 			"configuration test and restarts DNS at most once, not at all when only comment lines change, then " +
-			"verifies every changed name. " + dnsRestartSuffix + " " + dnsWriteSuffix + " " + laneSuffix,
+			"verifies every changed name. " + dnsRestartSuffix + " " + dnsWriteSuffix + " " +
+			"Side effects: atomically rewrites Pi-hole's local DNS records file, saving a pre-Nexus backup " +
+			"on the first Nexus write, then tests the configuration and restarts DNS at most once. " + laneSuffix,
 		Scope: def.Scope{Name: DNSScope}, Risk: def.RiskDestructive, Mode: def.ModeLongRunning,
 		CLI: def.CLIBinding{Noun: "piholednsbatch", Verb: "invoke"},
 		MCP: &def.MCPBinding{Tool: "apply_pihole_dns_changes",
