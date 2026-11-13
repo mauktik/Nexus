@@ -33,22 +33,27 @@ var wantHTTP = map[Slug]int{
 	"dependency-unavailable":  503,
 	"audit-unavailable":       503,
 	"storage-limit-reached":   507,
+	"dns-file-conflict":       409,
+	"dns-name-unzoned":        422,
+	"dns-batch-rejected":      422,
 }
 
 var wantOperationLevel = []Slug{
 	"outcome-unknown", "package-manager-busy", "package-manager-broken",
 	"apt-failed", "script-failed", "script-timeout", "update-health-failed",
+	"dns-config-test-failed", "dns-verification-failed", "dns-rollback-failed",
+	"gravity-failed", "pihole-command-failed", "pihole-busy",
 }
 
 // TC-7: the registry is complete and marshals as RFC 9457.
 func TestRegistryMatchesTable(t *testing.T) {
-	if len(wantHTTP) != 20 || len(wantOperationLevel) != 7 {
+	if len(wantHTTP) != 23 || len(wantOperationLevel) != 13 {
 		t.Fatalf("test table drifted: %d HTTP, %d operation-level", len(wantHTTP), len(wantOperationLevel))
 	}
 
 	all := All()
-	if len(all) != 27 {
-		t.Errorf("registry has %d types, want 27 (20 HTTP + 7 operation-level)", len(all))
+	if len(all) != 36 {
+		t.Errorf("registry has %d types, want 36 (23 HTTP + 13 operation-level)", len(all))
 	}
 	for _, typ := range all {
 		if !strings.HasPrefix(typ.URI(), "urn:nexus:problem:") || typ.URI() != "urn:nexus:problem:"+string(typ.Slug) {
@@ -95,8 +100,8 @@ func TestRegistryMatchesTable(t *testing.T) {
 			t.Errorf("%s is missing from the HTTP table", compose)
 		}
 	}
-	if len(HTTP()) != 20 || len(ops) != 7 {
-		t.Errorf("HTTP() = %d, OperationLevel() = %d; want 20 and 7", len(HTTP()), len(ops))
+	if len(HTTP()) != 23 || len(ops) != 13 {
+		t.Errorf("HTTP() = %d, OperationLevel() = %d; want 23 and 13", len(HTTP()), len(ops))
 	}
 
 	if _, ok := Lookup("no-such-problem"); ok {
@@ -111,6 +116,7 @@ func TestExitCodesMatchTable(t *testing.T) {
 		ScriptIntegrityFailed: 1, ComposeFilesMissing: 1, IdempotencyKeyReused: 1, RateLimited: 3,
 		InternalError: 1, CapabilityUnavailable: 4, ComposePluginMissing: 4, DependencyUnavailable: 1,
 		AuditUnavailable: 1, StorageLimitReached: 1,
+		DNSFileConflict: 1, DNSNameUnzoned: 1, DNSBatchRejected: 1,
 	}
 	for slug, exit := range want {
 		if typ, _ := Lookup(slug); typ.Exit != exit {
