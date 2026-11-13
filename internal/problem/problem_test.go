@@ -46,9 +46,11 @@ func TestRegistryMatchesTable(t *testing.T) {
 		t.Fatalf("test table drifted: %d HTTP, %d operation-level", len(wantHTTP), len(wantOperationLevel))
 	}
 
+	// 27 types from nexus-server-manager plus the 13 of nexusd
+	// self-management (TC-SM-5): 28 HTTP-level and 12 operation-level.
 	all := All()
-	if len(all) != 27 {
-		t.Errorf("registry has %d types, want 27 (20 HTTP + 7 operation-level)", len(all))
+	if len(all) != 40 {
+		t.Errorf("registry has %d types, want 40 (28 HTTP + 12 operation-level)", len(all))
 	}
 	for _, typ := range all {
 		if !strings.HasPrefix(typ.URI(), "urn:nexus:problem:") || typ.URI() != "urn:nexus:problem:"+string(typ.Slug) {
@@ -95,8 +97,8 @@ func TestRegistryMatchesTable(t *testing.T) {
 			t.Errorf("%s is missing from the HTTP table", compose)
 		}
 	}
-	if len(HTTP()) != 20 || len(ops) != 7 {
-		t.Errorf("HTTP() = %d, OperationLevel() = %d; want 20 and 7", len(HTTP()), len(ops))
+	if len(HTTP()) != 28 || len(ops) != 12 {
+		t.Errorf("HTTP() = %d, OperationLevel() = %d; want 28 and 12", len(HTTP()), len(ops))
 	}
 
 	if _, ok := Lookup("no-such-problem"); ok {
@@ -224,5 +226,126 @@ func TestAptFailedDeclaresTheOutcomeMembers(t *testing.T) {
 	var out Error
 	if err := json.Unmarshal(b, &out); err != nil || len(out.Extensions) != 6 {
 		t.Errorf("round trip %s: %+v %v", b, out, err)
+	}
+}
+
+// TC-SM-5 (FR-16, FR-4, FR-5, FR-6, FR-7, FR-8, FR-12): the nexusd
+// self-management problem types, copied from the Problem types table in
+// planning/nexusd-self-management/architecture.md.
+var wantSelfManagement = []struct {
+	slug           Slug
+	status, exit   int
+	extensions     []string
+	operationLevel bool
+}{
+	{"config-invalid", 422, 1, []string{"configPath", "errors"}, false},
+	{"upload-too-large", 413, 2, []string{"maxBytes"}, false},
+	{"upload-not-found", 422, 1, []string{"uploadId"}, false},
+	{"update-not-configured", 409, 1, nil, false},
+	{"update-signature-invalid", 422, 1, nil, false},
+	{"update-package-invalid", 422, 1, []string{"check"}, false},
+	{"version-downgrade", 409, 1, []string{"runningVersion", "packageVersion"}, false},
+	{"rollback-unavailable", 409, 1, []string{"path"}, false},
+	{"config-apply-failed", 0, 1, nil, true},
+	{"restart-unhealthy", 0, 1, []string{"condition", "version"}, true},
+	{"update-failed", 0, 1, []string{"rolledBack", "step", "previousVersion", "newVersion"}, true},
+	{"update-rollback-failed", 0, 1, []string{"rolledBack", "step", "previousVersion", "newVersion"}, true},
+	{"rollback-failed", 0, 1, []string{"rolledBack", "condition", "fromVersion", "toVersion"}, true},
+}
+
+// The extensions of the types registered before nexusd self-management;
+// TC-SM-5 requires their rows to be unchanged.
+var wantExistingExtensions = map[Slug][]string{
+	"validation-failed": {"errors"}, "unauthorized": nil, "forbidden": {"requiredScope"},
+	"not-found": nil, "route-not-found": nil, "method-not-allowed": nil,
+	"conflict": {"blockingOperationId"}, "not-cancelable": {"operationId"}, "payload-too-large": nil,
+	"not-updatable": {"reason", "hint"}, "script-integrity-failed": {"check", "path"},
+	"compose-files-missing": {"path"}, "idempotency-key-reused": {"operationId"}, "rate-limited": nil,
+	"internal-error": nil, "capability-unavailable": {"provider", "reason"},
+	"compose-plugin-missing": {"provider"},
+	"dependency-unavailable": {"provider", "rolledBack", "previousDigest", "newDigest"},
+	"audit-unavailable":      nil, "storage-limit-reached": nil,
+	"outcome-unknown": nil, "package-manager-busy": nil, "package-manager-broken": nil,
+	"apt-failed": {"changes", "conffilesKept", "conffilesComplete", "rebootRequired",
+		"rebootRequiredPackages", "exitCode"},
+	"script-failed":        {"exitCode", "signal", "durationSeconds"},
+	"script-timeout":       {"exitCode", "signal", "durationSeconds"},
+	"update-health-failed": {"rolledBack", "previousDigest", "newDigest"},
+}
+
+func TestTCSM5_The13NewProblemTypesAre(t *testing.T) {
+	if len(wantSelfManagement) != 13 {
+		t.Fatalf("test table drifted: %d rows, want 13", len(wantSelfManagement))
+	}
+
+	rows := map[Slug]int{}
+	for _, typ := range All() {
+		rows[typ.Slug]++
+	}
+
+	for _, w := range wantSelfManagement {
+		t.Run(string(w.slug), func(t *testing.T) {
+			typ, ok := Lookup(w.slug)
+			if !ok {
+				t.Fatalf("%s: missing from registry", w.slug)
+			}
+			if typ.Status != w.status || typ.Exit != w.exit || typ.OperationLevel != w.operationLevel {
+				t.Errorf("status %d exit %d operationLevel %v, want %d %d %v",
+					typ.Status, typ.Exit, typ.OperationLevel, w.status, w.exit, w.operationLevel)
+			}
+			if typ.OperationLevel && typ.Status != 0 {
+				t.Errorf("operation-level type has status %d, want 0", typ.Status)
+			}
+			if !slices.Equal(typ.Extensions, w.extensions) {
+				t.Errorf("extensions %v, want %v", typ.Extensions, w.extensions)
+			}
+			if typ.Title == "" {
+				t.Error("empty title")
+			}
+			if want := "urn:nexus:problem:" + string(w.slug); typ.URI() != want {
+				t.Errorf("URI %q, want %q", typ.URI(), want)
+			}
+			if n := rows[w.slug]; n != 1 {
+				t.Errorf("registered %d times, want exactly once", n)
+			}
+
+			p := New(w.slug, "detail")
+			if p.Type != typ.URI() || p.Status != w.status || p.Detail != "detail" || p.Slug() != w.slug {
+				t.Errorf("New = %+v", p)
+			}
+			for _, ext := range w.extensions {
+				p.With(ext, "x")
+			}
+			if len(p.Extensions) != len(w.extensions) {
+				t.Errorf("New(...).With accepted %d of %d declared extensions", len(p.Extensions), len(w.extensions))
+			}
+		})
+	}
+
+	inList := func(list []Type, slug Slug) bool {
+		return slices.ContainsFunc(list, func(t Type) bool { return t.Slug == slug })
+	}
+	for _, w := range wantSelfManagement {
+		if inList(OperationLevel(), w.slug) != w.operationLevel || inList(HTTP(), w.slug) == w.operationLevel {
+			t.Errorf("%s: listed in the wrong table (operationLevel %v)", w.slug, w.operationLevel)
+		}
+	}
+
+	// The rows registered before nexusd self-management are unchanged.
+	if len(wantExistingExtensions) != len(wantHTTP)+len(wantOperationLevel) {
+		t.Fatalf("existing-extensions table has %d rows, want %d", len(wantExistingExtensions), len(wantHTTP)+len(wantOperationLevel))
+	}
+	for slug, exts := range wantExistingExtensions {
+		typ, ok := Lookup(slug)
+		if !ok {
+			t.Errorf("%s: existing type missing", slug)
+			continue
+		}
+		if !slices.Equal(typ.Extensions, exts) {
+			t.Errorf("%s: extensions %v, want unchanged %v", slug, typ.Extensions, exts)
+		}
+		if n := rows[slug]; n != 1 {
+			t.Errorf("%s: registered %d times, want exactly once", slug, n)
+		}
 	}
 }
