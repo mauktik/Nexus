@@ -2,6 +2,7 @@ package v5
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -54,40 +55,72 @@ func (m *Mutator) AddAdlist(ctx context.Context, url, comment string, out io.Wri
 	return r, true, nil
 }
 
-// RemoveAdlist resolves the URL of the adlist with id from gravity.db, runs
-// `pihole -a adlist del <url>` after any external gravity run ends, reads
-// gravity.db back to check the row is gone, and returns the removed row. An
-// id with no row is 404 not-found, with nothing run. A row still there
-// afterwards is pihole-command-failed{command: "pihole -a adlist del",
-// exitCode: 0}: the wrapper exits 0 whatever happened (V-9).
+// RemoveAdlist deletes the adlist with id from gravity.db in one BEGIN
+// IMMEDIATE transaction, after any external gravity run ends: its gravity
+// rows, its group links, then the row (gravitydb.DeleteAdlist). It then runs
+// `pihole restartdns reload-lists`, so the list's domains stop being blocked
+// at once, reads gravity.db back, and returns the removed row. An id with no
+// row is 404 not-found, with nothing changed or reloaded.
+//
+// It never runs `pihole -a adlist del`: webpage.sh's bare `DELETE FROM
+// adlist` fails the foreign key from gravity.adlist_id under pihole-FTL
+// sqlite3 for every list gravity has processed, and the wrapper still exits 0
+// (WI 5.1 PROVENANCE "ADLIST REPLACEMENT", A-58).
 func (m *Mutator) RemoveAdlist(ctx context.Context, id int64, out io.Writer) (spec.AdlistProperties, error) {
 	var none spec.AdlistProperties
 	if err := m.WaitExternalGravity(ctx, out); err != nil {
 		return none, err
 	}
-	rows, err := m.adlists(ctx)
+	db, err := gravitydb.OpenReadWrite(ctx, m.Paths.GravityDBPath())
 	if err != nil {
 		return none, gravityFailed(err, "nothing was changed")
 	}
-	cur, ok := adlistByID(rows, id)
-	if !ok {
-		return none, problem.New(problem.NotFound, "no pi-hole adlist has that ID; nothing was changed")
+	defer db.Close()
+	tx, err := db.BeginImmediate(ctx)
+	if err != nil {
+		return none, gravityFailed(err, "nothing was changed")
 	}
-	fmt.Fprintf(out, "pihole: running pihole -a adlist del for adlist %d\n", id)
-	if err := m.runAdlist(ctx, out, "del", []string{"-a", "adlist", "del", cur.URL}); err != nil {
+	// A no-op after Commit; otherwise the rollback that ends every refusal.
+	defer rollback(tx, out)
+	cur, err := tx.AdlistByID(ctx, id)
+	if err != nil {
+		return none, adlistGravityFailed(err)
+	}
+	gravityRows, err := tx.DeleteAdlist(ctx, id)
+	if err != nil {
+		return none, adlistGravityFailed(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return none, gravityFailed(err, "nothing was changed")
+	}
+	fmt.Fprintf(out, "pihole: removed adlist %d and its %d gravity rows from gravity.db\n", id, gravityRows)
+	done := fmt.Sprintf("adlist %d was removed", id)
+	if err := m.reloadLists(ctx, out, done); err != nil {
 		return none, err
 	}
-	rows, err = m.adlists(ctx)
+	rows, err := m.adlists(ctx)
 	if err != nil {
-		return none, gravityFailed(err, "pihole -a adlist del exited 0, but gravity.db could not be read back to "+
-			"confirm the adlist was removed")
+		return none, gravityFailed(err, done+" and lists were reloaded, but gravity.db could not be read back to "+
+			"confirm it")
 	}
-	if _, ok := adlistByURL(rows, cur.URL); ok {
-		return none, adlistReadBackFailed("del", fmt.Sprintf("adlist %d is still in gravity.db afterwards; "+
-			"nothing was changed", id))
+	_, byID := adlistByID(rows, id)
+	_, byURL := adlistByURL(rows, cur.URL)
+	if byID || byURL {
+		const command = "gravity.db adlist delete"
+		return none, problem.New(problem.PiholeCommandFailed, fmt.Sprintf("the delete was committed and lists were "+
+			"reloaded, but adlist %d is in gravity.db again; a gravity run that started meanwhile may have restored it "+
+			"(V-7); remove it again", id)).With("command", command).With("exitCode", 0)
 	}
-	fmt.Fprintf(out, "pihole: removed adlist %d from gravity.db\n", id)
 	return cur, nil
+}
+
+// adlistGravityFailed is gravityFailed for the remove's transaction, with
+// nothing changed: a missing row is the adlist's own not-found.
+func adlistGravityFailed(err error) error {
+	if errors.Is(err, gravitydb.ErrNotFound) {
+		return problem.New(problem.NotFound, "no pi-hole adlist has that ID; nothing was changed")
+	}
+	return gravityFailed(err, "nothing was changed")
 }
 
 // UpdateGravity runs `pihole -g` after any external gravity run ends, with

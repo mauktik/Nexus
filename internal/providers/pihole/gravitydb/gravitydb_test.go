@@ -1,5 +1,5 @@
 // Cases: TC-32 to TC-36, TC-E9 and TC-ERR5 in
-// planning/pihole-dns-zones/test-cases.md. TC-37 (release binary size) is a
+// planning/pihole-dns-zones/test-cases.md, and TC-147 (WI 5.4). TC-37 (release binary size) is a
 // build measurement, recorded in the WI notes, not a Go test.
 //
 // Every database is built from testdata/gravity.db.sql, Pi-hole core v5.18.4's
@@ -662,5 +662,121 @@ func TestPathIsEscaped(t *testing.T) {
 	path := filepath.Join(dir, "gravity.db")
 	if domains, _, _ := readAll(t, path); len(domains) != 1 {
 		t.Errorf("domains %v, want the one row", domains)
+	}
+}
+
+// adlistSeed is two adlists, each with gravity rows; the schema's
+// tr_adlist_add trigger links each to the default group.
+var adlistSeed = []string{
+	`INSERT INTO adlist (address) VALUES ('https://a.example/hosts'), ('https://b.example/hosts')`,
+	`INSERT INTO gravity (domain, adlist_id) VALUES ('a1.example', 1), ('a2.example', 1), ('b1.example', 2)`,
+}
+
+// adlistRefs counts adlist, adlist_by_group and gravity rows for id.
+func adlistRefs(t *testing.T, path string, id int64) [3]int {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var n [3]int
+	err = db.QueryRow(`SELECT (SELECT count(*) FROM adlist WHERE id = ?), (SELECT count(*) FROM adlist_by_group WHERE adlist_id = ?),
+		(SELECT count(*) FROM gravity WHERE adlist_id = ?)`, id, id, id).Scan(&n[0], &n[1], &n[2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// TC-147 steps 1-2 (FR-12, CON-2, A-58): a read-write handle enforces
+// foreign keys, as pihole-FTL sqlite3 does on the v5 image, so a bare
+// delete of a list gravity references fails, classified ErrInvalid, and
+// rolls back with nothing changed.
+func TestTC147_ReadWriteEnforcesForeignKeys(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "gravity.db")
+	buildDB(t, path, adlistSeed...)
+	d, err := OpenReadWrite(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	var on int
+	if err := d.db.QueryRowContext(ctx, `PRAGMA foreign_keys`).Scan(&on); err != nil || on != 1 {
+		t.Fatalf("PRAGMA foreign_keys = %d, %v; want 1", on, err)
+	}
+	tx, err := d.BeginImmediate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = tx.conn.ExecContext(ctx, `DELETE FROM adlist WHERE id = ?`, 1)
+	if err == nil {
+		tx.Rollback()
+		t.Fatal("a bare adlist delete with gravity rows succeeded; foreign keys are not enforced")
+	}
+	if got := classify("delete adlist", err); !errors.Is(got, ErrInvalid) {
+		t.Errorf("classify(%v) = %v, want ErrInvalid", err, got)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if got := adlistRefs(t, path, 1); got != [3]int{1, 1, 2} {
+		t.Errorf("after rollback adlist 1 refs %v, want [1 1 2]", got)
+	}
+}
+
+// TC-147 steps 3-4 (FR-12, CON-2, A-58): DeleteAdlist removes the list's
+// gravity rows, group links and the list, returns the gravity row count and
+// leaves the other list intact; an unknown id is ErrNotFound with nothing
+// deleted. AdlistByID reads one row, ErrNotFound when there is none.
+func TestTC147_DeleteAdlist(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "gravity.db")
+	buildDB(t, path, adlistSeed...)
+	d, err := OpenReadWrite(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	tx, err := d.BeginImmediate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := tx.AdlistByID(ctx, 1)
+	if err != nil || a.PiholeID != 1 || a.URL != "https://a.example/hosts" || !a.Enabled {
+		t.Errorf("AdlistByID(1) = %+v, %v", a, err)
+	}
+	if _, err := tx.AdlistByID(ctx, 999); !errors.Is(err, ErrNotFound) {
+		t.Errorf("AdlistByID(999) = %v, want ErrNotFound", err)
+	}
+	n, err := tx.DeleteAdlist(ctx, 1)
+	if err != nil || n != 2 {
+		tx.Rollback()
+		t.Fatalf("DeleteAdlist(1) = %d, %v; want 2 gravity rows", n, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := adlistRefs(t, path, 1); got != [3]int{} {
+		t.Errorf("adlist 1 refs %v after delete, want none", got)
+	}
+	if got := adlistRefs(t, path, 2); got != [3]int{1, 1, 1} {
+		t.Errorf("adlist 2 refs %v, want [1 1 1] (untouched)", got)
+	}
+
+	tx, err = d.BeginImmediate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := tx.DeleteAdlist(ctx, 999); !errors.Is(err, ErrNotFound) || n != 0 {
+		t.Errorf("DeleteAdlist(999) = %d, %v; want ErrNotFound", n, err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if got := adlistRefs(t, path, 2); got != [3]int{1, 1, 1} {
+		t.Errorf("adlist 2 refs %v after the unknown-id delete, want [1 1 1]", got)
 	}
 }

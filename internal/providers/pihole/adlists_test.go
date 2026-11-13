@@ -1,5 +1,6 @@
 // Cases: TC-88 to TC-95, TC-ERR18 and TC-ERR19 in
-// planning/pihole-dns-zones/test-cases.md (WI 3.5), and TC-145 (WI 5.4): the
+// planning/pihole-dns-zones/test-cases.md (WI 3.5), and TC-89 (as WI 5.4
+// changed it), TC-145 and TC-ERR31 (WI 5.4): the
 // v5 adlist and gravity methods against a FakeHost, and add-adlist,
 // remove-adlist and update-gravity through the Dispatcher, the operation
 // manager and the helper. Shared helpers are in service_test.go,
@@ -29,6 +30,7 @@ import (
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/providers/pihole/gravitydb"
 	"github.com/mauktik/nexus/internal/providers/pihole/spec"
+	"github.com/mauktik/nexus/internal/providers/pihole/v5"
 	"github.com/mauktik/nexus/internal/providers/pihole/v5/v5test"
 )
 
@@ -130,10 +132,8 @@ func TestTCERR18_IgnoredAdlistAddFails(t *testing.T) {
 	}
 }
 
-// RemoveAdlist resolves the URL from the id, runs `pihole -a adlist del
-// <url>`, checks the row is gone and returns it; an id with no row is
-// not-found with no command; a delete Pi-hole silently ignores is
-// pihole-command-failed{command: "pihole -a adlist del", exitCode: 0}.
+// RemoveAdlist deletes the row in gravity.db, reloads the lists once and
+// returns the row; an id with no row is not-found with no command (A-58).
 func TestRemoveAdlistByID(t *testing.T) {
 	h, m := newV5(t)
 	idA := seedAdlist(t, h, listA)
@@ -142,7 +142,7 @@ func TestRemoveAdlistByID(t *testing.T) {
 	if err != nil || got.PiholeID != idB || got.URL != listB {
 		t.Fatalf("remove = %+v, %v", got, err)
 	}
-	want := [][]string{{piholeBin, "-a", "adlist", "del", listB}}
+	want := [][]string{{piholeBin, "restartdns", "reload-lists"}}
 	if argvs := h.Argvs(); !slices.EqualFunc(argvs, want, slices.Equal[[]string]) {
 		t.Errorf("argvs %q, want %q", argvs, want)
 	}
@@ -154,13 +154,6 @@ func TestRemoveAdlistByID(t *testing.T) {
 	_, err = m.RemoveAdlist(context.Background(), idB, &bytes.Buffer{})
 	if slug, _ := slugOf(t, err); slug != problem.NotFound || len(h.Argvs()) != 0 {
 		t.Errorf("unknown id: %s, argvs %q", slug, h.Argvs())
-	}
-
-	h.IgnoreCommand([]string{piholeBin, "-a", "adlist", "del"})
-	_, err = m.RemoveAdlist(context.Background(), idA, &bytes.Buffer{})
-	slug, pe := slugOf(t, err)
-	if slug != problem.PiholeCommandFailed || pe.Extensions["command"] != "pihole -a adlist del" || pe.Extensions["exitCode"] != 0 {
-		t.Errorf("ignored delete: %s %q %+v", slug, pe.Detail, pe.Extensions)
 	}
 }
 
@@ -264,12 +257,20 @@ func TestTCERR19_GravityExit1(t *testing.T) {
 	}
 }
 
-// TC-89 (FR-12): remove-adlist by id and by URL runs `pihole -a adlist del
-// <url>` with the resolved URL; the rows are gone; the results hold them.
+// TC-89 (FR-12, A-58): remove-adlist by id (a gravity-processed list) and by
+// URL (a never-downloaded one, which Admit resolves to its id) runs no
+// `pihole -a adlist del`, reloads the lists once per remove; the rows are
+// gone; the results hold them.
 func TestTC89_RemoveAdlistByIDOrURL(t *testing.T) {
 	w := newDomainWorld(t)
 	idA := seedAdlist(t, w.h, listA)
+	if code, err := w.h.Run(context.Background(), []string{piholeBin, "-g"}, io.Discard, io.Discard); code != 0 || err != nil {
+		t.Fatalf("gravity: %d %v", code, err)
+	}
 	idB := seedAdlist(t, w.h, listB)
+	if g, _ := w.h.AdlistRefs(idA); g == 0 {
+		t.Fatal("setup: adlist A has no gravity rows")
+	}
 
 	rec, pe := w.invoke(spec.RemoveAdlist.Op(), `{"id":`+strconv.FormatInt(idA, 10)+`}`)
 	if pe != nil {
@@ -287,7 +288,10 @@ func TestTC89_RemoveAdlistByIDOrURL(t *testing.T) {
 	if !rm.Changed || rm.Removed.PiholeID != idB || rm.Removed.URL != listB {
 		t.Errorf("by url: %+v", rm)
 	}
-	want := [][]string{{piholeBin, "-a", "adlist", "del", listA}, {piholeBin, "-a", "adlist", "del", listB}}
+	if hasArgv(w.h, isAdlistDel) {
+		t.Errorf("pihole -a adlist del was run: %q", w.h.Argvs())
+	}
+	want := [][]string{{piholeBin, "restartdns", "reload-lists"}, {piholeBin, "restartdns", "reload-lists"}}
 	if argvs := w.h.Argvs(); !slices.EqualFunc(argvs, want, slices.Equal[[]string]) {
 		t.Errorf("argvs %q, want %q", argvs, want)
 	}
@@ -338,7 +342,7 @@ func TestTC90_UpdateGravityFlag(t *testing.T) {
 	if rm.Gravity == nil || rm.Removed.URL != listA || rm.Gravity.ExitCode != 0 {
 		t.Errorf("remove with gravity: %+v", rm)
 	}
-	want = [][]string{{piholeBin, "-a", "adlist", "del", listA}, {piholeBin, "-g"}}
+	want = [][]string{{piholeBin, "restartdns", "reload-lists"}, {piholeBin, "-g"}}
 	if argvs := w.h.Argvs(); !slices.EqualFunc(argvs, want, slices.Equal[[]string]) {
 		t.Errorf("argvs %q, want %q", argvs, want)
 	}
@@ -586,4 +590,130 @@ func TestTC145_RemoveAdlistDeletesGravityRowsInOneTransaction(t *testing.T) {
 	if committed < 0 || reloaded < committed {
 		t.Errorf("log does not show the commit (%q) before the reload:\n%s", line, log)
 	}
+}
+
+// reinsertOnReload is a Runner that puts an adlist row back just before
+// `pihole restartdns reload-lists`, as a gravity run that copied the
+// database before the delete and swapped it in afterwards would (V-7).
+type reinsertOnReload struct {
+	*v5test.FakeHost
+	id  int64
+	url string
+}
+
+func (r reinsertOnReload) Run(ctx context.Context, argv []string, stdout, stderr io.Writer) (int, error) {
+	if slices.Equal(argv, []string{piholeBin, "restartdns", "reload-lists"}) {
+		r.ExecGravityDB(`INSERT INTO adlist (id, address) VALUES (?, ?)`, r.id, r.url)
+	}
+	return r.FakeHost.Run(ctx, argv, stdout, stderr)
+}
+
+// TC-ERR31 (FR-12, A-58): remove-adlist failure paths.
+func TestTCERR31_RemoveAdlistFailurePaths(t *testing.T) {
+	// processed is a FakeHost with one gravity-processed adlist.
+	processed := func(t *testing.T) (*v5test.FakeHost, *v5.Mutator, int64) {
+		h, m := newV5(t)
+		id := seedAdlist(t, h, listA)
+		if code, err := h.Run(context.Background(), []string{piholeBin, "-g"}, io.Discard, io.Discard); code != 0 || err != nil {
+			t.Fatalf("gravity: %d %v", code, err)
+		}
+		h.ResetArgvs()
+		return h, m, id
+	}
+
+	t.Run("row restored after the commit", func(t *testing.T) {
+		h, m, id := processed(t)
+		m.Runner = reinsertOnReload{FakeHost: h, id: id, url: listA}
+		_, err := m.RemoveAdlist(context.Background(), id, &bytes.Buffer{})
+		slug, pe := slugOf(t, err)
+		if slug != problem.PiholeCommandFailed || pe.Extensions["command"] != "gravity.db adlist delete" ||
+			pe.Extensions["exitCode"] != 0 {
+			t.Fatalf("got %s %q %+v", slug, pe.Detail, pe.Extensions)
+		}
+		want := fmt.Sprintf("the delete was committed and lists were reloaded, but adlist %d is in gravity.db again; "+
+			"a gravity run that started meanwhile may have restored it (V-7); remove it again", id)
+		if pe.Detail != want {
+			t.Errorf("detail %q, want %q", pe.Detail, want)
+		}
+	})
+
+	t.Run("reload-lists fails", func(t *testing.T) {
+		h, m, id := processed(t)
+		h.FailCommand([]string{piholeBin, "restartdns", "reload-lists"}, 1)
+		_, err := m.RemoveAdlist(context.Background(), id, &bytes.Buffer{})
+		slug, pe := slugOf(t, err)
+		if slug != problem.PiholeCommandFailed || pe.Extensions["command"] != "pihole restartdns reload-lists" ||
+			pe.Extensions["exitCode"] != 1 {
+			t.Fatalf("got %s %q %+v", slug, pe.Detail, pe.Extensions)
+		}
+		if want := fmt.Sprintf("adlist %d was removed, but lists may not be reloaded", id); !strings.Contains(pe.Detail, want) {
+			t.Errorf("detail %q does not say %q", pe.Detail, want)
+		}
+		if slices.Contains(h.Adlists(), listA) {
+			t.Error("the committed delete should stand (the detail reports it)")
+		}
+	})
+
+	t.Run("undeclared reference", func(t *testing.T) {
+		h, m, id := processed(t)
+		h.ExecGravityDB(`CREATE TABLE planted (adlist_id INTEGER NOT NULL REFERENCES adlist (id))`)
+		h.ExecGravityDB(`INSERT INTO planted (adlist_id) VALUES (?)`, id)
+		_, err := m.RemoveAdlist(context.Background(), id, &bytes.Buffer{})
+		slug, pe := slugOf(t, err)
+		if slug != problem.DependencyUnavailable || !strings.Contains(pe.Detail, "not a usable Pi-hole database; nothing was changed") {
+			t.Fatalf("got %s %q", slug, pe.Detail)
+		}
+		if g, grp := h.AdlistRefs(id); !slices.Contains(h.Adlists(), listA) || g != 3 || grp != 1 {
+			t.Errorf("rolled back state: adlists %q, gravity %d, groups %d; want the list, 3, 1", h.Adlists(), g, grp)
+		}
+		if argvs := h.Argvs(); len(argvs) != 0 {
+			t.Errorf("argvs %q, want none", argvs)
+		}
+	})
+
+	t.Run("external gravity run", func(t *testing.T) {
+		h, m, id := processed(t)
+		_, stop := h.PlantGravityProcess()
+		var out bytes.Buffer
+		done := make(chan error, 1)
+		go func() {
+			_, err := m.RemoveAdlist(context.Background(), id, &out)
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			t.Fatalf("remove finished during a gravity run: %v", err)
+		case <-time.After(500 * time.Millisecond):
+		}
+		if !slices.Contains(h.Adlists(), listA) {
+			t.Fatal("adlist removed during an external gravity run (it would be lost at the swap)")
+		}
+		stop()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("remove did not resume after the gravity run ended")
+		}
+		if !strings.Contains(out.String(), "pihole: waiting for a gravity run") {
+			t.Errorf("log %q", out.String())
+		}
+	})
+
+	t.Run("unknown id after Admit", func(t *testing.T) {
+		h, m, id := processed(t)
+		_, err := m.RemoveAdlist(context.Background(), id+100, &bytes.Buffer{})
+		slug, pe := slugOf(t, err)
+		if slug != problem.NotFound || pe.Detail != "no pi-hole adlist has that ID; nothing was changed" {
+			t.Fatalf("got %s %q", slug, pe.Detail)
+		}
+		if g, grp := h.AdlistRefs(id); !slices.Contains(h.Adlists(), listA) || g != 3 || grp != 1 {
+			t.Errorf("something was deleted: adlists %q, gravity %d, groups %d", h.Adlists(), g, grp)
+		}
+		if argvs := h.Argvs(); len(argvs) != 0 {
+			t.Errorf("argvs %q, want no reload", argvs)
+		}
+	})
 }

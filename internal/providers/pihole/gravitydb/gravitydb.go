@@ -34,7 +34,8 @@ var (
 	// Callers report it as dependency-unavailable.
 	ErrUnavailable = errors.New("gravity.db unavailable")
 	// ErrInvalid means the file is not a usable gravity.db: not a SQLite
-	// database, corrupt, or holding values outside Pi-hole's encodings.
+	// database, corrupt, holding values outside Pi-hole's encodings, or with
+	// a foreign-key reference the v15 schema does not declare.
 	ErrInvalid = errors.New("gravity.db invalid")
 	// ErrConflict means an insert hit UNIQUE(domain, type).
 	ErrConflict = errors.New("gravity.db constraint conflict")
@@ -87,10 +88,20 @@ const (
 	domainColumns = `id, type, domain, enabled, date_added, date_modified, comment`
 	domainsSQL    = `SELECT ` + domainColumns + ` FROM domainlist ORDER BY id`
 	findDomainSQL = `SELECT ` + domainColumns + ` FROM domainlist WHERE domain = ? ORDER BY id`
-	adlistsSQL    = `SELECT id, address, enabled, date_added, date_modified, comment, date_updated, number, status FROM adlist ORDER BY id`
+	adlistColumns = `id, address, enabled, date_added, date_modified, comment, date_updated, number, status`
+	adlistsSQL    = `SELECT ` + adlistColumns + ` FROM adlist ORDER BY id`
+	adlistByIDSQL = `SELECT ` + adlistColumns + ` FROM adlist WHERE id = ?`
 	infoSQL       = `SELECT property, value FROM info WHERE property IN ('version', 'gravity_count', 'updated')`
 	insertSQL     = `INSERT INTO domainlist (type, domain, comment) VALUES (?, ?, ?)`
 	deleteSQL     = `DELETE FROM domainlist WHERE id = ?`
+
+	// The adlist delete, in the order foreign keys require: gravity rows
+	// reference the list (gravity.adlist_id REFERENCES adlist (id), no ON
+	// DELETE action), then its group links as groups.php delete_adlist
+	// removes them, then the list.
+	deleteAdlistGravitySQL = `DELETE FROM gravity WHERE adlist_id = ?`
+	deleteAdlistGroupsSQL  = `DELETE FROM adlist_by_group WHERE adlist_id = ?`
+	deleteAdlistSQL        = `DELETE FROM adlist WHERE id = ?`
 )
 
 // DB is one open gravity.db. Close it when done; do not keep it across
@@ -114,10 +125,13 @@ func OpenReadOnly(ctx context.Context, path string) (*DB, error) {
 	return open(ctx, path, "mode=ro&_pragma=query_only(1)&_pragma=busy_timeout("+strconv.Itoa(readBusyTimeoutMS)+")")
 }
 
-// OpenReadWrite opens an existing path for writing, with a 5 s busy timeout.
-// Only the privileged helper calls it.
+// OpenReadWrite opens an existing path for writing, with a 5 s busy timeout
+// and foreign keys enforced, so every write meets the constraints Pi-hole's
+// own tools meet: `pihole-FTL sqlite3` runs with PRAGMA foreign_keys = 1
+// (WI 5.1 PROVENANCE "ADLIST REPLACEMENT"). Only the privileged helper
+// calls it.
 func OpenReadWrite(ctx context.Context, path string) (*DB, error) {
-	return open(ctx, path, "mode=rw&_pragma=busy_timeout("+strconv.Itoa(writeBusyTimeoutMS)+")")
+	return open(ctx, path, "mode=rw&_pragma=foreign_keys(1)&_pragma=busy_timeout("+strconv.Itoa(writeBusyTimeoutMS)+")")
 }
 
 func open(ctx context.Context, path, query string) (*DB, error) {
@@ -160,7 +174,8 @@ func classify(op string, err error) error {
 		code&0xff == sqlite3.SQLITE_BUSY,
 		code&0xff == sqlite3.SQLITE_CANTOPEN:
 		return fmt.Errorf("%w: %s: %w", ErrUnavailable, op, err)
-	case code&0xff == sqlite3.SQLITE_NOTADB, code&0xff == sqlite3.SQLITE_CORRUPT:
+	case code&0xff == sqlite3.SQLITE_NOTADB, code&0xff == sqlite3.SQLITE_CORRUPT,
+		code == sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY:
 		return fmt.Errorf("%w: %s: %w", ErrInvalid, op, err)
 	case code == sqlite3.SQLITE_CONSTRAINT_UNIQUE:
 		return fmt.Errorf("%w: %s: %w", ErrConflict, op, err)
@@ -223,8 +238,11 @@ func (d *DB) Domains(ctx context.Context) ([]spec.DomainProperties, error) {
 // Adlists returns every adlist row, ordered by id. A status outside 0 to 4
 // is reported as nil (unknown).
 func (d *DB) Adlists(ctx context.Context) ([]spec.AdlistProperties, error) {
-	const op = "read adlist"
-	rows, err := d.db.QueryContext(ctx, adlistsSQL)
+	return queryAdlists(ctx, d.db, "read adlist", adlistsSQL)
+}
+
+func queryAdlists(ctx context.Context, q querier, op, query string, args ...any) ([]spec.AdlistProperties, error) {
+	rows, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, classify(op, err)
 	}
@@ -368,6 +386,53 @@ func (t *Tx) DeleteDomain(ctx context.Context, id int64) error {
 		return fmt.Errorf("%w: domainlist id %d", ErrNotFound, id)
 	}
 	return nil
+}
+
+// AdlistByID returns the adlist row with id; ErrNotFound when there is none.
+func (t *Tx) AdlistByID(ctx context.Context, id int64) (spec.AdlistProperties, error) {
+	rows, err := queryAdlists(ctx, t.conn, "find adlist", adlistByIDSQL, id)
+	if err != nil {
+		return spec.AdlistProperties{}, err
+	}
+	if len(rows) == 0 {
+		return spec.AdlistProperties{}, fmt.Errorf("%w: adlist id %d", ErrNotFound, id)
+	}
+	return rows[0], nil
+}
+
+// DeleteAdlist deletes the adlist with id together with what references it:
+// its gravity rows, its adlist_by_group links, then the row. It returns how
+// many gravity rows went. No adlist row is ErrNotFound; the caller rolls
+// back. A reference the v15 schema does not declare fails the foreign key,
+// ErrInvalid.
+//
+// gravity has no index on adlist_id (idx_gravity is (domain, adlist_id)), so
+// the first delete scans the table while the write lock is held (A-59).
+func (t *Tx) DeleteAdlist(ctx context.Context, id int64) (int64, error) {
+	const op = "delete adlist"
+	res, err := t.conn.ExecContext(ctx, deleteAdlistGravitySQL, id)
+	if err != nil {
+		return 0, classify(op+" gravity rows", err)
+	}
+	gravityRows, err := res.RowsAffected()
+	if err != nil {
+		return 0, classify(op+" gravity rows", err)
+	}
+	if _, err := t.conn.ExecContext(ctx, deleteAdlistGroupsSQL, id); err != nil {
+		return 0, classify(op+" group links", err)
+	}
+	res, err = t.conn.ExecContext(ctx, deleteAdlistSQL, id)
+	if err != nil {
+		return 0, classify(op, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, classify(op, err)
+	}
+	if n == 0 {
+		return 0, fmt.Errorf("%w: adlist id %d", ErrNotFound, id)
+	}
+	return gravityRows, nil
 }
 
 // Commit commits the transaction and releases its connection.

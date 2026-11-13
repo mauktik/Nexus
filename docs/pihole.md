@@ -394,9 +394,19 @@ DNS.
   not restarted. Adding a value that is on the opposite list is refused
   with `409 conflict`, rather than moved silently as `pihole -w` and
   `pihole -b` would.
-- Adlists (`piholeadlist`) go through `pihole -a adlist add` and `del`. A
-  new or removed adlist takes effect at the next gravity run, unless you
-  pass `--update-gravity`.
+- Adding an adlist (`piholeadlist add`) goes through `pihole -a adlist
+  add`. The new list blocks nothing until the next gravity run downloads
+  it, unless you pass `--update-gravity`.
+- Removing an adlist (`piholeadlist remove`) is one `gravity.db`
+  transaction: the list's gravity rows, then its group links, then the
+  list. Pi-hole then reloads its lists (`pihole restartdns reload-lists`),
+  so the list's domains stop being blocked at once, without a gravity run.
+- Nexus does not use `pihole -a adlist del`. Its bare `DELETE FROM adlist`
+  is refused by the foreign key from the gravity table for any list a
+  gravity run has downloaded, and Pi-hole still reports success, so the
+  list would stay.
+- After a remove, the `gravityDomains` count in `nexus pihole get` still
+  shows the last gravity run's figure; it changes at the next run.
 - `nexus piholegravity update` runs `pihole -g`. Its output streams to the
   operation log; it can take many minutes, up to one hour.
 
