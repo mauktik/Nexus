@@ -24,7 +24,8 @@
 #
 # The Docker CLI's current context is used as is: no socket is hardcoded.
 #
-# Environment: BASE (image base), RUN (-test.run regex), PARITY, TESTFLAGS (more
+# Environment: BASE (image base), RUN (-test.run regex), PARITY, NAME_PREFIX
+# (container names), TESTFLAGS (more
 # test binary flags), NEXUS_HARNESS_EXPECT_FAIL (passed to the tests: a
 # deliberate failure that proves logs are collected and the container is
 # removed when a test fails).
@@ -43,6 +44,9 @@ else
 fi
 RUN=${RUN:-}
 PARITY=${PARITY:-1}
+# Container names start with NAME_PREFIX: when several harness runs share
+# one Docker host, each can sweep only its own.
+NAME_PREFIX=${NAME_PREFIX:-nexus-harness}
 TESTFLAGS=${TESTFLAGS:-}
 OUT=$ROOT/build/harness
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
@@ -154,11 +158,11 @@ make --no-print-directory -s nexusd-tree TREE_BIN="$OUT/nexusd" TREE_DIR="$OUT/r
 if [ $MODE = openrc ]; then
 	tag="nexus-harness:alpine-$(echo "$BASE" | tr ':/@' '---')"
 	dockerfile=test/harness/Dockerfile.alpine
-	name="nexus-harness-alpine-$STAMP-$$"
+	name="$NAME_PREFIX-alpine-$STAMP-$$"
 else
 	tag="nexus-harness:$(echo "$BASE" | tr ':/@' '---')"
 	dockerfile=test/harness/Dockerfile
-	name="nexus-harness-$STAMP-$$"
+	name="$NAME_PREFIX-$STAMP-$$"
 fi
 say "building image $tag from $dockerfile"
 docker build --quiet --build-arg "BASE=$BASE" -f "$dockerfile" -t "$tag" test/harness >/dev/null

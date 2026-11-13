@@ -1,0 +1,25 @@
+#!/sbin/openrc-run
+# shellcheck shell=sh
+# T1 Alpine harness only (Dockerfile.alpine): the container's private cgroup
+# namespace root is not the host's real root, so the kernel lets it
+# delegate controllers to child groups only once it holds no process. A
+# real Alpine host's PID 1 sits in the exempt real root. This moves every
+# process of the root into /init and enables the root's controllers, as
+# the Docker-in-Docker entrypoint does, so the nested Engine can set a
+# container's CPU and memory limits. `docker exec` processes join /init.
+
+description="T1 harness: let the cgroup namespace root delegate controllers"
+
+depend() {
+	before docker
+}
+
+start() {
+	ebegin "Moving root cgroup processes to /init and enabling controllers"
+	mkdir -p /sys/fs/cgroup/init
+	for p in $(cat /sys/fs/cgroup/cgroup.procs); do
+		echo "$p" >/sys/fs/cgroup/init/cgroup.procs 2>/dev/null || true
+	done
+	sed -e 's/ / +/g' -e 's/^/+/' /sys/fs/cgroup/cgroup.controllers >/sys/fs/cgroup/cgroup.subtree_control
+	eend $?
+}

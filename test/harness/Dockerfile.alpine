@@ -29,6 +29,11 @@ RUN sed -i '/getty/d' /etc/inittab \
  && rc-update add syslog boot \
  && rc-update add docker default
 
+# The cgroup namespace root delegates controllers to the nested Engine's
+# containers only once it holds no process: harness-cgroups.openrc.
+COPY harness-cgroups.openrc /etc/init.d/harness-cgroups
+RUN chmod 0755 /etc/init.d/harness-cgroups && rc-update add harness-cgroups boot
+
 # BusyBox init powers off (the inittab shutdown line, then exit) on SIGUSR2.
 STOPSIGNAL SIGUSR2
 CMD ["/sbin/init"]
