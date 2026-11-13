@@ -388,3 +388,138 @@ func TestTC6_PatternsAreSubsetsOfUpstream(t *testing.T) {
 		}
 	}
 }
+
+// derive turns one verbatim upstream source line into the accepting Go
+// regexp, by the rules in the header of testdata/upstream-validators.txt.
+func derive(t *testing.T, src string) string {
+	t.Helper()
+	switch {
+	case strings.Contains(src, `grep -P "`):
+		_, re, _ := strings.Cut(src, `grep -P "`)
+		re, _, ok := strings.Cut(re, `" <<<`)
+		if !ok {
+			t.Fatalf("unterminated grep -P in %q", src)
+		}
+		return strings.ReplaceAll(re, `\\`, `\`)
+	case strings.Contains(src, `=~ [^`):
+		_, set, _ := strings.Cut(src, `=~ [^`)
+		set, _, ok := strings.Cut(set, `] ]]`)
+		if !ok {
+			t.Fatalf("unterminated =~ class in %q", src)
+		}
+		return `^[` + set + `]*$`
+	case strings.Contains(src, `regex="[^`):
+		_, set, _ := strings.Cut(src, `regex="[^`)
+		set, _, ok := strings.Cut(set, `]"`)
+		if !ok {
+			t.Fatalf("unterminated regex class in %q", src)
+		}
+		return `^[` + set + `]*$`
+	case strings.Contains(src, `-le `):
+		_, n, _ := strings.Cut(src, `-le `)
+		n, _, _ = strings.Cut(n, ` `)
+		return `^.{0,` + n + `}$`
+	}
+	t.Fatalf("no derivation rule for %q", src)
+	return ""
+}
+
+// Each NAME=<regex> line of testdata/upstream-validators.txt is the mechanical
+// derivation of the verbatim upstream line quoted above it ("#| "), so the
+// regexes TC-6 checks against are Pi-hole's, not a paraphrase.
+func TestUpstreamValidatorsDeriveFromSource(t *testing.T) {
+	b, err := os.ReadFile("testdata/upstream-validators.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var quoted string
+	seen := map[string]bool{}
+	for _, line := range strings.Split(string(b), "\n") {
+		if src, ok := strings.CutPrefix(line, "#| "); ok {
+			quoted = src
+			continue
+		}
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		name, re, _ := strings.Cut(line, "=")
+		if quoted == "" {
+			t.Fatalf("%s has no quoted source line", name)
+		}
+		if want := derive(t, quoted); re != want {
+			t.Errorf("%s=%s, but its source %q derives %s", name, re, quoted, want)
+		}
+		seen[name] = true
+		quoted = ""
+	}
+	for _, k := range []string{"ValidateDomain", "ValidateDomainLabels", "ValidateDomainLength", "GetComment", "CheckUrl"} {
+		if !seen[k] {
+			t.Errorf("testdata/upstream-validators.txt has no %s", k)
+		}
+	}
+}
+
+// The patterns' longest values: each stays within its length rule (A-6, A-8,
+// A-9) and still passes every upstream check of its validator (TC-6 at the
+// boundaries the random corpus does not reach).
+func TestPatternBoundaries(t *testing.T) {
+	up := upstream(t)
+	l := func(n int) string { return strings.Repeat("a", n) }
+	join := func(first string, n int, rest string) string {
+		parts := []string{first}
+		for range n {
+			parts = append(parts, rest)
+		}
+		return strings.Join(parts, ".")
+	}
+	longest := []string{join(l(63), 3, l(62)), join(l(63), 9, l(20))}
+	fq := mustRE(t, "FQDNPattern", spec.FQDNPattern)
+	for _, v := range longest {
+		if !fq.MatchString(v) || len(v) > spec.MaxFQDNLength {
+			t.Errorf("FQDNPattern: longest name of %d characters: match=%v", len(v), fq.MatchString(v))
+		}
+	}
+	// One character more in any label, or one label more, leaves both shapes.
+	for _, v := range []string{join(l(63), 3, l(63)), join(l(63), 4, l(62)), join(l(63), 9, l(21)), join(l(63), 10, l(20))} {
+		if fq.MatchString(v) {
+			t.Errorf("FQDNPattern accepts a %d-character name outside both shapes", len(v))
+		}
+	}
+	exact := mustRE(t, "ExactDomainPattern", spec.ExactDomainPattern)
+	for _, v := range []string{join("_"+l(62), 3, "_"+l(61)), join("_"+l(62), 9, "_"+l(19)), "_" + l(62), "x"} {
+		if !exact.MatchString(v) || len(v) > spec.MaxFQDNLength {
+			t.Errorf("ExactDomainPattern: %d characters: match=%v", len(v), exact.MatchString(v))
+			continue
+		}
+		for _, k := range []string{"ValidateDomain", "ValidateDomainLabels", "ValidateDomainLength"} {
+			if !up[k].MatchString(v) {
+				t.Errorf("%s refuses %d-character %q, which ExactDomainPattern accepts", k, len(v), v)
+			}
+		}
+	}
+	if exact.MatchString("_" + l(63)) {
+		t.Errorf("ExactDomainPattern accepts a 64-character label")
+	}
+	url := mustRE(t, "URLPattern", spec.URLPattern)
+	u := "https://" + join(l(63), 3, l(62)) + "a:65535/" + strings.Repeat("b", 1780)
+	if len(u) != spec.MaxURLLength || !url.MatchString(u) || !up["CheckUrl"].MatchString(u) {
+		t.Errorf("longest URL: %d characters, URLPattern %v, CheckUrl %v", len(u), url.MatchString(u), up["CheckUrl"].MatchString(u))
+	}
+	if url.MatchString(u + "b") {
+		t.Errorf("URLPattern accepts a path of 1781 characters")
+	}
+	comment := mustRE(t, "CommentPattern", spec.CommentPattern)
+	if c := "A" + strings.Repeat("a _.,:#-", 16)[:127]; !comment.MatchString(c) || !up["GetComment"].MatchString(c) {
+		t.Errorf("128-character comment: CommentPattern %v, GetComment %v", comment.MatchString(c), up["GetComment"].MatchString(c))
+	}
+}
+
+// ASM-9 holds inside a batch too: no change may point a record at a blocking
+// address.
+func TestBatchRefusesBlockingAddresses(t *testing.T) {
+	for _, in := range []string{`{"changes":["add-record:x.app.lan=0.0.0.0"]}`, `{"changes":["update-record:x.app.lan=255.255.255.255"]}`} {
+		if err := validate(t, "pihole.actions.apply-dns-changes", in); err == nil {
+			t.Errorf("%s accepted", in)
+		}
+	}
+}

@@ -1,0 +1,33 @@
+# Pi-hole v5.18.4 input validators, as NAME=<regex> lines (see PROVENANCE).
+#
+# Each entry quotes its source line verbatim on a "#| " line, after a
+# "# <file>:<line>" line naming advanced/Scripts/<file> at tag v5.18.4. The
+# NAME=<regex> line is that source mechanically turned into a Go regexp that
+# MATCHES an accepted value (TestUpstreamValidatorsDeriveFromSource checks the
+# derivation):
+#   grep -P "<re>"        -> <re> with bash's double-quote "\\" -> "\" applied
+#   =~ [^<set>] / regex="[^<set>]" (match = refused) -> ^[<set>]*$
+#   -le <n>               -> ^.{0,<n>}$
+# The NAME is the upstream function the check belongs to; a function with
+# several checks has one entry per check, and a value passes the function
+# only if it passes all of them.
+
+# list.sh:110 (ValidateDomain, total length)
+#|         if [[ "${#domain}" -le 253 ]]; then
+ValidateDomainLength=^.{0,253}$
+
+# list.sh:111 (ValidateDomain, valid characters)
+#|             validDomain=$(grep -P "^((-|_)*[a-z\\d]((-|_)*[a-z\\d])*(-|_)*)(\\.(-|_)*([a-z\\d]((-|_)*[a-z\\d])*))*$" <<< "${domain}") # Valid chars check
+ValidateDomain=^((-|_)*[a-z\d]((-|_)*[a-z\d])*(-|_)*)(\.(-|_)*([a-z\d]((-|_)*[a-z\d])*))*$
+
+# list.sh:112 (ValidateDomain, length of each label)
+#|             validDomain=$(grep -P "^[^\\.]{1,63}(\\.[^\\.]{1,63})*$" <<< "${validDomain}") # Length of each label
+ValidateDomainLabels=^[^\.]{1,63}(\.[^\.]{1,63})*$
+
+# list.sh:267 (GetComment)
+#|     if [[ "${comment}" =~ [^a-zA-Z0-9_\#:/\.,\ -] ]]; then
+GetComment=^[a-zA-Z0-9_\#:/\.,\ -]*$
+
+# webpage.sh:542 (CheckUrl; line 546 first strips one "userinfo@", which Nexus never admits)
+#|     regex="[^a-zA-Z0-9:/?&%=~._()-;]"
+CheckUrl=^[a-zA-Z0-9:/?&%=~._()-;]*$
