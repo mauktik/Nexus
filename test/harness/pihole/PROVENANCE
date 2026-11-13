@@ -905,3 +905,55 @@ verification; TestPiholeWriteWaitsForQueuedReload, on the code of c4bab50)
   was not changed here (its digs would need a timeout above D to tell held
   from stuck; reported).
   INIT=sysv again (nexus-harness-20261113T204602Z-81761): 19 PASS, exit 0.
+
+GRAVITY ENDS WITH restartdns reload (code review CR-3; measured 2026-11-13T21:26Z)
+  `pihole -g` ends with a SIGHUP list reload unless it restarted DNS itself.
+  On the harness image (nexus-harness-pihole:native, core v5.18.3), by
+  `docker run --rm --entrypoint /bin/sh nexus-harness-pihole:native -c
+  'grep -n "restartdns" /opt/pihole/gravity.sh; sed -n 940,950p
+  /opt/pihole/gravity.sh; grep -n dnsWasOffline /opt/pihole/gravity.sh'`:
+    354:    "${PIHOLE_COMMAND}" restartdns
+    775:    "${PIHOLE_COMMAND}" restartdns
+    946:  "${PIHOLE_COMMAND}" restartdns reload
+    776:    dnsWasOffline=true
+    945:if [[ -z "${dnsWasOffline:-}" ]]; then
+    946:  "${PIHOLE_COMMAND}" restartdns reload
+  L354 and L775 run `restartdns` only when pihole-FTL is not running (L775
+  sets dnsWasOffline; L354 is gravity_CheckDNSResolutionAvailable's failure
+  branch). Otherwise the last command of every gravity run (L946, before
+  gravity_Cleanup) is `pihole restartdns reload`, SIGHUP: FTL logs "Reloading
+  DNS cache" (src/dnsmasq_interface.c L1788) and re-reads its lists. A write
+  to gravity.db right after `pihole -g` therefore meets a reload Nexus did
+  not send; the harness setup's `pihole -a adlist del` right after its
+  `pihole -g` is such a write (see "AFTER THE FIX", the run that found FTL
+  stuck before the test began). FakeHost's `-g` sends no such reload: the
+  gap is CR-3's, outside this file's tests. Not run live: this entry is the
+  script's text on the image, not a capture of a run.
+
+TC-158 RED AGAIN ON THE PRE-FIX CODE, WITH THE FINAL phDig (code review CR-14)
+  PROVENANCE "REGRESSION TESTS, RED ON THE PRE-FIX CODE" recorded TC-158's
+  red runs with `dig +time=1`; commit 84f7b53 raised phDig to +time=6, which
+  can answer a query FTL held through an unwaited reload, so the check "not
+  blocked at the first dig after its op succeeded" could pass on the pre-fix
+  code. Re-run, 2026-11-13T21:26Z: a scratch worktree at 774b1ee (the WI 5.6
+  commit 1, product code with no barrier: nexusd and the reload code as before
+  the fix), with only the current test/integration/pihole_*_test.go,
+  test/harness/ and the Makefile copied in; `make test-harness-pihole
+  RUN='^TestPiholeListReloadRace$'` (INIT=native, container
+  nexus-harness-20261113T212555Z-701, removed with the worktree after):
+  --- FAIL: TestPiholeListReloadRace (55.88s), R 80,000, D 2.633 s, 12 failures:
+    burst 0: race-b0.example not blocked (no answer) at the first dig after
+      its op succeeded (1 of 10 bursts: with 6 s it discriminates only
+      sometimes, as expected)
+    pair 0 to 9: add-domain Succeeded, add-adlist Failed pihole-command-failed
+      "pihole -a adlist add exited 0 but no adlist with that URL is in
+      gravity.db afterwards" (10 of 10)
+    44 new 'database is locked' lines in FTL.log: a list reload met a gravity.db write
+  The "FTL stuck" dig check (www.xi.example unanswered) did not fire in this run:
+  the 6 s dig outlasted every reload that was already running. So the
+  fence's discriminating checks on the pre-fix code are the failed
+  add-adlist ops and the locked lines (which no timeout can hide); the
+  "not blocked right after the op" check is weaker than recorded in the 1 s
+  runs above, and is kept as it was (a 1 s dig on the fixed code brings back
+  the flake of the INIT=sysv run above, where burst N's dig meets burst N+1's
+  reload).

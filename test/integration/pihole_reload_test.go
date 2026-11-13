@@ -161,10 +161,12 @@ func phPollOp(t *testing.T, n *nexusdInstance, id string, timeout time.Duration)
 func phSplitAnswers(a phAnswer) bool { return len(a.addrs) == 1 && a.addrs[0] == phSplitIP }
 
 // phStartHealthy starts a race test from a FTL with its lists loaded. The
-// harness setup's own `pihole -a adlist del`, right after `pihole -g` sent
-// reload-lists, can meet that reload and leave FTL stuck before any test
-// runs (seen once in six native runs: www.xi.example unanswered from the
-// start); a reload-lists ends that state. Whether FTL answered first is
+// harness setup's own `pihole -a adlist del`, right after `pihole -g`, can
+// meet the reload that `pihole -g` ends with (gravity.sh L946, `pihole
+// restartdns reload`, SIGHUP; PROVENANCE "GRAVITY ENDS WITH restartdns
+// reload") and leave FTL stuck before any test runs (seen once in six native
+// runs: www.xi.example unanswered from the start); a reload-lists ends that
+// state. Whether FTL answered first is
 // logged, then it must be healthy.
 func phStartHealthy(t *testing.T) {
 	t.Helper()

@@ -111,7 +111,7 @@ func TestPiholeRecordsOnRealFTL(t *testing.T) {
 	time.Sleep(time.Second)
 	ctl := phDig("ctl.app.lan")
 	t.Logf("control: appended %q, pihole restartdns reload; dig ctl.app.lan %s", strings.TrimSpace(ctlLine), ctl)
-	if slices.Contains(ctl.addrs, "192.168.7.77") {
+	if ctl.status == "" || slices.Contains(ctl.addrs, "192.168.7.77") {
 		t.Errorf("control: the reload applied the new line (%s); the hazard did not reproduce", ctl)
 	}
 	phWriteDNSFile(t, phSeedBytes(t))

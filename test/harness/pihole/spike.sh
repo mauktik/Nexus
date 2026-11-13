@@ -210,7 +210,7 @@ x "$f" 'grep -n "^conf-dir" /etc/dnsmasq.conf; ls -la /etc/dnsmasq.d'
 x "$f" 'cat /run/pihole-FTL.pid'
 pidA=$OUTP
 x "$f" "echo 'address=/x.lan/300.1.1.1' >$SCRATCH && cat $SCRATCH"
-x "$f" 'pihole-FTL --test'
+x "$f" 'ulimit -c 0; pihole-FTL --test' # no core file from the SIGSEGV on aarch64 (A-19)
 badrc=$RC
 x "$f" 'cat /run/pihole-FTL.pid'
 pidB=$OUTP
@@ -223,10 +223,11 @@ goodrc=$RC
 x "$f" 'cat /run/pihole-FTL.pid; echo; tail -n 5 /var/log/pihole/FTL.log; ls -la /core 2>&1 || true'
 if [ "$badrc" -eq 0 ]; then
 	verdict "$f" FAIL-BLOCKING "bad line: --test exited 0, A-19 is false"
-elif [ "$badrc" -eq 1 ]; then
-	verdict "$f" PASS "bad line: --test exited 1 (A-19)"
 else
-	verdict "$f" FAIL "bad line: --test exited $badrc, not the expected 1 (non-zero, so A-19's falsifier, exit 0, is not met)"
+	# A-19 (revised after Phase 0, V-10): the test fails with a non-zero
+	# code; FTL v5.25.2 on aarch64 died by SIGSEGV (139), a plain exit 1 is
+	# what dnsmasq's code path predicts. Only exit 0 falsifies A-19.
+	verdict "$f" PASS "bad line: --test exited $badrc (non-zero, A-19)"
 fi
 if [ "$goodrc" -eq 0 ]; then
 	verdict "$f" PASS "scratch file removed: --test exited 0"

@@ -27,30 +27,43 @@ import (
 	phspec "github.com/mauktik/nexus/internal/providers/pihole/spec"
 )
 
-// phGravityScript is what Nexus looks for in /proc/*/cmdline to wait for a
+// phGravityScript is what Nexus looks for in /proc/*/cmdline (argv[1]) to wait for a
 // gravity run (v5 GravityScript).
 const phGravityScript = "/opt/pihole/gravity.sh"
 
-// phFakeGravity starts a process whose cmdline names gravity.sh, so every
-// domain, adlist and gravity op waits behind it: the lane gate of TC-129.
-// The returned release ends it.
+// phFakeGravity starts a root `bash /opt/pihole/gravity.sh` that only
+// sleeps, so every domain, adlist and gravity op waits behind it: the lane
+// gate of TC-129. Nexus counts a gravity run only when root runs it with the
+// script as argv[1] (SEC-2), which no argv[0] rename can fake, so a harmless
+// script is bind-mounted over the real one while the fake runs and the real
+// file is left as it was. The returned release ends it.
 func phFakeGravity(t *testing.T) (release func()) {
 	t.Helper()
-	cmd := exec.Command("bash", "-c", "exec -a "+phGravityScript+" sleep 600")
+	fake := filepath.Join(t.TempDir(), "gravity.sh")
+	if err := os.WriteFile(fake, []byte("#!/bin/bash\nsleep 600\n:\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustSh(t, "mount", "--bind", fake, phGravityScript)
+	cmd := exec.Command("bash", phGravityScript)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
+		_, _ = sh(10*time.Second, "umount", phGravityScript)
 		t.Fatal(err)
 	}
 	var once sync.Once
 	release = func() {
 		once.Do(func() {
-			_ = cmd.Process.Kill()
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) // bash and its sleep
 			_ = cmd.Wait()
+			if _, err := sh(10*time.Second, "umount", phGravityScript); err != nil {
+				_, _ = sh(10*time.Second, "umount", "-l", phGravityScript)
+			}
 		})
 	}
 	t.Cleanup(release)
 	waitUntil(t, 10*time.Second, "the fake gravity.sh", func() (bool, string) {
 		b, _ := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", cmd.Process.Pid))
-		return bytes.Contains(b, []byte(phGravityScript)), string(b)
+		return bytes.Equal(b, []byte("bash\x00"+phGravityScript+"\x00")), string(b)
 	})
 	return release
 }
@@ -76,6 +89,9 @@ func TestPiholeConflictAndConfigTest(t *testing.T) {
 	// 1. The gate holds the lane; the zone add, with the etag read before
 	// the hand edit, is admitted and queues behind it.
 	records := phList[phspec.RecordProperties](t, n, phspec.RecordResourceType, "")
+	if len(records) == 0 {
+		t.Fatal("record list is empty with the FR-23 seed in place")
+	}
 	etag := records[0].Properties.Etag
 	if etag != "sha256:"+phSeedSHA {
 		t.Fatalf("record etag %s, the file's sha256 is %s", etag, phSeedSHA)
@@ -225,7 +241,9 @@ func TestPiholeFaultIsolation(t *testing.T) {
 	created := w.done()
 	var sidecars []string
 	for _, name := range created {
-		if strings.HasSuffix(name, "-journal") || strings.HasSuffix(name, "-wal") || strings.HasSuffix(name, "-shm") {
+		// gravity.db's own sidecars: FTL and the web UI create those of
+		// their databases in this directory too.
+		if strings.HasPrefix(name, "gravity.db") && (strings.HasSuffix(name, "-journal") || strings.HasSuffix(name, "-wal") || strings.HasSuffix(name, "-shm")) {
 			sidecars = append(sidecars, name)
 		}
 	}
@@ -366,8 +384,12 @@ func phSlowList(t *testing.T, lines int) (addr string, started <-chan struct{}) 
 func TestPiholeSurvivalAndExternalGravity(t *testing.T) {
 	slow, started := phSlowList(t, 20)
 	t.Cleanup(func() {
+		// phDropAdlist waits for FTL's reload to end, so this write does not
+		// meet it (A-64).
 		phDropAdlist(t, slow)
 		phSQLWrite(t, "DELETE FROM domainlist WHERE domain = 'tc132-wait.example';")
+		phReloadLists(t)
+		phRequireFTLHealthy(t)
 	})
 	n := piholed(t, "tc132", "")
 	phResult[phspec.AdlistResult](t, phRun(t, n, "/actions/add-adlist", `{"url":"`+slow+`"}`, time.Minute))
@@ -462,7 +484,11 @@ func TestPiholeAttacksCLIAndFootprint(t *testing.T) {
 	n := piholed(t, "tc133", "")
 	phDNSChange(t, n, "/actions/add-zone", `{"zone":"app.lan"}`)
 	phDNSChange(t, n, "/actions/add-record", `{"fqdn":"nexus-test.app.lan","ipv4":"192.168.7.88"}`)
-	etag := phList[phspec.ZoneProperties](t, n, phspec.ZoneResourceType, "")[0].Properties.Etag
+	zones := phList[phspec.ZoneProperties](t, n, phspec.ZoneResourceType, "")
+	if len(zones) == 0 {
+		t.Fatal("zone list is empty after add-zone app.lan")
+	}
+	etag := zones[0].Properties.Etag
 
 	targets := []phAttack{
 		{"POST", "/actions/add-domain", map[string]any{"list": "deny", "kind": "exact", "value": "x.example"}, "list", false},

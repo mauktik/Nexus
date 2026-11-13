@@ -122,6 +122,12 @@ func phIsBlocked(a phAnswer) bool {
 	return a.status == "NOERROR" && len(a.addrs) == 1 && a.addrs[0] == "0.0.0.0"
 }
 
+// phIsUnblocked is the answer for a name FTL does not block, with the stub
+// upstream behind it: NXDOMAIN, which a dig that timed out (no status) is
+// not. Every other name of the harness is NXDOMAIN there (PROVENANCE
+// "STUB UPSTREAM").
+func phIsUnblocked(a phAnswer) bool { return a.status == "NXDOMAIN" && len(a.addrs) == 0 }
+
 // phQueryLogCounts are the query log's row count in pihole-FTL.db and the
 // line count of pihole.log, as the host reads them.
 func phQueryLogCounts(t *testing.T) (int, int) {
@@ -188,6 +194,9 @@ func TestPiholeRestartAndFlush(t *testing.T) {
 // within ±2 s of reenableAt with nexusd stopped.
 func TestPiholeTimedStopReenables(t *testing.T) {
 	t.Cleanup(func() {
+		// A timed stop leaves its transient timer until it fires; a failed
+		// test must not leave it to re-enable under the next test.
+		_, _ = sh(30*time.Second, "systemctl", "stop", "nexus-pihole-reenable.timer")
 		if phSetupVar(t, "BLOCKING_ENABLED") != "true" {
 			mustSh(t, phPihole, "enable")
 		}
@@ -216,7 +225,7 @@ func TestPiholeTimedStopReenables(t *testing.T) {
 	res := phResult[phspec.BlockingResult](t, phRun(t, n, "/actions/stop-blocking", "{}", time.Minute))
 	off, offDig := phSetupVar(t, "BLOCKING_ENABLED"), phDig(phBlocked)
 	t.Logf("stop-blocking: %+v; BLOCKING_ENABLED=%s; dig %s %s", res.BlockingProperties, off, phBlocked, offDig)
-	if res.State != phspec.BlockingDisabled || res.ReenableAt != nil || off != "false" || phIsBlocked(offDig) {
+	if res.State != phspec.BlockingDisabled || res.ReenableAt != nil || off != "false" || !phIsUnblocked(offDig) {
 		t.Errorf("stop-blocking: %+v, BLOCKING_ENABLED=%s, dig %s", res.BlockingProperties, off, offDig)
 	}
 	res = phResult[phspec.BlockingResult](t, phRun(t, n, "/actions/start-blocking", "{}", time.Minute))
@@ -228,7 +237,9 @@ func TestPiholeTimedStopReenables(t *testing.T) {
 	}
 
 	// Timed stop of 20 s; nexusd stops as soon as the op succeeds.
+	opStart := time.Now()
 	res = phResult[phspec.BlockingResult](t, phRun(t, n, "/actions/stop-blocking", `{"durationSeconds":20}`, time.Minute))
+	opDur := time.Since(opStart)
 	lib(t, "stop-nexusd")
 	stoppedAt := time.Now()
 	if res.ReenableAt == nil || res.State != phspec.BlockingDisabled {
@@ -241,8 +252,14 @@ func TestPiholeTimedStopReenables(t *testing.T) {
 	}
 	timer := showUnit(t, "nexus-pihole-reenable.timer", "ActiveState", "SubState", "Description", "AccuracyUSec")
 	t.Logf("nexus-pihole-reenable.timer: %v", timer)
-	if d := phDig(phBlocked); phIsBlocked(d) || phSetupVar(t, "BLOCKING_ENABLED") != "false" {
+	if d := phDig(phBlocked); !phIsUnblocked(d) || phSetupVar(t, "BLOCKING_ENABLED") != "false" {
 		t.Errorf("blocking still on after the timed stop: dig %s", d)
+	}
+	// The host's own clock, not Nexus's reenableAt, anchors the duration:
+	// blocking must still be off 15 s after the op began (a 20 s timer).
+	time.Sleep(time.Until(opStart.Add(15 * time.Second)))
+	if v := phSetupVar(t, "BLOCKING_ENABLED"); v != "false" {
+		t.Errorf("BLOCKING_ENABLED=%s %s after the op began, want false until about 20 s", v, time.Since(opStart).Round(time.Millisecond))
 	}
 	var flipped time.Time
 	waitUntil(t, 60*time.Second, "BLOCKING_ENABLED=true", func() (bool, string) {
@@ -259,6 +276,12 @@ func TestPiholeTimedStopReenables(t *testing.T) {
 		activeState(t, nexusdUnit), phBlocked, blockedDig, after.Round(time.Millisecond))
 	if skew < -2*time.Second || skew > 2*time.Second {
 		t.Errorf("re-enabled %+.3fs from reenableAt, want within ±2 s", skew.Seconds())
+	}
+	// Anchored to the host: 20 s from the op's start, ±2 s, and the op's
+	// own duration, which the timer's start may trail by.
+	if since := flipped.Sub(opStart); since < 18*time.Second || since > 22*time.Second+opDur {
+		t.Errorf("re-enabled %s after the op began (op took %s), want 20 s ±2 s (+ the op's duration)", since.Round(time.Millisecond),
+			opDur.Round(time.Millisecond))
 	}
 	if st := activeState(t, nexusdUnit); st != "inactive" && st != "failed" {
 		t.Errorf("nexusd is %s: the re-enable must not need it", st)
@@ -488,8 +511,9 @@ func TestPiholeAdlistRemoveAfterGravity(t *testing.T) {
 	big := phFixture(t, "rm-big.txt", phDomains("rm-big", 100000))
 	t.Cleanup(func() {
 		for _, a := range []string{small, ctl, big} {
-			phDropAdlist(t, a)
+			phDropAdlist(t, a) // each waits for its reload to end
 		}
+		phRequireFTLHealthy(t)
 	})
 	n := piholed(t, "tc150", "")
 	for _, a := range []string{small, ctl, big} {

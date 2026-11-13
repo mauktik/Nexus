@@ -451,7 +451,9 @@ func phDropAdlist(t *testing.T, address string) {
 		"DELETE FROM gravity WHERE adlist_id IN (SELECT id FROM adlist WHERE address = '"+q+"'); "+
 		"DELETE FROM adlist_by_group WHERE adlist_id IN (SELECT id FROM adlist WHERE address = '"+q+"'); "+
 		"DELETE FROM adlist WHERE address = '"+q+"'; COMMIT;")
-	mustSh(t, phPihole, "restartdns", "reload-lists")
+	// Wait for the reload to end: the next write to gravity.db must not meet
+	// it (A-64, WI 5.6).
+	phReloadLists(t)
 }
 
 // phVersionsFile is /etc/pihole/versions as KEY=VALUE.

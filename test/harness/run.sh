@@ -424,4 +424,10 @@ else
 fi
 status=${PIPESTATUS[0]}
 set -e
+# A skipped test is a green exit 0 that proves nothing (TC-159 skips when it
+# cannot make FTL stuck); say so loudly, and do not fail the run.
+if grep -q '^--- SKIP:' "$LOGS/test.log"; then
+	say "WARNING: $(grep -c '^--- SKIP:' "$LOGS/test.log") test(s) SKIPPED, not verified on this run:"
+	grep '^--- SKIP:' "$LOGS/test.log" | sed 's/^/    /' >&2
+fi
 say "tests exited $status"

@@ -113,9 +113,12 @@ test-harness:
 # pihole-FTL's native systemd unit or, with INIT=sysv, the SysV script; then
 # the ^TestPihole tests in it.
 INIT ?= native
+# RUN narrows the tests here too (default ^TestPihole); it is target-specific
+# so the other T1 targets keep their own default.
+test-harness-pihole: RUN ?= ^TestPihole
 test-harness-pihole:
 	docker build --quiet --build-arg INIT='$(INIT)' -t 'nexus-harness-pihole:$(INIT)' test/harness/pihole
-	BASE='nexus-harness-pihole:$(INIT)' RUN='^TestPihole' test/harness/run.sh
+	BASE='nexus-harness-pihole:$(INIT)' RUN='$(RUN)' test/harness/run.sh
 
 # T1-emu (TC-184): the linux/amd64 nexusd from the tarball `make release`
 # wrote, in a plain container under amd64 emulation: no systemd, a smoke test
