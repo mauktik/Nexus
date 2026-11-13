@@ -1,0 +1,15 @@
+[
+	"/usr/bin/systemd-run",
+	"--unit=nexus-op-01JC4ZQ8M6W5Y3T2R1P0N9K8H7",
+	"--collect",
+	"--quiet",
+	"--service-type=exec",
+	"--description=Nexus operation 01JC4ZQ8M6W5Y3T2R1P0N9K8H7",
+	"--property=RefuseManualStop=yes",
+	"--property=KillMode=process",
+	"--",
+	"/usr/local/bin/nexusd",
+	"op-supervise",
+	"--dir",
+	"/var/lib/nexus/ops/01JC4ZQ8M6W5Y3T2R1P0N9K8H7"
+]

@@ -1,0 +1,1 @@
+{"argv":["/usr/bin/apt-get","-y","install","nginx"],"env":["PATH=/usr/sbin:/usr/bin:/sbin:/bin","SECRET_TOKEN=s3cr3t"],"dir":"/var/lib/nexus","credential":{"uid":1000,"gid":1000,"groups":[27,100]},"timeoutNs":600000000000,"graceNs":30000000000,"outputCapBytes":1048576,"killMode":"process","maxRuntimeNs":7200000000000}
