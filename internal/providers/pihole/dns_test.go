@@ -29,6 +29,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/audit"
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/core"
@@ -43,6 +44,7 @@ import (
 	"github.com/mauktik/nexus/internal/providers/pihole/dnswrite"
 	"github.com/mauktik/nexus/internal/providers/pihole/spec"
 	"github.com/mauktik/nexus/internal/providers/pihole/v5"
+	"github.com/mauktik/nexus/internal/providers/pihole/v5/v5test"
 	"github.com/mauktik/nexus/internal/store"
 )
 
@@ -65,9 +67,10 @@ func dnsFixture(t *testing.T, name string) []byte {
 // FakeFTL.
 type dnsWorld struct {
 	*helperWorld
-	st   *store.Store
-	disp *core.Dispatcher
-	file string // dnsTestFile on the fake host
+	readyWindow time.Duration // The helper's readiness window; zero is production's
+	st          *store.Store
+	disp        *core.Dispatcher
+	file        string // dnsTestFile on the fake host
 }
 
 // newDNSWorld seeds the DNS file with content, starts FTL on it and waits
@@ -104,6 +107,7 @@ func newDNSWorld(t *testing.T, content []byte) *dnsWorld {
 			}
 			inj := w.inject()
 			inj.DNSServer = w.h.FTL().Addr()
+			inj.ReadyWindow = w.readyWindow
 			started := time.Now()
 			code := runHelper(context.Background(), inv.Dir, io.Discard, io.Discard, inj)
 			return detach.WriteExit(inv.Dir, detach.Exit{ExitCode: code, Started: started, Ended: time.Now()})
@@ -1326,5 +1330,24 @@ func TestTC119_BindingInventory(t *testing.T) {
 		if !bound[op.ID] {
 			t.Errorf("%s is declared but not bound", op.ID)
 		}
+	}
+}
+
+// CR-5: the helper's readiness window reaches the DNS pipeline, for the
+// change's restart and for the rollback's. FTL never answers after the
+// restart, so the write is rolled back, and the rollback's restart does not
+// answer either: dns-rollback-failed, within the test's 300 ms windows
+// instead of two production ones of 15 s.
+func TestDNSWriteReadinessWindowReachesThePipeline(t *testing.T) {
+	t.Parallel()
+	w := newDNSWorld(t, dnsFixture(t, "fr23-seven-lines.rendered.conf"))
+	w.readyWindow = 300 * time.Millisecond
+	w.h.FTL().SetFault(v5test.FaultNeverReady)
+	rec, pe := w.invoke(spec.AddRecord.Op(), `{"fqdn":"seam.app.lan","ipv4":"192.168.7.9"}`)
+	if pe != nil {
+		t.Fatalf("refused at Admit: %s %q", pe.Slug(), pe.Detail)
+	}
+	if rec.Status != apitypes.StatusFailed || rec.Error == nil || rec.Error.Slug() != problem.DNSRollbackFailed {
+		t.Fatalf("got %s %+v, want failed with dns-rollback-failed", rec.Status, rec.Error)
 	}
 }

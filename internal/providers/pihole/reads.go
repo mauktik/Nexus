@@ -45,8 +45,8 @@ func (p *Provider) backendReader(ctx context.Context) (backend.Reader, error) {
 	v := backend.Detect(ctx, p.paths, ftlVersionTimeout)
 	r, _, _, err := backend.Select(v, p.paths, p.deps())
 	if err != nil {
-		return nil, problem.New(problem.CapabilityUnavailable, err.Error()).
-			With("provider", spec.Name).With("reason", err.Error())
+		return nil, probErr(problem.New(problem.CapabilityUnavailable, err.Error()).
+			With("provider", spec.Name).With("reason", err.Error()))
 	}
 	return r, nil
 }

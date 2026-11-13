@@ -112,6 +112,19 @@ func (e *env) apply(t *testing.T, mut dnswrite.Mutator, ifMatch string, cs ...dn
 		dnswrite.Deps{Mutator: mut, DNSServer: e.h.FTL().Addr(), Out: &e.log, Now: e.h.Now})
 }
 
+// applyWith is apply with Deps changed by tune, for the readiness window and
+// the PID poll seams.
+func (e *env) applyWith(t *testing.T, mut dnswrite.Mutator, tune func(*dnswrite.Deps), cs ...dnsfile.Change) (spec.DNSChangeResult, *problem.Error) {
+	t.Helper()
+	if mut == nil {
+		mut = e.m
+	}
+	d := dnswrite.Deps{Mutator: mut, DNSServer: e.h.FTL().Addr(), Out: &e.log, Now: e.h.Now}
+	tune(&d)
+	return dnswrite.Apply(context.Background(),
+		dnswrite.Request{DNSFile: e.file, StateDir: e.stateDir, OpDir: e.opDir, Changes: cs}, d)
+}
+
 func (e *env) live(t *testing.T) []byte {
 	t.Helper()
 	b, err := os.ReadFile(e.file)
@@ -409,11 +422,37 @@ func TestTCE11_RemoveCoveredByShorterSuffix(t *testing.T) {
 }
 
 // TC-E12 (FR-22 step 4): the replacement keeps the original's mode, owner
-// and group.
+// and group. The owner half needs an original whose owner or group is not
+// what a new file would get, or removing the chown would stay green (review
+// CR-9): as root, a made-up uid and gid; otherwise a supplementary group of
+// the test's user other than its primary one, and a skip without one.
 func TestTCE12_ModeAndOwnerPreserved(t *testing.T) {
 	e := setup(t, nil)
 	if err := os.Chmod(e.file, 0o640); err != nil {
 		t.Fatal(err)
+	}
+	uid, gid := -1, -1
+	switch {
+	case os.Geteuid() == 0:
+		uid, gid = 1234, 5678
+	default:
+		groups, err := os.Getgroups()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, g := range groups {
+			if g != os.Getgid() && g != os.Getegid() {
+				gid = g
+				break
+			}
+		}
+	}
+	if gid >= 0 {
+		if err := os.Chown(e.file, uid, gid); err != nil {
+			t.Fatalf("chown the original: %v", err)
+		}
+	} else {
+		t.Log("no group but the primary one and not root: the owner half is not checked here (T1 runs as root)")
 	}
 	before := mustStat(t, e.file)
 	if _, perr := e.apply(t, nil, "", dnsfile.AddZone{Zone: "app.lan"}); perr != nil {
@@ -422,6 +461,11 @@ func TestTCE12_ModeAndOwnerPreserved(t *testing.T) {
 	after := mustStat(t, e.file)
 	if after.Mode() != before.Mode() || !sameOwner(before, after) {
 		t.Errorf("mode %v -> %v, owner preserved=%v", before.Mode(), after.Mode(), sameOwner(before, after))
+	}
+	if gid >= 0 {
+		if st := after.Sys().(*syscall.Stat_t); int(st.Gid) != gid {
+			t.Errorf("group %d, want the original's %d", st.Gid, gid)
+		}
 	}
 }
 
@@ -518,7 +562,9 @@ func TestTCERR23_VerificationFailsRollsBack(t *testing.T) {
 }
 
 // TC-ERR24: a failed restart rolls back and reports pihole-command-failed
-// with rolledBack:true.
+// with rolledBack:true, and the rollback is a full one: the previous bytes,
+// a second restart (each after its reset-failed), FTL answering again, and
+// the failed command named (review CR-9).
 func TestTCERR24_RestartFailsRollsBack(t *testing.T) {
 	e := setup(t, nil)
 	e.h.FailCommandOnce([]string{piholeBin, "restartdns"}, 1)
@@ -526,9 +572,27 @@ func TestTCERR24_RestartFailsRollsBack(t *testing.T) {
 	if perr == nil || perr.Slug() != "pihole-command-failed" || perr.Extensions["rolledBack"] != true {
 		t.Fatalf("got %v", perr)
 	}
+	if perr.Extensions["command"] != "pihole restartdns" || perr.Extensions["exitCode"] != 1 {
+		t.Errorf("extensions %+v, want the failed command and its exit code", perr.Extensions)
+	}
 	if !bytes.Equal(e.live(t), e.orig) {
 		t.Error("not rolled back")
 	}
+	reset := []string{systemctlBin, "reset-failed", "pihole-FTL.service"}
+	restart := []string{piholeBin, "restartdns"}
+	var got [][]string
+	for _, a := range e.h.Argvs() {
+		if slices.Equal(a, reset) || slices.Equal(a, restart) {
+			got = append(got, a)
+		}
+	}
+	if want := [][]string{reset, restart, reset, restart}; !slices.EqualFunc(got, want, slices.Equal[[]string]) {
+		t.Errorf("restart sequence %q, want the failed restart and the rollback's, each after reset-failed", got)
+	}
+	if a := query(t, e, "pi.hole"); a.RCode != "NOERROR" {
+		t.Errorf("FTL does not answer after the rollback: %+v", a)
+	}
+	noTemp(t, e)
 }
 
 // TC-ERR25: when the rollback restart also fails, dns-rollback-failed names
@@ -543,6 +607,89 @@ func TestTCERR25_RollbackRestartFails(t *testing.T) {
 	}
 	if rb, err := os.ReadFile(copyPath); err != nil || !bytes.Equal(rb, e.orig) {
 		t.Errorf("rollback copy: %v", err)
+	}
+}
+
+// flakyRestart wraps a Mutator so that its restarts set faults first: the
+// n-th RestartDNS call runs with the faults of before[n].
+type flakyRestart struct {
+	dnswrite.Mutator
+	h      *v5test.FakeHost
+	before [][]v5test.Fault
+	calls  int
+}
+
+func (f *flakyRestart) RestartDNS(ctx context.Context, out io.Writer) error {
+	if f.calls < len(f.before) {
+		f.h.FTL().SetFault(f.before[f.calls]...)
+	}
+	f.calls++
+	return f.Mutator.RestartDNS(ctx, out)
+}
+
+// CR-5 (FR-22 step 9, step 10): FTL starts and never answers after the
+// change's restart. The write waits its readiness window (a seam, so the
+// test is fast), restores the file and restarts FTL, which answers: the
+// problem is dns-verification-failed{rolledBack:true, name:pi.hole}. When
+// the rollback's restart never answers either, it is dns-rollback-failed
+// naming the rollback copy, with the original bytes back in the file.
+func TestNeverReadyAfterRestartRollsBack(t *testing.T) {
+	const window = 400 * time.Millisecond
+	tune := func(d *dnswrite.Deps) { d.ReadyWindow = window }
+	changes := []dnsfile.Change{dnsfile.AddZone{Zone: "app.lan"}, dnsfile.AddRecord{FQDN: "x.app.lan", IPv4: "192.168.7.9"}}
+
+	t.Run("the rollback restart answers", func(t *testing.T) {
+		e := setup(t, nil)
+		m := &flakyRestart{Mutator: e.m, h: e.h, before: [][]v5test.Fault{{v5test.FaultNeverReady}, {v5test.FaultNone}}}
+		start := time.Now()
+		_, perr := e.applyWith(t, m, tune, changes...)
+		if perr == nil || perr.Slug() != "dns-verification-failed" || perr.Extensions["rolledBack"] != true || perr.Extensions["name"] != "pi.hole" {
+			t.Fatalf("got %v", perr)
+		}
+		// Both waits are one window each at most; the default window is 15 s.
+		if took := time.Since(start); took < window || took > 10*window {
+			t.Errorf("took %s: the readiness window is %s", took, window)
+		}
+		if !bytes.Equal(e.live(t), e.orig) || e.count(piholeBin, "restartdns") != 2 {
+			t.Errorf("file restored: %v, restarts %d, want the original bytes and 2 restarts", bytes.Equal(e.live(t), e.orig), e.count(piholeBin, "restartdns"))
+		}
+		if a := query(t, e, "pi.hole"); a.RCode != "NOERROR" {
+			t.Errorf("FTL does not answer after the rollback: %+v", a)
+		}
+		noTemp(t, e)
+	})
+
+	t.Run("the rollback restart never answers either", func(t *testing.T) {
+		e := setup(t, nil)
+		e.h.FTL().SetFault(v5test.FaultNeverReady)
+		_, perr := e.applyWith(t, nil, tune, changes...)
+		copyPath := filepath.Join(e.opDir, "dnsfile.rollback")
+		if perr == nil || perr.Slug() != "dns-rollback-failed" || perr.Extensions["rollbackCopy"] != copyPath {
+			t.Fatalf("got %v", perr)
+		}
+		if !bytes.Equal(e.live(t), e.orig) {
+			t.Error("the original bytes are not back in the file")
+		}
+	})
+}
+
+// The PID read after the restart takes its bounds from Deps.PIDPoll: a PID
+// file that never names the new FTL ends the poll at the limit.
+func TestPIDPollSeamBoundsTheWait(t *testing.T) {
+	e := setup(t, nil)
+	e.h.FTL().SetPIDFileLag(time.Hour)
+	start := time.Now()
+	res, perr := e.applyWith(t, nil, func(d *dnswrite.Deps) {
+		d.PIDPoll = dnswrite.PIDPoll{Interval: 5 * time.Millisecond, Limit: 100 * time.Millisecond}
+	}, dnsfile.AddZone{Zone: "app.lan"}, dnsfile.AddRecord{FQDN: "x.app.lan", IPv4: "192.168.7.9"})
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	if took := time.Since(start); took > dnswrite.PIDPollLimit {
+		t.Errorf("the write took %s: the PID poll ran its default %s limit instead of 100 ms", took, dnswrite.PIDPollLimit)
+	}
+	if !res.Restarted {
+		t.Errorf("result %+v", res)
 	}
 }
 

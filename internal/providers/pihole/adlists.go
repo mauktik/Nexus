@@ -32,7 +32,7 @@ const removeAdlistRule = "give either id or url"
 const (
 	adlistLostDetail  = "the adlist may have been added or removed; list the adlists to see"
 	gravityLostDetail = "pihole -g may not have finished; gravity.db holds the lists of the last run that " +
-		"completed: check the gravity time with `pihole get`"
+		"completed: check the gravity time with `nexus pihole get`"
 )
 
 // adlistRuntime is the MaxRuntime of an adlist op (A-3): an hour when it
@@ -105,18 +105,18 @@ func registerAdlistActions(m map[string]helperAction) {
 func (p *Provider) admitRemoveAdlist(ctx context.Context, in spec.AdlistRemoveInput) error {
 	switch {
 	case in.ID != 0 && in.URL != "":
-		return invalid("", removeAdlistRule+", not both")
+		return probErr(invalid("", removeAdlistRule+", not both"))
 	case in.ID == 0 && in.URL == "":
-		return invalid("", removeAdlistRule)
+		return probErr(invalid("", removeAdlistRule))
 	case in.ID < 0:
-		return invalid("/id", "must be at least 1")
+		return probErr(invalid("/id", "must be at least 1"))
 	}
 	rows, err := p.adlists(ctx)
 	if err != nil {
 		return err
 	}
 	if _, ok := findAdlist(rows, in); !ok {
-		return notFound("no pi-hole adlist matches; nothing was changed")
+		return probErr(notFound("no pi-hole adlist matches; nothing was changed"))
 	}
 	return nil
 }

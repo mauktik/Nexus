@@ -45,6 +45,9 @@ type Request struct {
 	OpDir    string // The operation's directory (0700); the rollback copy is in it
 	IfMatch  string // The etag the caller read, "" for none
 	Changes  []dnsfile.Change
+	// Batch is true for apply-dns-changes: a refused change is
+	// dns-batch-rejected naming its index, even when the batch holds one.
+	Batch bool
 }
 
 // Deps are the pipeline's seams.
@@ -53,6 +56,12 @@ type Deps struct {
 	DNSServer netip.AddrPort // FTL's DNS address, 127.0.0.1:53 in production
 	Out       io.Writer      // The oplog: one "pihole: …" line per step
 	Now       func() time.Time
+	// ReadyWindow is how long FTL has to answer after a restart, the
+	// rollback's included; zero, in production, means dnscheck.ReadyWindow.
+	ReadyWindow time.Duration
+	// PIDPoll bounds the read of FTL's new PID after the restart; a zero
+	// field, in production, means DefaultPIDPoll's.
+	PIDPoll PIDPoll
 	// BeforeSwap is a test hook, nil in production: it runs after the temp
 	// file is fsynced and before the live file is re-read (step 5), so a
 	// test can plant a hand edit at the race point.
@@ -67,12 +76,31 @@ const MaxFileBytes = 1 << 20
 const RollbackCopyName = "dnsfile.rollback"
 
 // The read of FTL's new PID after the restart, as restart-dns reads it
-// (WI 3.2, A-56): every pidPollInterval for up to pidPollLimit after FTL
+// (WI 3.2, A-56): every PIDPollInterval for up to PIDPollLimit after FTL
 // answers, until the PID file names a live FTL other than the one before.
+// restart-dns and a DNS write share this one read (review CR-6).
 const (
-	pidPollInterval = 100 * time.Millisecond
-	pidPollLimit    = 2 * time.Second
+	PIDPollInterval = 100 * time.Millisecond
+	PIDPollLimit    = 2 * time.Second
 )
+
+// PIDPoll is the PID read's bounds. Production uses the constants above
+// (DefaultPIDPoll); tests shorten them.
+type PIDPoll struct{ Interval, Limit time.Duration }
+
+// DefaultPIDPoll is production's PID read.
+var DefaultPIDPoll = PIDPoll{Interval: PIDPollInterval, Limit: PIDPollLimit}
+
+// withDefaults is poll with each unset field production's.
+func (poll PIDPoll) withDefaults() PIDPoll {
+	if poll.Interval <= 0 {
+		poll.Interval = PIDPollInterval
+	}
+	if poll.Limit <= 0 {
+		poll.Limit = PIDPollLimit
+	}
+	return poll
+}
 
 // nexusMarker starts every line Nexus adds to the file (zone and unzoned
 // markers).
@@ -128,6 +156,10 @@ func Apply(ctx context.Context, req Request, d Deps) (spec.DNSChangeResult, *pro
 	if d.Now == nil {
 		d.Now = time.Now
 	}
+	if d.ReadyWindow <= 0 {
+		d.ReadyWindow = dnscheck.ReadyWindow
+	}
+	d.PIDPoll = d.PIDPoll.withDefaults()
 	if d.Mutator == nil || !filepath.IsAbs(req.DNSFile) || req.StateDir == "" || req.OpDir == "" {
 		return spec.DNSChangeResult{}, problem.New(problem.InternalError,
 			"the DNS write pipeline was called without a mutator, an absolute DNS file, a state directory or an op directory; nothing was changed")
@@ -167,13 +199,13 @@ func (p *pipeline) run(ctx context.Context) (spec.DNSChangeResult, *problem.Erro
 	after := before
 	for i, c := range p.req.Changes {
 		if err := after.Apply(c); err != nil {
-			return spec.DNSChangeResult{}, changeProblem(i, len(p.req.Changes), c, err)
+			return spec.DNSChangeResult{}, RefusalProblem(i, p.req.Batch, c, err)
 		}
 	}
 	next := dnsfile.Render(f, after)
 	if sameModel(before, after) || bytes.Equal(next, old) {
 		p.logf("no change: the DNS file already says this; nothing was written")
-		pid := pidOf(p.d.Mutator.FTLPID())
+		pid := PIDOf(p.d.Mutator.FTLPID())
 		return spec.DNSChangeResult{Etag: etag0, FTLPidBefore: pid, FTLPidAfter: pid,
 			Verified: []spec.VerifiedName{}}, nil
 	}
@@ -248,7 +280,7 @@ func (p *pipeline) run(ctx context.Context) (spec.DNSChangeResult, *problem.Erro
 
 	// Step 6a.
 	if dnsfile.DNSEquivalent(old, next) {
-		pid := pidOf(p.d.Mutator.FTLPID())
+		pid := PIDOf(p.d.Mutator.FTLPID())
 		res.FTLPidBefore, res.FTLPidAfter = pid, pid
 		p.logf("only comment lines changed: no configuration test and no DNS restart")
 		return res, nil
@@ -262,8 +294,8 @@ func (p *pipeline) run(ctx context.Context) (spec.DNSChangeResult, *problem.Erro
 	p.logf("the DNS configuration test passed")
 
 	// Step 8.
-	res.FTLPidBefore = pidOf(p.d.Mutator.FTLPID())
-	p.logf("FTL pid before: %s", pidText(res.FTLPidBefore))
+	res.FTLPidBefore = PIDOf(p.d.Mutator.FTLPID())
+	p.logf("FTL pid before: %s", PIDText(res.FTLPidBefore))
 	p.logf("restarting DNS with pihole restartdns")
 	if err := p.d.Mutator.RestartDNS(ctx, p.d.Out); err != nil {
 		p.logf("the DNS restart failed: %v", err)
@@ -274,8 +306,8 @@ func (p *pipeline) run(ctx context.Context) (spec.DNSChangeResult, *problem.Erro
 	}
 
 	// Step 9.
-	p.logf("waiting up to %s for FTL to answer %s on %s", dnscheck.ReadyWindow, dnscheck.ReadyName, p.d.DNSServer)
-	ready, err := dnscheck.WaitReady(ctx, p.d.DNSServer, dnscheck.ReadyWindow)
+	p.logf("waiting up to %s for FTL to answer %s on %s", p.d.ReadyWindow, dnscheck.ReadyName, p.d.DNSServer)
+	ready, err := dnscheck.WaitReady(ctx, p.d.DNSServer, p.d.ReadyWindow)
 	if err != nil {
 		p.logf("FTL did not answer after the restart: %v", err)
 		if rerr := p.rollback(ctx); rerr != nil {
@@ -283,12 +315,12 @@ func (p *pipeline) run(ctx context.Context) (spec.DNSChangeResult, *problem.Erro
 		}
 		return spec.DNSChangeResult{}, problem.New(problem.DNSVerificationFailed,
 			fmt.Sprintf("FTL did not answer %s on %s within %s after the restart: %v; the previous DNS file was restored and FTL restarted on it",
-				dnscheck.ReadyName, p.d.DNSServer, dnscheck.ReadyWindow, err)).
+				dnscheck.ReadyName, p.d.DNSServer, p.d.ReadyWindow, err)).
 			With("rolledBack", true).With("name", dnscheck.ReadyName)
 	}
 	p.logf("FTL answered after %d ms", ready.Milliseconds())
-	res.FTLPidAfter = pidAfterRestart(ctx, p.d.Mutator, res.FTLPidBefore)
-	p.logf("FTL pid after: %s", pidText(res.FTLPidAfter))
+	res.FTLPidAfter = PIDAfterRestart(ctx, p.d.Mutator, res.FTLPidBefore, p.d.PIDPoll)
+	p.logf("FTL pid after: %s", PIDText(res.FTLPidAfter))
 	res.Restarted = true
 
 	for _, w := range changedNames(before, after) {
@@ -374,8 +406,8 @@ func (p *pipeline) rollback(ctx context.Context) *problem.Error {
 	if err := p.d.Mutator.RestartDNS(ctx, p.d.Out); err != nil {
 		return fail("the rollback restart", err)
 	}
-	p.logf("rolling back: waiting up to %s for FTL to answer %s", dnscheck.ReadyWindow, dnscheck.ReadyName)
-	if _, err := dnscheck.WaitReady(ctx, p.d.DNSServer, dnscheck.ReadyWindow); err != nil {
+	p.logf("rolling back: waiting up to %s for FTL to answer %s", p.d.ReadyWindow, dnscheck.ReadyName)
+	if _, err := dnscheck.WaitReady(ctx, p.d.DNSServer, p.d.ReadyWindow); err != nil {
 		return fail("FTL did not answer after the rollback restart", err)
 	}
 	p.logf("rolled back: FTL answers on the previous DNS file")
@@ -643,67 +675,82 @@ func internal(format string, args ...any) *problem.Error {
 	return problem.New(problem.InternalError, fmt.Sprintf(format, args...))
 }
 
-// changeProblem maps a model refusal (FR-19, FR-21, ASM-11). In a batch of
-// several changes it is dns-batch-rejected naming the index and the
-// underlying type (FR-26).
-func changeProblem(i, n int, c dnsfile.Change, err error) *problem.Error {
-	slug := problem.InternalError
+// RefusalProblem maps the model's refusal of changes[i] (FR-19, FR-21,
+// ASM-11), for Admit and for the pipeline alike: an existing zone or record,
+// a zone that still has records, or a duplicate name is conflict; an
+// undeclared zone or a missing record is not-found; a record name under no
+// zone is dns-name-unzoned; an invalid change is validation-failed. In a
+// batch (any size, FR-26) it is dns-batch-rejected naming the index, with
+// the slug the single operation would have returned as its cause.
+func RefusalProblem(i int, batch bool, c dnsfile.Change, err error) *problem.Error {
+	var pe *problem.Error
+	detail := err.Error() + "; nothing was changed"
 	var notEmpty dnsfile.ErrZoneNotEmpty
 	switch {
 	case errors.Is(err, dnsfile.ErrZoneNotFound), errors.Is(err, dnsfile.ErrRecordNotFound):
-		slug = problem.NotFound
+		pe = problem.New(problem.NotFound, detail)
 	case errors.Is(err, dnsfile.ErrUnzoned):
-		slug = problem.DNSNameUnzoned
-	case errors.Is(err, dnsfile.ErrInvalidChange):
-		slug = problem.ValidationFailed
+		pe = problem.New(problem.DNSNameUnzoned, detail)
+		if ar, ok := c.(dnsfile.AddRecord); ok {
+			pe = pe.With("name", ar.FQDN)
+		}
 	case errors.Is(err, dnsfile.ErrZoneExists), errors.Is(err, dnsfile.ErrRecordExists),
 		errors.Is(err, dnsfile.ErrDuplicate), errors.As(err, &notEmpty):
-		slug = problem.Conflict
+		pe = problem.New(problem.Conflict, detail)
+	case errors.Is(err, dnsfile.ErrInvalidChange):
+		pe = problem.New(problem.ValidationFailed, "the input is invalid").
+			With("errors", []problem.FieldError{{Path: "", Message: err.Error()}})
+	default:
+		pe = problem.New(problem.InternalError, detail)
 	}
-	detail := err.Error() + "; nothing was changed"
-	if n > 1 {
-		return problem.New(problem.DNSBatchRejected, fmt.Sprintf("changes[%d]: %s", i, detail)).
-			With("changeIndex", i).With("cause", string(slug))
+	if !batch {
+		return pe
 	}
-	pe := problem.New(slug, detail)
-	if ar, ok := c.(dnsfile.AddRecord); ok && slug == problem.DNSNameUnzoned {
-		pe = pe.With("name", ar.FQDN)
-	}
-	return pe
+	return BatchRejected(i, pe.Slug(), detail)
 }
 
-func pidOf(pid int, ok bool) *int {
+// BatchRejected is dns-batch-rejected for changes[i], whose single-operation
+// refusal would have been the slug cause.
+func BatchRejected(i int, cause problem.Slug, detail string) *problem.Error {
+	return problem.New(problem.DNSBatchRejected, fmt.Sprintf("changes[%d]: %s", i, detail)).
+		With("changeIndex", i).With("cause", string(cause))
+}
+
+// PIDOf is the pointer form of FTLPID's result: nil when no FTL runs.
+func PIDOf(pid int, ok bool) *int {
 	if !ok {
 		return nil
 	}
 	return &pid
 }
 
-func pidText(pid *int) string {
+// PIDText is pid for the operation log.
+func PIDText(pid *int) string {
 	if pid == nil {
 		return "none"
 	}
 	return fmt.Sprint(*pid)
 }
 
-// pidAfterRestart reads FTL's PID every pidPollInterval until it names a
-// live FTL other than before, for up to pidPollLimit; then it is whatever
-// FTLPID returns, nil when none, which is not a failure (A-55, A-56).
-func pidAfterRestart(ctx context.Context, m backend.Mutator, before *int) *int {
-	t := time.NewTicker(pidPollInterval)
+// PIDAfterRestart reads FTL's PID every poll.Interval until it names a live
+// FTL other than before, for up to poll.Limit; then it is whatever FTLPID
+// returns, nil when none, which is not a failure (A-55, A-56).
+func PIDAfterRestart(ctx context.Context, m backend.Mutator, before *int, poll PIDPoll) *int {
+	poll = poll.withDefaults()
+	t := time.NewTicker(poll.Interval)
 	defer t.Stop()
-	limit := time.NewTimer(pidPollLimit)
+	limit := time.NewTimer(poll.Limit)
 	defer limit.Stop()
 	for {
-		pid := pidOf(m.FTLPID())
+		pid := PIDOf(m.FTLPID())
 		if pid != nil && (before == nil || *pid != *before) {
 			return pid
 		}
 		select {
 		case <-ctx.Done():
-			return pidOf(m.FTLPID())
+			return PIDOf(m.FTLPID())
 		case <-limit.C:
-			return pidOf(m.FTLPID())
+			return PIDOf(m.FTLPID())
 		case <-t.C:
 		}
 	}

@@ -451,11 +451,11 @@ func TestTCERR29_NeverReady(t *testing.T) {
 }
 
 // restart-dns and flush-cache are bound detached with MaxRuntime 10 min and
-// LostDetail "DNS may be restarting; check `piholestatus get`", which a
+// LostDetail "DNS may be restarting; check `nexus pihole get`", which a
 // lost unit's outcome-unknown carries.
 func TestServiceBindings(t *testing.T) {
 	t.Parallel()
-	const lost = "DNS may be restarting; check `piholestatus get`"
+	const lost = "DNS may be restarting; check `nexus pihole get`"
 	for _, op := range []def.Typed[spec.NoInput, spec.ServiceResult]{spec.RestartDNS, spec.FlushCache} {
 		w := newHelperWorld(t)
 		df := serviceBinding(w, op)

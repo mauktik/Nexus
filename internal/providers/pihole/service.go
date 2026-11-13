@@ -3,13 +3,13 @@ package pihole
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/providers/pihole/backend"
 	"github.com/mauktik/nexus/internal/providers/pihole/dnscheck"
+	"github.com/mauktik/nexus/internal/providers/pihole/dnswrite"
 	"github.com/mauktik/nexus/internal/providers/pihole/spec"
 	"github.com/mauktik/nexus/internal/providers/pihole/v5"
 )
@@ -18,22 +18,23 @@ var _ backend.ServiceMutator = (*v5.Mutator)(nil)
 
 // serviceLostDetail is the outcome-unknown detail of a restart-dns or
 // flush-cache unit lost without a result.
-const serviceLostDetail = "DNS may be restarting; check `piholestatus get`"
+const serviceLostDetail = "DNS may be restarting; check `nexus pihole get`"
 
 // The read of FTL's new PID after a restart: the native Type=simple unit
 // returns before FTL writes its PID file (A-56), so the read is retried
 // every ftlPIDPollInterval for up to ftlPIDPollLimit until the file names a
-// live FTL other than the one before.
+// live FTL other than the one before. It is dnswrite's, which a DNS write's
+// restart shares.
 const (
-	ftlPIDPollInterval = 100 * time.Millisecond
-	ftlPIDPollLimit    = 2 * time.Second
+	ftlPIDPollInterval = dnswrite.PIDPollInterval
+	ftlPIDPollLimit    = dnswrite.PIDPollLimit
 )
 
 // pidPoll is the PID read's bounds. Production uses the constants above;
 // the helper's test seams shorten them.
-type pidPoll struct{ Interval, Limit time.Duration }
+type pidPoll = dnswrite.PIDPoll
 
-var defaultPIDPoll = pidPoll{Interval: ftlPIDPollInterval, Limit: ftlPIDPollLimit}
+var defaultPIDPoll = dnswrite.DefaultPIDPoll
 
 // serviceBindings binds restart-dns and flush-cache.
 func (p *Provider) serviceBindings() []provider.Binding {
@@ -68,8 +69,8 @@ func runService(ctx context.Context, c *helperCall, restart bool) (any, error) {
 	if restart {
 		command, run = "pihole restartdns", sm.RestartDNS
 	}
-	before := pidOf(c.Mutator.FTLPID())
-	fmt.Fprintf(c.Out, "pihole: FTL pid before: %s\n", pidText(before))
+	before := dnswrite.PIDOf(c.Mutator.FTLPID())
+	fmt.Fprintf(c.Out, "pihole: FTL pid before: %s\n", dnswrite.PIDText(before))
 	fmt.Fprintf(c.Out, "pihole: running %s\n", command)
 	if err := run(ctx, c.Out); err != nil {
 		return nil, err
@@ -89,51 +90,13 @@ func runService(ctx context.Context, c *helperCall, restart bool) (any, error) {
 	fmt.Fprintf(c.Out, "pihole: FTL answered after %d ms\n", ready.Milliseconds())
 	var after *int
 	if restart {
-		after = pidAfterRestart(ctx, c.Mutator, before, c.PIDPoll)
+		after = dnswrite.PIDAfterRestart(ctx, c.Mutator, before, c.PIDPoll)
 	} else {
-		after = pidOf(c.Mutator.FTLPID())
+		after = dnswrite.PIDOf(c.Mutator.FTLPID())
 	}
-	fmt.Fprintf(c.Out, "pihole: FTL pid after: %s\n", pidText(after))
+	fmt.Fprintf(c.Out, "pihole: FTL pid after: %s\n", dnswrite.PIDText(after))
 	return spec.ServiceResult{
 		ActionResult: apitypes.ActionResult{Changed: true},
 		FTLPidBefore: before, FTLPidAfter: after, ReadyAfterMs: ready.Milliseconds(),
 	}, nil
-}
-
-// pidAfterRestart reads FTL's PID every ftlPIDPollInterval until it names a
-// live FTL other than before, for up to ftlPIDPollLimit (poll's bounds,
-// which the constants default); then it is whatever FTLPID returns, nil
-// when none, which is not a failure (A-55, A-56).
-func pidAfterRestart(ctx context.Context, m backend.Mutator, before *int, poll pidPoll) *int {
-	t := time.NewTicker(poll.Interval)
-	defer t.Stop()
-	limit := time.NewTimer(poll.Limit)
-	defer limit.Stop()
-	for {
-		pid := pidOf(m.FTLPID())
-		if pid != nil && (before == nil || *pid != *before) {
-			return pid
-		}
-		select {
-		case <-ctx.Done():
-			return pidOf(m.FTLPID())
-		case <-limit.C:
-			return pidOf(m.FTLPID())
-		case <-t.C:
-		}
-	}
-}
-
-func pidOf(pid int, ok bool) *int {
-	if !ok {
-		return nil
-	}
-	return &pid
-}
-
-func pidText(pid *int) string {
-	if pid == nil {
-		return "none"
-	}
-	return fmt.Sprint(*pid)
 }

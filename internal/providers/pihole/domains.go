@@ -101,18 +101,18 @@ func (p *Provider) admitRemoveDomain(ctx context.Context, in spec.DomainRemoveIn
 	full := in.List != "" && in.Kind != "" && in.Value != ""
 	switch {
 	case in.ID != 0 && byValue:
-		return invalid("", removeFormRule+", not both")
+		return probErr(invalid("", removeFormRule+", not both"))
 	case in.ID == 0 && !full:
-		return invalid("", removeFormRule)
+		return probErr(invalid("", removeFormRule))
 	case in.ID < 0:
-		return invalid("/id", "must be at least 1")
+		return probErr(invalid("/id", "must be at least 1"))
 	}
 	rows, err := p.domains(ctx)
 	if err != nil {
 		return err
 	}
 	if _, ok := findDomain(rows, in); !ok {
-		return notFound("no pi-hole domain entry matches; nothing was changed")
+		return probErr(notFound("no pi-hole domain entry matches; nothing was changed"))
 	}
 	return nil
 }

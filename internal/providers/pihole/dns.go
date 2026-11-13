@@ -3,7 +3,6 @@ package pihole
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -52,7 +51,7 @@ func dnsLost[In any](p *Provider) func(*provider.Run, In) string {
 		if err != nil {
 			dir = "the operation's directory"
 		}
-		return fmt.Sprintf("the DNS file may have been replaced; the previous bytes are at %s; check `pihole get`",
+		return fmt.Sprintf("the DNS file may have been replaced; the previous bytes are at %s; check `nexus pihole get`",
 			filepath.Join(dir, dnswrite.RollbackCopyName))
 	}
 }
@@ -108,7 +107,7 @@ func parseBatch(items []string) ([]dnsfile.Change, *problem.Error) {
 	for i, s := range items {
 		c, err := dnsfile.ParseChange(s)
 		if err != nil {
-			return nil, batchRejected(i, problem.ValidationFailed, err.Error()+"; nothing was changed")
+			return nil, dnswrite.BatchRejected(i, problem.ValidationFailed, err.Error()+"; nothing was changed")
 		}
 		changes = append(changes, c)
 	}
@@ -119,36 +118,16 @@ func parseBatch(items []string) ([]dnsfile.Change, *problem.Error) {
 type refusal func(i int, c dnsfile.Change, err error) *problem.Error
 
 // singleRefused is the refusal of a single zone or record operation.
-func singleRefused(_ int, c dnsfile.Change, err error) *problem.Error { return changeRefused(c, err) }
+func singleRefused(i int, c dnsfile.Change, err error) *problem.Error {
+	return dnswrite.RefusalProblem(i, false, c, err)
+}
 
 // batchRefused is the refusal of a batch at any size: dns-batch-rejected
 // naming the failing change's index and, as cause, the slug the single
-// operation would have returned. The detail is the pipeline's
-// (dnswrite changeProblem), so Admit and the helper read alike.
+// operation would have returned. It is the pipeline's mapping
+// (dnswrite.RefusalProblem), so Admit and the helper read alike.
 func batchRefused(i int, c dnsfile.Change, err error) *problem.Error {
-	return batchRejected(i, changeRefused(c, err).Slug(), err.Error()+"; nothing was changed")
-}
-
-func batchRejected(i int, cause problem.Slug, detail string) *problem.Error {
-	return problem.New(problem.DNSBatchRejected, fmt.Sprintf("changes[%d]: %s", i, detail)).
-		With("changeIndex", i).With("cause", string(cause))
-}
-
-// oneChangeBatchRefused makes the pipeline's refusal of a one-change batch
-// the batch's own. dnswrite.Apply names the index only when it applies more
-// than one change, but a batch reports dns-batch-rejected at any size
-// (TC-ERR28). The model refusals (dnswrite changeProblem) are the only
-// not-found, conflict, dns-name-unzoned and validation-failed problems the
-// pipeline returns; every other problem passes through.
-func oneChangeBatchRefused(pe *problem.Error) *problem.Error {
-	if pe == nil {
-		return nil
-	}
-	switch pe.Slug() {
-	case problem.NotFound, problem.Conflict, problem.DNSNameUnzoned, problem.ValidationFailed:
-		return batchRejected(0, pe.Slug(), pe.Detail)
-	}
-	return pe
+	return dnswrite.RefusalProblem(i, true, c, err)
 }
 
 // recordFQDN is the FQDN of a record ID, "<fqdn>~A" (FR-20); A is the only
@@ -210,31 +189,6 @@ func dnsWritable(paths v5.Paths, backendName, dnsFile string) *problem.Error {
 		return nil
 	}
 	return problem.New(problem.CapabilityUnavailable, reason).With("provider", spec.Name).With("reason", reason)
-}
-
-// changeRefused maps a model refusal (FR-19, FR-21): an existing zone or
-// record, a zone that still has records, or a duplicate name is conflict;
-// an undeclared zone or a missing record is not-found; a record name under
-// no zone is dns-name-unzoned.
-func changeRefused(c dnsfile.Change, err error) *problem.Error {
-	detail := err.Error() + "; nothing was changed"
-	var notEmpty dnsfile.ErrZoneNotEmpty
-	switch {
-	case errors.Is(err, dnsfile.ErrZoneNotFound), errors.Is(err, dnsfile.ErrRecordNotFound):
-		return notFound(detail)
-	case errors.Is(err, dnsfile.ErrUnzoned):
-		pe := problem.New(problem.DNSNameUnzoned, detail)
-		if ar, ok := c.(dnsfile.AddRecord); ok {
-			pe = pe.With("name", ar.FQDN)
-		}
-		return pe
-	case errors.Is(err, dnsfile.ErrZoneExists), errors.Is(err, dnsfile.ErrRecordExists),
-		errors.Is(err, dnsfile.ErrDuplicate), errors.As(err, &notEmpty):
-		return problem.New(problem.Conflict, detail)
-	case errors.Is(err, dnsfile.ErrInvalidChange):
-		return invalid("", err.Error())
-	}
-	return problem.New(problem.InternalError, detail)
 }
 
 func runAddZone(ctx context.Context, c *helperCall) (any, error) {
@@ -307,10 +261,7 @@ func runApplyDNSChanges(ctx context.Context, c *helperCall) (any, error) {
 	if pe != nil {
 		return nil, probErr(pe)
 	}
-	res, pe := applyDNSChanges(ctx, c, in.IfMatch, changes)
-	if len(changes) == 1 {
-		pe = oneChangeBatchRefused(pe)
-	}
+	res, pe := applyDNSChanges(ctx, c, in.IfMatch, true, changes)
 	return res, probErr(pe)
 }
 
@@ -318,12 +269,12 @@ func runApplyDNSChanges(ctx context.Context, c *helperCall) (any, error) {
 // The pipeline's problem crosses into the error only through probErr, so a
 // success is never a non-nil error holding a nil *problem.Error.
 func applyDNS(ctx context.Context, c *helperCall, ifMatch string, changes ...dnsfile.Change) (any, error) {
-	res, pe := applyDNSChanges(ctx, c, ifMatch, changes)
+	res, pe := applyDNSChanges(ctx, c, ifMatch, false, changes)
 	return res, probErr(pe)
 }
 
 // applyDNSChanges is applyDNS before its problem becomes an error.
-func applyDNSChanges(ctx context.Context, c *helperCall, ifMatch string,
+func applyDNSChanges(ctx context.Context, c *helperCall, ifMatch string, batch bool,
 	changes []dnsfile.Change) (spec.DNSChangeResult, *problem.Error) {
 	if pe := dnsWritable(c.Paths, c.In.Backend, c.In.DNSFile); pe != nil {
 		return spec.DNSChangeResult{}, pe
@@ -335,6 +286,7 @@ func applyDNSChanges(ctx context.Context, c *helperCall, ifMatch string,
 	}
 	return dnswrite.Apply(ctx, dnswrite.Request{
 		DNSFile: c.Paths.Host(c.In.DNSFile), StateDir: c.In.StateDir, OpDir: c.In.OpDir,
-		IfMatch: ifMatch, Changes: changes,
-	}, dnswrite.Deps{Mutator: dm, DNSServer: c.DNSServer, Out: c.Out, Now: c.Now})
+		IfMatch: ifMatch, Changes: changes, Batch: batch,
+	}, dnswrite.Deps{Mutator: dm, DNSServer: c.DNSServer, Out: c.Out, Now: c.Now,
+		ReadyWindow: c.ReadyWindow, PIDPoll: c.PIDPoll})
 }
