@@ -120,8 +120,8 @@ run as root; Alpine has no `sudo` by default.
    ```
 
    The `apt` provider is unavailable on Alpine, because apt and dpkg are
-   absent: leave it disabled, and `nexus capability get` reports it
-   unavailable. Alpine's own apk packages are not managed by Nexus: there is
+   absent: leave it disabled (`nexus capability get` then reports it
+   `disabled`; enabled, it would report `unavailable`). Alpine's own apk packages are not managed by Nexus: there is
    no apk provider yet (ASM-20). The `docker` and `scripts` providers work
    as on Ubuntu.
 
