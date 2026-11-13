@@ -1,7 +1,6 @@
 package buildsys
 
 import (
-	"debug/elf"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,14 +46,9 @@ func TestDeployScript(t *testing.T) {
 				t.Errorf("staged %s has mode %v, want 0755", f, fi.Mode().Perm())
 			}
 		}
-		bin, err := elf.Open(filepath.Join(stage, "nexusd"))
-		if err != nil {
-			t.Fatalf("staged nexusd is not an ELF binary: %v", err)
-		}
-		defer bin.Close()
-		if bin.Machine != elf.EM_X86_64 {
-			t.Errorf("staged nexusd is built for %v, want x86-64", bin.Machine)
-		}
+		// FR-38: the staged nexusd is a static x86-64 ELF, with no PT_INTERP
+		// and no DT_NEEDED, so it runs on musl hosts as well as glibc ones.
+		checkStaticELF(t, filepath.Join(stage, "nexusd"), "amd64")
 	})
 
 	t.Run("bad arguments print usage and exit 2", func(t *testing.T) {

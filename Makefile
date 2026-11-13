@@ -13,7 +13,15 @@ STAGE_DIR   := $(BUILD_DIR)/release
 
 VERSION_LDFLAGS := -X $(MODULE)/internal/version.Version=$(VERSION)
 RELEASE_LDFLAGS := -s -w $(VERSION_LDFLAGS)
+# Release binaries are static (FR-38), so the same nexusd runs on glibc and
+# musl (Alpine) hosts. Under CGO_ENABLED=0 the standard library takes its
+# pure-Go paths: os/user parses /etc/passwd and /etc/group itself, and net
+# uses the pure-Go DNS resolver, which reads /etc/resolv.conf, /etc/hosts and
+# /etc/nsswitch.conf. Neither calls libc, so lookups behave the same on musl.
+# build-release checks the linux binaries with STATICCHECK.
 RELEASE_BUILD   := CGO_ENABLED=0 go build -trimpath -ldflags='$(RELEASE_LDFLAGS)'
+# Fails when an ELF has a PT_INTERP program header or any DT_NEEDED entry.
+STATICCHECK     := go run ./test/buildsys/staticcheck
 
 # Everything the nexusd tarball carries besides the binary and the docs.
 NEXUSD_FILES := deploy/nexusd.service deploy/nexusd.default.yaml deploy/install.sh deploy/uninstall.sh
@@ -38,13 +46,16 @@ build:
 	go build -ldflags='$(VERSION_LDFLAGS)' -o $(BUILD_DIR)/ ./cmd/nexusd ./cmd/nexus
 
 # Exactly the shipped artifacts: nexusd linux/amd64, nexus darwin/arm64 and
-# linux/amd64. There is deliberately no linux/arm64 artifact.
+# linux/amd64. There is deliberately no linux/arm64 artifact. The linux
+# binaries are built and checked static first, so a dynamically linked one
+# fails the target before anything else is built.
 build-release:
 	rm -rf $(DIST_DIR)
 	mkdir -p $(DIST_DIR)
 	GOOS=linux  GOARCH=amd64 $(RELEASE_BUILD) -o $(DIST_DIR)/nexusd-linux-amd64 ./cmd/nexusd
-	GOOS=darwin GOARCH=arm64 $(RELEASE_BUILD) -o $(DIST_DIR)/nexus-darwin-arm64 ./cmd/nexus
 	GOOS=linux  GOARCH=amd64 $(RELEASE_BUILD) -o $(DIST_DIR)/nexus-linux-amd64  ./cmd/nexus
+	$(STATICCHECK) $(DIST_DIR)/nexusd-linux-amd64 $(DIST_DIR)/nexus-linux-amd64
+	GOOS=darwin GOARCH=arm64 $(RELEASE_BUILD) -o $(DIST_DIR)/nexus-darwin-arm64 ./cmd/nexus
 
 test:
 	go test -race ./...
