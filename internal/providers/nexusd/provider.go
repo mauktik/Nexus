@@ -129,7 +129,8 @@ type Provider struct {
 
 	settings atomic.Pointer[settings]
 	daemon   atomic.Pointer[daemonRef]
-	opsDir   atomic.Pointer[string] // Operations' directories; set by UseOpsDir
+	opsDir   atomic.Pointer[string]  // Operations' directories; set by UseOpsDir
+	staging  atomic.Pointer[staging] // Uploaded releases; set by UseDaemon
 
 	prev prevCache
 }
@@ -194,9 +195,13 @@ func (p *Provider) Configure(decode func(into any) error) error {
 
 func (p *Provider) current() *settings { return p.settings.Load() }
 
-// UseDaemon keeps the daemon serving this provider. It implements
+// UseDaemon keeps the daemon serving this provider, and opens and sweeps
+// the staging directory under its state directory. It implements
 // provider.DaemonUser.
-func (p *Provider) UseDaemon(d provider.Daemon) { p.daemon.Store(&daemonRef{d: d}) }
+func (p *Provider) UseDaemon(d provider.Daemon) {
+	p.daemon.Store(&daemonRef{d: d})
+	p.staging.Store(p.openStaging(d))
+}
 
 // daemonOf returns the daemon, or an error when UseDaemon was not called.
 func (p *Provider) daemonOf() (provider.Daemon, error) {
@@ -244,7 +249,8 @@ func (p *Provider) requireSelfManagement() error {
 		With("provider", spec.Name).With("reason", a.Reason)
 }
 
-// Bindings binds get, validate-config, reload, restart and rollback.
+// Bindings binds get, validate-config, reload, restart, rollback and the
+// upload.
 func (p *Provider) Bindings() []provider.Binding {
 	return []provider.Binding{
 		provider.Sync(spec.List, p.get),
@@ -256,6 +262,7 @@ func (p *Provider) Bindings() []provider.Binding {
 		}),
 		p.restartBinding(),
 		p.rollbackBinding(),
+		p.uploadBinding(),
 	}
 }
 

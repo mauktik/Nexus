@@ -272,6 +272,18 @@ type stackConfig struct {
 	// decodes at startup; empty means no section (the defaults).
 	section string
 	clock   *fakeClock // Drives the provider's timers; nil means real time
+	// disabled registers nexusd with Enabled false (TC-SM-E16).
+	disabled bool
+	// disabledExtra are further providers registered disabled, to compare
+	// refusals against (TC-SM-E16).
+	disabledExtra []provider.Provider
+	// failRequested, when positive, gives the stack a second Dispatcher,
+	// stack.disp, over the same registry, whose audit writer fails the
+	// next failRequested requested records and then delegates every
+	// record to the real audit log (TC-SM-ERR38 run C). The REST server
+	// builds its own Dispatcher over the registry's log, so a test drives
+	// this one through stack.invoke.
+	failRequested int
 }
 
 // stack is a running nexusd T0 stack. reader holds nexusd:read, admin holds
@@ -286,6 +298,69 @@ type stack struct {
 	daemon *fakeDaemon
 	paths  Paths
 	http   *http.Client
+
+	stateDir, auditDir string
+	logs               *syncBuffer      // The server's and registry's log
+	disp               *core.Dispatcher // Set by stackConfig.failRequested
+	failing            *failingAudit    // disp's audit writer
+	mint               func(name string, scopes ...string) string
+}
+
+// syncBuffer is a bytes.Buffer safe for concurrent writes.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// failingAudit is the stack's audit-failure option: it fails the next n
+// requested writes, then delegates every write to the real log.
+type failingAudit struct {
+	real *audit.Log
+
+	mu     sync.Mutex
+	n      int
+	failed int
+}
+
+var errInjectedAudit = errors.New("injected requested-write failure")
+
+func (a *failingAudit) Write(rec systemspec.AuditRecord, sensitive []string) (string, error) {
+	if rec.Outcome == audit.OutcomeRequested {
+		a.mu.Lock()
+		fail := a.n > 0
+		if fail {
+			a.n--
+			a.failed++
+		}
+		a.mu.Unlock()
+		if fail {
+			return "", errInjectedAudit
+		}
+	}
+	return a.real.Write(rec, sensitive)
+}
+
+func (a *failingAudit) Redact(provider, action string, params json.RawMessage, sensitive []string) (json.RawMessage, error) {
+	return a.real.Redact(provider, action, params, sensitive)
+}
+
+// failures is how many requested writes failed so far.
+func (a *failingAudit) failures() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.failed
 }
 
 // StackHost is the host name the stack reports.
@@ -296,7 +371,8 @@ func AvailableSystemd() detach.Availability { return detach.Availability{Availab
 
 func newStack(t *testing.T, cfg stackConfig) *stack {
 	t.Helper()
-	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	logs := &syncBuffer{}
+	log := slog.New(slog.NewJSONHandler(logs, nil))
 	root, stateDir, auditDir := t.TempDir(), t.TempDir(), t.TempDir()
 
 	opts := cfg.opts
@@ -344,8 +420,17 @@ func newStack(t *testing.T, cfg stackConfig) *stack {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reg, err := core.New([]provider.Provider{p}, core.Options{Host: opts.Host, Version: "v0.0.0-test", Logger: log,
-		Audit: alog, Ops: mgr, Providers: sectionOf(t, cfg.section)})
+	sections := sectionOf(t, cfg.section)
+	if cfg.disabled {
+		sections[spec.Name] = core.ProviderConfig{}
+	}
+	provs := []provider.Provider{p}
+	for _, x := range cfg.disabledExtra {
+		provs = append(provs, x)
+		sections[x.Spec().Name] = core.ProviderConfig{}
+	}
+	reg, err := core.New(provs, core.Options{Host: opts.Host, Version: "v0.0.0-test", Logger: log,
+		Audit: alog, Ops: mgr, Providers: sections})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +446,12 @@ func newStack(t *testing.T, cfg stackConfig) *stack {
 		admin:  token("admin", spec.AdminScope, spec.ReadScope),
 		nobody: token("nobody"),
 		p:      p, reg: reg, alog: alog, daemon: d, paths: opts.Paths,
-		http: &http.Client{Timeout: 30 * time.Second},
+		http:     &http.Client{Timeout: 30 * time.Second},
+		stateDir: d.StateDir(), auditDir: auditDir, logs: logs, mint: token,
+	}
+	if cfg.failRequested > 0 {
+		s.failing = &failingAudit{real: alog, n: cfg.failRequested}
+		s.disp = core.NewDispatcher(reg, core.DispatcherOptions{Logger: log, Audit: s.failing})
 	}
 	srv, err := server.New(reg, server.Options{Logger: log,
 		Auth: auth.New(stateDir, auth.Options{Logger: log, Audit: alog, FailureLimitPerMinute: 1000})})
