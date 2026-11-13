@@ -227,9 +227,11 @@ func TestTC156_NoWriteWhileReloadInFlight(t *testing.T) {
 					break
 				}
 			}
-			if !strings.Contains(out.String(), "pihole: waiting for FTL to finish reloading its lists") {
-				t.Errorf("log while held:\n%s", out.String())
-			}
+			// The "waiting" line is written once the action has looked at the
+			// log: wait for it as long as a loaded host needs, not for 150 ms.
+			waitFor(t, "the waiting line", func() bool {
+				return strings.Contains(out.String(), "pihole: waiting for FTL to finish reloading its lists")
+			})
 			h.FTL().ReleaseReloads()
 			select {
 			case err := <-done:
@@ -261,7 +263,9 @@ func TestTC156_NoWriteWhileReloadInFlight(t *testing.T) {
 		if err != nil || created || r.URL != "https://lists.example/present.txt" {
 			t.Fatalf("add = %+v, %v, %v", r, created, err)
 		}
-		if took := time.Since(start); took > 200*time.Millisecond {
+		// The held reload never ends before the deferred release, so any
+		// wait for it would last far longer than this bound.
+		if took := time.Since(start); took > 5*time.Second {
 			t.Errorf("an idempotent add waited %s", took)
 		}
 		if changeCounter(t, h) != counter || len(h.Argvs()) != 0 {

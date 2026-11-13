@@ -40,6 +40,7 @@ import (
 	"github.com/mauktik/nexus/internal/ops"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
+	"github.com/mauktik/nexus/internal/providers/pihole/dnscheck"
 	"github.com/mauktik/nexus/internal/providers/pihole/spec"
 	"github.com/mauktik/nexus/internal/providers/pihole/v5"
 	"github.com/mauktik/nexus/internal/providers/pihole/v5/v5test"
@@ -531,6 +532,17 @@ func TestTC68_ProductionWiring(t *testing.T) {
 		reflect.ValueOf(s.Now).Pointer() != reflect.ValueOf(time.Now).Pointer() {
 		t.Errorf("production seams %+v", s)
 	}
+	// Every timing seam is pinned to its named constant (review CR-8): a
+	// test-speed value leaking into production would pass the other tests.
+	if s.ReadyWindow != dnscheck.ReadyWindow {
+		t.Errorf("production readiness window %s, want dnscheck.ReadyWindow %s", s.ReadyWindow, dnscheck.ReadyWindow)
+	}
+	if s.PIDPoll != defaultPIDPoll || s.Reload != (v5.ReloadTiming{}) {
+		t.Errorf("production PID poll %+v, reload timing %+v, want the defaults and the zero ReloadTiming (A-67)", s.PIDPoll, s.Reload)
+	}
+	if got := helperSeams(&helperInject{}).Reload; got != (v5.ReloadTiming{}) {
+		t.Errorf("an empty injection's reload timing %+v, want the zero value", got)
+	}
 
 	w := newHelperWorld(t)
 	_, dir := prepare(w, wiringOp, "op-wiring", echoIn{})
@@ -551,14 +563,21 @@ func TestTC68_ProductionWiring(t *testing.T) {
 	if _, ok := m.Runner.(v5.Exec); !ok || m.Paths.Root != "/" || c.Paths.Root != "/" {
 		t.Errorf("mutator runner %T root %q, call root %q", m.Runner, m.Paths.Root, c.Paths.Root)
 	}
+	if m.Paths != (v5.Paths{Root: "/"}) || m.Reload != (v5.ReloadTiming{}) || m.Sleep != nil || m.GravityPoll != 0 {
+		t.Errorf("mutator paths %+v, reload %+v, sleep set %v, gravity poll %s: only the root may be set, and no timing override",
+			m.Paths, m.Reload, m.Sleep != nil, m.GravityPoll)
+	}
 	// TC-E15: the list-reload barrier probes FTL on 127.0.0.1:53 and reads
 	// /var/log/pihole/FTL.log (on a host whose pihole-FTL.conf has no
 	// LOGFILE=, as the image's).
 	if m.DNSServer != netip.MustParseAddrPort("127.0.0.1:53") {
 		t.Errorf("mutator DNS server %v, want 127.0.0.1:53", m.DNSServer)
 	}
-	if v5.ReadFTLConf(m.Paths).LogFile == v5.DefaultFTLLogFile && m.Paths.FTLLogPath() != "/var/log/pihole/FTL.log" {
-		t.Errorf("mutator FTL log %q, want /var/log/pihole/FTL.log", m.Paths.FTLLogPath())
+	// Without a LOGFILE= in pihole-FTL.conf the log is the default one,
+	// whatever the host's own conf says.
+	root := t.TempDir()
+	if got, want := (v5.Paths{Root: root}).FTLLogPath(), filepath.Join(root, "/var/log/pihole/FTL.log"); got != want {
+		t.Errorf("FTL log %q with no pihole-FTL.conf, want %q", got, want)
 	}
 	if c.DNSServer != netip.MustParseAddrPort("127.0.0.1:53") ||
 		reflect.ValueOf(c.Now).Pointer() != reflect.ValueOf(time.Now).Pointer() {
@@ -595,6 +614,13 @@ func TestHelperDisablesCoreFiles(t *testing.T) {
 	if err := syscall.Setrlimit(syscall.RLIMIT_CORE, &raised); err != nil {
 		t.Fatal(err)
 	}
+	// The test process's own soft limit goes back as it was; runHelper
+	// lowers it for the rest of the run (review CR-19).
+	t.Cleanup(func() {
+		if err := syscall.Setrlimit(syscall.RLIMIT_CORE, &lim); err != nil {
+			t.Errorf("restoring RLIMIT_CORE: %v", err)
+		}
+	})
 	w := newHelperWorld(t)
 	runPrepared(w, echoOp, "op-core", echoIn{})
 	var got syscall.Rlimit
@@ -923,5 +949,27 @@ func TestTC73_NoSecretInHelperOutput(t *testing.T) {
 		if len(op.Sensitive) != 0 {
 			t.Errorf("op %s declares Sensitive %v", op.ID, op.Sensitive)
 		}
+	}
+}
+
+// CR-8: the provider's own seams, which the reads use, default to the
+// production ones: FTL's DNS on 127.0.0.1:53, the real exec runner, paths
+// under "/" and the real systemd check.
+func TestNewProductionSeams(t *testing.T) {
+	p := New(Options{})
+	if p.dnsServer != netip.MustParseAddrPort("127.0.0.1:53") {
+		t.Errorf("DNS server %v, want 127.0.0.1:53", p.dnsServer)
+	}
+	if _, ok := p.runner.(v5.Exec); !ok {
+		t.Errorf("runner %T, want v5.Exec", p.runner)
+	}
+	if p.paths != (v5.Paths{}) {
+		t.Errorf("paths %+v, want the zero Paths (production, under /)", p.paths)
+	}
+	if reflect.ValueOf(p.systemd).Pointer() != reflect.ValueOf(detach.SystemdAvailable).Pointer() {
+		t.Error("systemd check is not detach.SystemdAvailable")
+	}
+	if d := p.deps(); d.DNSServer != p.dnsServer || d.Runner != p.runner || d.Reload != (v5.ReloadTiming{}) {
+		t.Errorf("backend deps %+v", d)
 	}
 }

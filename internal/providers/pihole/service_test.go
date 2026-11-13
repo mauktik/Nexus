@@ -283,7 +283,7 @@ func TestTC75_RestartDNSAction(t *testing.T) {
 	}
 	newPID := w.h.FTL().PID()
 	if !res.Changed || res.FTLPidBefore == nil || *res.FTLPidBefore != v5test.FakeFTLPID ||
-		res.FTLPidAfter == nil || *res.FTLPidAfter != newPID || newPID == v5test.FakeFTLPID || res.ReadyAfterMs < 0 {
+		res.FTLPidAfter == nil || *res.FTLPidAfter != newPID || newPID == v5test.FakeFTLPID || res.ReadyAfterMs <= 0 {
 		t.Errorf("result %+v (pids %s -> %s); want changed, %d -> %d", res, pidStr(res.FTLPidBefore),
 			pidStr(res.FTLPidAfter), v5test.FakeFTLPID, newPID)
 	}

@@ -151,8 +151,8 @@ func TestTCERR8_QueryFailures(t *testing.T) {
 	if ans, err := dnscheck.Query(ctx, r.addr, "wrongid.lan", 300*time.Millisecond); err == nil {
 		t.Errorf("wrong ID accepted: %+v", ans)
 	}
-	if ans, err := dnscheck.Query(ctx, r.addr, "trunc.lan", 300*time.Millisecond); err == nil {
-		t.Errorf("truncated reply accepted: %+v", ans)
+	if ans, err := dnscheck.Query(ctx, r.addr, "trunc.lan", 300*time.Millisecond); !errors.Is(err, dnscheck.ErrTruncated) {
+		t.Errorf("truncated reply: %+v, %v; want dnscheck.ErrTruncated, which the barrier's probe accepts as an answer", ans, err)
 	}
 }
 

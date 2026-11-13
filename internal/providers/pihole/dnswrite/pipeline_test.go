@@ -829,8 +829,9 @@ func TestBackupFailureWritesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, perr := e.apply(t, nil, "", dnsfile.AddZone{Zone: "app.lan"})
-	if perr == nil {
-		t.Fatal("Apply succeeded without a backup")
+	if perr == nil || perr.Slug() != problem.InternalError || !strings.Contains(perr.Detail, "pre-Nexus backup") ||
+		!strings.Contains(perr.Detail, "nothing was changed") {
+		t.Fatalf("got %v, want internal-error naming the pre-Nexus backup and that nothing was changed", perr)
 	}
 	if !bytes.Equal(e.live(t), e.orig) || len(e.h.Argvs()) != 0 {
 		t.Error("the file changed, or a command ran")

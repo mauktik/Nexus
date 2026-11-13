@@ -1,6 +1,4 @@
-// Stub-style: SKIP-only (WI 3.2). Excluded from `make test` by the
-// pihole_red build tag; the WI 3.2 developer deletes the //go:build line and
-// these must pass. Cases: TC-74 (a-g) in planning/pihole-dns-zones/test-cases.md.
+// Cases: TC-74 (a-g), TC-154 in planning/pihole-dns-zones/test-cases.md.
 //
 // FakeFTL fidelity: it must reproduce dnsmasq/FTL v5.25.2 behavior the DNS
 // write pipeline depends on (architecture V-10, V-11, V-17; requirements

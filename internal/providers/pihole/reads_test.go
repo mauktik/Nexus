@@ -385,9 +385,7 @@ func TestTC58_ZoneReads(t *testing.T) {
 	_, p := call(w, spec.ZonesGet, `{"name":"nope.lan"}`)
 	wantProblem(t, "get nope.lan", p, problem.NotFound, 404, "")
 	_, p = call(w, spec.ZonesGet, `{"name":"unzoned"}`)
-	if p == nil {
-		t.Error("get unzoned succeeded; unzoned is not a zone")
-	}
+	wantProblem(t, "get unzoned", p, problem.NotFound, 404, "") // unzoned is not a zone
 }
 
 // TC-59: record reads follow a hand edit of the file.
@@ -672,10 +670,13 @@ func TestTC62_SingletonsFollowState(t *testing.T) {
 	r.write(v5.FTLConfFile, fmt.Appendf(nil, "FTLPORT=%d\n", ftl.port()), 0o644)
 	r.write(v5.SetupVarsFile, []byte(setupVarsOn), 0o644)
 	w := r.world()
-	var wantBlocked int64
+	var wantBlocked, wantQueries int64
 	for line := range strings.SplitSeq(string(stats), "\n") {
 		if v, ok := strings.CutPrefix(line, "domains_being_blocked "); ok {
 			wantBlocked, _ = strconv.ParseInt(v, 10, 64)
+		}
+		if v, ok := strings.CutPrefix(line, "dns_queries_today "); ok {
+			wantQueries, _ = strconv.ParseInt(v, 10, 64)
 		}
 	}
 
@@ -699,8 +700,8 @@ func TestTC62_SingletonsFollowState(t *testing.T) {
 		t.Errorf("step 1 status %s", js(t, s))
 	}
 	if s := sum.Items[0].Properties; !s.FTLAPIReachable || s.GravityDomains == nil || *s.GravityDomains != wantBlocked ||
-		s.QueriesToday == nil {
-		t.Errorf("step 1 summary %s, want the >stats values (domains_being_blocked %d)", js(t, s), wantBlocked)
+		s.QueriesToday == nil || *s.QueriesToday != wantQueries {
+		t.Errorf("step 1 summary %s, want the >stats values (domains_being_blocked %d, dns_queries_today %d)", js(t, s), wantBlocked, wantQueries)
 	}
 	if b := bl.Items[0].Properties; b.State != spec.BlockingEnabled {
 		t.Errorf("step 1 blocking %s", js(t, b))

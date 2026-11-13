@@ -447,36 +447,46 @@ func TestReadPerformance(t *testing.T) {
 		`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 20000)
 			INSERT INTO gravity (domain, adlist_id) SELECT 'g' || i || '.example', 1 + i % 50 FROM n`)
 
+	// The 50 ms p95 is a wall-clock bound on a shared machine: a round that
+	// misses it because the host was busy is repeated, and the test fails
+	// only when every one of 3 rounds misses (review CR-15). NFR-1 itself is
+	// measured on a real host at T1 (TC-122).
 	var samples []time.Duration
-	for range 20 {
-		start := time.Now()
-		d, err := OpenReadOnly(ctx, path)
-		if err != nil {
-			t.Fatal(err)
+	var p95 time.Duration
+	for round := 1; round <= 3; round++ {
+		samples = samples[:0]
+		for range 20 {
+			start := time.Now()
+			d, err := OpenReadOnly(ctx, path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			domains, err := d.Domains(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			adlists, err := d.Adlists(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := d.Close(); err != nil {
+				t.Fatal(err)
+			}
+			samples = append(samples, time.Since(start))
+			if len(domains) != 1000 || len(adlists) != 50 {
+				t.Fatalf("read %d domains, %d adlists", len(domains), len(adlists))
+			}
 		}
-		domains, err := d.Domains(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		adlists, err := d.Adlists(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := d.Close(); err != nil {
-			t.Fatal(err)
-		}
-		samples = append(samples, time.Since(start))
-		if len(domains) != 1000 || len(adlists) != 50 {
-			t.Fatalf("read %d domains, %d adlists", len(domains), len(adlists))
+		slices.Sort(samples)
+		p95 = samples[18] // the 19th of 20 samples
+		t.Logf("round %d: p95 %v, max %v", round, p95, samples[19])
+		if p95 < 50*time.Millisecond {
+			break
 		}
 	}
-	slices.Sort(samples)
-	p95 := samples[18] // the 19th of 20 samples
-	t.Logf("p95 %v, max %v", p95, samples[19])
 	if p95 >= 50*time.Millisecond {
-		t.Errorf("p95 %v, want under 50ms (all: %v)", p95, samples)
+		t.Errorf("p95 %v in the last of 3 rounds, want under 50ms (all: %v)", p95, samples)
 	}
-
 }
 
 // TC-36, second half: no read query's plan touches the gravity table.

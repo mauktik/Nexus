@@ -1,5 +1,3 @@
-// Stub-style: RED-by-design (WI 1.5). This file fails to compile until
-// internal/providers/pihole/dnsfile exists; it is GREEN when WI 1.5 lands.
 // Cases: TC-15 to TC-31, TC-E5, TC-E6 in planning/pihole-dns-zones/test-cases.md.
 // The symbol names follow the "dnsfile" row of the test-seam contract in
 // test-strategy.md; the owning developer may rename a symbol to the one

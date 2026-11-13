@@ -1,5 +1,3 @@
-// Stub-style: RED-by-design (WI 1.3). This file fails to compile until
-// internal/providers/pihole/spec exists; it is GREEN when WI 1.3 lands.
 // Cases: TC-3, TC-4, TC-5, TC-6, TC-E2, TC-ERR3, TC-ERR4 in
 // planning/pihole-dns-zones/test-cases.md. Expected rows are copied from the
 // Operation catalog and Validation rules tables in architecture.md.
