@@ -1121,6 +1121,8 @@ func TestShippedUnitRunsNexusdAndLaunchesOpUnit(t *testing.T) {
 		return u["LoadState"] == "loaded" && u["ActiveState"] == "active", fmt.Sprint(u)
 	})
 	t.Logf("%s: %v", gunit, showUnit(t, gunit, "LoadState", "ActiveState", "RefuseManualStop", "KillMode"))
+	// The unit is active before its child has made the marker directory.
+	waitPIDFile(t, filepath.Join(markerDir("tc227-gate"), "child.pid"))
 	release(t, "tc227-gate")
 	if end, _ := o.waitTerminal(gate.ID, 60*time.Second); end.Status != apitypes.StatusSucceeded {
 		t.Fatalf("gate op ended %s (%v)", end.Status, end.Error)
