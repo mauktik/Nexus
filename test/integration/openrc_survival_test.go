@@ -61,7 +61,7 @@ func installedNexusd(t *testing.T, catalog string) *scriptsd {
 		"run":  {spec.RunScope, spec.ReadScope},
 		"read": {spec.ReadScope},
 	} {
-		v, _, err := auth.Create(d.stateDir, auth.CreateRequest{Name: strings.ToLower(t.Name()) + "-" + tok, Scopes: scopes})
+		v, _, err := auth.Create(d.stateDir, auth.CreateRequest{Name: tokenName(t) + "-" + tok, Scopes: scopes})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -86,6 +86,18 @@ func installedNexusd(t *testing.T, catalog string) *scriptsd {
 	})
 	lib(t, "start-nexusd")
 	return d
+}
+
+// tokenName is the test's name as a token name: lower case, with the
+// subtest separator and anything else outside [a-z0-9._-] replaced.
+func tokenName(t *testing.T) string {
+	n := strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '.' || r == '_' || r == '-' {
+			return r
+		}
+		return '-'
+	}, strings.ToLower(t.Name()))
+	return n[:min(len(n), 56)]
 }
 
 // requireShippedScript checks that /etc/init.d/nexusd is deploy/nexusd.openrc
@@ -256,9 +268,11 @@ func TestOpenRCServiceLifecycle(t *testing.T) {
 	if took := time.Since(start); took > 2*time.Second {
 		t.Errorf("/healthz answered %v after the start, want within 2 s", took)
 	}
-	pids := strings.Fields(mustSh(t, "pgrep", "-x", "nexusd"))
+	// An operation supervisor is also a process named nexusd (nexusd
+	// op-supervise); the daemons are the ones running serve.
+	pids := strings.Fields(mustSh(t, "pgrep", "-x", "-f", nexusdBin+" serve.*"))
 	if len(pids) != 1 || pids[0] != strconv.Itoa(pid) {
-		t.Fatalf("pgrep -x nexusd: %v, want exactly the answering %d", pids, pid)
+		t.Fatalf("pgrep nexusd serve: %v, want exactly the answering %d", pids, pid)
 	}
 	b, err := os.ReadFile(openrcPidfile)
 	if err != nil {
@@ -271,7 +285,7 @@ func TestOpenRCServiceLifecycle(t *testing.T) {
 	switch comm := procComm(pf); {
 	case comm == "nexusd" && pf == pid:
 		t.Logf("pidfile names: nexusd (pid %d)", pf)
-	case comm == "supervise-daemon" && procStatusField(pid, "PPid") == strconv.Itoa(pf):
+	case isSuperviseDaemon(pf) && procStatusField(pid, "PPid") == strconv.Itoa(pf):
 		t.Logf("pidfile names: supervise-daemon (pid %d), parent of the answering nexusd %d", pf, pid)
 	default:
 		t.Fatalf("pidfile names pid %d (%s), neither the answering nexusd %d nor its supervise-daemon (nexusd PPid %s)",
@@ -324,7 +338,7 @@ func TestOpenRCServiceLifecycle(t *testing.T) {
 	if took := time.Since(stopAt); took > 15*time.Second {
 		t.Errorf("rc-service nexusd stop took %v, want within 15 s", took)
 	}
-	if out, err := sh(10*time.Second, "pgrep", "-x", "nexusd"); err == nil {
+	if out, err := sh(10*time.Second, "pgrep", "-x", "-f", nexusdBin+" serve.*"); err == nil {
 		t.Fatalf("nexusd left after the stop: %s", out)
 	}
 

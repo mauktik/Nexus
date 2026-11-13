@@ -785,15 +785,37 @@ func TestScriptIdentityAndCredentials(t *testing.T) {
 	if op.Status != apitypes.StatusSucceeded {
 		t.Fatalf("whoami: %s %v", op.Status, op.Error)
 	}
-	want := "id: " + strings.TrimSpace(mustSh(t, "id", "deploy")) + "\n"
-	if !strings.Contains(out, want) || !strings.Contains(want, "(docker)") {
-		t.Errorf("output lacks %q (with the docker group)", want)
+	// The supplementary groups compare as a set: `id deploy` lists them in
+	// /etc/group order, the script's own `id` in its setgroups order, and
+	// BusyBox (Alpine) sorts the latter numerically.
+	want := strings.TrimSpace(mustSh(t, "id", "deploy"))
+	var got string
+	for line := range strings.Lines(out) {
+		if v, ok := strings.CutPrefix(line, "id: "); ok {
+			got = strings.TrimSpace(v)
+			break
+		}
+	}
+	if !strings.Contains(want, "(docker)") || !sameID(got, want) {
+		t.Errorf("script ran as %q, want %q (with the docker group)", got, want)
 	}
 	for _, line := range []string{"docker: ok\n", head + "\trefs/heads/main\n", "username=nxuser\n", "password=nxpass\n", "ssh-agent: none\n"} {
 		if !strings.Contains(out, line) {
 			t.Errorf("output lacks %q", line)
 		}
 	}
+}
+
+// sameID reports whether two id(1) lines name the same uid, gid and set of
+// supplementary groups.
+func sameID(a, b string) bool {
+	norm := func(s string) string {
+		head, groups, _ := strings.Cut(s, " groups=")
+		g := strings.Split(groups, ",")
+		slices.Sort(g)
+		return head + " groups=" + strings.Join(g, ",")
+	}
+	return a != "" && norm(a) == norm(b)
 }
 
 // TC-100: concurrency 1 and 2. Starts past the limit are 409 conflict

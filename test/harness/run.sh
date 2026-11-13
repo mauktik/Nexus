@@ -20,7 +20,11 @@
 # (detach.log, ops.log) and as an unprivileged user (detach-nonroot.log,
 # ops-nonroot.log), with the harness nexusd as their supervisor executable.
 # After it, TestParitySuitesRanAsRoot reads those logs and test.log
-# (parity-check.log). PARITY=0 leaves all of that out for a quick run.
+# (parity-check.log). Last, internal/svcctl's TestLiveMatrix drives the
+# container's real nginx through the detected init system as root
+# (NEXUS_SVCCTL_LIVE=1, svcctl-live.log); the Ubuntu image has no nginx, so
+# it is installed from the archive then, after every other suite has run.
+# PARITY=0 leaves all of that out for a quick run.
 #
 # The Docker CLI's current context is used as is: no socket is hardcoded.
 #
@@ -151,6 +155,7 @@ go test -c -trimpath -tags integration -o "$OUT/integration.test" ./test/integra
 if [ "$PARITY" = 1 ]; then
 	go test -c -trimpath -o "$OUT/detach.test" ./internal/detach
 	go test -c -trimpath -o "$OUT/ops.test" ./internal/ops
+	go test -c -trimpath -o "$OUT/svcctl.test" ./internal/svcctl
 fi
 unset CGO_ENABLED GOOS GOARCH
 make --no-print-directory -s nexusd-tree TREE_BIN="$OUT/nexusd" TREE_DIR="$OUT/release/nexusd"
@@ -382,4 +387,24 @@ if [ "$PARITY" = 1 ]; then
 	say "parity check exited $check, parity suites $parity_status"
 	[ $status -ne 0 ] || status=$check
 	[ $status -ne 0 ] || status=$parity_status
+fi
+
+if [ "$PARITY" = 1 ]; then
+	say "svcctl TestLiveMatrix against the container's nginx ($MODE) -> svcctl-live.log"
+	set +e
+	docker cp "$OUT/svcctl.test" "$container:/harness/parity/svcctl.test"
+	if [ $MODE = systemd ]; then
+		docker exec -e DEBIAN_FRONTEND=noninteractive "$container" sh -c \
+			'command -v nginx >/dev/null || { apt-get update -q && apt-get install -y -q --no-install-recommends nginx; }' \
+			>"$LOGS/svcctl-nginx-install.log" 2>&1
+	fi
+	docker exec -w /harness/parity -e NEXUS_SVCCTL_LIVE=1 "$container" /harness/parity/svcctl.test \
+		-test.v -test.count=1 -test.run '^TestLiveMatrix$' >"$LOGS/svcctl-live.log" 2>&1
+	live=$?
+	set -e
+	cat "$LOGS/svcctl-live.log"
+	if [ $live -ne 0 ] || ! grep -q '^--- PASS: TestLiveMatrix' "$LOGS/svcctl-live.log"; then
+		say "svcctl TestLiveMatrix did not pass (exit $live)"
+		[ $status -ne 0 ] || status=1
+	fi
 fi

@@ -131,6 +131,7 @@ func containerAt(names []string) func(int) string {
 // and every provider enabled; the cold apt.upgradable.list is reported on
 // its own (A-38).
 func TestNFRLatency(t *testing.T) {
+	requireApt(t)
 	nfrLoad(t)
 	containers := nfrContainers(t)
 	n := nfrSetup(t, "nfr-latency", dockerSocket, "")
@@ -195,6 +196,7 @@ func TestNFRLatency(t *testing.T) {
 // TC-190: a real apt upgrade, its dpkg held in a gated postinst, runs
 // while Docker and scripts reads and script starts are measured.
 func TestNFRProvidersDoNotBlock(t *testing.T) {
+	requireApt(t)
 	nfrLoad(t)
 	containers := nfrContainers(t)
 	n := nfrSetup(t, "nfr-noblock", dockerSocket, "    lockWait: 300s\n")
@@ -355,6 +357,7 @@ func (g *dockerGate) setHung(h bool) {
 // nexusd for the failures of a real dependency (same PID throughout), and
 // on others for a Docker socket that accepts and never answers.
 func TestNFRDependencyFailureMatrix(t *testing.T) {
+	requireApt(t)
 	nfrLoad(t)
 	containers := nfrContainers(t)
 	since := time.Now().Add(-time.Second)

@@ -8,7 +8,9 @@ package integration
 import (
 	"bufio"
 	"debug/elf"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/platform"
 )
 
@@ -30,6 +33,16 @@ func requireInit(t testing.TB, want platform.InitSystem) {
 	t.Helper()
 	if skip, reason := initGate(want, detectedInit()); skip {
 		t.Skip(reason)
+	}
+}
+
+// requireApt skips a test that measures or drives the apt provider on a
+// host without apt and dpkg (Alpine), with the reason TC-46 reads:
+// "requires apt (detected alpine)".
+func requireApt(t testing.TB) {
+	t.Helper()
+	if o := platform.Current().OS; !o.IsDebianFamily() {
+		t.Skipf("requires apt (detected %s)", o.ID)
 	}
 }
 
@@ -134,8 +147,12 @@ func verdictOf(rs []testResult, name string) (testResult, bool) {
 	return testResult{}, false
 }
 
-// gateRE is requireInit's skip reason, after the file:line prefix.
-var gateRE = regexp.MustCompile(`requires (systemd|openrc) \(detected (\w+)\)`)
+// gateRE is requireInit's skip reason, after the file:line prefix;
+// aptGateRE is requireApt's.
+var (
+	gateRE    = regexp.MustCompile(`requires (systemd|openrc) \(detected (\w+)\)`)
+	aptGateRE = regexp.MustCompile(`requires apt \(detected (\w+)\)`)
+)
 
 // privilegedSkipRE is a skip reason that names root, cgroups or an init
 // system: such a case must run on its own platform.
@@ -230,11 +247,18 @@ func TestParitySuitesRanAsRoot(t *testing.T) {
 			gated = append(gated, r.name)
 			continue
 		}
+		if m := aptGateRE.FindStringSubmatch(r.reason); m != nil {
+			if platform.Current().OS.IsDebianFamily() {
+				t.Errorf("test.log: %s skipped for apt on %s, which has apt", r.name, m[1])
+			}
+			gated = append(gated, r.name)
+			continue
+		}
 		if privilegedSkipRE.MatchString(r.reason) {
 			t.Errorf("test.log: %s skipped on its own platform: %s", r.name, strings.TrimSpace(r.reason))
 		}
 	}
-	t.Logf("test.log: %d results; %d gated to %s: %s", len(rs), len(gated), other, strings.Join(gated, ", "))
+	t.Logf("test.log: %d results; %d gated to %s or to apt: %s", len(rs), len(gated), other, strings.Join(gated, ", "))
 	// TC-50: the systemd cgroup control runs on systemd and is gated on
 	// OpenRC, and the reverse for the OpenRC survival suite.
 	for name, on := range map[string]platform.InitSystem{
@@ -284,29 +308,46 @@ func TestReleaseBinaryStaticOnMusl(t *testing.T) {
 	// serve, then GET /healthz, with the C library being musl only.
 	startPlainNexusd(t, "tc49")
 
-	// validate-config resolves runAs from /etc/passwd through pure-Go
-	// os/user: a real user validates, an unknown one does not.
+	// runAs resolves from /etc/passwd through pure-Go os/user. validate-config
+	// accepts the catalog but does not look the account up; the scripts
+	// provider does at invoke (integrity.go lookupAccount), so a real user's
+	// script runs under its UID and an unknown user's is refused.
 	if _, err := sh(time.Minute, "id", "nexusrun"); err != nil {
 		mustSh(t, "adduser", "-D", "-H", "nexusrun")
 	}
+	uid := strings.TrimSpace(mustSh(t, "id", "-u", "nexusrun"))
 	dir := testDir(t, "tc49")
-	script := installScript(t, filepath.Join(dir, "id.sh"), "#!/bin/sh\nid -u\n")
-	tmp := t.TempDir()
-	for _, c := range []struct {
-		user string
-		ok   bool
-	}{{"nexusrun", true}, {"nexus-no-such-user", false}} {
-		cfg := filepath.Join(tmp, c.user+".yaml")
-		body := fmt.Sprintf("listen: [\"127.0.0.1:7443\"]\ntls: {mode: off}\nproviders:\n  scripts:\n    enabled: true\n    catalog:\n%s",
-			catalogYAML(entry{id: "id", path: script, runAs: c.user}))
-		if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
+	script := installScript(t, filepath.Join(dir, "id.sh"), "#!/bin/sh\necho \"uid=$(id -u)\"\n")
+	catalog := catalogYAML(entry{id: "known", path: script, runAs: "nexusrun"}, entry{id: "unknown", path: script, runAs: "nexus-no-such-user"})
+	cfg := filepath.Join(t.TempDir(), "nexusd.yaml")
+	body := fmt.Sprintf("listen: [\"127.0.0.1:7443\"]\ntls: {mode: off}\nproviders:\n  scripts:\n    enabled: true\n    catalog:\n%s", catalog)
+	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out := mustSh(t, nexusdBin, "validate-config", "--config", cfg)
+	t.Logf("validate-config: %s", strings.TrimSpace(out))
+
+	d := newScriptsd(t, "tc49", catalog)
+	op, _ := d.waitTerminal(d.invoke("known", nil).ID, time.Minute)
+	logs := d.logs(op.ID)
+	t.Logf("runAs nexusrun: %s %v %q", op.Status, op.Error, logs)
+	if op.Status != apitypes.StatusSucceeded || !strings.Contains(logs, "uid="+uid+"\n") {
+		t.Errorf("runAs nexusrun: %s %v, output %q, want uid=%s", op.Status, op.Error, logs, uid)
+	}
+	code, resp := d.post("unknown", nil)
+	refused := code >= 400
+	if code == http.StatusAccepted {
+		var started apitypes.Operation
+		if err := json.Unmarshal(resp, &started); err != nil {
 			t.Fatal(err)
 		}
-		out, err := sh(time.Minute, nexusdBin, "validate-config", "--config", cfg)
-		t.Logf("validate-config with runAs %s: %v %s", c.user, err, strings.TrimSpace(out))
-		if (err == nil) != c.ok {
-			t.Fatalf("validate-config with runAs %s: %v, want ok=%v\n%s", c.user, err, c.ok, out)
-		}
+		op, _ := d.waitTerminal(started.ID, time.Minute)
+		refused = op.Status == apitypes.StatusFailed
+		resp = fmt.Appendf(resp, " -> %s %v", op.Status, op.Error)
+	}
+	t.Logf("runAs nexus-no-such-user: %d %s", code, resp)
+	if !refused || !strings.Contains(string(resp), "nexus-no-such-user") {
+		t.Errorf("runAs nexus-no-such-user: %d %s, want the invoke refused naming the user", code, resp)
 	}
 }
 

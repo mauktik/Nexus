@@ -392,7 +392,7 @@ func openrcMainPID(t *testing.T) int {
 	if err != nil {
 		t.Fatalf("%s: %q", openrcPidfile, b)
 	}
-	if procComm(pid) != "supervise-daemon" {
+	if !isSuperviseDaemon(pid) {
 		return pid
 	}
 	kids := childrenOf(pid)
@@ -400,6 +400,14 @@ func openrcMainPID(t *testing.T) int {
 		return 0 // Between a crash and the respawn
 	}
 	return kids[0]
+}
+
+// isSuperviseDaemon reports whether pid runs OpenRC's supervise-daemon. It
+// reads the executable, not comm: the kernel truncates comm to 15 bytes
+// ("supervise-daemo").
+func isSuperviseDaemon(pid int) bool {
+	exe, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+	return err == nil && filepath.Base(exe) == "supervise-daemon"
 }
 
 // procStatusField is a field of /proc/<pid>/status, such as PPid or Umask.

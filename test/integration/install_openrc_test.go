@@ -195,7 +195,7 @@ func TestOpenRCInstallFirstAndUpgrade(t *testing.T) {
 	if string(got) != string(want) {
 		t.Fatalf("%s is not the default configuration", nexusdConfig)
 	}
-	if show := mustSh(t, "rc-update", "show", "-v"); regexp.MustCompile(`(?m)^\s*nexusd\s*\|\s*\S`).MatchString(show) {
+	if show := mustSh(t, "rc-update", "show", "-v"); regexp.MustCompile(`(?m)^[ \t]*nexusd[ \t]*\|[ \t]*\S`).MatchString(show) {
 		t.Fatalf("rc-update show lists nexusd in a runlevel:\n%s", show)
 	}
 	if st := rcStatus(t); st != "stopped" {
@@ -294,8 +294,9 @@ func TestOpenRCUninstallAndPurge(t *testing.T) {
 	if !strings.Contains(out, "operation supervisors still running") || !strings.Contains(out, op.ID) {
 		t.Errorf("uninstall.sh does not warn about the running supervisor of %s", op.ID)
 	}
-	if o, err := sh(10*time.Second, "pgrep", "-x", "nexusd"); err == nil {
-		t.Errorf("nexusd still runs after uninstall: %s", o)
+	// The supervisor is nexusd op-supervise too: only a daemon counts.
+	if o, err := sh(10*time.Second, "pgrep", "-x", "-f", nexusdBin+" serve.*"); err == nil {
+		t.Errorf("nexusd serve still runs after uninstall: %s", o)
 	}
 	if links, _ := filepath.Glob("/etc/runlevels/*/nexusd"); len(links) > 0 {
 		t.Errorf("nexusd is still in runlevels: %v", links)
