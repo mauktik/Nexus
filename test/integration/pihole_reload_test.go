@@ -14,6 +14,8 @@ package integration
 import (
 	"fmt"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -361,5 +363,122 @@ func TestPiholeStuckFTLRepairedBeforeWrite(t *testing.T) {
 	if !phSplitAnswers(split) {
 		t.Errorf("dig %s after the op: %s (FTL still stuck)", phSplit, split)
 		phFTLDiag(t)
+	}
+}
+
+// phCompiledRe is a completion line's "in X msec": how long the reload's
+// regex read took, which ends at the line's own timestamp.
+var phCompiledRe = regexp.MustCompile(`\] Compiled [0-9]+ whitelist and [0-9]+ blacklist regex filters for [0-9]+ clients in ([0-9.]+) msec$`)
+
+// Regression (WI 5.6, Phase 5 verification) [hazard: reload-race]: a write
+// that arrives just after FTL logged the completion of a reload with a
+// second reload queued behind it must wait for that queued reload too. Two
+// `pihole restartdns reload-lists` outside Nexus, the second while the first
+// runs, make FTL's database thread reload once more after the first
+// completes (the event flag, src/signals.c L290), with no start line of its
+// own; it starts after the thread's 100 ms sleep (src/database/
+// database-thread.c L128). The test waits for the first completion line and
+// at once posts an add-domain through nexusd. Its pre-write check reads a
+// record that has ended with two start lines. The commit's time is
+// gravity.db's mtime after the op (nothing else writes it meanwhile; FTL
+// only reads it): it raced if it fell inside a reload's read, which ends at
+// a completion line and took that line's "in X msec" (plus the reopen and
+// count before it). The user-visible symptoms are asserted as well: a new
+// "database is locked" or "Gravity database not available" line, FTL not
+// answering www.xi.example, the domain not blocked.
+func TestPiholeWriteWaitsForQueuedReload(t *testing.T) {
+	phStartHealthy(t)
+	t.Cleanup(func() { phCleanRace(t) })
+	r, d := phSeedRaceRegexes(t)
+	n := piholed(t, "queued", "")
+	for round := range 3 {
+		name := fmt.Sprintf("race-q%d.example", round)
+		phWaitReloadsQuiet(t, d+time.Second)
+		off := phLogSize(t)
+		mustSh(t, phPihole, "restartdns", "reload-lists")
+		time.Sleep(300 * time.Millisecond)
+		mustSh(t, phPihole, "restartdns", "reload-lists")
+		var first time.Time
+		for deadline := time.Now().Add(time.Minute); first.IsZero(); time.Sleep(2 * time.Millisecond) {
+			for _, l := range phLogSince(t, off) {
+				if phCompiledRe.MatchString(l) {
+					first, _ = phLogTime(l)
+					break
+				}
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("no completion line within a minute")
+			}
+		}
+		posted := time.Now()
+		op := phStart(t, n, "/actions/add-domain", fmt.Sprintf(`{"list":"deny","kind":"exact","value":%q}`, name))
+		log := phFollow(t, n, op.ID, nil)
+		op = phPollOp(t, n, op.ID, 5*time.Minute)
+		fi, err := os.Stat(phGravityDB)
+		if err != nil {
+			t.Fatal(err)
+		}
+		committed := fi.ModTime()
+		phWaitReloadsQuiet(t, d+time.Second)
+		split, blocked := phDig(phSplit), phDig(name)
+		lines := phLogSince(t, off)
+		var failed, raced []string
+		var signalled time.Time // the first start line after the commit: Nexus's own reload-lists
+		compiled := 0
+		for _, l := range lines {
+			if strings.Contains(l, "database is locked") || strings.Contains(l, "Gravity database not available") {
+				failed = append(failed, l)
+			}
+			if ts, ok := phLogTime(l); ok && signalled.IsZero() && ts.After(committed) &&
+				strings.Contains(l, "] Received: Real-time signal 0 (") {
+				signalled = ts
+			}
+			m := phCompiledRe.FindStringSubmatch(l)
+			if m == nil {
+				continue
+			}
+			compiled++
+			// The reload's read of the regexes took m[1] up to this line;
+			// its reopen and counts before that take a few ms more. A
+			// reload whose read began after a start line that followed
+			// the commit was started after the commit.
+			end, _ := phLogTime(l)
+			ms, _ := strconv.ParseFloat(m[1], 64)
+			read := end.Add(-time.Duration(ms * float64(time.Millisecond)))
+			if !signalled.IsZero() && signalled.Before(read) {
+				continue
+			}
+			if committed.After(read.Add(-30*time.Millisecond)) && committed.Before(end.Add(time.Millisecond)) {
+				raced = append(raced, l)
+			}
+		}
+		nexusReloads := strings.Count(log, "pihole: running pihole restartdns reload-lists")
+		t.Logf("round %d (R %d, D %s): first completion %s, posted %s, committed %s (gravity.db mtime); add-domain %s in %s; "+
+			"%d completion lines, %d from Nexus's reloads; dig %s: %s; dig %s: %s\nop log:\n%s\nFTL.log since the first signal:\n%s",
+			round, r, d, first.Format("15:04:05.000"), posted.Format("15:04:05.000"), committed.Format("15:04:05.000"),
+			op.Status, phTook(op), compiled, nexusReloads, phSplit, split, name, blocked, log, strings.Join(lines, "\n"))
+		if compiled < 2+nexusReloads {
+			t.Errorf("round %d: the second signal did not queue a reload (%d completion lines): the case was not set up", round, compiled)
+		}
+		if op.Status != apitypes.StatusSucceeded {
+			t.Errorf("round %d: add-domain %s %+v", round, op.Status, op.Error)
+		}
+		if len(raced) > 0 {
+			t.Errorf("round %d: the commit at %s fell inside a reload's read of gravity.db:\n%s", round,
+				committed.Format("15:04:05.000"), strings.Join(raced, "\n"))
+		}
+		if len(failed) > 0 {
+			t.Errorf("round %d: a list reload failed (it met the commit):\n%s", round, strings.Join(failed, "\n"))
+		}
+		if !phSplitAnswers(split) {
+			t.Errorf("round %d: dig %s after the op: %s (FTL stuck)", round, phSplit, split)
+			phFTLDiag(t)
+		}
+		if !phIsBlocked(blocked) {
+			t.Errorf("round %d: %s not blocked after the op: %s", round, name, blocked)
+		}
+		if t.Failed() {
+			return
+		}
 	}
 }

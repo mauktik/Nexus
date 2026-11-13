@@ -708,6 +708,67 @@ GATE (WI 5.6): both premises hold. A line marks the end of every
   answer the *.invalid probe. No other signal was needed. >stats has no
   field that marks a reload (step 5 and 6: recorded for information only).
 
+QUERIES DURING A RELOAD (Phase 5 verification; measured, not inferred)
+captured: 2026-11-13T20:07:50Z to 20:18:40Z, INIT=native, container
+          nexus-harness-20261113T200611Z-37473 (make test-harness-pihole's
+          image and setup, held by a temporary test that was never committed);
+          docker exec under the harness's env -i. No Nexus code involved.
+how:      80,000 enabled regex deny entries ^nexus-race-<n>\.invalid$ seeded
+          with pihole-FTL sqlite3, two reload-lists to compile them; then 60
+          queries, one every ~100 ms, each `dig +time=8 +tries=1 @127.0.0.1`
+          in the background, rotating pi.hole, nexus-probe-<rand>.invalid and
+          www.xi.example, with `pihole restartdns reload-lists` at the 6th; each
+          query's send and reply time (date +%H:%M:%S.%3N) and dig's Query time
+          against FTL.log's lines. 3 runs; then one run with a second
+          reload-lists 300 ms after the first (a queued reload).
+  Run 3, verbatim excerpt (sent, replied, status, dig Query time, name):
+    [2026-11-13 20:08:09.168 372M] Received: Real-time signal 0 (34 -> 0)
+    Q sent 20:08:09.272 done 20:08:09.280 NOERROR qt=0 pi.hole
+    Q sent 20:08:09.372 done 20:08:12.218 NXDOMAIN qt=2826 nexus-probe-926330335.invalid
+    Q sent 20:08:09.479 done 20:08:12.235 NOERROR qt=2736 www.xi.example
+    Q sent 20:08:10.836 done 20:08:12.363 NOERROR qt=1510 pi.hole
+    Q sent 20:08:12.071 done 20:08:12.513 NOERROR qt=416 pi.hole
+    [2026-11-13 20:08:12.164 372/T388] Compiled 0 whitelist and 80000 blacklist regex filters for 1 clients in 2867.9 msec
+    Q sent 20:08:12.484 done 20:08:12.580 NXDOMAIN qt=72 nexus-probe-264193012.invalid
+    Q sent 20:08:12.578 done 20:08:12.596 NOERROR qt=1 www.xi.example
+  Per run (Received, Compiled, regex read; queries sent between them; held
+  and answered after Compiled; first/last held reply after Compiled;
+  unanswered):
+    1: 20:07:50.197, 20:07:54.459, 2598.9 ms; 41 sent; 45 held (4 sent just
+       before the signal, see below); +29 / +557 ms; 0 unanswered
+    2: 20:07:59.561, 20:08:03.739, 4051.5 ms; 38 sent; 37 held; +70 / +767 ms;
+       0 unanswered
+    3: 20:08:09.168, 20:08:12.164, 2867.9 ms; 28 sent; 27 held; +54 / +378 ms;
+       0 unanswered
+  The one query per run of 2 and 3 not held was sent within ~100 ms after
+  Received, before the database thread began the reload (its 100 ms sleep).
+  Run 1: queries sent from 20:07:49.777, before the signal, were held too;
+  the first was answered at 20:07:51.842, and the reload's read began at
+  54.459 - 2.599 = 51.860: something else held FTL's lock for ~2 s and the
+  reload waited behind it.
+  Queued reload (signals at 20:18:33.827 and 20:18:34.137):
+    [2026-11-13 20:18:33.832 372M] Received: Real-time signal 0 (34 -> 0)
+    [2026-11-13 20:18:34.145 372M] Received: Real-time signal 0 (34 -> 0)
+    [2026-11-13 20:18:36.720 372/T388] Compiled 0 whitelist and 80000 blacklist regex filters for 1 clients in 2756.0 msec
+    [2026-11-13 20:18:39.664 372/T388] Compiled 0 whitelist and 80000 blacklist regex filters for 1 clients in 2775.1 msec
+    Q sent 20:18:34.036 done 20:18:36.787 NXDOMAIN qt=2730 nexus-probe-698214288.invalid
+    Q sent 20:18:34.559 done 20:18:36.832 NOERROR qt=2251 pi.hole
+    Q sent 20:18:34.451 done 20:18:39.678 NOERROR qt=5209 www.xi.example
+    Q sent 20:18:36.734 done 20:18:39.916 NOERROR qt=3163 pi.hole
+    Q sent 20:18:36.835 done 20:18:39.953 NXDOMAIN qt=3097 nexus-probe-2694725128.invalid
+  5 held queries were answered 36.787-36.832, between the two reloads (the
+  queued one's read began 39.664 - 2.775 = 36.889); the rest, and every
+  query sent after the first Compiled line, only after the second.
+  Conclusion: queries are HELD, not dropped and not answered, while FTL
+  reloads its lists (it reloads under lock_shm, src/datastructure.c
+  L499-522, and dnsmasq's hooks take the same lock): each is answered in
+  arrival order from ~30-70 ms after the Compiled line, the backlog over up
+  to ~0.8 s. With a reload queued, only a few backlog queries are answered
+  in the ~100 ms between the two. A client whose timeout is shorter than the
+  rest of the reload gets no reply: the barrier's probe (1 s x 3) gives up on
+  a reload with more than ~3 s left. FakeFTL encodes this (v5test, WI 5.6
+  Phase 5): queries wait while a reload runs, across a queued one too.
+
 REGRESSION TESTS, RED ON THE PRE-FIX CODE (WI 5.6 commit 1: fakes and tests,
 no product change)
   TC-158 TestPiholeListReloadRace, INIT=native, 3 runs, 3 failed
@@ -771,3 +832,76 @@ reloadListsAndWait after every reload-lists Nexus sends)
     no reload failed; not reproduced in the 7 later runs that reached the
     pairs (sysv included). The test now logs,
     for such a dig, FTL.log since the step and a dig 2 s later.
+
+A WRITE RIGHT AFTER THE FIRST OF A QUEUED PAIR OF RELOADS (Phase 5
+verification; TestPiholeWriteWaitsForQueuedReload, on the code of c4bab50)
+  The case WI 5.6's tests did not cover: two `pihole restartdns
+  reload-lists` outside Nexus, 300 ms apart, so FTL queues one more reload
+  (no start line of its own); the test waits for the FIRST Compiled line
+  (polling FTL.log every 2 ms) and at once posts an add-domain through
+  nexusd (the real write path: settleLists, BEGIN IMMEDIATE, commit,
+  reloadListsAndWait). The commit's time is gravity.db's mtime after the op
+  (FTL only reads gravity.db); a commit raced if it fell inside a reload's
+  read (the Compiled line's "in X msec", plus 30 ms for the reopen and
+  counts), unless that reload was started by Nexus's own signal after the
+  commit. Same container as QUERIES DURING A RELOAD, R 80,000, D 2.6-3.5 s.
+  An earlier version of the check (the WI 5.6 follow-up's first draft) timed
+  the commit by the op log's frame arrival, which lands after Nexus's own
+  Received line, and flagged Nexus's own reload: a false positive.
+  13 rounds in 6 runs (3 rounds per run; the first 3 runs stopped at their
+  first round that the old check flagged): 0 raced commits, 0 new
+  "database is locked" / "Gravity database not available" lines, www.xi.example
+  answered and the domain blocked (0.0.0.0) after every op, every op
+  Succeeded. Per round: first Compiled, posted, the queued reload's
+  Compiled, commit (mtime), Nexus's own Received:
+    07.502 07.507 10.308 10.403 10.410 | 25.982 25.986 28.765 28.922 28.941
+    54.848 54.851 57.558 57.701 57.741 | 22.898 22.902 26.441 29.689 29.711 *
+    03.339 03.343 06.721 06.886 06.927 | 21.530 21.534 24.389 24.538 24.562
+    39.980 39.983 43.047 43.274 43.290 | 09.041 09.045 11.926 12.188 12.225
+    27.398 27.402 30.150 30.262 30.280 | 45.011 45.014 47.920 48.040 48.057
+    12.756 12.760 15.518 15.622 15.634 | 29.838 29.843 32.601 32.702 32.708
+    46.993 46.998 50.260 53.649 53.668 *
+  Every commit came 95-262 ms after the queued reload's Compiled line: the
+  pre-write probe, sent a few ms after the first Compiled line, was held
+  through the queued reload (QUERIES DURING A RELOAD). * 2 rounds: the
+  queued reload outlasted the probe's 3 x 1 s, so settleLists ran a
+  recovery reload first (op log "pihole: running pihole restartdns
+  reload-lists" before "pihole: added deny exact entry"), then committed
+  after it; the op took 10.5-11.1 s instead of 6.5-7.3 s. Verbatim, round 0
+  of the first run:
+    pihole: added deny exact entry 235001 to gravity.db
+    pihole: running pihole restartdns reload-lists
+    pihole: FTL reloaded its lists in 2892 ms
+    [2026-11-13 20:11:04.571 372M] Received: Real-time signal 0 (34 -> 0)
+    [2026-11-13 20:11:04.878 372M] Received: Real-time signal 0 (34 -> 0)
+    [2026-11-13 20:11:07.502 372/T388] Compiled 0 whitelist and 80000 blacklist regex filters for 1 clients in 2777.7 msec
+    [2026-11-13 20:11:07.502 372/T388] Blocking status is enabled
+    [2026-11-13 20:11:10.308 372/T388] Compiled 0 whitelist and 80000 blacklist regex filters for 1 clients in 2664.7 msec
+    [2026-11-13 20:11:10.410 372M] Received: Real-time signal 0 (34 -> 0)
+    [2026-11-13 20:11:13.276 372/T388] Compiled 0 whitelist and 80000 blacklist regex filters for 1 clients in 2727.8 msec
+    [2026-11-13 20:11:13.276 372/T388] Blocking status is enabled
+  Not reproduced (0 of 13), so reload.go is unchanged. What protects the
+  case is that FTL holds the probe while it reloads, not the log reading:
+  the record ended, with two start lines, and settleLists did not wait. A
+  probe answered in the ~100 ms between the two reloads could still let a
+  commit meet the queued reload's start; that was not observed. The test
+  stays as a regression guard, and its T0 mirror,
+  TestListReloadBarrierWriteAfterACompletionWithAQueuedReload, is red on a
+  FakeFTL that answers during a reload.
+  make test-harness-pihole with these tests (native, container
+  nexus-harness-20261113T202751Z-28176): 19 PASS, exit 0;
+  TestPiholeWriteWaitsForQueuedReload 3 rounds clean, one of them through
+  a recovery reload. INIT=sysv (nexus-harness-20261113T203644Z-60317): 18
+  PASS, TC-158 FAIL: burst 6 and 7, "dig www.xi.example: no answer (FTL
+  stuck)" and "race-b6.example not blocked (no answer)", with L0 0, L1 0
+  (no reload failed). FTL.log shows why: the dig after burst 6's op met
+  burst 7's reload, which the lane started at once:
+    [2026-11-13 20:42:29.021 7690/T7706] Compiled 0 whitelist and 80000 blacklist regex filters for 1 clients in 2872.5 msec
+    [2026-11-13 20:42:29.993 7690M] Received: Real-time signal 0 (34 -> 0)
+    [2026-11-13 20:42:32.782 7690/T7706] Compiled 0 whitelist and 80000 blacklist regex filters for 1 clients in 2722.4 msec
+  phDig's `dig +time=1` gives up on a query FTL holds for that reload
+  (QUERIES DURING A RELOAD): a held query, not a stuck FTL. The same cause
+  fits the earlier unexplained native run (...T171738Z-74841, pair 2). TC-158
+  was not changed here (its digs would need a timeout above D to tell held
+  from stuck; reported).
+  INIT=sysv again (nexus-harness-20261113T204602Z-81761): 19 PASS, exit 0.
