@@ -1,0 +1,5 @@
+MainPID=0
+Result=exit-code
+NRestarts=2
+ActiveState=activating
+SubState=auto-restart

@@ -19,6 +19,7 @@ import (
 	"github.com/mauktik/nexus/internal/daemon"
 	"github.com/mauktik/nexus/internal/detach"
 	"github.com/mauktik/nexus/internal/providers/docker"
+	"github.com/mauktik/nexus/internal/providers/nexusd"
 	"github.com/mauktik/nexus/internal/tlsutil"
 	"github.com/mauktik/nexus/internal/version"
 )
@@ -48,6 +49,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 			// operation's unit (D-8). Its progress goes to stdout, which
 			// the supervisor frames into the operation's output.
 			return docker.UpdateHelper(args[1:], stdout, stderr)
+		case nexusd.HelperCommand:
+			// Hidden: a restart, update or rollback of nexusd itself, run by
+			// op-supervise in the operation's unit, outside nexusd.service.
+			return nexusd.Helper(args[1:], stdout, stderr)
 		}
 	}
 

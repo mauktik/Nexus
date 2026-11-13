@@ -1,0 +1,43 @@
+systemctl show fixtures for parseShow (internal/providers/nexusd/system.go)
+
+Each file is the output of
+
+    systemctl show nexusd.service -p ActiveState -p SubState -p Result -p MainPID -p NRestarts
+
+in one unit state:
+
+    active.txt              Type=notify unit after READY=1
+    activating.txt          started, READY=1 not yet sent
+    failed-start-limit.txt  a binary that exits at start, after the start limit
+                            (StartLimitBurst=5 in StartLimitIntervalSec=10s)
+    auto-restart.txt        between a failed start and its Restart=on-failure re-spawn
+
+Provenance: NOT captured from a running systemd. These files were written
+by hand (WI 4.1) from the documented format, because the T1 harness capture
+belongs to WI 7.2. Sources:
+
+  - systemctl(1), https://www.freedesktop.org/software/systemd/man/latest/systemctl.html:
+    `show` "is intended to be used whenever computer-parsable output is
+    required"; `--value` "only print the value, and skip the property name
+    and '='" (so each line is NAME=VALUE); `-p` "If specified more than
+    once, all properties with the specified names are shown."
+  - org.freedesktop.systemd1(5), https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.systemd1.html:
+    `readonly u MainPID`, `readonly u NRestarts`, `readonly s Result`,
+    `readonly s ActiveState` (active, inactive, failed, activating,
+    deactivating, maintenance, reloading, refreshing), `readonly s SubState`.
+  - systemd.exec(5), https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html,
+    $SERVICE_RESULT: the Result values, including "exit-code" and
+    "start-limit-hit".
+
+The line order (service properties MainPID, Result, NRestarts before the
+unit properties ActiveState, SubState) is the order systemctl prints bus
+properties in, not the order of the -p flags; parseShow does not depend on
+it. The PIDs and NRestarts values are illustrative.
+
+systemd version: none (hand-written; see above). TODO for WI 7.2 / TC-SM-129:
+replace each file with a capture from the T1 harness
+
+    docker exec <t1-container> systemctl show nexusd.service \
+        -p ActiveState -p SubState -p Result -p MainPID -p NRestarts
+
+and record `docker exec <t1-container> systemctl --version | head -1` here.
