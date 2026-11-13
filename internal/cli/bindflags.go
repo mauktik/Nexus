@@ -63,11 +63,16 @@ type binding struct {
 	variadic   bool                       // Trailing arguments bind to variadicField
 	required   bool                       // variadicField is required
 	mutating   bool                       // --idempotency-key is offered
+	upload     *def.CLIUpload             // The command uploads a file first (FR-13)
+	// schemas are the input schemas of ops with CLI.Upload, without their
+	// upload Field required: it is set from the upload result, after the
+	// flags are checked. Other ops use their own input schema.
+	schemas map[string]*jsonschema.Resolved
 }
 
 // newBinding derives the flags of g's ops from their input schemas.
 func newBinding(g *opCommand) (*binding, error) {
-	b := &binding{opFields: map[string]map[string]bool{}}
+	b := &binding{opFields: map[string]map[string]bool{}, schemas: map[string]*jsonschema.Resolved{}}
 	byFlag := map[string]*inputField{}
 	for _, op := range g.ops {
 		resolved, err := op.InputSchema()
@@ -78,6 +83,13 @@ func newBinding(g *opCommand) (*binding, error) {
 		own := map[string]bool{}
 		b.opFields[op.ID] = own
 		b.mutating = b.mutating || op.Mutating()
+		var uploadField string
+		if u := op.CLI.Upload; u != nil {
+			b.upload, uploadField = u, u.Field
+			if b.schemas[op.ID], err = withoutRequired(s, u.Field); err != nil {
+				return nil, fmt.Errorf("op %q: %w", op.ID, err)
+			}
+		}
 		if p := op.CLI.Positional; p != "" {
 			b.positional = p
 			ps := s.Properties[p]
@@ -89,7 +101,7 @@ func newBinding(g *opCommand) (*binding, error) {
 			}
 		}
 		for _, name := range slices.Sorted(maps.Keys(s.Properties)) {
-			if name == op.CLI.Positional || name == filterField {
+			if name == op.CLI.Positional || name == filterField || name == uploadField {
 				continue
 			}
 			f, err := fieldOf(name, s.Properties[name])
@@ -118,6 +130,9 @@ func newBinding(g *opCommand) (*binding, error) {
 				b.required = slices.Contains(s.Required, variadicField)
 			}
 		}
+	}
+	if err := checkUploadFlags(b.upload, byFlag); err != nil {
+		return nil, fmt.Errorf("%s %s: %w", g.noun, g.verb, err)
 	}
 	slices.SortFunc(b.fields, func(x, y *inputField) int { return strings.Compare(x.flag, y.flag) })
 	return b, nil
@@ -228,6 +243,12 @@ func (b *binding) register(cmd *cobra.Command) {
 			fs.StringArray(f.flag, nil, f.usage)
 		}
 	}
+	if u := b.upload; u != nil {
+		fs.String(u.FileFlag, "", strings.TrimSpace(u.FileUsage+" Required."))
+		for _, s := range u.Sidecars {
+			fs.String(s.Flag, "", s.Usage)
+		}
+	}
 	if b.mutating {
 		fs.String(flagIdempotencyKey, "", fmt.Sprintf("Idempotency-Key header: a retry with the same key and input returns the original operation (at most %d visible ASCII characters)", openapi.IdempotencyKeyMaxLength))
 	}
@@ -284,7 +305,14 @@ func (b *binding) input(fs *pflag.FlagSet, op def.Op, args []string, filters []s
 	if len(filters) > 0 {
 		in[filterField] = filters
 	}
-	if err := validateInput(op, in); err != nil {
+	resolved, ok := b.schemas[op.ID]
+	if !ok {
+		var err error
+		if resolved, err = op.InputSchema(); err != nil {
+			return nil, err
+		}
+	}
+	if err := validateInput(resolved, op, in); err != nil {
 		return nil, err
 	}
 	return in, nil
@@ -305,12 +333,9 @@ func keyValues(flag string, pairs []string) (map[string]string, error) {
 	return out, nil
 }
 
-// validateInput checks in against op's input schema, as the server will.
-func validateInput(op def.Op, in map[string]any) error {
-	resolved, err := op.InputSchema()
-	if err != nil {
-		return err
-	}
+// validateInput checks in against resolved, op's input schema, as the
+// server will.
+func validateInput(resolved *jsonschema.Resolved, op def.Op, in map[string]any) error {
 	data, err := json.Marshal(in)
 	if err != nil {
 		return fmt.Errorf("encode input: %w", err)

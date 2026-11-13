@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"net"
 	"net/http"
@@ -29,6 +30,12 @@ const Timeout = 30 * time.Second
 const (
 	StreamTLSHandshakeTimeout   = 10 * time.Second
 	StreamResponseHeaderTimeout = 30 * time.Second
+)
+
+// Upload deadline: UploadBaseTimeout plus one second per UploadRate bytes.
+const (
+	UploadBaseTimeout = 30 * time.Second
+	UploadRate        = 1 << 20 // Bytes per second
 )
 
 // APIPrefix is the versioned path every API route lives under.
@@ -171,6 +178,8 @@ func New(o Options) (*Client, error) {
 	// bound would cut a healthy stream. It is bounded instead by the TLS
 	// handshake and response header timeouts here, the dial timeout, and the
 	// caller's no-frame watchdog, which cancels a silent stream (9.5).
+	// Upload sends through it too, under the same waiver for the same
+	// reason, and always bounds itself with a size-derived deadline (A-39).
 	str := tr.Clone()
 	str.TLSHandshakeTimeout = StreamTLSHandshakeTimeout
 	str.ResponseHeaderTimeout = StreamResponseHeaderTimeout
@@ -240,10 +249,15 @@ func (c *Client) Do(ctx context.Context, method, path string, in, out any) error
 // Send sends r and returns a 2xx response. Any other response is an error,
 // as for Do.
 func (c *Client) Send(ctx context.Context, r Request) (*Response, error) {
-	resp, err := c.do(ctx, c.http, r)
+	resp, err := c.do(ctx, c.http, r, nil)
 	if err != nil {
 		return nil, err
 	}
+	return readResponse(resp)
+}
+
+// readResponse reads and closes a 2xx response.
+func readResponse(resp *http.Response) (*Response, error) {
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
 	if err != nil {
@@ -260,18 +274,82 @@ func (c *Client) Send(ctx context.Context, r Request) (*Response, error) {
 // context is the only bound once the headers are in: the caller cancels it
 // when the stream falls silent. Any other response is an error, as for Do.
 func (c *Client) Stream(ctx context.Context, r Request) (io.ReadCloser, error) {
-	resp, err := c.do(ctx, c.stream, r)
+	resp, err := c.do(ctx, c.stream, r, nil)
 	if err != nil {
 		return nil, err
 	}
 	return resp.Body, nil
 }
 
-// do sends r through hc and returns a 2xx response with its body unread.
-// It reads and closes any other response, and returns its error.
-func (c *Client) do(ctx context.Context, hc *http.Client, r Request) (*http.Response, error) {
+// UploadRequest is one raw-body upload.
+type UploadRequest struct {
+	Path        string // Under APIPrefix, with each segment already escaped
+	Query       url.Values
+	ContentType string
+	Body        io.Reader // Read up to Size bytes; Upload does not close it
+	Size        int64     // Sent as Content-Length; Body must hold exactly this many bytes
+}
+
+// UploadTimeout is the deadline Upload gives a body of size bytes:
+// UploadBaseTimeout plus one second per UploadRate bytes, rounded up.
+func UploadTimeout(size int64) time.Duration {
+	secs := max(size, 0) / UploadRate
+	if size > 0 && size%UploadRate != 0 {
+		secs++
+	}
+	const maxSecs = int64(math.MaxInt64/time.Second) - int64(UploadBaseTimeout/time.Second)
+	return UploadBaseTimeout + time.Duration(min(secs, maxSecs))*time.Second
+}
+
+// Upload POSTs r.Body as is to APIPrefix+r.Path with Content-Length r.Size,
+// through the stream client, so TLS verification and pinning are those of
+// every request. It returns a 2xx response read whole; any other response
+// is an error, as for Do.
+//
+// The stream client has no overall Timeout, because any fixed bound would
+// cut a legitimate large upload: a recorded exception to
+// go/custom-http-client-timeout (A-39), beside the stream client's own in
+// New. It is safe only because Upload always derives the request context
+// itself, whether or not ctx has a deadline (the earlier applies), so no
+// upload is ever sent without UploadTimeout(r.Size). The dial, TLS
+// handshake and response header timeouts of the stream transport still
+// apply, the last counted once the body is written. Upload never goes
+// through the unary client, whose Timeout would cut it.
+func (c *Client) Upload(ctx context.Context, r UploadRequest) (*Response, error) {
+	if r.Size < 0 {
+		return nil, fmt.Errorf("upload size %d is negative", r.Size)
+	}
+	ctx, cancel := context.WithTimeout(ctx, UploadTimeout(r.Size))
+	defer cancel()
+	resp, err := c.do(ctx, c.stream, Request{Method: http.MethodPost, Path: r.Path, Query: r.Query},
+		&rawBody{body: r.Body, contentType: r.ContentType, size: r.Size})
+	if err != nil {
+		return nil, err
+	}
+	return readResponse(resp)
+}
+
+// rawBody is a request body sent as is, with a known length.
+type rawBody struct {
+	body        io.Reader
+	contentType string
+	size        int64
+}
+
+// do sends r through hc, with raw as the body instead of r.Body when it is
+// not nil, and returns a 2xx response with its body unread. It reads and
+// closes any other response, and returns its error.
+func (c *Client) do(ctx context.Context, hc *http.Client, r Request, raw *rawBody) (*http.Response, error) {
 	var body io.Reader
-	if r.Body != nil {
+	switch {
+	case raw != nil && r.Body != nil:
+		return nil, errors.New("a request has either a JSON or a raw body")
+	case raw != nil && raw.size == 0:
+		body = http.NoBody
+	case raw != nil:
+		// The caller owns the reader: the transport must not close it.
+		body = io.NopCloser(raw.body)
+	case r.Body != nil:
 		b, err := json.Marshal(r.Body)
 		if err != nil {
 			return nil, fmt.Errorf("encode request body: %w", err)
@@ -286,6 +364,9 @@ func (c *Client) do(ctx context.Context, hc *http.Client, r Request) (*http.Resp
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
+	if raw != nil {
+		req.ContentLength = raw.size
+	}
 	for k, vs := range r.Header {
 		for _, v := range vs {
 			req.Header.Add(k, v)
@@ -296,7 +377,10 @@ func (c *Client) do(ctx context.Context, hc *http.Client, r Request) (*http.Resp
 		accept = "application/json"
 	}
 	req.Header.Set("Accept", accept+", "+problem.ContentType)
-	if r.Body != nil {
+	switch {
+	case raw != nil:
+		req.Header.Set("Content-Type", raw.contentType)
+	case r.Body != nil:
 		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Del("Authorization")

@@ -54,6 +54,9 @@ type opCommand struct {
 	// operationColumns are the table columns of an operation, for an op
 	// that prints its result items when waited but runs with --no-wait.
 	operationColumns []output.Path
+	// uploads maps the ID of an op with CLI.Upload to the KindUpload op it
+	// names, which uploads its file first.
+	uploads map[string]def.Op
 }
 
 // selectOp is the op args run: the Get of a merged pair when a name is
@@ -68,12 +71,28 @@ func (c *opCommand) selectOp(args []string) def.Op {
 // merged reports whether the command runs a List and a Get.
 func (c *opCommand) merged() bool { return len(c.ops) == 2 }
 
-// groupOps groups every op by noun and verb, in catalog order.
+// groupOps groups every op by noun and verb, in catalog order. A KindUpload
+// op has no command: the CLI reaches it only through an op's CLI.Upload.
 func groupOps(specs []def.ProviderSpec) ([]*opCommand, error) {
 	var out []*opCommand
 	byKey := map[string]*opCommand{}
+	uploadOps := map[string]def.Op{}
 	for _, spec := range specs {
 		for _, op := range spec.Ops {
+			if op.Kind == def.KindUpload {
+				uploadOps[op.ID] = op
+			}
+		}
+	}
+	for _, spec := range specs {
+		for _, op := range spec.Ops {
+			if op.Kind == def.KindUpload {
+				continue
+			}
+			upload, err := uploadOpOf(op, uploadOps)
+			if err != nil {
+				return nil, err
+			}
 			if !nounPattern.MatchString(op.CLI.Noun) {
 				return nil, fmt.Errorf("op %q: noun %q is not one lower-case word", op.ID, op.CLI.Noun)
 			}
@@ -84,9 +103,15 @@ func groupOps(specs []def.ProviderSpec) ([]*opCommand, error) {
 			g := byKey[key]
 			if g == nil {
 				g = &opCommand{noun: op.CLI.Noun, verb: op.CLI.Verb, ops: []def.Op{op}}
+				if upload != nil {
+					g.uploads = map[string]def.Op{op.ID: *upload}
+				}
 				byKey[key] = g
 				out = append(out, g)
 				continue
+			}
+			if upload != nil || len(g.uploads) > 0 {
+				return nil, fmt.Errorf("ops %q and %q both bind %q: a command that uploads runs one op", g.ops[0].ID, op.ID, key)
 			}
 			// Only a List and a Get may share a command.
 			prev := g.ops[0]
@@ -101,6 +126,20 @@ func groupOps(specs []def.ProviderSpec) ([]*opCommand, error) {
 		}
 	}
 	return out, nil
+}
+
+// uploadOpOf is the KindUpload op that op's CLI.Upload names, or nil when
+// op has none. It must be an op of the same provider.
+func uploadOpOf(op def.Op, uploadOps map[string]def.Op) (*def.Op, error) {
+	u := op.CLI.Upload
+	if u == nil {
+		return nil, nil
+	}
+	up, ok := uploadOps[u.Op]
+	if !ok || up.Provider != op.Provider {
+		return nil, fmt.Errorf("op %q: CLI.Upload.Op %q is not a KindUpload op of provider %q", op.ID, u.Op, op.Provider)
+	}
+	return &up, nil
 }
 
 // addGenerated adds a command for every op in a.specs under root.
@@ -341,6 +380,9 @@ func examples(g *opCommand, b *binding) string {
 				line += " --" + f.flag + " <key>=<value>"
 			}
 		}
+		if u := op.CLI.Upload; u != nil {
+			line += " --" + u.FileFlag + " <path>"
+		}
 		lines = append(lines, "  # "+op.Summary, "  "+line)
 		if op.Mutating() && !op.OperationControl {
 			lines = append(lines, "  # The same, safe to retry", "  "+line+" --"+flagIdempotencyKey+" <key>")
@@ -364,6 +406,9 @@ func lowerFirst(s string) string {
 func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string) error {
 	a.intr = newInterrupter()
 	defer a.intr.close()
+	if flagSet(cmd, flagStdin) && len(g.uploads) > 0 {
+		return usagef("--%s cannot be used with a command that uploads a file", flagStdin)
+	}
 	if flagSet(cmd, flagStdin) {
 		return a.interruptedExit(a.invokeStdin(cmd, g, b))
 	}
@@ -397,6 +442,12 @@ func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string
 	if key != "" {
 		req.Header = http.Header{"Idempotency-Key": []string{key}}
 	}
+	// The file is checked before any host is resolved or asked, so a bad
+	// one sends nothing (FR-13).
+	up, err := a.prepareUpload(cmd, g, op)
+	if err != nil {
+		return err
+	}
 	targets, err := a.targets(cmd)
 	if err != nil {
 		return err
@@ -417,7 +468,14 @@ func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string
 		if err != nil {
 			return nil, err
 		}
-		return a.execute(ctx, c, t, op, in, req, w, p)
+		hin, hreq := in, req
+		if up != nil {
+			// Each host stages its own copy and runs the op on its own uploadId.
+			if hin, hreq, err = a.upload(ctx, c, t, op, up, in, req); err != nil {
+				return nil, err
+			}
+		}
+		return a.execute(ctx, c, t, op, hin, hreq, w, p)
 	}
 	waited := op.Mode == def.ModeLongRunning && !w.noWait
 	show := func(t hostTarget, body []byte) error { return p.response(a, t, op, in, body, waited) }
