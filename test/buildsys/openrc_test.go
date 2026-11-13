@@ -1,7 +1,7 @@
 // Stub-style: SKIP-only (nginx-provider)
 //
 // Stubs of planning/nginx-provider/test-cases.md TC-29, TC-30 and TC-31.
-// The bodies are complete: the developer of WI 3.1 deletes each t.Skip line.
+// The bodies are complete; WI 3.1 removed the skips.
 // An un-skipped passing test is the GREEN signal (test-strategy.md, RED Stub
 // Style).
 
@@ -23,8 +23,6 @@ const baseSHA = "d04583a2d7b29f7b28f603cdb7a88812d8f1ecb3"
 // nginx-provider TC-29: The OpenRC service script declares the required
 // behavior. Owner WI 3.1. Requirements: FR-22, FR-23, ASM-17, CON-9.
 func TestOpenRCScriptAudit(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-29 (WI 3.1)")
-
 	path := filepath.Join(repoRoot(t), "deploy", "nexusd.openrc")
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -34,7 +32,9 @@ func TestOpenRCScriptAudit(t *testing.T) {
 	if out, err := exec.Command("sh", "-n", path).CombinedOutput(); err != nil {
 		t.Fatalf("sh -n %s: %v\n%s", path, err, out)
 	}
-	for _, lint := range [][]string{{"shellcheck", "-s", "sh"}, {"checkbashisms"}} {
+	// checkbashisms skips (exit 2) a script whose #! is not /bin/sh unless
+	// forced; #!/sbin/openrc-run scripts are POSIX sh.
+	for _, lint := range [][]string{{"shellcheck", "-s", "sh"}, {"checkbashisms", "--force"}} {
 		if _, err := exec.LookPath(lint[0]); err != nil {
 			t.Logf("%s not on PATH: lint skipped", lint[0])
 			continue
@@ -111,8 +111,6 @@ func TestOpenRCScriptAudit(t *testing.T) {
 // nginx-provider TC-30: The release tree carries the OpenRC script at 0755.
 // Owner WI 3.1. Requirements: FR-23.
 func TestReleaseTreeHasOpenRCScript(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-30 (WI 3.1)")
-
 	skipUnderMake(t)
 	repo := copyRepo(t)
 	mk, err := os.ReadFile(filepath.Join(repo, "Makefile"))
@@ -156,8 +154,6 @@ func TestReleaseTreeHasOpenRCScript(t *testing.T) {
 // nginx-provider TC-31: deploy/nexusd.service is byte-identical to the base
 // SHA. Owner WI 3.1. Requirements: NFR-9, CON-9.
 func TestSystemdUnitByteIdenticalToBase(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-31 (WI 3.1)")
-
 	root := repoRoot(t)
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")

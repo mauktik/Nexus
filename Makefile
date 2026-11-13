@@ -24,7 +24,7 @@ RELEASE_BUILD   := CGO_ENABLED=0 go build -trimpath -ldflags='$(RELEASE_LDFLAGS)
 STATICCHECK     := go run ./test/buildsys/staticcheck
 
 # Everything the nexusd tarball carries besides the binary and the docs.
-NEXUSD_FILES := deploy/nexusd.service deploy/nexusd.default.yaml deploy/install.sh deploy/uninstall.sh
+NEXUSD_FILES := deploy/nexusd.service deploy/nexusd.openrc deploy/nexusd.default.yaml deploy/install.sh deploy/uninstall.sh
 
 # Tarball entries are owned by root, without extended attributes or macOS
 # metadata, whichever tar builds them.
@@ -101,8 +101,9 @@ release-version:
 		{ echo "release: VERSION='$(VERSION)' is not vMAJOR.MINOR.PATCH[-PRERELEASE]" >&2; exit 1; }
 
 # nexusd-tree TREE_BIN=<binary> TREE_DIR=<dir>: the nexusd release tree
-# (binary, unit, default config, install and uninstall scripts, docs). The
-# release packs it; the T1 harness installs a harness-arch one with install.sh.
+# (binary, systemd unit, OpenRC script, default config, install and
+# uninstall scripts, docs). The release packs it; the T1 harness installs a
+# harness-arch one with install.sh.
 nexusd-tree:
 	@[ -n '$(TREE_BIN)' ] && [ -n '$(TREE_DIR)' ] || { echo "nexusd-tree: set TREE_BIN and TREE_DIR" >&2; exit 2; }
 	rm -rf $(TREE_DIR)
@@ -111,7 +112,7 @@ nexusd-tree:
 	cp $(NEXUSD_FILES) README.md $(TREE_DIR)/
 	cp -R docs/. $(TREE_DIR)/docs/
 	chmod -R u=rwX,go=rX $(TREE_DIR)
-	chmod 0755 $(TREE_DIR)/nexusd $(TREE_DIR)/install.sh $(TREE_DIR)/uninstall.sh
+	chmod 0755 $(TREE_DIR)/nexusd $(TREE_DIR)/nexusd.openrc $(TREE_DIR)/install.sh $(TREE_DIR)/uninstall.sh
 
 # T1: real systemd in a privileged container on the Docker CLI's current
 # context, native architecture. Test-only binaries go to build/harness/,

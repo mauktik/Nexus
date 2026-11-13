@@ -196,7 +196,7 @@ func TestReleaseTarballs(t *testing.T) {
 			wantFiles := map[string]string{"README.md": string(readme)}
 			if top == nexusdTop {
 				bin = "nexusd"
-				for _, f := range []string{"nexusd.service", "nexusd.default.yaml", "install.sh", "uninstall.sh"} {
+				for _, f := range []string{"nexusd.service", "nexusd.openrc", "nexusd.default.yaml", "install.sh", "uninstall.sh"} {
 					b, err := os.ReadFile(filepath.Join(root, "deploy", f))
 					if err != nil {
 						t.Fatal(err)
@@ -225,7 +225,7 @@ func TestReleaseTarballs(t *testing.T) {
 					t.Errorf("%s: %s differs from the source tree", top, name)
 				}
 			}
-			for _, exe := range []string{bin, "install.sh", "uninstall.sh"} {
+			for _, exe := range []string{bin, "nexusd.openrc", "install.sh", "uninstall.sh"} {
 				if e, ok := got[exe]; ok && e.mode != 0o755 {
 					t.Errorf("%s: %s mode %04o, want 0755", top, exe, e.mode)
 				}
