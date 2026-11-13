@@ -1,32 +1,59 @@
-// Stub-style: SKIP-only (nginx-provider)
-//
-// Stubs of planning/nginx-provider/test-cases.md. Each test skips until its
-// work item lands; the developer of that work item replaces the skip with
-// the assertions written in the comment above the test. An un-skipped
-// passing test is the GREEN signal (test-strategy.md, RED Stub Style).
-
 package nginx
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/mauktik/nexus/internal/config"
+)
 
 // nginx-provider TC-71: The FR-12 name rule
 // Owner WI 4.5. Requirements: FR-12, CON-4.
-//
-//	Setup: Settings .conf and .disabled.
-//	Steps:
-//	  1. Check each name in the table.
-//	Expected:
-//	  - Accepted: a, example.com, my_site-2, A1, and a name of 128 characters.
-//	  - Refused:
-//	    - "", .hidden, -x, _x;
-//	    - a..b;
-//	    - a name of 129 characters;
-//	    - a/b, a b, a\x00b, é;
-//	    - example.com.conf (ends in the include suffix), x.disabled,
-//	      x.conf.disabled;
-//	    - .., ..
-//	  - Each refusal error names the rule it broke.
-//	  - With settings .site and .off, x.conf is accepted and x.site refused.
 func TestValidName(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-71 (WI 4.5)")
+	def := Settings(config.Default().Providers.Nginx.Settings) // .conf and .disabled
+	for _, name := range []string{"a", "example.com", "my_site-2", "A1", strings.Repeat("a", 128)} {
+		if err := ValidName(name, def); err != nil {
+			t.Errorf("ValidName(%q) = %v, want accepted", name, err)
+		}
+	}
+	// Each refusal names the rule it broke: want is a fragment of the error.
+	for _, tc := range []struct{ name, want string }{
+		{"", "empty"},
+		{".hidden", "start with a letter or digit"},
+		{"-x", "start with a letter or digit"},
+		{"_x", "start with a letter or digit"},
+		{"a..b", `".."`},
+		{strings.Repeat("a", 129), "128 characters"},
+		{"a/b", "letters, digits"},
+		{"a b", "letters, digits"},
+		{"a\x00b", "letters, digits"},
+		{"é", "start with a letter or digit"},
+		{"xé", "letters, digits"},
+		{"example.com.conf", "include suffix .conf"},
+		{"x.disabled", "disabled suffix .disabled"},
+		{"x.conf.disabled", "disabled suffix .disabled"},
+		{"..", "start with a letter or digit"},
+		{".", "start with a letter or digit"},
+	} {
+		err := ValidName(tc.name, def)
+		if err == nil {
+			t.Errorf("ValidName(%q) accepted, want refused (%s)", tc.name, tc.want)
+			continue
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("ValidName(%q) = %q, want it to name the rule %q", tc.name, err, tc.want)
+		}
+	}
+
+	other := def
+	other.IncludeSuffix, other.DisabledSuffix = ".site", ".off"
+	if err := ValidName("x.conf", other); err != nil {
+		t.Errorf("with .site/.off, ValidName(x.conf) = %v, want accepted", err)
+	}
+	if err := ValidName("x.site", other); err == nil || !strings.Contains(err.Error(), "include suffix .site") {
+		t.Errorf("with .site/.off, ValidName(x.site) = %v, want refused naming the include suffix", err)
+	}
+	if err := ValidName("x.off", other); err == nil || !strings.Contains(err.Error(), "disabled suffix .off") {
+		t.Errorf("with .site/.off, ValidName(x.off) = %v, want refused naming the disabled suffix", err)
+	}
 }
