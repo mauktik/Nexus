@@ -21,6 +21,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/mauktik/nexus/internal/platform"
 )
 
 // nginx-provider TC-33: The systemd branch of the installer behaves exactly as before, under dash
@@ -40,9 +42,7 @@ import (
 //	  - The existing TC-179, TC-180 and TC-181 (base feature) still pass with sh
 //	    instead of bash.
 func TestSystemdInstallUnderDashUnchanged(t *testing.T) {
-	if fi, err := os.Stat("/run/systemd/system"); err != nil || !fi.IsDir() {
-		t.Skip("requires systemd: TC-33 runs on the Ubuntu harness")
-	}
+	requireInit(t, platform.Systemd)
 	shell, err := filepath.EvalSymlinks("/bin/sh")
 	if err != nil {
 		t.Fatal(err)

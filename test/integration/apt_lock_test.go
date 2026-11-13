@@ -24,6 +24,7 @@ import (
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/providers/apt"
@@ -154,6 +155,7 @@ func aptOpDir(name, id string) string {
 // state, with no probe log and no pre.json, and two refreshes still run one
 // after the other on the apt lane.
 func TestAptRefreshSkipsTheLockPath(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	aptFixture(t, false)
 	const name = "apt-lock-refresh"
 	n := aptd(t, name)
@@ -328,6 +330,7 @@ func (s *aptSeam) execute(r *provider.Run, spec detach.Spec) detach.Exit {
 // own DPkg::Lock::Timeout makes a lock taken after the probe busy too.
 // Then a real run's Finalize matches dpkg-query and keeps the conffile.
 func TestAptMutationLockAndAuditAgainstRealDpkg(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	aptFixture(t, true)
 	// nxconf 1.0 installed with its conffile edited locally, 2.0 available.
 	mustSh(t, apt.Dpkg, "-i", aptBuild(t, "deb", filepath.Join(t.TempDir(), "debs"), "nxconf", "1.0", "--conffile"))

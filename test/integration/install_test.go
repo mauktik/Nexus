@@ -42,6 +42,7 @@ import (
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/providers/apt"
 	aptspec "github.com/mauktik/nexus/internal/providers/apt/spec"
@@ -284,6 +285,7 @@ func pinnedClient(t *testing.T) *http.Client {
 // provider disabled; no state, audit or key file is group or world
 // readable, and /healthz answers.
 func TestInstallCleanIsLoopbackOnly(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	freshHost(t)
 	for _, tool := range []string{"go", "gcc", "cc", "clang"} {
 		if p, err := exec.LookPath(tool); err == nil {
@@ -379,6 +381,7 @@ func TestInstallCleanIsLoopbackOnly(t *testing.T) {
 // config byte for byte, adds no drop-in and no listener; and install.sh
 // refuses a bundled default config that is not loopback only.
 func TestInstallNeverOverwritesConfig(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	freshHost(t)
 	runInstall(t)
 	const marker = "# operator marker 7f3c: keep me\n"
@@ -535,6 +538,7 @@ func waitUnitGone(t *testing.T, id string) {
 // and the unit, and keeps config, audit and history, which a reinstalled
 // nexusd reads; uninstall.sh --purge removes them too.
 func TestUninstallRetentionAndPurge(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	freshHost(t)
 	runInstall(t)
 	dir := testDir(t, "tc181")
@@ -731,6 +735,7 @@ func auditDirectives(t *testing.T) {
 // [deploy] applied by a reload, that project, its files now deploy's own,
 // updates.
 func TestEveryProviderOpUnderExactUnit(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	freshHost(t)
 	ensureUsers(t)
 	const (
@@ -1024,6 +1029,7 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 // validate-config and its reload keeps the config in use, and MainPID never
 // changes.
 func TestReloadUnderExactUnitKeepsOperations(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	freshHost(t)
 	runInstall(t)
 	dir := testDir(t, "tc183")
@@ -1113,6 +1119,7 @@ func succeededScript(t *testing.T, n *nexusdInstance, id string) apitypes.Operat
 // the exact chmod; root:root 0600 passes; a non-root user's own 0640 file
 // passes, because the mode rule applies only as root.
 func TestConfigOwnershipEnforcedAsRoot(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	ensureUsers(t)
 	dir := "/etc/nexus/err67"
 	if err := os.RemoveAll(dir); err != nil {
@@ -1247,6 +1254,7 @@ func serveBriefly(t *testing.T, path string, port int) (string, error) {
 // is 503 audit-unavailable and creates no operation while a read works;
 // once space is freed the same mutation succeeds with no restart.
 func TestDiskFullRefusesMutations(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	freshHost(t)
 	runInstall(t)
 	dir := testDir(t, "err68")

@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/providers/apt"
 	"github.com/mauktik/nexus/internal/providers/apt/spec"
 	"github.com/mauktik/nexus/test/harness/fixtures/aptrepo"
@@ -67,6 +68,7 @@ func simOrigins(t *testing.T, name string) string {
 // dist-upgrade fails (a real unmet dependency, checked by a control), the
 // list still answers with every version and security unknown.
 func TestAptSecurityDegradesOnThisBase(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	osr, _ := os.ReadFile("/etc/os-release")
 	for line := range strings.Lines(string(osr)) {
 		if strings.HasPrefix(line, "PRETTY_NAME=") {
@@ -180,6 +182,7 @@ var releaseMarkers = regexp.MustCompile(`(?i)\b(` + strings.Join([]string{
 // base's release, so the same suite runs on every BASE. This file is
 // skipped: it reads /etc/os-release only to log the base.
 func TestAptSuiteHasNoReleaseDependency(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	files := map[string][]byte{"test/harness/fixtures/aptrepo/build.sh": aptrepo.BuildScript}
 	err := fs.WalkDir(suiteSources, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || p == "apt_portability_test.go" {

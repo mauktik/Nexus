@@ -1,0 +1,34 @@
+# T1 Alpine harness image (WI 3.4): a privileged container whose PID 1 is
+# BusyBox init, which brings up OpenRC's sysinit, boot and default runlevels
+# from /etc/inittab. BASE tracks the current release unpinned (ASM-9);
+# `run.sh alpine` passes it. Nothing is bind-mounted: binaries, the OpenRC
+# script and lib.sh arrive by docker cp.
+ARG BASE=alpine:latest
+FROM ${BASE}
+
+# busybox-openrc gives the syslog service, so `logger -t nexusd` (the
+# script's output_logger) lands in /var/log/messages. bash runs lib.sh and
+# the harness's docker exec commands; iproute2 gives `ip -j addr`; shadow
+# gives the useradd and usermod the script tests create accounts with. No
+# gcompat: the static nexusd must run on musl alone (TC-49).
+RUN apk add --no-cache \
+      openrc busybox-openrc docker docker-cli-compose nginx curl expect procps util-linux git \
+      bash iproute2 shadow ca-certificates
+
+# BusyBox init runs /etc/inittab: keep the three openrc lines, drop the
+# gettys (a container has no ttys to respawn on). rc_logger writes
+# /var/log/rc.log. syslogd never rotates, so a whole run's /var/log/messages
+# is collected. docker joins the default runlevel and syslog the boot one.
+RUN sed -i '/getty/d' /etc/inittab \
+ && grep -q '^::sysinit:/sbin/openrc sysinit$' /etc/inittab \
+ && grep -q '^::sysinit:/sbin/openrc boot$' /etc/inittab \
+ && grep -q '^::wait:/sbin/openrc default$' /etc/inittab \
+ && sed -i 's/^#rc_logger=.*/rc_logger="YES"/' /etc/rc.conf \
+ && grep -q '^rc_logger="YES"$' /etc/rc.conf \
+ && sed -i 's/^SYSLOGD_OPTS=.*/SYSLOGD_OPTS="-t -s 0"/' /etc/conf.d/syslog \
+ && rc-update add syslog boot \
+ && rc-update add docker default
+
+# BusyBox init powers off (the inittab shutdown line, then exit) on SIGUSR2.
+STOPSIGNAL SIGUSR2
+CMD ["/sbin/init"]

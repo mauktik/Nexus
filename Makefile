@@ -39,7 +39,7 @@ SHA256 := $(shell command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo
 # recurses into make.
 export NEXUS_IN_MAKE := 1
 
-.PHONY: build build-release test vet vuln check docs docs-check test-harness release release-version nexusd-tree test-emu nfr nfr-sizes
+.PHONY: build build-release test vet vuln check docs docs-check test-harness test-harness-alpine release release-version nexusd-tree test-emu nfr nfr-sizes
 
 # Host-arch binaries for local use.
 build:
@@ -125,6 +125,12 @@ nexusd-tree:
 # never dist/. BASE defaults to ubuntu:latest; RUN narrows the tests.
 test-harness:
 	BASE='$(BASE)' RUN='$(RUN)' test/harness/run.sh
+
+# T1 Alpine (WI 3.4): the same run on real OpenRC, BusyBox init as PID 1 in
+# a privileged container with a private cgroup namespace (cgroup v2
+# writable). BASE defaults to alpine:latest; RUN narrows the tests.
+test-harness-alpine:
+	BASE='$(BASE)' RUN='$(RUN)' test/harness/run.sh alpine
 
 # T1-emu (TC-184): the linux/amd64 nexusd from the tarball `make release`
 # wrote, in a plain container under amd64 emulation: no systemd, a smoke test

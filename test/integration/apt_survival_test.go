@@ -18,6 +18,7 @@ import (
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/providers/apt"
 	"github.com/mauktik/nexus/internal/providers/apt/spec"
@@ -134,6 +135,7 @@ func aptVersionAndStatus(t *testing.T, pkg string) (version, status string) {
 // status, every package at the version apt-cache policy named as the
 // candidate before the run, dpkg --audit empty.
 func TestAptUpgradeSurvivesNexusdKill9DuringDpkg(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	aptFixture(t, true)
 	const slow = "nxslow6"
 	aptPurgeAround(t, slow)
@@ -236,6 +238,7 @@ func TestAptUpgradeSurvivesNexusdKill9DuringDpkg(t *testing.T) {
 // dpkg --audit is empty with every package installed. Any other result is
 // an A-52 falsification, reported as such and not loosened.
 func TestAptSupervisorDeathMidDpkg(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	aptFixture(t, true)
 	pkgs := []string{"nxsupa", "nxsupb"}
 	aptPurgeAround(t, pkgs...)
@@ -380,6 +383,7 @@ const needrestartConf = "/etc/needrestart/conf.d/zz-nexus-t1.conf"
 // truthfully. If needrestart does not list nexusd.service, that is a G-15
 // finding and the case fails.
 func TestAptNeedrestartRestartsNexusdNotScriptUnit(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	if !exists("/usr/sbin/needrestart") {
 		t.Fatal("needrestart is not installed: the harness image (test/harness/Dockerfile) installs it on every base")
 	}

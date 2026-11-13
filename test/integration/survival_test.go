@@ -20,6 +20,7 @@ import (
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/problem"
 )
 
@@ -97,6 +98,7 @@ func setsidControl(t *testing.T) (env, op error) {
 // in the daemon's own cgroup, so this environment can tell surviving from
 // not surviving; the transient op unit beside it survives (A-20).
 func TestSetsidChildInDaemonCgroupDies(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	requireDiscriminating(t)
 	if controlOp != nil {
 		t.Fatal(controlOp)
@@ -107,6 +109,7 @@ func TestSetsidChildInDaemonCgroupDies(t *testing.T) {
 // alive; restarted before or after the child ends, the daemon reports the
 // child's real exit, 42, with no output lost.
 func TestKill9LeavesOpRunningAndReportsTruthfully(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	requireDiscriminating(t)
 	for _, when := range []string{"before", "after"} {
 		t.Run("restart-"+when+"-child-ends", func(t *testing.T) {
@@ -172,6 +175,7 @@ func TestKill9LeavesOpRunningAndReportsTruthfully(t *testing.T) {
 // the restart the operation is Failed outcome-unknown within 60 seconds,
 // and nothing stays Running.
 func TestLostSupervisorWithDaemonDownIsOutcomeUnknown(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	requireDiscriminating(t)
 	o := newOpsd(t, "tc73", opsdConfig{})
 	o.start()
@@ -216,6 +220,7 @@ func TestLostSupervisorWithDaemonDownIsOutcomeUnknown(t *testing.T) {
 // the operation is Failed outcome-unknown within 60 seconds of the kill,
 // the daemon's PID is unchanged, and the reject lane admits new work.
 func TestSupervisorDeathWithDaemonUp(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	requireDiscriminating(t)
 	for _, mode := range []detach.KillMode{detach.KillControlGroup, detach.KillProcess} {
 		t.Run(string(mode), func(t *testing.T) {
@@ -268,6 +273,7 @@ func TestSupervisorDeathWithDaemonUp(t *testing.T) {
 // by way of systemctl kill --kill-whom=main and the supervisor, and only
 // that group; systemctl stop of an op unit is refused.
 func TestCancelReachesProcessGroup(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	requireDiscriminating(t)
 	o := newOpsd(t, "tc76", opsdConfig{})
 	o.start()
@@ -354,6 +360,7 @@ func TestCancelReachesProcessGroup(t *testing.T) {
 // RefuseManualStop. The control must restart, or the run proves nothing;
 // the op unit must not.
 func TestNeedrestartSkipsOpUnitsWithControl(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	requireDiscriminating(t)
 	// The units run a copy of nexusd, replaced on disk below, so their
 	// supervisors map a deleted file (the spike's method). The copy keeps

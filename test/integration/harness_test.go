@@ -1,10 +1,12 @@
 //go:build integration
 
 // Package integration is T1: it runs only inside the harness container that
-// `make test-harness` starts (test/harness/run.sh), as root, against real
-// systemd. This file holds the shared helpers, the harness self-check
-// (TC-71), production wiring (TC-75) and the shipped unit (TC-227); the
-// survival proof is in survival_test.go.
+// `make test-harness` (real systemd) or `make test-harness-alpine` (real
+// OpenRC) starts (test/harness/run.sh), as root. This file holds the shared
+// helpers, the harness self-check (TC-71), production wiring (TC-75) and the
+// shipped unit (TC-227); the survival proof is in survival_test.go and, on
+// OpenRC, openrc_survival_test.go. A test that needs one init system says
+// so with requireInit (platform_test.go).
 package integration
 
 import (
@@ -36,6 +38,7 @@ import (
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/cli"
 	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/platform"
 )
 
 const (
@@ -85,9 +88,18 @@ func lib(t *testing.T, args ...string) string {
 	return mustSh(t, "bash", append([]string{libSh}, args...)...)
 }
 
-// showUnit is systemctl show for the named properties.
+// showUnit is systemctl show for the named properties. On OpenRC only
+// nexusd.service has an equivalent, the nexusd service, and only its
+// MainPID and ActiveState (openrcService); anything else fails the test,
+// which must then be gated with requireInit(t, platform.Systemd).
 func showUnit(t *testing.T, unit string, props ...string) map[string]string {
 	t.Helper()
+	if detectedInit() == platform.OpenRC {
+		if unit != nexusdUnit {
+			t.Fatalf("systemctl show %s on OpenRC: an operation unit exists only under systemd; gate the test with requireInit(t, platform.Systemd)", unit)
+		}
+		return openrcService(t, props...)
+	}
 	args := []string{"show", unit}
 	for _, p := range props {
 		args = append(args, "-p", p)
@@ -100,6 +112,107 @@ func showUnit(t *testing.T, unit string, props ...string) map[string]string {
 		}
 	}
 	return m
+}
+
+// openrcService answers showUnit for the nexusd OpenRC service:
+// ActiveState from `rc-service nexusd status` (started is active, crashed
+// failed, stopped inactive) and MainPID, the answering daemon (openrcMainPID).
+func openrcService(t *testing.T, props ...string) map[string]string {
+	t.Helper()
+	m := map[string]string{}
+	for _, p := range props {
+		switch p {
+		case "ActiveState":
+			m[p] = map[string]string{"started": "active", "crashed": "failed", "starting": "activating",
+				"stopping": "deactivating"}[rcStatus(t)]
+			if m[p] == "" {
+				m[p] = "inactive"
+			}
+		case "MainPID":
+			m[p] = strconv.Itoa(openrcMainPID(t))
+		default:
+			t.Fatalf("systemctl show -p %s has no OpenRC equivalent; gate the test with requireInit(t, platform.Systemd)", p)
+		}
+	}
+	return m
+}
+
+// rcStatus is the nexusd service's state word from rc-service.
+func rcStatus(t *testing.T) string {
+	t.Helper()
+	out, _ := sh(30*time.Second, "rc-service", "nexusd", "status")
+	for _, w := range []string{"crashed", "started", "starting", "stopping", "inactive", "stopped"} {
+		if strings.Contains(out, "status: "+w) {
+			return w
+		}
+	}
+	if strings.Contains(out, "does not exist") {
+		return "stopped"
+	}
+	t.Fatalf("rc-service nexusd status: %q", out)
+	return ""
+}
+
+// openrcPidfile is the shipped script's pidfile="/run/${RC_SVCNAME}.pid".
+const openrcPidfile = "/run/nexusd.pid"
+
+// openrcMainPID is the PID of the answering daemon, or 0 when the service
+// is not started: the pidfile's process, or, when that is the
+// supervise-daemon of the shipped script, its child (L-11).
+func openrcMainPID(t *testing.T) int {
+	t.Helper()
+	if st := rcStatus(t); st != "started" {
+		return 0
+	}
+	b, err := os.ReadFile(openrcPidfile)
+	if err != nil {
+		t.Fatalf("nexusd is started but: %v", err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		t.Fatalf("%s: %q", openrcPidfile, b)
+	}
+	if procComm(pid) != "supervise-daemon" {
+		return pid
+	}
+	kids := childrenOf(pid)
+	if len(kids) != 1 {
+		return 0 // Between a crash and the respawn
+	}
+	return kids[0]
+}
+
+// procStatusField is a field of /proc/<pid>/status, such as PPid or Umask.
+func procStatusField(pid int, field string) string {
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
+	if err != nil {
+		return ""
+	}
+	for line := range strings.Lines(string(b)) {
+		if v, ok := strings.CutPrefix(line, field+":"); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+// childrenOf lists the live processes whose parent is pid.
+func childrenOf(pid int) []int {
+	ents, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil
+	}
+	var kids []int
+	for _, e := range ents {
+		p, err := strconv.Atoi(e.Name())
+		if err != nil || p == pid {
+			continue
+		}
+		if procStatusField(p, "PPid") == strconv.Itoa(pid) && pidAlive(p) {
+			kids = append(kids, p)
+		}
+	}
+	return kids
 }
 
 func activeState(t *testing.T, unit string) string {
@@ -434,10 +547,12 @@ func problemSlug(op apitypes.Operation) string {
 	return string(op.Error.Slug())
 }
 
-// TC-71: the harness is architecture-aware and systemd is ready. run.sh
-// itself asserts the host side: architecture from docker info, binaries in
-// build/harness/ and dist/ untouched, no bind mount, logs collected and the
-// container removed on every exit.
+// TC-71: the harness is architecture-aware and its init system is ready:
+// systemd running with its required units, or OpenRC with docker started
+// in the default runlevel. run.sh itself asserts the host side:
+// architecture from docker info, binaries in build/harness/ and dist/
+// untouched, no bind mount, logs collected and the container removed on
+// every exit.
 func TestHarnessBootsArchitectureAware(t *testing.T) {
 	want := os.Getenv("NEXUS_HARNESS_ARCH")
 	if want == "" || runtime.GOARCH != want {
@@ -460,6 +575,17 @@ func TestHarnessBootsArchitectureAware(t *testing.T) {
 		if m != machine {
 			t.Fatalf("%s is %v, container is %v", bin, m, machine)
 		}
+	}
+	if detectedInit() == platform.OpenRC {
+		rc := mustSh(t, "rc-status", "default")
+		if !openrcStarted(rc, "docker") {
+			t.Fatalf("docker is not started in the default runlevel:\n%s", rc)
+		}
+		if a := detach.Available(); !a.Available {
+			t.Fatalf("detach.Available on OpenRC: %s", a.Reason)
+		}
+		t.Logf("arch %s (%s), %s", want, uname, strings.TrimSpace(mustSh(t, "openrc", "--version")))
+		return
 	}
 	state, _ := sh(10*time.Second, detach.Systemctl, "is-system-running")
 	if s := strings.TrimSpace(state); s != "running" && s != "degraded" {
@@ -489,6 +615,7 @@ func TestHarnessFailurePathIsCollected(t *testing.T) {
 // TC-75: the default detach.New, nil Launch, creates a real nexus-op-*
 // unit through the exact systemd-run invocation, for both kill modes.
 func TestProductionWiringCreatesRealUnit(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	opsDir := t.TempDir()
 	l, err := detach.New(detach.Config{OpsDir: opsDir, Executable: nexusdBin}, detach.Options{})
 	if err != nil {
@@ -644,6 +771,7 @@ var sandboxComms = []string{`comm="nexusd"`, `comm="opsd"`, `comm="systemd-run"`
 // sandbox; opsd under the same hardening, through a drop-in that replaces
 // only ExecStart, launches an op unit; and nothing is denied.
 func TestShippedUnitRunsNexusdAndLaunchesOpUnit(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	if got := serviceDirectives(t, shippedUnit); !slices.Equal(got, wantDirectives) {
 		t.Fatalf("deploy/nexusd.service [Service] differs from the WI 3.5 list:\n got  %q\n want %q", got, wantDirectives)
 	}

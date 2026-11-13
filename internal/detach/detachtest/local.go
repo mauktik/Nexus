@@ -169,10 +169,25 @@ var build struct {
 	err  error
 }
 
+// SupervisorEnv names a prebuilt nexusd that Supervisor returns instead of
+// building one. The T1 harnesses set it to the harness nexusd: they run
+// these suites as `go test -c` binaries in a container with no Go toolchain.
+const SupervisorEnv = "NEXUS_TEST_SUPERVISOR"
+
 // Supervisor returns the path of a nexusd binary built from this module,
-// once per test process, for running `nexusd op-supervise` for real.
+// once per test process, for running `nexusd op-supervise` for real, or
+// the one $NEXUS_TEST_SUPERVISOR names.
 func Supervisor() (string, error) {
-	build.once.Do(func() { build.path, build.err = buildNexusd() })
+	build.once.Do(func() {
+		if p := os.Getenv(SupervisorEnv); p != "" {
+			build.path = p
+			if _, err := os.Stat(p); err != nil {
+				build.err = fmt.Errorf("detachtest: %s: %w", SupervisorEnv, err)
+			}
+			return
+		}
+		build.path, build.err = buildNexusd()
+	})
 	return build.path, build.err
 }
 

@@ -1,88 +1,331 @@
 //go:build integration
 
-// Stub-style: SKIP-only (nginx-provider)
-//
-// Stubs of planning/nginx-provider/test-cases.md. Each test skips until its
-// work item lands; the developer of that work item replaces the skip with
-// the assertions written in the comment above the test. An un-skipped
-// passing test is the GREEN signal (test-strategy.md, RED Stub Style).
+// Platform gating of the T1 suites (WI 3.4) and the Alpine harness's own
+// checks: TC-37, TC-46, TC-49 and TC-50 of planning/nginx-provider.
 
 package integration
 
-import "testing"
+import (
+	"bufio"
+	"debug/elf"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strings"
+	"testing"
+	"time"
 
-// nginx-provider TC-37: The Alpine harness boots real OpenRC with cgroup v2 and no bind mounts
-// Owner WI 3.4. Requirements: NFR-10.
-//
-//	Setup: Inside the Alpine harness.
-//	Steps:
-//	  1. Read /proc/1/cmdline, run rc-status default, and read
-//	    /sys/fs/cgroup/cgroup.controllers.
-//	  2. mkdir /sys/fs/cgroup/nexus-ops-probe, then rmdir it.
-//	  3. Read /etc/os-release.
-//	  4. Read platform.Current().
-//	Expected:
-//	  - PID 1 is /sbin/init, docker is started in the default runlevel, and the
-//	    cgroup v2 controllers file exists and is writable.
-//	  - ID=alpine.
-//	  - platform.Current().Init == OpenRC.
-//	  - The run.sh log (asserted by the run script, not the test) shows no bind:
-//	    mount, the container removed, dist/ untouched, and logs collected (rc.log,
-//	    /var/log/messages).
+	"github.com/mauktik/nexus/internal/platform"
+)
+
+// detectedInit is the harness container's init system, detected as nexusd
+// detects it.
+func detectedInit() platform.InitSystem { return platform.Current().Init }
+
+// requireInit skips a test written for one init system on the other, with
+// the reason TC-46 reads in test.log: "requires systemd (detected openrc)".
+func requireInit(t testing.TB, want platform.InitSystem) {
+	t.Helper()
+	if skip, reason := initGate(want, detectedInit()); skip {
+		t.Skip(reason)
+	}
+}
+
+// initGate is requireInit's decision and skip reason.
+func initGate(want, got platform.InitSystem) (bool, string) {
+	return got != want, fmt.Sprintf("requires %s (detected %s)", want, got)
+}
+
+// openrcStarted reports whether rc-status output lists service as started.
+func openrcStarted(rcStatus, service string) bool {
+	re := regexp.MustCompile(`(?m)^ ` + regexp.QuoteMeta(service) + ` +\[ +started`)
+	return re.MatchString(rcStatus)
+}
+
+// nginx-provider TC-37: The Alpine harness boots real OpenRC with cgroup v2
+// and no bind mounts. run.sh asserts the host side: no bind: mount, the
+// container removed, dist/ untouched, rc.log and /var/log/messages collected.
 func TestAlpineHarnessSelfCheck(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-37 (WI 3.4)")
+	requireInit(t, platform.OpenRC)
+	cmdline, err := os.ReadFile("/proc/1/cmdline")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimRight(string(cmdline), "\x00"); got != "/sbin/init" {
+		t.Fatalf("PID 1 is %q, want /sbin/init", got)
+	}
+	if target, err := os.Readlink("/sbin/init"); err != nil || !strings.HasSuffix(target, "busybox") {
+		t.Fatalf("/sbin/init -> %q (%v), want BusyBox init", target, err)
+	}
+	rc := mustSh(t, "rc-status", "default")
+	if !openrcStarted(rc, "docker") {
+		t.Fatalf("docker is not started in the default runlevel:\n%s", rc)
+	}
+	controllers, err := os.ReadFile("/sys/fs/cgroup/cgroup.controllers")
+	if err != nil {
+		t.Fatalf("no cgroup v2 hierarchy: %v", err)
+	}
+	probe := "/sys/fs/cgroup/nexus-ops-probe"
+	if err := os.Mkdir(probe, 0o755); err != nil {
+		t.Fatalf("cgroup v2 is not writable: %v", err)
+	}
+	if err := os.Remove(probe); err != nil {
+		t.Fatalf("rmdir %s: %v", probe, err)
+	}
+	osr, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`(?m)^ID=alpine$`).Match(osr) {
+		t.Fatalf("/etc/os-release has no ID=alpine:\n%s", osr)
+	}
+	p := platform.Current()
+	if p.Init != platform.OpenRC || !p.OS.IsAlpine() {
+		t.Fatalf("platform.Current() = %+v, want OpenRC on alpine", p)
+	}
+	t.Logf("PID 1 /sbin/init (BusyBox), docker started, cgroup v2 writable (controllers: %s), %s, platform %+v",
+		strings.TrimSpace(string(controllers)), strings.TrimSpace(mustSh(t, "openrc", "--version")), p)
 }
 
-// nginx-provider TC-46: Parity suites run as root on both harnesses, and gated cases are not silently skipped
-// Owner WI 3.4. Requirements: NFR-8, NFR-10.
-//
-//	Setup: run.sh copies go test -c binaries of ./internal/detach and
-//	./internal/ops and runs them as root before integration.test, writing
-//	detach.log and ops.log.
-//	Steps:
-//	  1. Parse both logs.
-//	  2. Parse test.log for SKIP lines.
-//	Expected:
-//	  - Every /process subtest in ops.log is PASS on Alpine, and every root-only
-//	    cgroup test in detach.log (TC-19, TC-20, TC-21) is PASS.
-//	  - On Ubuntu, the systemd-gated tests are PASS. On Alpine, they are SKIP
-//	    with requires systemd (detected openrc), and the reverse holds.
-//	  - Any other SKIP of a root, cgroup or init-gated case on its own platform
-//	    fails the run.
+// testResult is one --- PASS/FAIL/SKIP line of a `go test -v` log, with the
+// reason lines indented under a SKIP.
+type testResult struct {
+	name, verdict, reason string
+}
+
+var resultLine = regexp.MustCompile(`^\s*--- (PASS|FAIL|SKIP): (\S+) \(`)
+
+// readResults parses a `go test -v` log.
+func readResults(t *testing.T, path string) []testResult {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	var out []testResult
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
+	for sc.Scan() {
+		line := sc.Text()
+		if m := resultLine.FindStringSubmatch(line); m != nil {
+			out = append(out, testResult{name: m[2], verdict: m[1]})
+			continue
+		}
+		// The reason of a SKIP follows its line, indented further.
+		if n := len(out); n > 0 && out[n-1].verdict == "SKIP" && strings.HasPrefix(line, "    ") {
+			out[n-1].reason += strings.TrimSpace(line) + "\n"
+		}
+	}
+	if err := sc.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func verdictOf(rs []testResult, name string) (testResult, bool) {
+	for _, r := range rs {
+		if r.name == name {
+			return r, true
+		}
+	}
+	return testResult{}, false
+}
+
+// gateRE is requireInit's skip reason, after the file:line prefix.
+var gateRE = regexp.MustCompile(`requires (systemd|openrc) \(detected (\w+)\)`)
+
+// privilegedSkipRE is a skip reason that names root, cgroups or an init
+// system: such a case must run on its own platform.
+var privilegedSkipRE = regexp.MustCompile(`(?i)root|cgroup|systemd|openrc|init system`)
+
+// rootOnlyCgroupTests are TC-19, TC-20 and TC-21 of internal/detach.
+var rootOnlyCgroupTests = []string{"TestOperationCgroupContainment", "TestCancelKillsSetsidGrandchild",
+	"TestLeftoverSweepOnlyForControlGroup"}
+
+// nginx-provider TC-46: Parity suites run as root on both harnesses, and
+// gated cases are not silently skipped. run.sh runs this test on its own,
+// after integration.test, with the logs copied to $NEXUS_HARNESS_LOGS.
 func TestParitySuitesRanAsRoot(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-46 (WI 3.4)")
+	dir := os.Getenv("NEXUS_HARNESS_LOGS")
+	if dir == "" {
+		t.Fatal("NEXUS_HARNESS_LOGS is unset: run.sh runs this after the parity suites and integration.test")
+	}
+	here := detectedInit()
+	other := map[platform.InitSystem]platform.InitSystem{platform.Systemd: platform.OpenRC, platform.OpenRC: platform.Systemd}[here]
+	if other == "" {
+		t.Fatalf("harness init system %s", here)
+	}
+
+	// The parity suites as root: every process-backend subtest and every
+	// root-only cgroup test passes, and nothing root, cgroup or
+	// init-related is skipped.
+	for _, log := range []string{"ops.log", "detach.log"} {
+		rs := readResults(t, filepath.Join(dir, log))
+		var process int
+		for _, r := range rs {
+			if r.verdict == "FAIL" {
+				t.Errorf("%s: %s FAIL", log, r.name)
+			}
+			if slices.Contains(strings.Split(r.name, "/"), "process") {
+				process++
+				if r.verdict != "PASS" {
+					t.Errorf("%s: process-backend subtest %s is %s %s", log, r.name, r.verdict, r.reason)
+				}
+			}
+			if r.verdict == "SKIP" && privilegedSkipRE.MatchString(r.reason) {
+				t.Errorf("%s (root): %s skipped: %s", log, r.name, strings.TrimSpace(r.reason))
+			}
+		}
+		t.Logf("%s: %d results, %d process-backend subtests", log, len(rs), process)
+		if log == "ops.log" && process == 0 {
+			t.Errorf("ops.log has no process-backend subtest: the parity suites did not run per backend")
+		}
+		if log == "detach.log" {
+			for _, name := range rootOnlyCgroupTests {
+				if r, ok := verdictOf(rs, name); !ok || r.verdict != "PASS" {
+					t.Errorf("detach.log: %s is %q %s, want PASS as root with cgroup v2", name, r.verdict, r.reason)
+				}
+			}
+		}
+	}
+	// The same suites as an unprivileged user pass too; there the root-only
+	// cases skip with "needs root" (CON-10 is the process backend without
+	// a cgroup).
+	for _, log := range []string{"ops-nonroot.log", "detach-nonroot.log"} {
+		rs := readResults(t, filepath.Join(dir, log))
+		var skips []string
+		for _, r := range rs {
+			switch r.verdict {
+			case "FAIL":
+				t.Errorf("%s: %s FAIL", log, r.name)
+			case "SKIP":
+				skips = append(skips, r.name+": "+strings.TrimSpace(r.reason))
+			}
+		}
+		t.Logf("%s: %d results; skips:\n%s", log, len(rs), strings.Join(skips, "\n"))
+		if len(rs) == 0 {
+			t.Errorf("%s has no results", log)
+		}
+	}
+
+	// integration.test: gated cases skip only on the other platform, with
+	// requireInit's reason; any other skip naming root, cgroups or an init
+	// system fails.
+	rs := readResults(t, filepath.Join(dir, "test.log"))
+	var gated []string
+	for _, r := range rs {
+		if r.verdict == "FAIL" {
+			t.Errorf("test.log: %s FAIL", r.name)
+		}
+		if r.verdict != "SKIP" {
+			continue
+		}
+		if m := gateRE.FindStringSubmatch(r.reason); m != nil {
+			if m[1] != string(other) || m[2] != string(here) {
+				t.Errorf("test.log: %s skipped on %s with %q: a gate must name the other init system", r.name, here, m[0])
+			}
+			gated = append(gated, r.name)
+			continue
+		}
+		if privilegedSkipRE.MatchString(r.reason) {
+			t.Errorf("test.log: %s skipped on its own platform: %s", r.name, strings.TrimSpace(r.reason))
+		}
+	}
+	t.Logf("test.log: %d results; %d gated to %s: %s", len(rs), len(gated), other, strings.Join(gated, ", "))
+	// TC-50: the systemd cgroup control runs on systemd and is gated on
+	// OpenRC, and the reverse for the OpenRC survival suite.
+	for name, on := range map[string]platform.InitSystem{
+		"TestSetsidChildInDaemonCgroupDies": platform.Systemd,
+		"TestOpenRCServiceLifecycle":        platform.OpenRC,
+	} {
+		r, ok := verdictOf(rs, name)
+		if !ok {
+			t.Logf("test.log: %s did not run (RUN narrowed the run)", name)
+			continue
+		}
+		want := "PASS"
+		if on != here {
+			want = "SKIP"
+		}
+		if r.verdict != want {
+			t.Errorf("test.log: %s is %s on %s, want %s", name, r.verdict, here, want)
+		}
+	}
 }
 
-// nginx-provider TC-49: The release nexusd is static and runs on musl
-// Owner WI 3.4. Requirements: FR-38, NFR-11.
-//
-//	Setup: Alpine harness. No gcompat package installed (asserted with apk info
-//	-e gcompat returning non-zero).
-//	Steps:
-//	  1. Open /usr/local/bin/nexusd with debug/elf.
-//	  2. nexusd -version.
-//	  3. serve, then GET /healthz.
-//	Expected:
-//	  - No PT_INTERP and no DT_NEEDED.
-//	  - Both commands succeed.
-//	  - validate-config resolves a runAs user from /etc/passwd (the pure-Go
-//	    os/user path).
+// nginx-provider TC-49: The release nexusd is static and runs on musl. The
+// harness nexusd is built CGO_ENABLED=0, as RELEASE_BUILD is.
 func TestReleaseBinaryStaticOnMusl(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-49 (WI 3.4)")
+	requireInit(t, platform.OpenRC)
+	if out, err := sh(time.Minute, "apk", "info", "-e", "gcompat"); err == nil {
+		t.Fatalf("gcompat is installed (%s): the musl check would prove nothing", strings.TrimSpace(out))
+	}
+	f, err := elf.Open(nexusdBin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	for _, p := range f.Progs {
+		if p.Type == elf.PT_INTERP {
+			t.Fatalf("%s has a PT_INTERP program header", nexusdBin)
+		}
+	}
+	if f.Section(".dynamic") != nil {
+		needed, err := f.DynString(elf.DT_NEEDED)
+		if err != nil || len(needed) > 0 {
+			t.Fatalf("%s: DT_NEEDED %v (%v)", nexusdBin, needed, err)
+		}
+	}
+	t.Logf("%s: no PT_INTERP, no DT_NEEDED; %s", nexusdBin, strings.TrimSpace(mustSh(t, nexusdBin, "-version")))
+
+	// serve, then GET /healthz, with the C library being musl only.
+	startPlainNexusd(t, "tc49")
+
+	// validate-config resolves runAs from /etc/passwd through pure-Go
+	// os/user: a real user validates, an unknown one does not.
+	if _, err := sh(time.Minute, "id", "nexusrun"); err != nil {
+		mustSh(t, "adduser", "-D", "-H", "nexusrun")
+	}
+	dir := testDir(t, "tc49")
+	script := installScript(t, filepath.Join(dir, "id.sh"), "#!/bin/sh\nid -u\n")
+	tmp := t.TempDir()
+	for _, c := range []struct {
+		user string
+		ok   bool
+	}{{"nexusrun", true}, {"nexus-no-such-user", false}} {
+		cfg := filepath.Join(tmp, c.user+".yaml")
+		body := fmt.Sprintf("listen: [\"127.0.0.1:7443\"]\ntls: {mode: off}\nproviders:\n  scripts:\n    enabled: true\n    catalog:\n%s",
+			catalogYAML(entry{id: "id", path: script, runAs: c.user}))
+		if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		out, err := sh(time.Minute, nexusdBin, "validate-config", "--config", cfg)
+		t.Logf("validate-config with runAs %s: %v %s", c.user, err, strings.TrimSpace(out))
+		if (err == nil) != c.ok {
+			t.Fatalf("validate-config with runAs %s: %v, want ok=%v\n%s", c.user, err, c.ok, out)
+		}
+	}
 }
 
-// nginx-provider TC-50: The Ubuntu harness still passes every existing suite, with platform gating
-// Owner WI 3.4. Requirements: NFR-9, NFR-8.
-//
-//	Setup: Ubuntu harness.
-//	Steps:
-//	  1. make test-harness.
-//	  2. In-test: requireInit(t, platform.OpenRC) in a subtest.
-//	Expected:
-//	  - Every existing test that passed at d04583a passes.
-//	  - The OpenRC-gated subtest skips with requires openrc (detected systemd).
-//	  - TestSetsidChildInDaemonCgroupDies runs (it is not skipped) on Ubuntu.
-//	  - The log is committed to docs/verification/ with the SHA.
+// nginx-provider TC-50: The Ubuntu harness still passes every existing
+// suite, with platform gating. The run as a whole, its log committed to
+// docs/verification/, is the evidence that the existing suites pass; this
+// test checks the gate itself.
 func TestRequireInitGating(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-50 (WI 3.4)")
+	requireInit(t, platform.Systemd)
+	ran := false
+	gated := t.Run("openrc-gated", func(t *testing.T) {
+		requireInit(t, platform.OpenRC)
+		ran = true
+	})
+	if ran || !gated {
+		t.Fatalf("requireInit(OpenRC) on systemd did not skip (ran %v)", ran)
+	}
+	// The reason test.log shows for that skip, which TC-46 reads.
+	if _, reason := initGate(platform.OpenRC, detectedInit()); reason != "requires openrc (detected systemd)" {
+		t.Fatalf("the gate's reason is %q", reason)
+	}
 }

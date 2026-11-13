@@ -16,6 +16,7 @@ import (
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/auth"
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/providers/apt"
 	"github.com/mauktik/nexus/internal/providers/apt/spec"
@@ -149,6 +150,7 @@ func notBefore(a, b *time.Time) bool { return a != nil && b != nil && !a.Before(
 // versions dpkg-query reads back. Each postinst is gated, so every run is
 // sampled while it holds dpkg.
 func TestAptMutationsSerializeFIFO(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	aptFixture(t, true)
 	aptPurgeAround(t, "nxslowa", "nxslowb")
 	gU, openU := aptGate(t, "nxplain")
@@ -236,6 +238,7 @@ func opAptGet(t *testing.T, id string) int {
 // queued ones run after it in order; the third starts only after both are
 // terminal; all reach their real terminal states.
 func TestAptQueueSurvivesRestart(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	aptFixture(t, false)
 	aptPurgeAround(t, "nxslowa", "nxqb", "nxqc", "nxqd")
 	gA, openA := aptGate(t, "nxslowa")
@@ -327,6 +330,7 @@ func TestAptQueueSurvivesRestart(t *testing.T) {
 // nothing; dpkg-query shows exactly the installed names and the pinned
 // version, and each preview equals the real outcome that follows.
 func TestAptInstallPinAndPlusNames(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	aptFixture(t, true)
 	aptPurgeAround(t, "nxg++", "nxnewdep")
 	mustSh(t, apt.Dpkg, "--purge", aptPlain)
@@ -387,6 +391,7 @@ func TestAptInstallPinAndPlusNames(t *testing.T) {
 // file; autoremove removes exactly the dependency apt's own preview
 // reported, and nothing else.
 func TestAptRemovePurgeAndAutoremove(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	aptFixture(t, false)
 	aptPurgeAround(t, "nxapp", "nxdep")
 	t.Cleanup(func() { _ = os.Remove("/etc/nxapp.conf") })
@@ -459,6 +464,7 @@ func TestAptRemovePurgeAndAutoremove(t *testing.T) {
 // packages:write; each mismatch is 403 naming the scope it needs, with
 // whatIf too.
 func TestAptInstallAndUpgradeScopes(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	aptFixture(t, true)
 	const name = "apt-install-scopes"
 	n := aptdScopes(t, name, "", allAptScopes...)
@@ -509,6 +515,7 @@ func TestAptInstallAndUpgradeScopes(t *testing.T) {
 // Prepare on another process's lock cancels, and no unit or dpkg
 // transaction of it ever appears.
 func TestAptCancellationRules(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	t.Run("running and queued", func(t *testing.T) {
 		aptFixture(t, true)
 		aptPurgeAround(t, "nxg++")
@@ -614,6 +621,7 @@ var (
 // packages are identical. The controls prove apt-get still reads each name
 // dangerously, so the guard is what stops them.
 func TestAptInstallRejectsInjections(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	aptFixture(t, true)
 	aptPurgeAround(t, "nxnewdep")
 	aptBuild(t, "add", aptRepo, "nxnewdep", "1.0")
@@ -701,6 +709,7 @@ func TestAptInstallRejectsInjections(t *testing.T) {
 // removes nothing. The control: without --no-remove apt would remove the
 // installed package.
 func TestAptInstallNeverRemoves(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	aptFixture(t, false)
 	aptPurgeAround(t, "nxconfl", "nxvictim")
 	mustSh(t, apt.Dpkg, "-i", aptBuild(t, "deb", filepath.Join(t.TempDir(), "debs"), "nxvictim", "1.0"))
@@ -732,6 +741,7 @@ func TestAptInstallNeverRemoves(t *testing.T) {
 // that is not installed, are not-found and start nothing; a version apt
 // does not have is an operation that ends Failed with no changes.
 func TestAptInstallUnknownNamesAndVersions(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	aptFixture(t, true)
 	aptPurgeAround(t, "nxnewdep")
 	aptBuild(t, "add", aptRepo, "nxnewdep", "1.0")
@@ -773,6 +783,7 @@ func TestAptInstallUnknownNamesAndVersions(t *testing.T) {
 // and a subset upgrade of nxg++ change exactly nxg++: the preview equals the
 // real diff, and nothing else is installed, upgraded or removed.
 func TestAptPlusNamesRemoveAndSubsetUpgrade(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	aptFixture(t, true)
 	aptPurgeAround(t, "nxg++", "nxg+")
 	aptBuild(t, "add", aptRepo, "nxg++", "1.0")
