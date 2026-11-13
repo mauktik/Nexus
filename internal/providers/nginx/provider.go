@@ -214,5 +214,9 @@ func (p *Provider) Bindings() []provider.Binding {
 		provider.Sync(spec.Get, p.get),
 		provider.Sync(spec.Content, p.content),
 		p.testBinding(),
+		p.lifecycleBinding(spec.Start, actionStart, nil),
+		p.lifecycleBinding(spec.Stop, actionStop, nil),
+		p.lifecycleBinding(spec.Restart, actionRestart, nil),
+		p.lifecycleBinding(spec.Reload, actionReload, p.admitReload),
 	}
 }

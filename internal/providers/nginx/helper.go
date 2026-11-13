@@ -11,7 +11,9 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/problem"
+	"github.com/mauktik/nexus/internal/svcctl"
 )
 
 // HelperCommand is the hidden nexusd subcommand that runs one nginx
@@ -28,13 +30,41 @@ type Tester interface {
 // inject their own through runHelper.
 type env struct {
 	nginx Tester
-	out   io.Writer // The operation log
+	svc   svcctl.Controller // The init system, each call bounded by stateTimeout
+	proc  ProcReader        // The host's processes, for reload verification
+	out   io.Writer         // The operation log
 }
 
 // newEnv builds the real dependencies of in: the nginx binary it names,
-// bounded by its testTimeout, writing to out.
+// bounded by its testTimeout, writing to out; the service control of its
+// init system, each call bounded by its stateTimeout; and the host's /proc.
+// An init system svcctl does not support fails only the actions that use
+// it, so the config test still runs.
 func newEnv(in helperInput, out io.Writer) (env, error) {
-	return env{nginx: nginxBin{path: in.Nginx, testTimeout: in.Settings.TestTimeout, log: out}, out: out}, nil
+	init := platform.InitSystem(in.InitSystem)
+	svc, err := svcctl.New(init, svcctl.Options{Timeout: in.Settings.StateTimeout})
+	if err != nil {
+		svc = noController{init: init, err: err}
+	}
+	return env{nginx: nginxBin{path: in.Nginx, testTimeout: in.Settings.TestTimeout, log: out}, svc: svc,
+		proc: HostProcReader(), out: out}, nil
+}
+
+// noController is the service control of an init system svcctl does not
+// support: every call fails with why.
+type noController struct {
+	init platform.InitSystem
+	err  error
+}
+
+func (c noController) Init() platform.InitSystem { return c.init }
+
+func (c noController) Status(context.Context, string) (svcctl.Status, error) {
+	return svcctl.Status{State: svcctl.Unknown}, c.err
+}
+
+func (c noController) Do(context.Context, svcctl.Action, string) (svcctl.Result, error) {
+	return svcctl.Result{}, c.err
 }
 
 // action runs one operation's work in the helper. It returns the result
@@ -43,7 +73,11 @@ type action func(ctx context.Context, e env, in helperInput) (any, *helperError)
 
 // actions are the helper's actions by input.json's action.
 var actions = map[string]action{
-	actionTest: runTest,
+	actionTest:    runTest,
+	actionStart:   runStart,
+	actionStop:    runStop,
+	actionRestart: runRestart,
+	actionReload:  runReload,
 }
 
 // Helper is `nexusd nginx-op`. `run --dir D` reads D/input.json, runs its
