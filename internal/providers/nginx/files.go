@@ -22,9 +22,9 @@ import (
 // it. Temporary files are dotfiles (.<name>.nexus-<short op id>.tmp), which
 // nginx's include glob never matches (L-23) and list never shows.
 
-// previousDir is the directory under an op dir that holds a backup:
+// backupDirName is the directory under an op dir that holds a backup:
 // content (the bytes) and meta.json (a Meta).
-const previousDir = "previous"
+const backupDirName = "previous"
 
 // Meta is what Backup recorded about a file, in previous/meta.json. When
 // Exists is false the file did not exist, and Restore removes it.
@@ -41,7 +41,7 @@ type Meta struct {
 // PreviousContentPath is where Backup keeps the previous bytes of a file
 // for the op whose directory is opDir.
 func PreviousContentPath(opDir string) string {
-	return filepath.Join(opDir, previousDir, "content")
+	return filepath.Join(opDir, backupDirName, "content")
 }
 
 // Backup copies fileName's bytes in dirfd to <opDir>/previous/content and
@@ -75,7 +75,7 @@ func Backup(dirfd int, fileName, opDir string, max int64) (Meta, error) {
 		m = Meta{FileName: fileName, Exists: true, SHA256: digest, Size: int64(len(b)),
 			Mode: uint32(st.Mode) & 0o7777, UID: st.Uid, GID: st.Gid}
 	}
-	prev := filepath.Join(opDir, previousDir)
+	prev := filepath.Join(opDir, backupDirName)
 	if err := os.Mkdir(prev, 0o700); err != nil {
 		return Meta{}, fmt.Errorf("back up %s: %w", fileName, err)
 	}
