@@ -102,6 +102,7 @@ type FakeHost struct {
 	faults      []*fault
 	failAdlists map[string]bool
 	nextPID     int
+	ftl         *FakeFTL
 }
 
 var _ v5.Runner = (*FakeHost)(nil)
@@ -141,6 +142,7 @@ func NewFakeHost(t testing.TB) *FakeHost {
 	for _, f := range files {
 		h.writeFile(f.path, f.body, f.mode)
 	}
+	h.ftl = newFakeFTL(t, h.root)
 	schema, err := os.ReadFile(filepath.Join(sourceDir(t), "..", "..", "gravitydb", "testdata", "gravity.db.sql"))
 	if err != nil {
 		t.Fatalf("v5test: %v", err)
@@ -287,8 +289,25 @@ func (h *FakeHost) FTLEvents() []string {
 	return slices.Clone(h.events)
 }
 
-// ftlEvent records what a restartdns variant did to FTL.
-func (h *FakeHost) ftlEvent(ev string) { h.events = append(h.events, ev) }
+// FTL is the host's FTL.
+func (h *FakeHost) FTL() *FakeFTL { return h.ftl }
+
+// ftlEvent sends a restartdns variant to FTL and records it. A full restart
+// returns the command's exit code; reload and reload-lists exit 0 and are
+// not recorded when FTL is not running, as `pihole` then sends no signal
+// (V-17). Callers hold mu.
+func (h *FakeHost) ftlEvent(ev string, stdout io.Writer) int {
+	if ev == EventRestart {
+		h.events = append(h.events, ev)
+		return h.ftl.restart(stdout)
+	}
+	if h.ftl.signal(ev) {
+		h.events = append(h.events, ev)
+	} else {
+		fmt.Fprintln(stdout, "  [i] FTL is not running")
+	}
+	return 0
+}
 
 // BlockingEnabled is BLOCKING_ENABLED in setupVars.conf, "" when absent.
 func (h *FakeHost) BlockingEnabled() string {
@@ -449,6 +468,11 @@ func (h *FakeHost) exec(argv []string, stdout, stderr io.Writer) int {
 	switch argv[0] {
 	case v5.PiholeBin:
 		return h.pihole(args, stdout, stderr)
+	case v5.PiholeFTLBin:
+		if len(args) != 1 || args[0] != "--test" {
+			return unknown(argv, stderr)
+		}
+		return h.ftl.configTest(stderr)
 	case detach.SystemdRun:
 		return h.systemdRun(args, stdout, stderr)
 	case detach.Systemctl:
@@ -481,15 +505,13 @@ func (h *FakeHost) pihole(args []string, stdout, stderr io.Writer) int {
 	case "restartdns":
 		switch {
 		case len(args) == 1:
-			h.ftlEvent(EventRestart)
+			return h.ftlEvent(EventRestart, stdout)
 		case len(args) == 2 && args[1] == "reload":
-			h.ftlEvent(EventReload)
+			return h.ftlEvent(EventReload, stdout)
 		case len(args) == 2 && args[1] == "reload-lists":
-			h.ftlEvent(EventReloadLists)
-		default:
-			return unknown(argv, stderr)
+			return h.ftlEvent(EventReloadLists, stdout)
 		}
-		return 0
+		return unknown(argv, stderr)
 	case "flush":
 		if len(args) != 1 {
 			return unknown(argv, stderr)
@@ -530,7 +552,7 @@ func (h *FakeHost) pihole(args []string, stdout, stderr io.Writer) int {
 func (h *FakeHost) enable() {
 	h.children = nil
 	h.setBlocking(true)
-	h.ftlEvent(EventReloadLists)
+	h.ftlEvent(EventReloadLists, io.Discard)
 }
 
 // disable is `pihole disable [Ns|Nm]`. With a duration it starts the nohup
@@ -557,7 +579,7 @@ func (h *FakeHost) disable(argv, args []string, stdout, stderr io.Writer) int {
 		h.children = append(h.children, child{at: h.now.Add(d)})
 	}
 	h.setBlocking(false)
-	h.ftlEvent(EventReloadLists)
+	h.ftlEvent(EventReloadLists, io.Discard)
 	fmt.Fprintln(stdout, "  [✓] Pi-hole Disabled")
 	return 0
 }
@@ -598,7 +620,7 @@ func (h *FakeHost) listSh(opt, value string, stdout io.Writer) int {
 		return err
 	})
 	if reload {
-		h.ftlEvent(EventReloadLists)
+		h.ftlEvent(EventReloadLists, io.Discard)
 	}
 	return 0
 }

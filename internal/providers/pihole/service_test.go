@@ -1,10 +1,7 @@
-//go:build pihole_red
-
-// Stub-style: SKIP-only (WI 3.2). Excluded from `make test` by the
-// pihole_red build tag; the WI 3.2 developer deletes the //go:build line and
-// these must pass. Cases: TC-75, TC-76, TC-ERR12, TC-ERR13 in
-// planning/pihole-dns-zones/test-cases.md. Helper-action level cases for the
-// same WI (ServiceResult, readiness) are added by the developer beside these.
+// Cases: TC-75, TC-76, TC-ERR12, TC-ERR13 and TC-ERR29 in
+// planning/pihole-dns-zones/test-cases.md (WI 3.2): the v5 service methods,
+// and the restart-dns and flush-cache helper actions run through Prepare,
+// the helper and Finalize against a FakeHost and its FakeFTL.
 package pihole
 
 import (
@@ -14,11 +11,17 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/mauktik/nexus/internal/def"
+	"github.com/mauktik/nexus/internal/detach"
 	"github.com/mauktik/nexus/internal/problem"
+	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/providers/pihole/dnscheck"
+	"github.com/mauktik/nexus/internal/providers/pihole/spec"
 	"github.com/mauktik/nexus/internal/providers/pihole/v5"
 	"github.com/mauktik/nexus/internal/providers/pihole/v5/v5test"
 )
@@ -105,8 +108,11 @@ func TestTCERR12_RestartFailure(t *testing.T) {
 	}
 }
 
-// TC-ERR13 (V-10, A-19): TestConfig returns pihole-FTL --test's exit code: 0
-// for a clean config, 1 with an invalid address= line in dnsFile.
+// TC-ERR13 (V-10, A-19, WI 0.1 check 3): TestConfig returns the runner's
+// (exitCode, err) for pihole-FTL --test unchanged: 0 for a clean config;
+// 139 with an invalid address= line in dnsFile, the SIGSEGV death FTL
+// v5.25.2 showed, reported as 128+11 with a nil error; 1 when the fake
+// exits plainly instead; and (-1, err) when the command cannot start.
 func TestTCERR13_TestConfigExitCode(t *testing.T) {
 	h, m := newV5(t)
 	if code, err := m.TestConfig(context.Background(), &bytes.Buffer{}); err != nil || code != 0 {
@@ -116,10 +122,218 @@ func TestTCERR13_TestConfigExitCode(t *testing.T) {
 	if err := os.WriteFile(f, []byte("address=/bad.lan/999.1.1.1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if code, err := m.TestConfig(context.Background(), &bytes.Buffer{}); err != nil || code != 1 {
-		t.Errorf("bad line: exit %d, %v; want exit 1 with a nil error (err is reserved for failing to run the command)", code, err)
+	if code, err := m.TestConfig(context.Background(), &bytes.Buffer{}); err != nil || code != 139 {
+		t.Errorf("bad line: exit %d, %v; want 139 (SIGSEGV) with a nil error (err is reserved for failing to run the command)", code, err)
 	}
 	if last := h.Argvs()[len(h.Argvs())-1]; !slices.Equal(last, []string{piholeFTLBin, "--test"}) {
 		t.Errorf("argv %q, want [pihole-FTL --test]", last)
+	}
+	h.FTL().SetTestExit(1)
+	if code, err := m.TestConfig(context.Background(), &bytes.Buffer{}); err != nil || code != 1 {
+		t.Errorf("SetTestExit(1): exit %d, %v; want 1 with a nil error", code, err)
+	}
+	h.FailCommandStart([]string{piholeFTLBin, "--test"})
+	if code, err := m.TestConfig(context.Background(), &bytes.Buffer{}); err == nil || code != -1 {
+		t.Errorf("start failure: exit %d, %v; want (-1, err)", code, err)
+	}
+	if got := h.Argvs(); len(got) != 4 || !slices.EqualFunc(got, slices.Repeat([][]string{{piholeFTLBin, "--test"}}, 4), slices.Equal) {
+		t.Errorf("argvs %q, want 4 x [pihole-FTL --test]", got)
+	}
+}
+
+// serviceOp runs op's binding as the core would: Prepare, the helper on the
+// operation's directory, then Finalize. window is the readiness window, 0
+// for the production one.
+func serviceOp(w *helperWorld, op def.Typed[spec.NoInput, spec.ServiceResult], id string, window time.Duration) (spec.ServiceResult, string, error) {
+	w.t.Helper()
+	df := serviceBinding(w, op)
+	ctx := context.Background()
+	if _, err := df.Prepare(ctx, spec.NoInput{}, provider.NewRun(id, nil)); err != nil {
+		w.t.Fatalf("Prepare: %v", err)
+	}
+	inj := w.inject()
+	inj.DNSServer, inj.ReadyWindow = w.h.FTL().Addr(), window
+	var out bytes.Buffer
+	if code := runHelper(ctx, filepath.Join(w.opsDir, id), &out, &out, inj); code != 0 {
+		w.t.Fatalf("helper exit %d: %s", code, out.String())
+	}
+	res, err := df.Finalize(ctx, spec.NoInput{}, detach.Exit{}, provider.NewRun(id, nil))
+	if err != nil {
+		return spec.ServiceResult{}, out.String(), err
+	}
+	return res.(spec.ServiceResult), out.String(), nil
+}
+
+// serviceBinding is the provider's own binding of op.
+func serviceBinding(w *helperWorld, op def.Typed[spec.NoInput, spec.ServiceResult]) provider.DetachedFuncs {
+	w.t.Helper()
+	for _, b := range w.p.Bindings() {
+		if b.Op().ID == op.Op().ID {
+			df, ok := b.Detached()
+			if !ok {
+				w.t.Fatalf("%s is not detached", op.Op().ID)
+			}
+			return df
+		}
+	}
+	w.t.Fatalf("%s is not bound", op.Op().ID)
+	return provider.DetachedFuncs{}
+}
+
+func pidStr(p *int) string {
+	if p == nil {
+		return "null"
+	}
+	return strconv.Itoa(*p)
+}
+
+// TC-75, action half (FR-14): restart-dns runs `pihole restartdns` once and
+// returns a ServiceResult with the PID before, FTL's new PID and how long
+// FTL took to answer.
+func TestTC75_RestartDNSAction(t *testing.T) {
+	w := newHelperWorld(t)
+	res, out, err := serviceOp(w, spec.RestartDNS, "op-restart", 0)
+	if err != nil {
+		t.Fatalf("restart-dns: %v\n%s", err, out)
+	}
+	if got := w.h.Argvs(); len(got) != 1 || !slices.Equal(got[0], []string{piholeBin, "restartdns"}) {
+		t.Errorf("argv %q, want [[pihole restartdns]]", got)
+	}
+	newPID := w.h.FTL().PID()
+	if !res.Changed || res.FTLPidBefore == nil || *res.FTLPidBefore != v5test.FakeFTLPID ||
+		res.FTLPidAfter == nil || *res.FTLPidAfter != newPID || newPID == v5test.FakeFTLPID || res.ReadyAfterMs < 0 {
+		t.Errorf("result %+v (pids %s -> %s); want changed, %d -> %d", res, pidStr(res.FTLPidBefore),
+			pidStr(res.FTLPidAfter), v5test.FakeFTLPID, newPID)
+	}
+	for _, step := range []string{"pihole: running pihole restartdns", "pihole: FTL answered after", "pihole: FTL pid after: " + strconv.Itoa(newPID)} {
+		if !strings.Contains(out, step) {
+			t.Errorf("output lacks %q:\n%s", step, out)
+		}
+	}
+}
+
+// A-56: the new PID file appears only after FTL answers. restart-dns
+// retries the read for up to 2 s, so ftlPidAfter is the new PID; after 2 s
+// it reports what FTLPID returns, the old PID while the file still names a
+// live FTL, or null when there is none, and that is not a failure.
+func TestRestartDNSActionPIDFileLate(t *testing.T) {
+	t.Run("within 2 s", func(t *testing.T) {
+		w := newHelperWorld(t)
+		w.h.FTL().SetPIDFileLag(400 * time.Millisecond)
+		res, out, err := serviceOp(w, spec.RestartDNS, "op-late", 0)
+		if err != nil || res.FTLPidAfter == nil || *res.FTLPidAfter != w.h.FTL().PID() {
+			t.Errorf("result %+v (after %s), %v; want ftlPidAfter %d\n%s", res, pidStr(res.FTLPidAfter), err, w.h.FTL().PID(), out)
+		}
+	})
+	t.Run("never within 2 s", func(t *testing.T) {
+		w := newHelperWorld(t)
+		w.h.FTL().SetPIDFileLag(time.Hour)
+		start := time.Now()
+		res, _, err := serviceOp(w, spec.RestartDNS, "op-stale", 0)
+		if err != nil || res.FTLPidAfter == nil || *res.FTLPidAfter != v5test.FakeFTLPID {
+			t.Errorf("result after %s, %v; want the old PID FTLPID still returns", pidStr(res.FTLPidAfter), err)
+		}
+		if d := time.Since(start); d < ftlPIDPollLimit {
+			t.Errorf("gave up after %s, want %s of retries", d, ftlPIDPollLimit)
+		}
+	})
+	t.Run("no PID file", func(t *testing.T) {
+		w := newHelperWorld(t)
+		w.h.FTL().SetPIDFileLag(time.Hour)
+		if err := os.Remove(filepath.Join(w.h.Root(), v5.DefaultFTLPIDFile)); err != nil {
+			t.Fatal(err)
+		}
+		res, out, err := serviceOp(w, spec.RestartDNS, "op-nopid", 0)
+		if err != nil || res.FTLPidBefore != nil || res.FTLPidAfter != nil {
+			t.Errorf("result %s -> %s, %v; want null -> null and no error\n%s", pidStr(res.FTLPidBefore), pidStr(res.FTLPidAfter), err, out)
+		}
+	})
+}
+
+// TC-76, action half (FR-15): flush-cache runs only `pihole restartdns
+// reload`; FTL keeps its PID, the query log is kept, the cache was flushed
+// once, and ftlPidBefore == ftlPidAfter.
+func TestTC76_FlushCacheAction(t *testing.T) {
+	w := newHelperWorld(t)
+	logLines := w.h.QueryLogLines()
+	res, out, err := serviceOp(w, spec.FlushCache, "op-flush", 0)
+	if err != nil {
+		t.Fatalf("flush-cache: %v\n%s", err, out)
+	}
+	if got := w.h.Argvs(); len(got) != 1 || !slices.Equal(got[0], []string{piholeBin, "restartdns", "reload"}) {
+		t.Errorf("argv %q, want [[pihole restartdns reload]]", got)
+	}
+	if res.FTLPidBefore == nil || res.FTLPidAfter == nil || *res.FTLPidBefore != *res.FTLPidAfter ||
+		*res.FTLPidAfter != v5test.FakeFTLPID || !res.Changed {
+		t.Errorf("result %+v (pids %s -> %s); want the same PID %d", res, pidStr(res.FTLPidBefore), pidStr(res.FTLPidAfter), v5test.FakeFTLPID)
+	}
+	if w.h.QueryLogLines() != logLines || w.h.FTL().CacheFlushes() != 1 || w.h.FTL().Restarts() != 0 {
+		t.Errorf("log %d->%d, flushes %d, restarts %d; want the log kept, 1 flush, no restart",
+			logLines, w.h.QueryLogLines(), w.h.FTL().CacheFlushes(), w.h.FTL().Restarts())
+	}
+}
+
+// TC-ERR12, action half: a failed restart command is pihole-command-failed
+// through result.json, and FTL readiness is not waited for.
+func TestRestartDNSActionCommandFailed(t *testing.T) {
+	w := newHelperWorld(t)
+	w.h.FTL().SetFault(v5test.FaultRestartFails)
+	_, out, err := serviceOp(w, spec.RestartDNS, "op-fail", 0)
+	slug, pe := slugOf(t, err)
+	if slug != problem.PiholeCommandFailed || pe.Extensions["command"] != "pihole restartdns" || pe.Extensions["exitCode"] != 1 {
+		t.Errorf("got %v %+v", slug, pe.Extensions)
+	}
+	if strings.Contains(out, "waiting up to") {
+		t.Errorf("waited for FTL after a failed command:\n%s", out)
+	}
+}
+
+// TC-ERR29 (FR-14, FR-15): FTL that never answers after a restart or a
+// flush, and a flush while FTL is stopped (reload exits 0 as a no-op,
+// V-17), each fail dns-verification-failed{rolledBack:false, name:pi.hole}.
+func TestTCERR29_NeverReady(t *testing.T) {
+	const window = 600 * time.Millisecond
+	cases := []struct {
+		name  string
+		op    def.Typed[spec.NoInput, spec.ServiceResult]
+		setup func(*v5test.FakeHost)
+	}{
+		{"restart never ready", spec.RestartDNS, func(h *v5test.FakeHost) { h.FTL().SetFault(v5test.FaultNeverReady) }},
+		{"flush never ready", spec.FlushCache, func(h *v5test.FakeHost) { h.FTL().SetFault(v5test.FaultNeverReady) }},
+		{"flush with FTL stopped", spec.FlushCache, func(h *v5test.FakeHost) { h.FTL().Stop() }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newHelperWorld(t)
+			tc.setup(w.h)
+			_, out, err := serviceOp(w, tc.op, "op-nr", window)
+			slug, pe := slugOf(t, err)
+			if slug != problem.DNSVerificationFailed || pe.Extensions["rolledBack"] != false || pe.Extensions["name"] != "pi.hole" {
+				t.Errorf("got %v %+v; want dns-verification-failed rolledBack:false name:pi.hole\n%s", slug, pe.Extensions, out)
+			}
+		})
+	}
+}
+
+// restart-dns and flush-cache are bound detached with MaxRuntime 10 min and
+// LostDetail "DNS may be restarting; check `piholestatus get`", which a
+// lost unit's outcome-unknown carries.
+func TestServiceBindings(t *testing.T) {
+	const lost = "DNS may be restarting; check `piholestatus get`"
+	for _, op := range []def.Typed[spec.NoInput, spec.ServiceResult]{spec.RestartDNS, spec.FlushCache} {
+		w := newHelperWorld(t)
+		df := serviceBinding(w, op)
+		run := provider.NewRun("op-lost", nil)
+		s, err := df.Prepare(context.Background(), spec.NoInput{}, run)
+		if err != nil || s.MaxRuntime != 10*time.Minute {
+			t.Errorf("%s: Prepare MaxRuntime %s, %v; want 10m", op.Op().ID, s.MaxRuntime, err)
+		}
+		if df.LostDetail == nil || df.LostDetail(run, spec.NoInput{}) != lost {
+			t.Errorf("%s: LostDetail is not %q", op.Op().ID, lost)
+		}
+		_, err = df.Finalize(context.Background(), spec.NoInput{}, detach.Exit{ExitCode: -1, Signal: "SIGKILL"}, run)
+		if slug, pe := slugOf(t, err); slug != problem.OutcomeUnknown || !strings.Contains(pe.Detail, lost) {
+			t.Errorf("%s: lost unit: %v %q; want outcome-unknown containing %q", op.Op().ID, slug, pe.Detail, lost)
+		}
 	}
 }

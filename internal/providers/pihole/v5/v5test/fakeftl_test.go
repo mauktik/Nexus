@@ -1,5 +1,3 @@
-//go:build pihole_red
-
 // Stub-style: SKIP-only (WI 3.2). Excluded from `make test` by the
 // pihole_red build tag; the WI 3.2 developer deletes the //go:build line and
 // these must pass. Cases: TC-74 (a-g) in planning/pihole-dns-zones/test-cases.md.
@@ -18,10 +16,13 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/mauktik/nexus/internal/providers/pihole/dnscheck"
+	"github.com/mauktik/nexus/internal/providers/pihole/v5"
 	"github.com/mauktik/nexus/internal/providers/pihole/v5/v5test"
 )
 
@@ -111,13 +112,17 @@ func TestTC74b_ReloadDoesNotRereadConf(t *testing.T) {
 	}
 }
 
-// TC-74c (V-10, V-11): --test exits 1 for an invalid address= line in a file
-// conf-dir loads, ignores files dnsmasq skips, and passes vacuously when
-// /etc/dnsmasq.conf is missing.
+// TC-74c (V-10, V-11, WI 0.1 check 3): an invalid address= line in a file
+// conf-dir loads makes --test print dnsmasq's "Bad address" line and die by
+// SIGSEGV, (139, nil) through the runner contract, as FTL v5.25.2 did;
+// SetTestExit(1) gives the plain exit 1 the code path predicts. Files
+// dnsmasq skips are ignored, a missing /etc/dnsmasq.conf passes vacuously,
+// and the running FTL is untouched (A-21).
 func TestTC74c_ConfigTest(t *testing.T) {
 	h := v5test.NewFakeHost(t)
-	if code, _ := run(t, h, piholeFTL, "--test"); code != 0 {
-		t.Fatalf("clean config: --test exit %d", code)
+	pid := h.FTL().PID()
+	if code, out := run(t, h, piholeFTL, "--test"); code != 0 || !strings.Contains(out, "dnsmasq: syntax check OK.") {
+		t.Fatalf("clean config: --test exit %d, output %q", code, out)
 	}
 	dir := filepath.Join(h.Root(), "etc/dnsmasq.d")
 	for _, skipped := range []string{".03-custom.nexus-x.tmp", "03-custom.conf~", "#03-custom.conf#"} {
@@ -127,10 +132,25 @@ func TestTC74c_ConfigTest(t *testing.T) {
 		}
 		os.Remove(filepath.Join(dir, skipped))
 	}
+	appendLine(t, dnsFile(h), "address=/ok.lan/192.168.7.1")
 	appendLine(t, dnsFile(h), "address=/bad.lan/999.1.1.1")
-	if code, _ := run(t, h, piholeFTL, "--test"); code != 1 {
-		t.Errorf("bad address= line: --test exit %d, want 1", code)
+	code, out := run(t, h, piholeFTL, "--test")
+	wantLine := "dnsmasq: Bad address in --address at line 2 of /etc/dnsmasq.d/03-custom-dns-names.conf"
+	if code != 139 || !strings.Contains(out, wantLine) || !strings.Contains(out, "killed by signal SIGSEGV") {
+		t.Errorf("bad address= line: --test exit %d, output %q; want 139 (SIGSEGV) after %q", code, out, wantLine)
 	}
+	h.FTL().SetTestExit(1)
+	if code, out := run(t, h, piholeFTL, "--test"); code != 1 || !strings.Contains(out, wantLine) || strings.Contains(out, "SIGSEGV") {
+		t.Errorf("SetTestExit(1): --test exit %d, output %q; want a plain exit 1", code, out)
+	}
+	h.FTL().SetTestExit(0)
+	if code, _ := run(t, h, piholeFTL, "--test"); code != 139 {
+		t.Errorf("SetTestExit(0): --test exit %d, want the SIGSEGV 139 again", code)
+	}
+	if h.FTL().PID() != pid || h.FTL().CacheFlushes() != 0 || len(h.FTLEvents()) != 0 {
+		t.Errorf("a failed --test touched FTL: pid %d->%d, events %v", pid, h.FTL().PID(), h.FTLEvents())
+	}
+	answers(t, h, "pi.hole", "127.0.0.1")
 	if err := os.Remove(filepath.Join(h.Root(), "etc/dnsmasq.conf")); err != nil {
 		t.Fatal(err)
 	}
@@ -212,4 +232,71 @@ func TestTC74g_Faults(t *testing.T) {
 	h.FTL().SetFault(v5test.FaultNone)
 	run(t, h, pihole, "restartdns")
 	answers(t, h, "kiwi.home.local", "192.168.7.5")
+
+	// FaultNeverReady: the restart and the reload exit 0, FTL lives, and
+	// nothing answers.
+	h.FTL().SetFault(v5test.FaultNeverReady)
+	for _, argv := range [][]string{{pihole, "restartdns"}, {pihole, "restartdns", "reload"}} {
+		if code, _ := run(t, h, argv...); code != 0 || h.FTL().PID() == 0 {
+			t.Errorf("FaultNeverReady %v: exit %d, pid %d; want 0 with FTL alive", argv, code, h.FTL().PID())
+		}
+		if _, err := dnscheck.Query(context.Background(), h.FTL().Addr(), "pi.hole", 300*time.Millisecond); err == nil {
+			t.Errorf("FaultNeverReady %v: FTL answered", argv)
+		}
+	}
+	h.FTL().SetFault(v5test.FaultNone)
+	run(t, h, pihole, "restartdns")
+	answers(t, h, "kiwi.home.local", "192.168.7.5")
+}
+
+// A-56, WI 0.1 check 2: `pihole restartdns` returns before the new FTL
+// writes its PID file, so a read straight after the restart still names the
+// old, live FTL; once the new FTL answers (and any lag passes) the file
+// names the new PID and the old process is gone.
+func TestFakeFTLPIDFileWrittenLate(t *testing.T) {
+	h := v5test.NewFakeHost(t)
+	h.FTL().SetPIDFileLag(time.Hour)
+	run(t, h, pihole, "restartdns")
+	newPID := h.FTL().PID()
+	if newPID == v5test.FakeFTLPID {
+		t.Fatal("restart kept the PID")
+	}
+	query(t, h, "pi.hole")
+	if pid, ok := v5.FTLPID(h.Paths()); !ok || pid != v5test.FakeFTLPID {
+		t.Errorf("FTLPID straight after the restart = %d, %v; want the old %d", pid, ok, v5test.FakeFTLPID)
+	}
+
+	h.FTL().SetPIDFileLag(0)
+	run(t, h, pihole, "restartdns")
+	newPID = h.FTL().PID()
+	query(t, h, "pi.hole") // answered once the new FTL started, which writes the file
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		pid, ok := v5.FTLPID(h.Paths())
+		if ok && pid == newPID {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("FTLPID = %d, %v; want the new %d", pid, ok, newPID)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := os.Stat(filepath.Join(h.Root(), "proc", strconv.Itoa(v5test.FakeFTLPID))); err == nil {
+		t.Error("the replaced FTL's /proc entry is still there")
+	}
+}
+
+// A restart onto a file with an invalid address= line: dnsmasq dies at
+// start (EC_BADCONF), so nothing answers until the line is fixed and FTL is
+// restarted.
+func TestFakeFTLRestartOntoBadConfig(t *testing.T) {
+	h := v5test.NewFakeHost(t)
+	write(t, dnsFile(h), "address=/bad.lan/300.1.1.1\n")
+	run(t, h, pihole, "restartdns")
+	if _, err := dnscheck.Query(context.Background(), h.FTL().Addr(), "pi.hole", 300*time.Millisecond); err == nil {
+		t.Error("FTL answered with a bad conf line")
+	}
+	write(t, dnsFile(h), "address=/good.lan/192.168.7.3\n")
+	run(t, h, pihole, "restartdns")
+	answers(t, h, "good.lan", "192.168.7.3")
 }

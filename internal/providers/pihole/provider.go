@@ -253,10 +253,11 @@ func version(v *string) any {
 }
 
 // Bindings binds the provider's operations. The provider binds a subset of
-// its declarations (A-35): the 11 reads; the mutations are added by their
-// own work items, and until then are not served.
+// its declarations (A-35): the 11 reads and the mutations implemented so
+// far, one binding function per area; the rest are added by their own work
+// items, and until then are not served.
 func (p *Provider) Bindings() []provider.Binding {
-	return []provider.Binding{
+	reads := []provider.Binding{
 		provider.Sync(spec.StatusGet, p.status),
 		provider.Sync(spec.SummaryGet, p.summary),
 		provider.Sync(spec.BlockingGet, p.blocking),
@@ -269,4 +270,5 @@ func (p *Provider) Bindings() []provider.Binding {
 		provider.Sync(spec.RecordsList, p.listRecords),
 		provider.Sync(spec.RecordsGet, p.getRecord),
 	}
+	return append(reads, p.serviceBindings()...)
 }

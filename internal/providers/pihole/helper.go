@@ -16,6 +16,7 @@ import (
 
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/providers/pihole/backend"
+	"github.com/mauktik/nexus/internal/providers/pihole/dnscheck"
 	"github.com/mauktik/nexus/internal/providers/pihole/spec"
 	"github.com/mauktik/nexus/internal/providers/pihole/v5"
 )
@@ -65,12 +66,14 @@ type helperError struct {
 }
 
 // helperInject carries the helper's test seams. Nil, in production, means
-// the real exec runner, root "/", DNS server 127.0.0.1:53 and time.Now.
+// the real exec runner, root "/", DNS server 127.0.0.1:53, time.Now and
+// the dnscheck.ReadyWindow readiness window.
 type helperInject struct {
-	Runner    v5.Runner
-	Root      string
-	DNSServer netip.AddrPort
-	Now       func() time.Time
+	Runner      v5.Runner
+	Root        string
+	DNSServer   netip.AddrPort
+	Now         func() time.Time
+	ReadyWindow time.Duration
 }
 
 // helperCall is what an action works with.
@@ -80,7 +83,9 @@ type helperCall struct {
 	Paths     v5.Paths
 	DNSServer netip.AddrPort
 	Now       func() time.Time
-	Out       io.Writer // The operation's output: `pihole: <step>` lines and command output
+	// ReadyWindow is how long FTL has to answer after a restart or reload.
+	ReadyWindow time.Duration
+	Out         io.Writer // The operation's output: `pihole: <step>` lines and command output
 }
 
 // helperAction performs one op in the helper. A non-nil error is the op's
@@ -93,6 +98,7 @@ var helperActions = newHelperActions()
 
 func newHelperActions() map[string]helperAction {
 	m := map[string]helperAction{}
+	registerServiceActions(m)
 	return m
 }
 
@@ -129,7 +135,7 @@ func Helper(args []string, stdout, stderr io.Writer) int {
 
 // helperSeams resolves inject to the seams the helper runs with.
 func helperSeams(inject *helperInject) helperInject {
-	s := helperInject{Runner: v5.Exec{}, Root: "/", DNSServer: defaultDNSServer, Now: time.Now}
+	s := helperInject{Runner: v5.Exec{}, Root: "/", DNSServer: defaultDNSServer, Now: time.Now, ReadyWindow: dnscheck.ReadyWindow}
 	if inject == nil {
 		return s
 	}
@@ -144,6 +150,9 @@ func helperSeams(inject *helperInject) helperInject {
 	}
 	if inject.Now != nil {
 		s.Now = inject.Now
+	}
+	if inject.ReadyWindow > 0 {
+		s.ReadyWindow = inject.ReadyWindow
 	}
 	return s
 }
@@ -223,7 +232,8 @@ func helperRun(ctx context.Context, dir string, stdout io.Writer, inject *helper
 		return errorResult(problem.New(problem.InternalError,
 			fmt.Sprintf("the pi-hole helper cannot select backend %q: %v; nothing was changed", in.Backend, err)))
 	}
-	out, err := action(ctx, &helperCall{In: in, Mutator: m, Paths: paths, DNSServer: s.DNSServer, Now: s.Now, Out: stdout})
+	out, err := action(ctx, &helperCall{In: in, Mutator: m, Paths: paths, DNSServer: s.DNSServer, Now: s.Now,
+		ReadyWindow: s.ReadyWindow, Out: stdout})
 	if err != nil {
 		var pe *problem.Error
 		if !errors.As(err, &pe) {

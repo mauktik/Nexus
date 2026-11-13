@@ -290,11 +290,15 @@ func TestFakeHostRestartFlush(t *testing.T) {
 	if h.QueryLogLines() == 0 {
 		t.Fatal("the seeded query log is empty")
 	}
+	pid := h.FTL().PID()
+	if pid == v5test.FakeFTLPID {
+		t.Errorf("FTL PID %d unchanged by restartdns (WI 0.1 check 2)", pid)
+	}
 	if code, _ := run(t, h, pihole, "flush"); code != 0 || h.QueryLogLines() != 0 || len(h.FTLEvents()) != 3 {
 		t.Errorf("flush: exit %d, %d log lines, events %v", code, h.QueryLogLines(), h.FTLEvents())
 	}
-	if pid, ok := v5.FTLPID(h.Paths()); !ok || pid != v5test.FakeFTLPID {
-		t.Errorf("FTLPID = %d, %v; want the seeded %d", pid, ok, v5test.FakeFTLPID)
+	if h.FTL().PID() != pid || h.FTL().CacheFlushes() != 1 {
+		t.Errorf("flush touched FTL: pid %d->%d, cache flushes %d", pid, h.FTL().PID(), h.FTL().CacheFlushes())
 	}
 }
 
