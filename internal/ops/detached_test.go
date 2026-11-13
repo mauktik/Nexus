@@ -246,6 +246,12 @@ func localWorld(t *testing.T, wrap ...func(*detach.Options)) *world {
 	return newWorld(t, withDetach(t, d))
 }
 
+// backendWorld is a world whose detached operations run under the real
+// supervisor through backend's seams; wrap, when given, adjusts them.
+func backendWorld(t *testing.T, backend detachtest.Backend, wrap ...func(*detach.Options)) *world {
+	return newWorld(t, withBackend(t, backend, nil, wrap...))
+}
+
 func (w *world) opDir(id string) string { return filepath.Join(w.stateDir, "ops", id) }
 
 // opOutput is the output so far of operation id.
@@ -355,6 +361,10 @@ func waitNoWatcher(t *testing.T) {
 // TC-64: inside Launch the record is already Running and its Running audit
 // record exists; spec.json is in place, mode 0600.
 func TestRunningIsCommittedBeforeLaunch(t *testing.T) {
+	perBackend(t, testRunningIsCommittedBeforeLaunch)
+}
+
+func testRunningIsCommittedBeforeLaunch(t *testing.T, _ detachtest.Backend) {
 	spy := newUnitSpy()
 	w := spyWorld(t, spy)
 	type seen struct {
@@ -398,7 +408,11 @@ func TestRunningIsCommittedBeforeLaunch(t *testing.T) {
 // the operation is terminal about a second after the child exits; once no
 // detached operation runs, no watcher goroutine remains.
 func TestWatcherFinalizesAndStopsWhenIdle(t *testing.T) {
-	w := localWorld(t)
+	perBackend(t, testWatcherFinalizesAndStopsWhenIdle)
+}
+
+func testWatcherFinalizesAndStopsWhenIdle(t *testing.T, backend detachtest.Backend) {
+	w := backendWorld(t, backend)
 	w.td.onPrepare("seven", func(context.Context, thingIn) (detach.Spec, error) {
 		return shJob("echo bye; exit 7"), nil
 	})
@@ -437,10 +451,14 @@ func TestWatcherFinalizesAndStopsWhenIdle(t *testing.T) {
 // TC-66: past MaxRuntime the operation ends Failed with outcome-unknown
 // naming its unit, without a signal: the child is still alive.
 func TestMaximumRuntimeReportsWithoutSignaling(t *testing.T) {
+	perBackend(t, testMaximumRuntimeReportsWithoutSignaling)
+}
+
+func testMaximumRuntimeReportsWithoutSignaling(t *testing.T, backend detachtest.Backend) {
 	var offset atomic.Int64
 	var signals atomic.Int64
 	var local detach.Options
-	w := localWorld(t, func(d *detach.Options) {
+	w := backendWorld(t, backend, func(d *detach.Options) {
 		local = *d
 		d.Now = func() time.Time { return time.Now().Add(time.Duration(offset.Load())) }
 		d.Signal = func(ctx context.Context, unit string, sig syscall.Signal) error {
@@ -476,6 +494,10 @@ func TestMaximumRuntimeReportsWithoutSignaling(t *testing.T) {
 // TC-ERR20: a failed launch fails the operation with a structured error,
 // leaves nothing Running, removes spec.json and releases the lane.
 func TestLaunchFailureFailsTheOperation(t *testing.T) {
+	perBackend(t, testLaunchFailureFailsTheOperation)
+}
+
+func testLaunchFailureFailsTheOperation(t *testing.T, _ detachtest.Backend) {
 	spy := newUnitSpy()
 	spy.onLaunch = func(detach.Invocation) error {
 		return errors.New("systemd-run: exit status 1: Failed to start transient service unit")
@@ -506,6 +528,10 @@ func TestLaunchFailureFailsTheOperation(t *testing.T) {
 // with Prepare returning concurrently, each run either ends Canceled with no
 // launch or is launched and then canceled under the Running rules.
 func TestCancelCannotLoseARaceWithADequeuedOperation(t *testing.T) {
+	perBackend(t, testCancelCannotLoseARaceWithADequeuedOperation)
+}
+
+func testCancelCannotLoseARaceWithADequeuedOperation(t *testing.T, _ detachtest.Backend) {
 	spy := newUnitSpy()
 	w := spyWorld(t, spy)
 	p := who("ops", "td:write")
@@ -612,8 +638,12 @@ func TestCancelCannotLoseARaceWithADequeuedOperation(t *testing.T) {
 // SIGTERM to its supervisor, which stops the child's group and reports
 // canceled, so the operation ends Canceled.
 func TestCancelARunningDetachedOperationThroughItsUnit(t *testing.T) {
+	perBackend(t, testCancelARunningDetachedOperationThroughItsUnit)
+}
+
+func testCancelARunningDetachedOperationThroughItsUnit(t *testing.T, backend detachtest.Backend) {
 	var sent atomic.Int64
-	w := localWorld(t, func(d *detach.Options) {
+	w := backendWorld(t, backend, func(d *detach.Options) {
 		inner := d.Signal
 		d.Signal = func(ctx context.Context, unit string, sig syscall.Signal) error {
 			sent.Add(1)
@@ -652,6 +682,10 @@ func TestCancelARunningDetachedOperationThroughItsUnit(t *testing.T) {
 // Sensitive values reach the child only through spec.json, and Finalize
 // runs on the record's redacted input.
 func TestDetachedSensitiveInputStaysOutOfFinalize(t *testing.T) {
+	perBackend(t, testDetachedSensitiveInputStaysOutOfFinalize)
+}
+
+func testDetachedSensitiveInputStaysOutOfFinalize(t *testing.T, _ detachtest.Backend) {
 	spy := newUnitSpy()
 	w := spyWorld(t, spy)
 	var specEnv []string

@@ -15,6 +15,7 @@ import (
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/core"
 	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/detach/detachtest"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/systemspec"
@@ -42,7 +43,9 @@ func (w *world) mustCancel(p auth.Principal, id, key string) apitypes.Operation 
 // TC-55: canceling a queued operation answers 200 with it Canceled; the
 // request record precedes the one Canceled record; the cancel creates no
 // record and takes no lane; the canceled op never runs and the lane goes on.
-func TestCancelAQueuedOperation(t *testing.T) {
+func TestCancelAQueuedOperation(t *testing.T) { perBackend(t, testCancelAQueuedOperation) }
+
+func testCancelAQueuedOperation(t *testing.T, _ detachtest.Backend) {
 	w := newWorld(t)
 	p := who("ops", "test:write")
 	g := w.tp.gated("first")
@@ -88,6 +91,10 @@ func TestCancelAQueuedOperation(t *testing.T) {
 // TC-204: a repeat cancel returns the same body, keys are ignored, and only
 // actual cancels add state-change records.
 func TestRepeatCancelReturnsTheSameResultAndIgnoresKeys(t *testing.T) {
+	perBackend(t, testRepeatCancelReturnsTheSameResultAndIgnoresKeys)
+}
+
+func testRepeatCancelReturnsTheSameResultAndIgnoresKeys(t *testing.T, _ detachtest.Backend) {
 	w := newWorld(t)
 	p := who("ops", "test:write")
 	g := w.tp.gated("held")
@@ -141,6 +148,10 @@ func TestRepeatCancelReturnsTheSameResultAndIgnoresKeys(t *testing.T) {
 // TC-ERR18: cancel refusals leave state unchanged; scope comes from the
 // loaded record, which loads before the scope check; denials are audited.
 func TestCancelRefusalsAndAuthorization(t *testing.T) {
+	perBackend(t, testCancelRefusalsAndAuthorization)
+}
+
+func testCancelRefusalsAndAuthorization(t *testing.T, _ detachtest.Backend) {
 	w := newWorld(t)
 	p := who("ops", "test:write", "test:read")
 	held := w.tp.gated("held")
@@ -226,10 +237,14 @@ func TestCancelRefusalsAndAuthorization(t *testing.T) {
 // CancelRunning op is detached, its child run by detachtest.Local, with a
 // spy as detach.Options.Signal.
 func TestCancelIsRefusedWhenAuditFails(t *testing.T) {
+	perBackend(t, testCancelIsRefusedWhenAuditFails)
+}
+
+func testCancelIsRefusedWhenAuditFails(t *testing.T, backend detachtest.Backend) {
 	signaled := make(chan struct{})
 	var once sync.Once
 	var local detach.Options
-	w := localWorld(t, func(d *detach.Options) {
+	w := backendWorld(t, backend, func(d *detach.Options) {
 		local = *d
 		d.Signal = func(ctx context.Context, unit string, sig syscall.Signal) error {
 			once.Do(func() { close(signaled) })

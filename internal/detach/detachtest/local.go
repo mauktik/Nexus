@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"sort"
 	"sync"
 	"syscall"
+	"testing"
 	"time"
 
 	"github.com/mauktik/nexus/internal/detach"
@@ -29,6 +31,44 @@ import (
 func Local() detach.Options {
 	l := &local{procs: map[string]*proc{}}
 	return detach.Options{Launch: l.launch, UnitState: l.state, Signal: l.signal}
+}
+
+// Backend is one implementation of the launcher's process seams that the
+// behavioral suites run on (NFR-8).
+type Backend struct {
+	// Name is the backend's subtest name: "local" or "process".
+	Name string
+	// Options returns a new instance of the backend's seams for a launcher
+	// on opsDir, logging to log. A test makes one instance per ops
+	// directory and keeps it across restarts of its manager, as the
+	// supervisors outlive a nexusd.
+	Options func(opsDir string, log *slog.Logger) detach.Options
+}
+
+// Backends returns the backends a behavioral suite runs on: local, the
+// seams of Local, everywhere, and on Linux also process, the real
+// detach.ProcessBackend running the nexusd built by Supervisor. Run as
+// root, the process backend contains each supervisor in a cgroup v2 group
+// when the host has a writable one; otherwise it runs without (CON-10).
+// Off Linux it logs why there is no process backend.
+func Backends(t testing.TB) []Backend {
+	t.Helper()
+	backends := []Backend{{Name: "local", Options: func(string, *slog.Logger) detach.Options { return Local() }}}
+	if runtime.GOOS != "linux" {
+		t.Logf("detachtest: no process backend on %s: it reads /proc and cgroup v2, which only Linux has", runtime.GOOS)
+		return backends
+	}
+	exe, err := Supervisor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cgroupRoot := "-" // Containment needs root
+	if os.Geteuid() == 0 {
+		cgroupRoot = ""
+	}
+	return append(backends, Backend{Name: "process", Options: func(opsDir string, log *slog.Logger) detach.Options {
+		return detach.ProcessBackend(detach.ProcessConfig{OpsDir: opsDir, Executable: exe, CgroupRoot: cgroupRoot, Logger: log})
+	}})
 }
 
 type proc struct {

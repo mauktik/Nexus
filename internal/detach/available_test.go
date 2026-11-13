@@ -1,43 +1,69 @@
-// Stub-style: SKIP-only (nginx-provider)
-//
-// Stubs of planning/nginx-provider/test-cases.md. Each test skips until its
-// work item lands; the developer of that work item replaces the skip with
-// the assertions written in the comment above the test. An un-skipped
-// passing test is the GREEN signal (test-strategy.md, RED Stub Style).
-
 package detach
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
 
-// nginx-provider TC-22: PlatformOptions selects real systemd seams or the process backend
-// Owner WI 2.3. Requirements: FR-20, CON-11, NFR-9.
-//
-//	Setup: platform.Info values for Systemd, Unknown and OpenRC.
-//	Steps:
-//	  1. PlatformOptions(info, ProcessConfig{CgroupRoot: "-"}) for each.
-//	Expected:
-//	  - Systemd and Unknown return the zero Options{}: all four seams nil, so
-//	    detach.New uses real systemd.
-//	  - OpenRC returns non-nil Launch, UnitState, Signal and ListUnits.
+	"github.com/mauktik/nexus/internal/platform"
+)
+
+// nginx-provider TC-22: PlatformOptions selects real systemd seams or the
+// process backend. Systemd and Unknown give the zero Options, so New uses
+// real systemd exactly as before; OpenRC gives all four process seams.
 func TestPlatformOptionsSelection(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-22 (WI 2.3)")
+	cfg := ProcessConfig{OpsDir: t.TempDir(), CgroupRoot: "-"}
+	for _, init := range []platform.InitSystem{platform.Systemd, platform.Unknown} {
+		o := PlatformOptions(platform.Info{Init: init}, cfg)
+		if o.Launch != nil || o.UnitState != nil || o.Signal != nil || o.ListUnits != nil || o.Now != nil {
+			t.Errorf("%s: PlatformOptions is not the zero Options", init)
+		}
+		l, err := New(Config{OpsDir: cfg.OpsDir, Executable: "/x/nexusd"}, o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !l.RealLauncher() {
+			t.Errorf("%s: the launcher does not use the real systemd-run", init)
+		}
+	}
+	o := PlatformOptions(platform.Info{Init: platform.OpenRC}, cfg)
+	if o.Launch == nil || o.UnitState == nil || o.Signal == nil || o.ListUnits == nil {
+		t.Fatalf("OpenRC: missing process seams: launch %t, unitState %t, signal %t, listUnits %t",
+			o.Launch != nil, o.UnitState != nil, o.Signal != nil, o.ListUnits != nil)
+	}
+	l, err := New(Config{OpsDir: cfg.OpsDir, Executable: "/x/nexusd"}, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.RealLauncher() {
+		t.Error("OpenRC: the launcher uses the real systemd-run")
+	}
 }
 
-// nginx-provider TC-24: Available is platform-neutral
-// Owner WI 2.3. Requirements: FR-18, FR-26.
-//
-//	Setup: An internal seam availableAt(info, procRoot).
-//	Steps:
-//	  1. systemd info.
-//	  2. OpenRC info with a readable procRoot/sys/kernel/random/boot_id.
-//	  3. OpenRC with boot_id unreadable.
-//	  4. Unknown.
-//	Expected:
-//	  1. Equals SystemdAvailable()'s answer.
-//	  2. Available.
-//	  3. Unavailable, with a reason naming boot_id.
-//	  4. Unavailable, with a reason containing no supported init system (systemd
-//	    or OpenRC).
+// nginx-provider TC-24: Available is platform-neutral.
 func TestAvailableIsPlatformNeutral(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-24 (WI 2.3)")
+	procRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(procRoot, "sys", "kernel", "random"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(procRoot, "sys", "kernel", "random", "boot_id"),
+		[]byte("1f0e3c3a-63f4-4a54-9e43-5b0e8b0d1a77\n"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := availableAt(platform.Info{Init: platform.Systemd}, procRoot), SystemdAvailable(); got != want {
+		t.Errorf("systemd: %+v, want SystemdAvailable() %+v", got, want)
+	}
+	if got := availableAt(platform.Info{Init: platform.OpenRC}, procRoot); !got.Available || got.Reason != "" {
+		t.Errorf("OpenRC with a boot id: %+v, want available", got)
+	}
+	got := availableAt(platform.Info{Init: platform.OpenRC}, t.TempDir())
+	if got.Available || !strings.Contains(got.Reason, "boot_id") {
+		t.Errorf("OpenRC without a boot id: %+v, want unavailable naming boot_id", got)
+	}
+	got = availableAt(platform.Info{Init: platform.Unknown}, procRoot)
+	if got.Available || !strings.Contains(got.Reason, "no supported init system (systemd or OpenRC)") {
+		t.Errorf("unknown: %+v, want unavailable naming no supported init system (systemd or OpenRC)", got)
+	}
 }

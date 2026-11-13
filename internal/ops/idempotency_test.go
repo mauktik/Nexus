@@ -9,6 +9,7 @@ import (
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/audit"
 	"github.com/mauktik/nexus/internal/core"
+	"github.com/mauktik/nexus/internal/detach/detachtest"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/systemspec"
 )
@@ -16,6 +17,10 @@ import (
 // TC-49: the same key and body return the original operation, also after it
 // is terminal and after a restart on the same state.db; it runs once.
 func TestIdempotencyKeyReturnsTheOriginalOperation(t *testing.T) {
+	perBackend(t, testIdempotencyKeyReturnsTheOriginalOperation)
+}
+
+func testIdempotencyKeyReturnsTheOriginalOperation(t *testing.T, _ detachtest.Backend) {
 	w := newWorld(t)
 	p := who("ops", "test:write")
 	first := w.start(p, tpOps.run.Op(), `{"name":"web"}`, "K")
@@ -41,7 +46,9 @@ func TestIdempotencyKeyReturnsTheOriginalOperation(t *testing.T) {
 
 // TC-205: replays are audited replayed with the original operation ID and
 // redacted parameters, and change no state.
-func TestReplaysAreAuditedReplayed(t *testing.T) {
+func TestReplaysAreAuditedReplayed(t *testing.T) { perBackend(t, testReplaysAreAuditedReplayed) }
+
+func testReplaysAreAuditedReplayed(t *testing.T, _ detachtest.Backend) {
 	w := newWorld(t)
 	g := w.tp.gated("web")
 	p := who("ops", "test:write")
@@ -91,6 +98,10 @@ func TestReplaysAreAuditedReplayed(t *testing.T) {
 // no requested record stands alone. The scripts-style op is detached, with
 // its launcher injected through detach.Options so no real unit starts.
 func TestConcurrentSameKeyOnDifferentLanesCreatesOneOperation(t *testing.T) {
+	perBackend(t, testConcurrentSameKeyOnDifferentLanesCreatesOneOperation)
+}
+
+func testConcurrentSameKeyOnDifferentLanesCreatesOneOperation(t *testing.T, _ detachtest.Backend) {
 	w := spyWorld(t, newUnitSpy())
 	p := who("runner", "td:run")
 	op := tdOps.script.Op()
@@ -204,6 +215,10 @@ func TestConcurrentSameKeyOnDifferentLanesCreatesOneOperation(t *testing.T) {
 // TC-E10: the key lookup precedes the lane check and Admit, and a refused
 // request stores no key.
 func TestIdempotencyBeforeAdmissionAndValidation(t *testing.T) {
+	perBackend(t, testIdempotencyBeforeAdmissionAndValidation)
+}
+
+func testIdempotencyBeforeAdmissionAndValidation(t *testing.T, _ detachtest.Backend) {
 	w := newWorld(t)
 	g := w.tp.gated("web")
 	p := who("ops", "test:write")
@@ -247,6 +262,10 @@ func TestIdempotencyBeforeAdmissionAndValidation(t *testing.T) {
 // TC-ERR17: a reused key with a different body is refused and starts
 // nothing; the same key from another token is a different key.
 func TestKeyReuseWithADifferentRequest(t *testing.T) {
+	perBackend(t, testKeyReuseWithADifferentRequest)
+}
+
+func testKeyReuseWithADifferentRequest(t *testing.T, _ detachtest.Backend) {
 	w := newWorld(t)
 	a, b := who("alice", "test:write"), who("bob", "test:write")
 	op := w.start(a, tpOps.run.Op(), `{"name":"web"}`, "K")

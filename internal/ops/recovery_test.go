@@ -143,11 +143,15 @@ func wantOutcomeUnknown(t *testing.T, rec store.OpRecord, detail string) {
 // 2 seconds and ends outcome-unknown; an in-process Running record ends
 // outcome-unknown.
 func TestRecoveryClassifiesEveryTableRow(t *testing.T) {
+	perBackend(t, testRecoveryClassifiesEveryTableRow)
+}
+
+func testRecoveryClassifiesEveryTableRow(t *testing.T, backend detachtest.Backend) {
 	var states stateLog
-	local := detachtest.Local()
-	seams := local
-	seams.UnitState = states.wrap(local.UnitState)
-	w := newWorld(t, withDetach(t, seams))
+	var seams detach.Options
+	w := newWorld(t, withBackend(t, backend, &seams, func(d *detach.Options) {
+		d.UnitState = states.wrap(d.UnitState)
+	}))
 
 	fifo := store.Lane{Key: "fifo", Policy: store.LaneQueue, Limit: 1}
 	q1 := w.seed(tpRec("q1", fifo), apitypes.StatusQueued)
@@ -269,7 +273,9 @@ func TestRecoveryClassifiesEveryTableRow(t *testing.T) {
 
 // TC-E13: exit.json written between the absent answer and the re-check
 // wins: the real outcome, not outcome-unknown.
-func TestRecoveryExitDuringRecheck(t *testing.T) {
+func TestRecoveryExitDuringRecheck(t *testing.T) { perBackend(t, testRecoveryExitDuringRecheck) }
+
+func testRecoveryExitDuringRecheck(t *testing.T, _ detachtest.Backend) {
 	var opsDir atomic.Value
 	var calls atomic.Int64
 	w := newWorld(t, func(o *ops.Options) {
@@ -319,12 +325,17 @@ func (c *commitCrash) CommitTerminal(id string, from, to apitypes.OperationStatu
 // TC-E14: Finalize runs again after a crash between Finalize and the
 // commit, with the same result, and the record ends in one terminal state.
 func TestRecoveryFinalizeTwiceIsHarmless(t *testing.T) {
+	perBackend(t, testRecoveryFinalizeTwiceIsHarmless)
+}
+
+func testRecoveryFinalizeTwiceIsHarmless(t *testing.T, backend detachtest.Backend) {
 	crash := &atomic.Bool{}
 	crash.Store(true)
-	seams := detachtest.Local()
-	seams.ListUnits = func(context.Context) ([]string, error) { return nil, nil }
+	useBackend := withBackend(t, backend, nil, func(d *detach.Options) {
+		d.ListUnits = func(context.Context) ([]string, error) { return nil, nil }
+	})
 	w := newWorld(t, func(o *ops.Options) {
-		withDetach(t, seams)(o)
+		useBackend(o)
 		o.Store = &commitCrash{Store: o.Store, crash: crash}
 	})
 	id := w.seed(tdRec("twice", store.Lane{}), apitypes.StatusRunning)
@@ -365,6 +376,10 @@ func TestRecoveryFinalizeTwiceIsHarmless(t *testing.T) {
 // TC-E15: a nexus-op-* unit with no record is logged by name and never
 // signaled or stopped.
 func TestRecoveryOrphanUnitsAreOnlyLogged(t *testing.T) {
+	perBackend(t, testRecoveryOrphanUnitsAreOnlyLogged)
+}
+
+func testRecoveryOrphanUnitsAreOnlyLogged(t *testing.T, _ detachtest.Backend) {
 	var mu sync.Mutex
 	var signals []string
 	w := newWorld(t, withDetach(t, detach.Options{
@@ -403,6 +418,10 @@ func TestRecoveryOrphanUnitsAreOnlyLogged(t *testing.T) {
 // the record unclassified until the deadline, which ends it
 // outcome-unknown. The default deadline is 30 seconds, under FR-6's 60.
 func TestRecoveryBlockedClassificationHitsDeadline(t *testing.T) {
+	perBackend(t, testRecoveryBlockedClassificationHitsDeadline)
+}
+
+func testRecoveryBlockedClassificationHitsDeadline(t *testing.T, _ detachtest.Backend) {
 	if ops.RecoveryDeadline != 30*time.Second || ops.RecoveryDeadline >= 60*time.Second {
 		t.Fatalf("RecoveryDeadline = %v, want 30s", ops.RecoveryDeadline)
 	}

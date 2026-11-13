@@ -7,50 +7,260 @@
 
 package daemon
 
-import "testing"
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
 
-// nginx-provider TC-23: daemon.New on OpenRC launches through the process backend
-// Owner WI 2.3. Requirements: FR-20, FR-21, CON-11.
-//
-//	Setup: Linux. daemon.New with Options.Platform = &platform.Info{Init:
-//	OpenRC}, no injected Detach.Launch, a temp state dir,
-//	ProcessConfig.CgroupRoot "-" through the test-only option, and the test
-//	provider with one detached op.
-//	Steps:
-//	  1. Start the op through HTTP.
-//	  2. Read ops/<id>/supervisor.json and the PID's cmdline.
-//	Expected:
-//	  - supervisor.json exists.
-//	  - cmdline contains --process.
-//	  - The op reaches Succeeded.
-//	  - No process with argv[0] /usr/bin/systemd-run ran. The test sets PATH to
-//	    an empty dir and checks that no systemd-run marker appears. Absolute paths
-//	    would fail anyway on the dev host, so the check is for ENOENT in the
-//	    daemon log. The completed op is the real proof.
+	"github.com/mauktik/nexus/internal/apitypes"
+	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/detach/detachtest"
+	"github.com/mauktik/nexus/internal/platform"
+	"github.com/mauktik/nexus/internal/problem"
+	"github.com/mauktik/nexus/internal/store"
+)
+
+// nginx-provider TC-23: daemon.New on OpenRC launches through the process
+// backend. Nothing is injected into Options.Detach: New selects the backend
+// from Options.Platform, and the operation's supervisor is the nexusd
+// op-supervise --process that the process backend starts, with its
+// identity in supervisor.json. PATH is an empty directory and systemd-run
+// is never named in the daemon's log; the operation reaching Succeeded is
+// the proof that no systemd-run was needed.
 func TestDaemonOnOpenRCUsesProcessBackend(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-23 (WI 2.3)")
+	if runtime.GOOS != "linux" {
+		t.Skip("the process backend needs Linux")
+	}
+	exe, err := detachtest.Supervisor() // Before PATH empties: it runs the go tool
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	logs := &syncBuffer{}
+	w := newRecWorld(t, detach.Options{})
+	w.plat = &platform.Info{Init: platform.OpenRC}
+	w.process = detach.ProcessConfig{Executable: exe, CgroupRoot: "-"}
+	w.logs = logs
+	goOn := filepath.Join(t.TempDir(), "go-on")
+	w.prov.script = func(string) string { return "while [ ! -e " + goOn + " ]; do sleep 0.05; done" }
+
+	r := w.start()
+	w.waitHealthy()
+	code, body, err := w.post(recJob.Op(), "probe", recIn{})
+	if err != nil || code != http.StatusAccepted {
+		t.Fatalf("POST: %d %v %v", code, body, err)
+	}
+	id := body["id"].(string)
+	dir := filepath.Join(w.stateDir, "ops", id)
+	var ident detach.Identity
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if ident, err = detach.ReadIdentity(dir); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no %s: %v", detach.IdentityFile, err)
+		}
+	}
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", ident.PID))
+	if err != nil {
+		t.Fatalf("the supervisor's cmdline: %v", err)
+	}
+	argv := strings.Split(strings.TrimSuffix(string(b), "\x00"), "\x00")
+	if argv[0] != exe || !slices.Contains(argv, "op-supervise") || !slices.Contains(argv, "--process") {
+		t.Fatalf("supervisor argv %q, want %s op-supervise ... --process", argv, exe)
+	}
+	if err := os.WriteFile(goOn, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if rec := waitTerminal(t, r, id, 30*time.Second); rec.Status != apitypes.StatusSucceeded {
+		t.Fatalf("operation %s %+v, want Succeeded", rec.Status, rec.Error)
+	}
+	if n := logs.count("systemd-run"); n != 0 {
+		t.Fatalf("the daemon log names systemd-run %d times", n)
+	}
 }
 
-// nginx-provider TC-26: Restart recovery classifies process-backend records as on systemd
-// Owner WI 2.3. Requirements: FR-21, NFR-8.
-//
-//	Setup: Linux. Four Running records on lane t:
-//	  - A: live supervisor (child sleeps 3 s);
-//	  - B: exited with exit.json code 0;
-//	  - C: supervisor gone, no exit.json;
-//	  - D: identity with a forged bootId.
-//	Steps:
-//	  1. Start daemon.New on those records with the process backend.
-//	  2. Wait.
-//	  3. Repeat the setup with detachtest.Local and compare the lane and queue
-//	    snapshot.
-//	Expected:
-//	  - A is reattached and ends Succeeded, B ends Succeeded from exit.json, and
-//	    C and D end outcome-unknown, all within 60 s.
-//	  - The lane and queue state after recovery is identical between the two
-//	    backends.
+// recoveryEnd is how restart recovery left one record.
+type recoveryEnd struct {
+	Status apitypes.OperationStatus
+	Slug   string
+	Detail string
+	Result string
+}
+
+// recoveryAfter is what restart recovery left of the four TC-26 records,
+// by name, and the answer to a new request on their lane afterwards.
+type recoveryAfter struct {
+	Ends  map[string]recoveryEnd
+	Probe int
+}
+
+// recoverFour seeds four Running records on reject lane t as a previous
+// nexusd left them, starts a daemon on backend "process" (selected by
+// daemon.New on OpenRC) or "local" (detachtest.Local), and returns how
+// they ended, all within the 60-second bound:
+//   - a: a live supervisor whose child sleeps 3 s;
+//   - b: exited, with exit.json code 0;
+//   - c: supervisor gone, no exit.json;
+//   - d: an identity naming a live process with a forged boot ID.
+func recoverFour(t *testing.T, backend, exe string) recoveryAfter {
+	t.Helper()
+	cfg := detach.ProcessConfig{Executable: exe, CgroupRoot: "-"}
+	var w *recWorld
+	var launch func(context.Context, detach.Invocation) error
+	switch backend {
+	case "process":
+		w = newRecWorld(t, detach.Options{})
+		w.plat = &platform.Info{Init: platform.OpenRC}
+		w.process = cfg
+		// a's supervisor was started by the nexusd before this one.
+		prev := cfg
+		prev.OpsDir = filepath.Join(w.stateDir, "ops")
+		launch = detach.ProcessBackend(prev).Launch
+	case "local":
+		local := detachtest.Local()
+		w = newRecWorld(t, local)
+		launch = local.Launch
+	default:
+		t.Fatalf("no backend %q", backend)
+	}
+	names := []string{"a", "b", "c", "d"}
+	recs := make([]store.OpRecord, len(names))
+	status := make([]apitypes.OperationStatus, len(names))
+	for i, n := range names {
+		recs[i], status[i] = jobRec(n, "t", store.LaneReject), apitypes.StatusRunning
+	}
+	ids := w.seed(recs, status)
+	dir := func(i int) string { return filepath.Join(w.stateDir, "ops", ids[i]) }
+	for i := range ids {
+		if err := os.MkdirAll(dir(i), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	boot, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := detach.WriteSpec(dir(0), detach.Spec{Argv: []string{"/bin/sh", "-c", "sleep 3"},
+		Env: []string{"PATH=/usr/bin:/bin"}, KillMode: detach.KillControlGroup, MaxRuntime: time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+	if err := launch(context.Background(), detach.Invocation{ID: ids[0], Unit: detach.Unit(ids[0]), Dir: dir(0)}); err != nil {
+		t.Fatal(err)
+	}
+	ended := time.Now().UTC().Truncate(time.Second)
+	if err := detach.WriteExit(dir(1), detach.Exit{Started: ended.Add(-time.Second), Ended: ended}); err != nil {
+		t.Fatal(err)
+	}
+	gone := exec.Command("/bin/true")
+	if err := gone.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if err := detach.WriteIdentity(dir(2), detach.Identity{PID: gone.ProcessState.Pid(), StartTicks: 1,
+		BootID: strings.TrimSpace(string(boot))}); err != nil {
+		t.Fatal(err)
+	}
+	if err := detach.WriteIdentity(dir(3), detach.Identity{PID: os.Getpid(), StartTicks: startTicks(t, os.Getpid()),
+		BootID: "00000000-0000-4000-8000-000000000000"}); err != nil {
+		t.Fatal(err)
+	}
+
+	t0 := time.Now()
+	const bound = 60 * time.Second
+	r := w.start()
+	w.waitHealthy()
+	after := recoveryAfter{Ends: map[string]recoveryEnd{}}
+	for i, n := range names {
+		rec := waitTerminal(t, r, ids[i], bound-time.Since(t0))
+		end := recoveryEnd{Status: rec.Status, Result: string(rec.Result)}
+		if rec.Error != nil {
+			// The unit name holds the ID, which differs between runs.
+			end.Slug, end.Detail = string(rec.Error.Slug()), strings.ReplaceAll(rec.Error.Detail, ids[i], "<id>")
+		}
+		after.Ends[n] = end
+	}
+	if took := time.Since(t0); took > bound {
+		t.Fatalf("recovery took %v, over %v", took, bound)
+	}
+	// The slot is freed just after the last terminal commit.
+	for retry := time.Now().Add(2 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		code, body, err := w.post(recJob.Op(), "probe", recIn{Lane: "t", Policy: "reject"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		after.Probe = code
+		if code != http.StatusConflict || time.Now().After(retry) {
+			if code == http.StatusAccepted {
+				waitTerminal(t, r, body["id"].(string), 30*time.Second)
+			}
+			break
+		}
+	}
+	return after
+}
+
+// startTicks is field 22 of /proc/<pid>/stat, counted after the command
+// name, which may itself hold spaces and parentheses.
+func startTicks(t *testing.T, pid int) uint64 {
+	t.Helper()
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := strings.Fields(string(b[strings.LastIndexByte(string(b), ')')+1:]))
+	n, err := strconv.ParseUint(fields[19], 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// nginx-provider TC-26: restart recovery classifies process-backend records
+// as on systemd: the live supervisor is reattached and ends Succeeded, the
+// exited one is finalized from exit.json, and the gone and forged ones end
+// outcome-unknown, within 60 s; the result, and the lane after it, are the
+// same as with detachtest.Local.
 func TestRecoveryWithProcessBackend(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-26 (WI 2.3)")
+	if runtime.GOOS != "linux" {
+		t.Skip("the process backend needs Linux")
+	}
+	exe, err := detachtest.Supervisor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var process, local recoveryAfter
+	t.Run("process", func(t *testing.T) { process = recoverFour(t, "process", exe) })
+	t.Run("local", func(t *testing.T) { local = recoverFour(t, "local", exe) })
+	if t.Failed() {
+		return
+	}
+	succeeded := recoveryEnd{Status: apitypes.StatusSucceeded, Result: `{"exitCode":0}`}
+	for _, n := range []string{"a", "b"} {
+		if got := process.Ends[n]; got != succeeded {
+			t.Errorf("process %s: %+v, want %+v", n, got, succeeded)
+		}
+	}
+	for _, n := range []string{"c", "d"} {
+		if got := process.Ends[n]; got.Status != apitypes.StatusFailed || got.Slug != string(problem.OutcomeUnknown) {
+			t.Errorf("process %s: %+v, want Failed outcome-unknown", n, got)
+		}
+	}
+	if process.Probe != http.StatusAccepted {
+		t.Errorf("process: a new request on lane t after recovery got %d, want 202", process.Probe)
+	}
+	if fmt.Sprint(process) != fmt.Sprint(local) {
+		t.Errorf("after recovery\nprocess %+v\nlocal   %+v", process, local)
+	}
 }
 
 // nginx-provider TC-ERR6: On an unknown init system nexusd serves reads and refuses detached work

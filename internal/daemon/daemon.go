@@ -57,8 +57,14 @@ type Options struct {
 	TLS *tls.Config
 	// Detach is passed to detach.New: its nil fields select the real
 	// systemd-run, systemctl show and systemctl kill. Daemon-level T0 tests
-	// set it from detachtest.Local.
+	// set it from detachtest.Local. When Launch is nil, New first selects
+	// the seams for Platform: none on systemd and on an unknown init system,
+	// so the real systemd seams stay; the process backend on OpenRC.
 	Detach detach.Options
+	// Process configures the process backend New selects on OpenRC. Tests
+	// set Executable and CgroupRoot; New sets OpsDir and Logger. Zero in
+	// production.
+	Process detach.ProcessConfig
 	// Now is the clock of state.db, the audit log, the operation manager
 	// and retention: it drives timestamps, idempotency expiry and the
 	// retention of records and audit files. Nil means time.Now.
@@ -168,6 +174,15 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 	for _, p := range providers {
 		if u, ok := p.(provider.OpsDirUser); ok {
 			u.UseOpsDir(opsDir)
+		}
+	}
+	if opts.Detach.Launch == nil {
+		pc := opts.Process
+		pc.OpsDir, pc.Logger = opsDir, log
+		// Zero on systemd and unknown hosts: opts.Detach stays as it was.
+		if sel := detach.PlatformOptions(plat, pc); sel.Launch != nil {
+			sel.Now = opts.Detach.Now
+			opts.Detach = sel
 		}
 	}
 	launcher, err := detach.New(detach.Config{OpsDir: opsDir, Logger: log}, opts.Detach)

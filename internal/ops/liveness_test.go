@@ -11,6 +11,7 @@ import (
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/detach/detachtest"
 	"github.com/mauktik/nexus/internal/problem"
 )
 
@@ -94,6 +95,10 @@ func sameDurations(a, b []time.Duration) bool {
 // with its slot held, and the next poll retries. With nothing running, no
 // call is made and no watcher goroutine remains.
 func TestWatcherLivenessPollingWhileTheDaemonIsUp(t *testing.T) {
+	perBackend(t, testWatcherLivenessPollingWhileTheDaemonIsUp)
+}
+
+func testWatcherLivenessPollingWhileTheDaemonIsUp(t *testing.T, _ detachtest.Backend) {
 	synctest.Test(t, func(t *testing.T) {
 		units := &scriptedUnits{answer: map[string]func(context.Context) (detach.UnitState, error){},
 			calls: map[string][]time.Time{}}
