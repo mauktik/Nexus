@@ -49,6 +49,35 @@ var (
 // function once a ModeProcess supervisor has its identity.
 var diagHook func(logf func(format string, args ...any))
 
+// processCgroup is the cgroup v2 group a ModeProcess supervisor was started
+// in, nexus-ops/<id> (cgroup_linux.go).
+type processCgroup interface {
+	// makeWork creates the work group a KillControlGroup child runs in.
+	// The methods below act on it.
+	makeWork() error
+	// start starts the command newCmd builds in the work group. It returns
+	// the started command, why it is not in the group (nil when it is),
+	// and why it did not start.
+	start(newCmd func() *exec.Cmd) (cmd *exec.Cmd, notPlaced, err error)
+	// kill SIGKILLs everything in the work group.
+	kill() error
+	// signal sends sig to everything in the work group.
+	signal(sig syscall.Signal) error
+	// populated reports whether the work group has a live process.
+	populated() bool
+	// release removes the work group, moves the supervisor out of its
+	// group and removes that, best effort.
+	release() error
+}
+
+// con10Note is the one stderr frame of a ModeProcess KillControlGroup
+// operation run without a cgroup.
+const con10Note = "cgroup v2 unavailable: descendants that leave the process group are not covered (CON-10)"
+
+// ownCgroup is the group of the ModeProcess supervisor of dir, nil when it
+// has none: not on Linux, or a launch that could not place it.
+var ownCgroup = func(dir string) processCgroup { return nil }
+
 // Supervise is `nexusd op-supervise --dir dir`, the main process of an
 // operation's unit. It reads and unlinks dir/spec.json, runs the child in
 // its own session with stdin on /dev/null and stdout and stderr framed into
@@ -68,6 +97,15 @@ var diagHook func(logf func(format string, args ...any))
 // supervisor.json to name its own process, exiting 1 without taking the
 // spec if that does not happen within LaunchTimeout: a launch that failed
 // before recording the identity leaves no work running (L-51).
+//
+// A ModeProcess supervisor that nexusd placed in nexus-ops/<id> runs a
+// KillControlGroup child in nexus-ops/<id>/work. It adds a SIGKILL of that
+// group to the end of a cancel or timeout, ends whatever the child left in
+// it once the child exits (SIGTERM, the grace period, SIGKILL), as systemd
+// stops a KillMode=control-group unit (L-10), and removes its groups after
+// exit.json. Without a group it notes in the output that descendants that
+// leave the process group are not covered (CON-10). KillProcess children
+// are never swept.
 func Supervise(dir string, diag io.Writer, mode SuperviseMode) int {
 	if mode == ModeProcess {
 		syscall.Umask(0o022)
@@ -107,16 +145,39 @@ func Supervise(dir string, diag io.Writer, mode SuperviseMode) int {
 		logf("%v", err)
 		return 1
 	}
-	x := runChild(dir, spec, sigs, logf)
+	var cg, work processCgroup
+	con10 := false
+	if mode == ModeProcess {
+		cg = ownCgroup(dir)
+		if spec.KillMode == KillControlGroup {
+			if cg != nil {
+				if err := cg.makeWork(); err != nil {
+					logf("%v; the child runs without a cgroup", err)
+				} else {
+					work = cg
+				}
+			}
+			con10 = work == nil
+		}
+	}
+	x := runChild(dir, spec, sigs, logf, work, con10)
+	status := 0
 	if err := WriteExit(dir, x); err != nil {
 		logf("%v", err)
-		return 1
+		status = 1
 	}
-	return 0
+	if cg != nil {
+		if err := cg.release(); err != nil {
+			logf("cgroup cleanup: %v", err)
+		}
+	}
+	return status
 }
 
-// runChild runs spec's child to its end and reports how it ended.
-func runChild(dir string, spec Spec, sigs <-chan os.Signal, logf func(string, ...any)) Exit {
+// runChild runs spec's child to its end and reports how it ended. With a
+// work group the child runs in it, and it is killed and swept with the
+// child's process group. con10 writes the CON-10 note to the output first.
+func runChild(dir string, spec Spec, sigs <-chan os.Signal, logf func(string, ...any), work processCgroup, con10 bool) Exit {
 	// A SIGTERM that arrived before the child exists cancels the operation
 	// without starting it.
 	for pending := true; pending; {
@@ -141,6 +202,12 @@ func runChild(dir string, spec Spec, sigs <-chan os.Signal, logf func(string, ..
 		stdout = &sink{w: w.Stream(apitypes.StreamStdout), report: report}
 		stderr = &sink{w: w.Stream(apitypes.StreamStderr), report: report}
 	}
+	if con10 {
+		// Whole line, so it is one frame of its own before any child output.
+		if _, err := io.WriteString(stderr, con10Note+"\n"); err != nil {
+			logf("cannot write the output log: %v", err)
+		}
+	}
 	closeLog := func() {
 		if w == nil {
 			return
@@ -154,18 +221,32 @@ func runChild(dir string, spec Spec, sigs <-chan os.Signal, logf func(string, ..
 	if env == nil {
 		env = []string{} // Non-nil: a nil Env would pass the supervisor's environment on
 	}
-	cmd := &exec.Cmd{
-		Path: spec.Argv[0], Args: spec.Argv, Env: env, Dir: spec.Dir,
-		Stdin: nil, Stdout: stdout, Stderr: stderr, // Nil Stdin is /dev/null
-		SysProcAttr: &syscall.SysProcAttr{Setsid: true},
-		WaitDelay:   PipeWaitDelay,
-	}
-	if c := spec.Credential; c != nil {
-		cmd.SysProcAttr.Credential = &syscall.Credential{Uid: c.UID, Gid: c.GID, Groups: c.Groups}
+	newCmd := func() *exec.Cmd {
+		cmd := &exec.Cmd{
+			Path: spec.Argv[0], Args: spec.Argv, Env: env, Dir: spec.Dir,
+			Stdin: nil, Stdout: stdout, Stderr: stderr, // Nil Stdin is /dev/null
+			SysProcAttr: &syscall.SysProcAttr{Setsid: true},
+			WaitDelay:   PipeWaitDelay,
+		}
+		if c := spec.Credential; c != nil {
+			cmd.SysProcAttr.Credential = &syscall.Credential{Uid: c.UID, Gid: c.GID, Groups: c.Groups}
+		}
+		return cmd
 	}
 
 	started := time.Now()
-	if err := cmd.Start(); err != nil {
+	var cmd *exec.Cmd
+	if work != nil {
+		var notPlaced error
+		cmd, notPlaced, err = work.start(newCmd)
+		if notPlaced != nil {
+			logf("the child is not in its work cgroup: %v", notPlaced)
+		}
+	} else {
+		cmd = newCmd()
+		err = cmd.Start()
+	}
+	if err != nil {
 		closeLog()
 		return Exit{ExitCode: -1, Started: started, Ended: time.Now(), Error: err.Error()}
 	}
@@ -208,6 +289,7 @@ loop:
 			}
 		case <-kill:
 			signalGroup(pgid, syscall.SIGKILL, logf)
+			killWork(work, logf)
 			killed, kill = true, nil
 		}
 	}
@@ -221,6 +303,7 @@ loop:
 			select {
 			case <-kill:
 				signalGroup(pgid, syscall.SIGKILL, logf)
+				killWork(work, logf)
 				killed = true
 			case <-time.After(groupPoll):
 				continue
@@ -230,6 +313,9 @@ loop:
 	}
 	if killTimer != nil {
 		killTimer.Stop()
+	}
+	if work != nil {
+		sweep(work, spec.Grace, logf)
 	}
 	closeLog()
 
@@ -252,6 +338,41 @@ loop:
 func signalGroup(pgid int, sig syscall.Signal, logf func(string, ...any)) {
 	if err := syscall.Kill(-pgid, sig); err != nil && !errors.Is(err, syscall.ESRCH) {
 		logf("cannot send %s to process group %d: %v", signalName(sig), pgid, err)
+	}
+}
+
+// killWork SIGKILLs everything in the child's work group, if it has one.
+func killWork(work processCgroup, logf func(string, ...any)) {
+	if work == nil {
+		return
+	}
+	if err := work.kill(); err != nil {
+		logf("cannot kill the work cgroup: %v", err)
+	}
+}
+
+// sweepSettle bounds how long sweep waits for SIGKILLed processes to leave
+// the work group.
+const sweepSettle = time.Second
+
+// sweep ends what the child left in its work group once it exited:
+// SIGTERM, up to the grace period for it to go, then SIGKILL (L-10).
+func sweep(work processCgroup, grace time.Duration, logf func(string, ...any)) {
+	if !work.populated() {
+		return
+	}
+	if err := work.signal(syscall.SIGTERM); err != nil {
+		logf("cannot end the processes left in the work cgroup: %v", err)
+	}
+	for deadline := time.Now().Add(grace); work.populated() && time.Now().Before(deadline); {
+		time.Sleep(groupPoll)
+	}
+	if !work.populated() {
+		return
+	}
+	killWork(work, logf)
+	for deadline := time.Now().Add(sweepSettle); work.populated() && time.Now().Before(deadline); {
+		time.Sleep(groupPoll)
 	}
 }
 

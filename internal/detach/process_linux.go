@@ -13,20 +13,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 )
 
 // writeIdentity is WriteIdentity; a test makes it fail.
 var writeIdentity = WriteIdentity
-
-// containment is the cgroup step of Launch (Data Flow 1, step 2). Before
-// the supervisor starts it may set attr's cgroup fields; placed runs once
-// the supervisor has started, and release once Launch is done with the
-// cgroup. Until the cgroup work lands (work item 2.2) no supervisor is
-// placed in a cgroup.
-var containment = func(_ ProcessConfig, _ string, _ *syscall.SysProcAttr) (placed func(pid int) error, release func(), err error) {
-	return func(int) error { return nil }, func() {}, nil
-}
 
 // ProcessBackend returns the four process seams of Options for a host
 // without systemd. Launch starts `nexusd op-supervise --dir D --process` in
@@ -39,7 +31,8 @@ func ProcessBackend(cfg ProcessConfig) Options {
 }
 
 type processBackend struct {
-	cfg ProcessConfig
+	cfg         ProcessConfig
+	noCgroupLog sync.Once
 }
 
 func (b *processBackend) procRoot() string {
@@ -99,19 +92,39 @@ func (b *processBackend) launch(_ context.Context, inv Invocation) (err error) {
 		return fmt.Errorf("detach: chmod %s: %w", SupervisorLog, err)
 	}
 
-	// Not CommandContext: the supervisor must outlive this call and nexusd.
-	cmd := exec.Command(exe, "op-supervise", "--dir", dir, "--process")
-	cmd.Env = []string{} // Empty, not nil: nothing of nexusd's environment
-	cmd.Dir = "/"
-	cmd.Stdin = nil // /dev/null
-	cmd.Stdout, cmd.Stderr = logFile, logFile
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	placed, release, err := containment(b.cfg, inv.ID, cmd.SysProcAttr)
-	if err != nil {
-		return fmt.Errorf("detach: contain %s: %w", inv.Unit, err)
+	newCmd := func() *exec.Cmd {
+		// Not CommandContext: the supervisor must outlive this call and nexusd.
+		cmd := exec.Command(exe, "op-supervise", "--dir", dir, "--process")
+		cmd.Env = []string{} // Empty, not nil: nothing of nexusd's environment
+		cmd.Dir = "/"
+		cmd.Stdin = nil // /dev/null
+		cmd.Stdout, cmd.Stderr = logFile, logFile
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		return cmd
 	}
-	defer release()
-	if err := cmd.Start(); err != nil {
+	// The supervisor goes into its own cgroup, out of nexusd's (for
+	// OpenRC, openrc.nexusd), so neither a stop of nexusd with
+	// rc_cgroup_cleanup="YES" (ASM-14) nor anything else that ends nexusd's
+	// group reaches it.
+	group := b.cgroup(inv.ID)
+	var cmd *exec.Cmd
+	if group == "" {
+		cmd = newCmd()
+		err = cmd.Start()
+	} else {
+		var notPlaced error
+		cmd, notPlaced, err = startInCgroup(newCmd, group)
+		if err == nil && notPlaced != nil {
+			b.log().Warn("cannot place an operation supervisor in its cgroup; it runs without one (CON-10)",
+				"operationId", inv.ID, "cgroup", group, "error", notPlaced.Error())
+			b.removeCgroup(inv.ID, group)
+			group = ""
+		}
+	}
+	if err != nil {
+		if group != "" {
+			b.removeCgroup(inv.ID, group)
+		}
 		return fmt.Errorf("detach: start supervisor of %s: %w", inv.Unit, err)
 	}
 	pid := cmd.Process.Pid
@@ -122,10 +135,10 @@ func (b *processBackend) launch(_ context.Context, inv Invocation) (err error) {
 			err = errors.Join(err, fmt.Errorf("kill supervisor %d: %w", pid, kerr))
 		}
 		_ = cmd.Wait() // Reaps it; its exit status is the SIGKILL just sent
+		if group != "" {
+			b.removeCgroup(inv.ID, group)
+		}
 		return fmt.Errorf("detach: launch %s: %w", inv.Unit, err)
-	}
-	if err := placed(pid); err != nil {
-		return fail(err)
 	}
 	id, err := b.identityOf(pid)
 	if err != nil {
@@ -143,6 +156,42 @@ func (b *processBackend) launch(_ context.Context, inv Invocation) (err error) {
 		}
 	}()
 	return nil
+}
+
+// cgroup creates the cgroup v2 group of operation id and returns its path,
+// or "" when the supervisor is to run without one: containment is off
+// (CgroupRoot "-"), there is no writable cgroup v2 hierarchy (logged once,
+// CON-10), or the group cannot be created.
+func (b *processBackend) cgroup(id string) string {
+	root := b.cfg.CgroupRoot
+	switch root {
+	case "-":
+		return ""
+	case "":
+		root = defaultCgroupRoot
+	}
+	if err := available(root); err != nil {
+		b.noCgroupLog.Do(func() {
+			b.log().Warn("cgroup v2 unavailable: operation supervisors run without a cgroup, and descendants that leave the process group are not covered (CON-10)",
+				"error", err.Error())
+		})
+		return ""
+	}
+	path, err := create(root, id)
+	if err != nil {
+		b.log().Warn("cannot create an operation cgroup; the supervisor runs without one (CON-10)",
+			"operationId", id, "error", err.Error())
+		return ""
+	}
+	return path
+}
+
+// removeCgroup removes the group of a launch that did not go ahead or
+// could not use it. A leftover empty group is harmless.
+func (b *processBackend) removeCgroup(id, path string) {
+	if err := cleanup(path); err != nil {
+		b.log().Warn("cannot remove an operation cgroup", "operationId", id, "error", err.Error())
+	}
 }
 
 // identityOf reads the identity of the just-started supervisor pid.
