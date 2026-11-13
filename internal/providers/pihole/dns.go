@@ -19,9 +19,9 @@ import (
 
 var _ dnswrite.Mutator = (*v5.Mutator)(nil)
 
-// dnsBindings binds add-zone, zones.remove, add-record, records.update and
-// records.remove. Every DNS write goes through dnswrite.Apply in the helper;
-// nothing else replaces the DNS file.
+// dnsBindings binds add-zone, zones.remove, add-record, records.update,
+// records.remove and apply-dns-changes. Every DNS write goes through
+// dnswrite.Apply in the helper; nothing else replaces the DNS file.
 func (p *Provider) dnsBindings() []provider.Binding {
 	return []provider.Binding{
 		detachedOp(p, spec.AddZone, p.admitAddZone, maxRuntimeDefault, dnsLost[spec.ZoneAddInput](p)),
@@ -29,6 +29,7 @@ func (p *Provider) dnsBindings() []provider.Binding {
 		detachedOp(p, spec.AddRecord, p.admitAddRecord, maxRuntimeDefault, dnsLost[spec.RecordAddInput](p)),
 		detachedOp(p, spec.RecordsUpdate, p.admitUpdateRecord, maxRuntimeDefault, dnsLost[spec.RecordUpdateInput](p)),
 		detachedOp(p, spec.RecordsRemove, p.admitRemoveRecord, maxRuntimeDefault, dnsLost[spec.RecordRemoveInput](p)),
+		detachedOp(p, spec.ApplyDNSChanges, p.admitApplyDNSChanges, maxRuntimeDefault, dnsLost[spec.DNSBatchInput](p)),
 	}
 }
 
@@ -39,6 +40,7 @@ func registerDNSActions(m map[string]helperAction) {
 	m[spec.AddRecord.Op().ID] = runAddRecord
 	m[spec.RecordsUpdate.Op().ID] = runUpdateRecord
 	m[spec.RecordsRemove.Op().ID] = runRemoveRecord
+	m[spec.ApplyDNSChanges.Op().ID] = runApplyDNSChanges
 }
 
 // dnsLost is the outcome-unknown detail of a DNS write whose unit was lost
@@ -56,15 +58,15 @@ func dnsLost[In any](p *Provider) func(*provider.Run, In) string {
 }
 
 func (p *Provider) admitAddZone(ctx context.Context, in spec.ZoneAddInput) error {
-	return p.admitDNS(ctx, in.IfMatch, dnsfile.AddZone{Zone: in.Zone})
+	return p.admitDNS(ctx, in.IfMatch, singleRefused, dnsfile.AddZone{Zone: in.Zone})
 }
 
 func (p *Provider) admitRemoveZone(ctx context.Context, in spec.ZoneRemoveInput) error {
-	return p.admitDNS(ctx, in.IfMatch, dnsfile.RemoveZone{Zone: in.Name, Cascade: in.Cascade})
+	return p.admitDNS(ctx, in.IfMatch, singleRefused, dnsfile.RemoveZone{Zone: in.Name, Cascade: in.Cascade})
 }
 
 func (p *Provider) admitAddRecord(ctx context.Context, in spec.RecordAddInput) error {
-	return p.admitDNS(ctx, in.IfMatch, dnsfile.AddRecord{FQDN: in.FQDN, IPv4: in.IPv4})
+	return p.admitDNS(ctx, in.IfMatch, singleRefused, dnsfile.AddRecord{FQDN: in.FQDN, IPv4: in.IPv4})
 }
 
 func (p *Provider) admitUpdateRecord(ctx context.Context, in spec.RecordUpdateInput) error {
@@ -72,7 +74,7 @@ func (p *Provider) admitUpdateRecord(ctx context.Context, in spec.RecordUpdateIn
 	if err != nil {
 		return err
 	}
-	return p.admitDNS(ctx, in.IfMatch, dnsfile.UpdateRecord{FQDN: fqdn, IPv4: in.IPv4})
+	return p.admitDNS(ctx, in.IfMatch, singleRefused, dnsfile.UpdateRecord{FQDN: fqdn, IPv4: in.IPv4})
 }
 
 func (p *Provider) admitRemoveRecord(ctx context.Context, in spec.RecordRemoveInput) error {
@@ -80,7 +82,73 @@ func (p *Provider) admitRemoveRecord(ctx context.Context, in spec.RecordRemoveIn
 	if err != nil {
 		return err
 	}
-	return p.admitDNS(ctx, in.IfMatch, dnsfile.RemoveRecord{FQDN: fqdn})
+	return p.admitDNS(ctx, in.IfMatch, singleRefused, dnsfile.RemoveRecord{FQDN: fqdn})
+}
+
+// admitApplyDNSChanges admits a batch (FR-26): every item parses, and the
+// changes apply in order to one model of the file, each against the file as
+// the earlier ones left it.
+func (p *Provider) admitApplyDNSChanges(ctx context.Context, in spec.DNSBatchInput) error {
+	changes, pe := parseBatch(in.Changes)
+	if pe != nil {
+		return probErr(pe)
+	}
+	return p.admitDNS(ctx, in.IfMatch, batchRefused, changes...)
+}
+
+// parseBatch reads a batch's items with dnsfile.ParseChange (FR-26, A-36).
+// The schema bounds the count and each item's shape; the helper's input does
+// not pass through it, so both are checked again here. An item ParseChange
+// refuses refuses the batch at its index.
+func parseBatch(items []string) ([]dnsfile.Change, *problem.Error) {
+	if len(items) == 0 || len(items) > spec.MaxChanges {
+		return nil, invalid("/changes", fmt.Sprintf("must hold 1 to %d changes, not %d", spec.MaxChanges, len(items)))
+	}
+	changes := make([]dnsfile.Change, 0, len(items))
+	for i, s := range items {
+		c, err := dnsfile.ParseChange(s)
+		if err != nil {
+			return nil, batchRejected(i, problem.ValidationFailed, err.Error()+"; nothing was changed")
+		}
+		changes = append(changes, c)
+	}
+	return changes, nil
+}
+
+// refusal maps the model's refusal of changes[i].
+type refusal func(i int, c dnsfile.Change, err error) *problem.Error
+
+// singleRefused is the refusal of a single zone or record operation.
+func singleRefused(_ int, c dnsfile.Change, err error) *problem.Error { return changeRefused(c, err) }
+
+// batchRefused is the refusal of a batch at any size: dns-batch-rejected
+// naming the failing change's index and, as cause, the slug the single
+// operation would have returned. The detail is the pipeline's
+// (dnswrite changeProblem), so Admit and the helper read alike.
+func batchRefused(i int, c dnsfile.Change, err error) *problem.Error {
+	return batchRejected(i, changeRefused(c, err).Slug(), err.Error()+"; nothing was changed")
+}
+
+func batchRejected(i int, cause problem.Slug, detail string) *problem.Error {
+	return problem.New(problem.DNSBatchRejected, fmt.Sprintf("changes[%d]: %s", i, detail)).
+		With("changeIndex", i).With("cause", string(cause))
+}
+
+// oneChangeBatchRefused makes the pipeline's refusal of a one-change batch
+// the batch's own. dnswrite.Apply names the index only when it applies more
+// than one change, but a batch reports dns-batch-rejected at any size
+// (TC-ERR28). The model refusals (dnswrite changeProblem) are the only
+// not-found, conflict, dns-name-unzoned and validation-failed problems the
+// pipeline returns; every other problem passes through.
+func oneChangeBatchRefused(pe *problem.Error) *problem.Error {
+	if pe == nil {
+		return nil
+	}
+	switch pe.Slug() {
+	case problem.NotFound, problem.Conflict, problem.DNSNameUnzoned, problem.ValidationFailed:
+		return batchRejected(0, pe.Slug(), pe.Detail)
+	}
+	return pe
 }
 
 // recordFQDN is the FQDN of a record ID, "<fqdn>~A" (FR-20); A is the only
@@ -95,9 +163,9 @@ func recordFQDN(name string) (string, error) {
 // admitDNS is the shared DNS Admit, run in nexusd before an operation
 // exists: the backend can write the DNS file, dnsmasq loads it (checked
 // live, never from the cached dnsWrites detail, A-53), ifMatch is the file's
-// etag, and the model accepts the change. The helper's pipeline checks all
-// of it again under the lane.
-func (p *Provider) admitDNS(ctx context.Context, ifMatch string, c dnsfile.Change) error {
+// etag, and the model accepts the changes in order; refuse maps the first
+// refusal. The helper's pipeline checks all of it again under the lane.
+func (p *Provider) admitDNS(ctx context.Context, ifMatch string, refuse refusal, changes ...dnsfile.Change) error {
 	rd, err := p.backendReader(ctx)
 	if err != nil {
 		return err
@@ -114,8 +182,10 @@ func (p *Provider) admitDNS(ctx context.Context, ifMatch string, c dnsfile.Chang
 			"the DNS file changed since it was read (ifMatch is not its current etag); nothing was changed").
 			With("expectedEtag", ifMatch).With("currentEtag", m.Etag))
 	}
-	if err := m.Apply(c); err != nil {
-		return probErr(changeRefused(c, err))
+	for i, c := range changes {
+		if err := m.Apply(c); err != nil {
+			return probErr(refuse(i, c, err))
+		}
 	}
 	return nil
 }
@@ -223,21 +293,48 @@ func runRemoveRecord(ctx context.Context, c *helperCall) (any, error) {
 	return applyDNS(ctx, c, in.IfMatch, dnsfile.RemoveRecord{FQDN: fqdn})
 }
 
+// runApplyDNSChanges applies the whole batch in one dnswrite.Apply call:
+// one read and model of the file, one swap, at most one test and one
+// restart, and one verification pass over every changed name, including
+// the names a cascade removes (FR-26, NFR-2). A refusal writes nothing.
+func runApplyDNSChanges(ctx context.Context, c *helperCall) (any, error) {
+	var in spec.DNSBatchInput
+	if err := json.Unmarshal(c.In.Input, &in); err != nil {
+		return nil, probErr(problem.New(problem.InternalError,
+			fmt.Sprintf("the pi-hole helper cannot decode the apply-dns-changes input: %v; nothing was changed", err)))
+	}
+	changes, pe := parseBatch(in.Changes)
+	if pe != nil {
+		return nil, probErr(pe)
+	}
+	res, pe := applyDNSChanges(ctx, c, in.IfMatch, changes)
+	if len(changes) == 1 {
+		pe = oneChangeBatchRefused(pe)
+	}
+	return res, probErr(pe)
+}
+
 // applyDNS runs the DNS write pipeline on the DNS file Prepare recorded.
 // The pipeline's problem crosses into the error only through probErr, so a
 // success is never a non-nil error holding a nil *problem.Error.
 func applyDNS(ctx context.Context, c *helperCall, ifMatch string, changes ...dnsfile.Change) (any, error) {
+	res, pe := applyDNSChanges(ctx, c, ifMatch, changes)
+	return res, probErr(pe)
+}
+
+// applyDNSChanges is applyDNS before its problem becomes an error.
+func applyDNSChanges(ctx context.Context, c *helperCall, ifMatch string,
+	changes []dnsfile.Change) (spec.DNSChangeResult, *problem.Error) {
 	if pe := dnsWritable(c.Paths, c.In.Backend, c.In.DNSFile); pe != nil {
-		return nil, probErr(pe)
+		return spec.DNSChangeResult{}, pe
 	}
 	dm, ok := c.Mutator.(dnswrite.Mutator)
 	if !ok {
-		return nil, probErr(problem.New(problem.InternalError,
-			fmt.Sprintf("the pi-hole backend %q cannot write the DNS file; nothing was changed", c.In.Backend)))
+		return spec.DNSChangeResult{}, problem.New(problem.InternalError,
+			fmt.Sprintf("the pi-hole backend %q cannot write the DNS file; nothing was changed", c.In.Backend))
 	}
-	res, pe := dnswrite.Apply(ctx, dnswrite.Request{
+	return dnswrite.Apply(ctx, dnswrite.Request{
 		DNSFile: c.Paths.Host(c.In.DNSFile), StateDir: c.In.StateDir, OpDir: c.In.OpDir,
 		IfMatch: ifMatch, Changes: changes,
 	}, dnswrite.Deps{Mutator: dm, DNSServer: c.DNSServer, Out: c.Out, Now: c.Now})
-	return res, probErr(pe)
 }

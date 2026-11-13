@@ -253,10 +253,10 @@ func version(v *string) any {
 	return *v
 }
 
-// Bindings binds the provider's operations. The provider binds a subset of
-// its declarations (A-35): the 11 reads and the mutations implemented so
-// far, one binding function per area; the rest are added by their own work
-// items, and until then are not served.
+// Bindings binds the provider's operations: all 26 declarations, the 11
+// reads Sync and the 15 mutations Detached on the pihole lane (FR-5,
+// CON-1), one binding function per area. A-35 allowed a subset while the
+// work items were composed; none is left unbound.
 func (p *Provider) Bindings() []provider.Binding {
 	reads := []provider.Binding{
 		provider.Sync(spec.StatusGet, p.status),

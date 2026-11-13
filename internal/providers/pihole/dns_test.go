@@ -1,7 +1,8 @@
 // Cases: TC-104 to TC-108 and TC-ERR26 (WI 4.2), TC-109 to TC-114, TC-E13
-// and TC-ERR27 (WI 4.3) in planning/pihole-dns-zones/test-cases.md:
-// add-zone, zones.remove, add-record, records.update and records.remove
-// through the Dispatcher (schema, the shared DNS Admit, lane),
+// and TC-ERR27 (WI 4.3), TC-115 to TC-119, TC-E14 and TC-ERR28 (WI 4.4) in
+// planning/pihole-dns-zones/test-cases.md: add-zone, zones.remove,
+// add-record, records.update, records.remove and apply-dns-changes through
+// the Dispatcher (schema, the shared DNS Admit, lane),
 // the operation manager and the helper, whose dnswrite pipeline runs against
 // FakeHost + FakeFTL. Also the worked example of A-44 and the helper's own
 // re-check of conf-dir.
@@ -16,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -933,5 +935,368 @@ func TestRecordHelperRefusesBadRecordID(t *testing.T) {
 	}
 	if string(w.live()) != string(rendered) {
 		t.Error("the DNS file changed")
+	}
+}
+
+// batch invokes apply-dns-changes with the changes, in order.
+func (w *dnsWorld) batch(changes ...string) (store.OpRecord, *problem.Error) {
+	w.t.Helper()
+	b, err := json.Marshal(spec.DNSBatchInput{Changes: changes})
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	return w.invoke(spec.ApplyDNSChanges.Op(), string(b))
+}
+
+// configTestRuns counts the `pihole-FTL --test` argvs run since the last
+// ResetArgvs.
+func (w *dnsWorld) configTestRuns() int {
+	n := 0
+	for _, a := range w.h.Argvs() {
+		if slices.Contains(a, "--test") {
+			n++
+		}
+	}
+	return n
+}
+
+// wantBatchRejected checks a dns-batch-rejected problem: 422, the index and
+// cause as extensions, and a detail that starts "changes[<index>]:".
+func wantBatchRejected(t *testing.T, what string, pe *problem.Error, index int, cause problem.Slug) {
+	t.Helper()
+	wantProblem(t, what, pe, problem.DNSBatchRejected, 422, "")
+	// After result.json, changeIndex is a JSON number (float64); compare text.
+	if got := fmt.Sprint(pe.Extensions["changeIndex"]); got != strconv.Itoa(index) {
+		t.Errorf("%s: changeIndex %v, want %d", what, pe.Extensions["changeIndex"], index)
+	}
+	if got := fmt.Sprint(pe.Extensions["cause"]); got != string(cause) {
+		t.Errorf("%s: cause %q, want %s", what, got, cause)
+	}
+	if prefix := fmt.Sprintf("changes[%d]:", index); !strings.HasPrefix(pe.Detail, prefix) {
+		t.Errorf("%s: detail %q does not start %q", what, pe.Detail, prefix)
+	}
+}
+
+// TC-115 (FR-26, NFR-3, FR-23): the three FR-23 zones declared in one batch
+// leave exactly the FR-23 rendering; zone markers are comment lines, so no
+// test, no restart and the same PID.
+func TestTC115_FR23ZonesInOneBatch(t *testing.T) {
+	w := newDNSWorld(t, dnsFixture(t, "fr23-seven-lines.conf"))
+	pid, restarts := w.h.FTL().PID(), w.h.FTL().Restarts()
+
+	rec, pe := w.batch("add-zone:home.local", "add-zone:app.lan", "add-zone:xi.example")
+	if pe != nil {
+		t.Fatalf("batch: %s %q", pe.Slug(), pe.Detail)
+	}
+	res := succeeded[spec.DNSChangeResult](t, rec)
+	if !res.Changed || res.Restarted || len(res.Verified) != 0 || res.FTLPidAfter == nil || *res.FTLPidAfter != pid ||
+		res.Etag != etagOf(w.live()) || res.PreNexusBackup != w.p.backupPath(dnsTestFile) {
+		t.Errorf("result %+v, want changed, not restarted, pid %d, the pre-Nexus backup named", res, pid)
+	}
+	if got, want := w.live(), dnsFixture(t, "fr23-seven-lines.rendered.conf"); string(got) != string(want) {
+		t.Errorf("file:\n%s\nwant the FR-23 rendering:\n%s", got, want)
+	}
+	if got, want := w.zoneCounts(), []string{"app.lan=1", "home.local=2", "xi.example=2"}; !slices.Equal(got, want) {
+		t.Errorf("zones %v, want %v", got, want)
+	}
+	if w.ranConfigTest() || w.restartdnsRuns() != 0 || w.h.FTL().Restarts() != restarts || w.h.FTL().PID() != pid {
+		t.Errorf("argvs %q, restarts %d -> %d, pid %d -> %d: want no test and no restart", w.h.Argvs(),
+			restarts, w.h.FTL().Restarts(), pid, w.h.FTL().PID())
+	}
+	noLocalLine(t, w.live())
+}
+
+// TC-116 (FR-26): a change refused at index 2 of 3 refuses the batch at
+// Admit with 422 dns-batch-rejected naming the index and the cause; no
+// operation and the file unchanged. The changes are checked in order
+// against one model, and a one-change batch reports its refusal the same
+// way.
+func TestTC116_FailureAtIndex2WritesNothing(t *testing.T) {
+	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
+	w := newDNSWorld(t, rendered)
+
+	_, pe := w.batch("add-record:a.app.lan=192.168.7.9", "add-record:b.app.lan=192.168.7.10",
+		"add-record:c.nozone.example=192.168.7.11")
+	wantBatchRejected(t, "index 2", pe, 2, problem.DNSNameUnzoned)
+
+	_, pe = w.batch("add-record:a.app.lan=192.168.7.9", "add-record:a.app.lan=192.168.7.10")
+	wantBatchRejected(t, "add after add", pe, 1, problem.Conflict)
+	_, pe = w.batch("remove-record:kiwi.home.local", "update-record:kiwi.home.local=192.168.7.9")
+	wantBatchRejected(t, "update after remove", pe, 1, problem.NotFound)
+	_, pe = w.batch("add-record:c.nozone.example=192.168.7.11")
+	wantBatchRejected(t, "one change", pe, 0, problem.DNSNameUnzoned)
+
+	if n := w.opCount(); n != 0 || string(w.live()) != string(rendered) {
+		t.Errorf("%d operations, file changed %v", n, string(w.live()) != string(rendered))
+	}
+}
+
+// TC-117 (FR-26): 100 changes, a zone and 99 records under it, succeed with
+// one restart and 99 verified names; 101 and 0 changes are 400
+// validation-failed with no operation.
+func TestTC117_BatchSizeBounds(t *testing.T) {
+	w := newDNSWorld(t, dnsFixture(t, "fr23-seven-lines.conf"))
+	restarts := w.h.FTL().Restarts()
+	changes := []string{"add-zone:app.lan"}
+	var names []string
+	for i := range 99 {
+		name := fmt.Sprintf("n%02d.app.lan", i)
+		names = append(names, name)
+		changes = append(changes, fmt.Sprintf("add-record:%s=192.168.1.%d", name, i+1))
+	}
+
+	rec, pe := w.batch(changes...)
+	if pe != nil {
+		t.Fatalf("100 changes: %s %q", pe.Slug(), pe.Detail)
+	}
+	res := succeeded[spec.DNSChangeResult](t, rec)
+	if !res.Changed || !res.Restarted {
+		t.Errorf("result changed %v restarted %v, want both", res.Changed, res.Restarted)
+	}
+	if n, r, c := w.restartdnsRuns(), w.h.FTL().Restarts()-restarts, w.configTestRuns(); n != 1 || r != 1 || c != 1 {
+		t.Errorf("%d restartdns argvs, %d FTL restarts, %d config tests; want 1, 1 and 1", n, r, c)
+	}
+	var got []string
+	for i, v := range res.Verified {
+		got = append(got, v.FQDN)
+		if want := fmt.Sprintf("192.168.1.%d", i+1); !v.Passed || !slices.Equal(v.Observed, []string{want}) {
+			t.Errorf("verified %+v, want passed with %s", v, want)
+		}
+	}
+	if !slices.Equal(got, names) {
+		t.Errorf("verified %d names %v, want the 99 added", len(got), got)
+	}
+	if ips := w.resolve("n42.app.lan"); !slices.Equal(ips, []string{"192.168.1.43"}) {
+		t.Errorf("n42.app.lan answers %v", ips)
+	}
+
+	after := w.live()
+	_, pe = w.batch(append(changes, "add-record:n99.app.lan=192.168.1.100")...)
+	wantProblem(t, "101 changes", pe, problem.ValidationFailed, 400, "")
+	_, pe = w.invoke(spec.ApplyDNSChanges.Op(), `{"changes":[]}`)
+	wantProblem(t, "0 changes", pe, problem.ValidationFailed, 400, "")
+	if n := w.opCount(); n != 1 || string(w.live()) != string(after) {
+		t.Errorf("%d operations, file changed %v; want only the 100-change one", n, string(w.live()) != string(after))
+	}
+}
+
+// TC-118 (FR-26, FR-24, NFR-2): a record add that depends on the batch's
+// own zone add, an update and a remove run one test and one restart and
+// verify every changed name; the op is destructive, so the CLI asks first.
+func TestTC118_DependentChangesOneRestart(t *testing.T) {
+	w := newDNSWorld(t, dnsFixture(t, "fr23-seven-lines.conf"))
+	restarts := w.h.FTL().Restarts()
+
+	rec, pe := w.batch("add-zone:app.lan", "add-record:x.app.lan=192.168.7.9",
+		"update-record:photon.app.lan=192.168.7.6", "remove-record:unity.lan")
+	if pe != nil {
+		t.Fatalf("batch: %s %q", pe.Slug(), pe.Detail)
+	}
+	res := succeeded[spec.DNSChangeResult](t, rec)
+	if !res.Changed || !res.Restarted || res.Etag != etagOf(w.live()) {
+		t.Errorf("result %+v, want changed and restarted with the live etag", res)
+	}
+	if n, r, c := w.restartdnsRuns(), w.h.FTL().Restarts()-restarts, w.configTestRuns(); n != 1 || r != 1 || c != 1 {
+		t.Errorf("%d restartdns argvs, %d FTL restarts, %d config tests; want 1, 1 and 1", n, r, c)
+	}
+	want := map[string][]string{"photon.app.lan": {"192.168.7.6"}, "unity.lan": {}, "x.app.lan": {"192.168.7.9"}}
+	var got []string
+	for _, v := range res.Verified {
+		got = append(got, v.FQDN)
+		if !v.Passed || !slices.Equal(v.Expected, want[v.FQDN]) || !slices.Equal(v.Observed, want[v.FQDN]) {
+			t.Errorf("verified %+v, want passed with %v", v, want[v.FQDN])
+		}
+	}
+	if !slices.Equal(got, []string{"photon.app.lan", "unity.lan", "x.app.lan"}) {
+		t.Errorf("verified %v, want photon.app.lan, unity.lan and x.app.lan", got)
+	}
+	for name, ips := range want {
+		if got := w.resolve(name); !slices.Equal(got, ips) {
+			t.Errorf("%s answers %v, want %v", name, got, ips)
+		}
+	}
+	if op := spec.ApplyDNSChanges.Op(); op.Risk != def.RiskDestructive || !op.Mutating() {
+		t.Errorf("apply-dns-changes risk %q, want destructive (the CLI asks without --yes)", op.Risk)
+	}
+}
+
+// TC-E14 (FR-26, NFR-3): a batch of zone changes only is comment-only: no
+// test, no restart, the PID unchanged.
+func TestTCE14_ZoneOnlyBatchCommentOnly(t *testing.T) {
+	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
+	w := newDNSWorld(t, append(slices.Clone(rendered), "\n# nexus:zone old.lan\n"...))
+	pid, restarts := w.h.FTL().PID(), w.h.FTL().Restarts()
+
+	rec, pe := w.batch("add-zone:new.lan", "remove-zone:old.lan")
+	if pe != nil {
+		t.Fatalf("batch: %s %q", pe.Slug(), pe.Detail)
+	}
+	if res := succeeded[spec.DNSChangeResult](t, rec); !res.Changed || res.Restarted || len(res.Verified) != 0 {
+		t.Errorf("result %+v, want changed without a restart", res)
+	}
+	if got, want := w.zoneCounts(), []string{"app.lan=1", "home.local=2", "new.lan=0", "xi.example=2"}; !slices.Equal(got, want) {
+		t.Errorf("zones %v, want %v", got, want)
+	}
+	if w.ranConfigTest() || w.restartdnsRuns() != 0 || w.h.FTL().Restarts() != restarts || w.h.FTL().PID() != pid {
+		t.Errorf("argvs %q, restarts %d -> %d, pid %d -> %d", w.h.Argvs(), restarts, w.h.FTL().Restarts(),
+			pid, w.h.FTL().PID())
+	}
+}
+
+// TC-ERR28 (FR-26): the helper applies the batch to the file as it is under
+// the lane; a hand edit after Admit that removes app.lan's marker fails the
+// operation with dns-batch-rejected at index 0, cause dns-name-unzoned, and
+// nothing written.
+func TestTCERR28_HelperBatchRejectionCarriesCause(t *testing.T) {
+	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
+	w := newDNSWorld(t, rendered)
+	var df provider.DetachedFuncs
+	for _, b := range w.p.Bindings() {
+		if b.Op().ID == spec.ApplyDNSChanges.Op().ID {
+			df, _ = b.Detached()
+		}
+	}
+	if df.Prepare == nil {
+		t.Fatal("apply-dns-changes is not bound")
+	}
+	in := spec.DNSBatchInput{Changes: []string{"add-record:x.app.lan=192.168.7.9"}}
+	if err := df.Admit(context.Background(), in); err != nil {
+		t.Fatalf("Admit: %v", err)
+	}
+	const id = "op-batch-unzoned"
+	if _, err := df.Prepare(context.Background(), in, provider.NewRun(id, nil)); err != nil {
+		t.Fatal(err)
+	}
+	edited := strings.Replace(string(rendered), "# nexus:zone app.lan\n", "", 1)
+	if edited == string(rendered) {
+		t.Fatal("the fixture has no app.lan marker")
+	}
+	if err := os.WriteFile(w.file, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inj := w.inject()
+	inj.DNSServer = w.h.FTL().Addr()
+	if code := runHelper(context.Background(), filepath.Join(w.opsDir, id), io.Discard, io.Discard, inj); code != 0 {
+		t.Fatalf("helper exit %d", code)
+	}
+	_, err := df.Finalize(context.Background(), in, detach.Exit{}, provider.NewRun(id, nil))
+	_, pe := slugOf(t, err)
+	wantBatchRejected(t, "helper", pe, 0, problem.DNSNameUnzoned)
+	if string(w.live()) != edited {
+		t.Error("the DNS file changed")
+	}
+}
+
+// parseBatch refuses, in the helper as at Admit, a change list outside 1 to
+// 100 as validation-failed, and an item the grammar refuses (here an
+// ASM-9 blocking address the schema would refuse) as dns-batch-rejected
+// at its index.
+func TestParseBatchBounds(t *testing.T) {
+	for _, n := range []int{0, spec.MaxChanges + 1} {
+		items := slices.Repeat([]string{"add-zone:a.lan"}, n)
+		if _, pe := parseBatch(items); pe == nil || pe.Slug() != problem.ValidationFailed {
+			t.Errorf("%d changes: %v, want validation-failed", n, pe)
+		}
+	}
+	_, pe := parseBatch([]string{"add-zone:a.lan", "add-record:x.a.lan=0.0.0.0"})
+	wantBatchRejected(t, "0.0.0.0", pe, 1, problem.ValidationFailed)
+	cs, pe := parseBatch([]string{"add-zone:a.lan", "remove-zone-cascade:b.lan", "update-record:x.a.lan=192.168.7.9"})
+	want := []dnsfile.Change{dnsfile.AddZone{Zone: "a.lan"}, dnsfile.RemoveZone{Zone: "b.lan", Cascade: true},
+		dnsfile.UpdateRecord{FQDN: "x.a.lan", IPv4: "192.168.7.9"}}
+	if pe != nil || !slices.Equal(cs, want) {
+		t.Errorf("parse: %v %v, want %v", cs, pe, want)
+	}
+}
+
+// TC-119 (FR-5, FR-27, CON-1): with every work item composed, the provider
+// binds all 26 declarations: the 11 reads Sync, the 15 mutations Detached on
+// the FIFO pihole lane with KillMode=process, MaxRuntime 1 h when they run
+// gravity and 10 min otherwise, and a LostDetail; the DNS writes' names the
+// rollback copy and the blocking ops' the re-enable timer.
+func TestTC119_BindingInventory(t *testing.T) {
+	w := newHelperWorld(t)
+	dnsOps := map[string]bool{}
+	for _, op := range []def.Op{spec.AddZone.Op(), spec.ZonesRemove.Op(), spec.AddRecord.Op(), spec.RecordsUpdate.Op(),
+		spec.RecordsRemove.Op(), spec.ApplyDNSChanges.Op()} {
+		dnsOps[op.ID] = true
+	}
+	blockingOps := map[string]bool{spec.StopBlocking.Op().ID: true, spec.StartBlocking.Op().ID: true}
+	// The inputs whose MaxRuntime is 1 h: update-gravity always, and an
+	// adlist change that runs gravity.
+	type probe struct {
+		input   string
+		runtime time.Duration
+	}
+	probes := map[string][]probe{
+		spec.UpdateGravity.Op().ID: {{`{}`, time.Hour}},
+		spec.AddAdlist.Op().ID:     {{`{}`, 10 * time.Minute}, {`{"updateGravity":true}`, time.Hour}},
+		spec.RemoveAdlist.Op().ID:  {{`{}`, 10 * time.Minute}, {`{"updateGravity":true}`, time.Hour}},
+	}
+
+	bindings := w.p.Bindings()
+	bound := map[string]bool{}
+	reads, mutations := 0, 0
+	for i, b := range bindings {
+		op := b.Op()
+		if bound[op.ID] {
+			t.Errorf("%s is bound twice", op.ID)
+		}
+		bound[op.ID] = true
+		if !op.Mutating() {
+			reads++
+			if b.Kind() != provider.BindSync {
+				t.Errorf("read %s is %s, want sync", op.ID, b.Kind())
+			}
+			continue
+		}
+		mutations++
+		df, ok := b.Detached()
+		if !ok || b.Kind() != provider.BindDetached {
+			t.Errorf("mutation %s is %s, want detached", op.ID, b.Kind())
+			continue
+		}
+		ps, found := probes[op.ID]
+		if !found {
+			ps = []probe{{`{}`, 10 * time.Minute}}
+		}
+		for j, pr := range ps {
+			in, err := b.Decode(json.RawMessage(pr.input))
+			if err != nil {
+				t.Fatalf("%s: decode %s: %v", op.ID, pr.input, err)
+			}
+			lane, err := df.Lane(context.Background(), in)
+			if err != nil || lane != (provider.Lane{Key: LaneKey, Policy: provider.LaneQueue}) {
+				t.Errorf("%s: lane %+v %v, want {pihole, queue}", op.ID, lane, err)
+			}
+			run := provider.NewRun(fmt.Sprintf("op-inv-%d-%d", i, j), nil)
+			s, err := df.Prepare(context.Background(), in, run)
+			if err != nil {
+				t.Fatalf("%s: Prepare: %v", op.ID, err)
+			}
+			if s.KillMode != detach.KillProcess || s.MaxRuntime != pr.runtime {
+				t.Errorf("%s %s: KillMode %q MaxRuntime %s, want process and %s", op.ID, pr.input, s.KillMode,
+					s.MaxRuntime, pr.runtime)
+			}
+			lost := ""
+			if df.LostDetail != nil {
+				lost = df.LostDetail(run, in)
+			}
+			switch {
+			case lost == "":
+				t.Errorf("%s: no LostDetail", op.ID)
+			case dnsOps[op.ID] && !strings.Contains(lost, dnswrite.RollbackCopyName):
+				t.Errorf("%s: LostDetail %q does not name %s", op.ID, lost, dnswrite.RollbackCopyName)
+			case blockingOps[op.ID] && !strings.Contains(lost, "nexus-pihole-reenable.timer"):
+				t.Errorf("%s: LostDetail %q does not name the re-enable timer", op.ID, lost)
+			}
+		}
+	}
+	if len(bindings) != 26 || reads != 11 || mutations != 15 {
+		t.Errorf("%d bindings, %d reads, %d mutations; want 26, 11 and 15", len(bindings), reads, mutations)
+	}
+	for _, op := range spec.Spec().Ops {
+		if !bound[op.ID] {
+			t.Errorf("%s is declared but not bound", op.ID)
+		}
 	}
 }
