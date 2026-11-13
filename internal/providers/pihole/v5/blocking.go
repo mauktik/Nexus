@@ -89,9 +89,17 @@ func (m *Mutator) stopReenableTimer(ctx context.Context, out io.Writer) error {
 	if err != nil || (code != 0 && code != systemctlNotLoaded) {
 		return commandFailed("systemctl stop", code, err)
 	}
-	// Ignored: a unit that is not loaded or not failed has nothing to reset.
-	_, _ = m.Runner.Run(ctx, []string{detach.Systemctl, "reset-failed", ReenableTimerUnit, reenableService},
-		io.Discard, io.Discard)
+	// A unit that is not loaded or not failed has nothing to reset, so a
+	// failed reset does not fail the operation; it is logged, as
+	// RestartDNS logs its own.
+	reset := []string{detach.Systemctl, "reset-failed", ReenableTimerUnit, reenableService}
+	if code, err := m.Runner.Run(ctx, reset, io.Discard, io.Discard); code != 0 || err != nil {
+		msg := fmt.Sprintf("exited %d", code)
+		if err != nil {
+			msg = fmt.Sprintf("exited %d (%v)", code, err)
+		}
+		fmt.Fprintf(out, "pihole: systemctl reset-failed %s %s %s; continuing\n", ReenableTimerUnit, reenableService, msg)
+	}
 	return nil
 }
 

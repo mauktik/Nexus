@@ -14,8 +14,9 @@ import (
 	"github.com/mauktik/nexus/internal/problem"
 )
 
-// GravityScript is the script of every gravity run, whoever started it: its
-// path in a process's /proc/<pid>/cmdline marks a run outside Nexus (A-16).
+// GravityScript is the script of every gravity run, whoever started it: a
+// root process whose /proc/<pid>/cmdline has it as argv[1] (`bash
+// /opt/pihole/gravity.sh`) marks a run outside Nexus (A-16, SEC-2).
 const GravityScript = "/opt/pihole/gravity.sh"
 
 // The wait for a gravity run outside Nexus (A-4): poll every 2 s and give up
@@ -104,8 +105,13 @@ func (m *Mutator) WaitExternalGravity(ctx context.Context, out io.Writer) error 
 	}
 }
 
-// GravityRunning returns the PID of a process whose /proc/<pid>/cmdline
-// holds GravityScript, the lowest when there are several.
+// GravityRunning returns the PID of a gravity run: a process that root runs
+// (real and effective uid 0, as `pihole -g` and Pi-hole's cron job do) and
+// whose /proc/<pid>/cmdline has GravityScript as argv[1], the interpreter
+// being argv[0]. Both are needed: any local user can start a process whose
+// command line merely contains the script's path, and Nexus would wait for
+// it up to GravityWaitLimit with the pihole lane held (security review
+// SEC-2). The lowest PID is returned when there are several.
 func GravityRunning(p Paths) (int, bool) {
 	entries, err := os.ReadDir(p.Host(ProcDir))
 	if err != nil {
@@ -117,8 +123,7 @@ func GravityRunning(p Paths) (int, bool) {
 		if err != nil || pid <= 0 {
 			continue
 		}
-		b, err := os.ReadFile(p.Host(filepath.Join(ProcDir, e.Name(), "cmdline")))
-		if err != nil || !bytes.Contains(b, []byte(GravityScript)) {
+		if !isGravityRun(p, e.Name()) {
 			continue
 		}
 		if found == 0 || pid < found {
@@ -126,4 +131,29 @@ func GravityRunning(p Paths) (int, bool) {
 		}
 	}
 	return found, found != 0
+}
+
+// isGravityRun reports whether /proc/<pid> is a root process running
+// GravityScript.
+func isGravityRun(p Paths, pid string) bool {
+	b, err := os.ReadFile(p.Host(filepath.Join(ProcDir, pid, "cmdline")))
+	if err != nil {
+		return false
+	}
+	argv := bytes.Split(bytes.TrimSuffix(b, []byte{0}), []byte{0})
+	if len(argv) < 2 || string(argv[1]) != GravityScript {
+		return false
+	}
+	status, err := os.ReadFile(p.Host(filepath.Join(ProcDir, pid, "status")))
+	if err != nil {
+		return false
+	}
+	for line := range bytes.Lines(status) {
+		if rest, ok := bytes.CutPrefix(line, []byte("Uid:")); ok {
+			// Uid: real, effective, saved set, filesystem.
+			uids := bytes.Fields(rest)
+			return len(uids) >= 2 && string(uids[0]) == "0" && string(uids[1]) == "0"
+		}
+	}
+	return false
 }

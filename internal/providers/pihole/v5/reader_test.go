@@ -16,6 +16,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"log/slog"
@@ -991,8 +992,10 @@ func TestTC46_FTLAPIProtocol(t *testing.T) {
 		if err == nil {
 			t.Fatal("silent server: no error")
 		}
-		if elapsed < 400*time.Millisecond || elapsed > 600*time.Millisecond {
-			t.Errorf("silent server returned after %v, want 500 ms ± 100 ms", elapsed)
+		// The lower bound is the deadline itself; the upper one is generous
+		// because a loaded host delays a timer (review CR-15).
+		if elapsed < 400*time.Millisecond || elapsed > v5.FTLAPITimeout+2*time.Second {
+			t.Errorf("silent server returned after %v, want about 500 ms", elapsed)
 		}
 	})
 
@@ -1000,6 +1003,49 @@ func TestTC46_FTLAPIProtocol(t *testing.T) {
 		addr := netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), uint16(refusedPort(t)))
 		if _, err := v5.FTLStats(ctx, addr, v5.FTLAPITimeout); err == nil {
 			t.Error("refused port: no error")
+		}
+	})
+
+	// Security review SEC-1: FTLPORT is unprivileged, so a local process can
+	// answer in FTL's place. A reply is read only up to v5.MaxFTLReply bytes
+	// and keeps only its first 64 keys.
+	t.Run("an oversized reply is refused", func(t *testing.T) {
+		for name, body := range map[string][]byte{
+			"one line without a newline": bytes.Repeat([]byte("x"), 4*v5.MaxFTLReply),
+			"many lines, EOM after the cap": append(bytes.Repeat([]byte("key value\n"), v5.MaxFTLReply/4),
+				"---EOM---\n"...),
+		} {
+			t.Run(name, func(t *testing.T) {
+				ftl := serveFTL(t, map[string][]byte{">stats": body}, false)
+				start := time.Now()
+				_, err := v5.FTLStats(ctx, ftl.addr(), 5*time.Second)
+				if err == nil || !strings.Contains(err.Error(), "reply longer than") {
+					t.Fatalf("err = %v, want a refusal for a reply over %d bytes", err, v5.MaxFTLReply)
+				}
+				if took := time.Since(start); took > 3*time.Second {
+					t.Errorf("the refusal took %v: the cap, not the deadline, must end the read", took)
+				}
+			})
+		}
+	})
+
+	t.Run("a reply under the cap with 1000 keys keeps the first 64", func(t *testing.T) {
+		var b strings.Builder
+		b.WriteString("dns_queries_today 7\n")
+		for i := range 1000 {
+			fmt.Fprintf(&b, "junk%d x\n", i)
+		}
+		b.WriteString("ads_blocked_today 9\n---EOM---\n")
+		ftl := serveFTL(t, map[string][]byte{">stats": []byte(b.String())}, false)
+		got, err := v5.FTLStats(ctx, ftl.addr(), 5*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.DNSQueriesToday == nil || *got.DNSQueriesToday != 7 {
+			t.Errorf("a key among the first 64 was lost: %v", got.DNSQueriesToday)
+		}
+		if got.AdsBlockedToday != nil {
+			t.Errorf("key 1002 was kept (%d): at most 64 keys may be", *got.AdsBlockedToday)
 		}
 	})
 

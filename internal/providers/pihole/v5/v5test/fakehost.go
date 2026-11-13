@@ -1079,17 +1079,26 @@ func (h *FakeHost) QueryLogLines() int {
 	return bytes.Count(b, []byte("\n"))
 }
 
-// PlantGravityProcess makes a gravity run outside Nexus appear: a
-// /proc/<pid>/cmdline naming /opt/pihole/gravity.sh, as cron's
-// `pihole updateGravity` does (A-16). stop ends it.
+// PlantGravityProcess makes a gravity run outside Nexus appear: a root
+// process whose /proc/<pid>/cmdline is `/bin/bash /opt/pihole/gravity.sh`,
+// as cron's `pihole updateGravity` runs it (A-16). stop ends it.
 func (h *FakeHost) PlantGravityProcess() (pid int, stop func()) {
+	return h.PlantProcess(0, "/bin/bash", v5.GravityScript)
+}
+
+// PlantProcess makes a process appear in /proc with the given real and
+// effective uid and argv, with a /proc/<pid>/status that has the Uid line
+// the kernel writes. stop ends it.
+func (h *FakeHost) PlantProcess(uid int, argv ...string) (pid int, stop func()) {
 	h.mu.Lock()
 	h.nextPID++
 	pid = h.nextPID
 	h.mu.Unlock()
 	dir := filepath.Join(v5.ProcDir, strconv.Itoa(pid))
-	h.writeFile(filepath.Join(dir, "cmdline"), "/bin/bash\x00"+v5.GravityScript+"\x00", 0o444)
-	h.writeFile(filepath.Join(dir, "comm"), "gravity.sh\n", 0o444)
+	h.writeFile(filepath.Join(dir, "cmdline"), strings.Join(argv, "\x00")+"\x00", 0o444)
+	h.writeFile(filepath.Join(dir, "comm"), filepath.Base(argv[len(argv)-1])+"\n", 0o444)
+	h.writeFile(filepath.Join(dir, "status"),
+		fmt.Sprintf("Name:\t%s\nUid:\t%d\t%d\t%d\t%d\nGid:\t%d\t%d\t%d\t%d\n", filepath.Base(argv[0]), uid, uid, uid, uid, uid, uid, uid, uid), 0o444)
 	return pid, func() {
 		if err := os.RemoveAll(h.path(dir)); err != nil {
 			h.t.Errorf("v5test: %v", err)

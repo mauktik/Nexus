@@ -21,6 +21,18 @@ const FTLAPITimeout = 500 * time.Millisecond
 // endOfMessage ends every FTL text-API reply (V-1).
 const endOfMessage = "---EOM---"
 
+// The bounds of one reply (security review SEC-1). FTLPORT is unprivileged,
+// so while FTL is down any local user can bind it and answer Nexus with
+// whatever they like; a reply is read, parsed and kept only up to these
+// limits. A real >stats or >version reply is under 1 KiB and has under 20
+// keys (test/harness/pihole/transcripts/ftl-v5.25.2-*.txt).
+const (
+	// MaxFTLReply is the most bytes read from one reply.
+	MaxFTLReply = 64 << 10
+	// maxFTLKeys is the most distinct keys kept from one reply.
+	maxFTLKeys = 64
+)
+
 // FTLAddr is the text-API address for port: FTL listens on loopback only
 // (V-4, socket_listenlocal).
 func FTLAddr(port int) netip.AddrPort {
@@ -112,7 +124,8 @@ func ftlRequest(ctx context.Context, addr netip.AddrPort, command string, timeou
 		return nil, fmt.Errorf("ftl api %s: %w", command, err)
 	}
 	kv := map[string]string{}
-	r := bufio.NewReader(conn)
+	capped := &io.LimitedReader{R: conn, N: MaxFTLReply}
+	r := bufio.NewReader(capped)
 	for {
 		line, err := r.ReadString('\n')
 		line = strings.TrimRight(line, "\r\n")
@@ -120,13 +133,16 @@ func ftlRequest(ctx context.Context, addr netip.AddrPort, command string, timeou
 			break
 		}
 		if err != nil {
+			if capped.N <= 0 {
+				return nil, fmt.Errorf("ftl api %s: reply longer than %d bytes without %s", command, MaxFTLReply, endOfMessage)
+			}
 			if errors.Is(err, io.EOF) {
 				err = io.ErrUnexpectedEOF
 			}
 			return nil, fmt.Errorf("ftl api %s: reply without %s: %w", command, endOfMessage, err)
 		}
 		if k, v, ok := strings.Cut(line, " "); ok {
-			if _, dup := kv[k]; !dup {
+			if _, dup := kv[k]; !dup && len(kv) < maxFTLKeys {
 				kv[k] = v
 			}
 		}

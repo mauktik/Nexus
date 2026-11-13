@@ -205,6 +205,26 @@ func TestTCERR15_DisableReadBack(t *testing.T) {
 	}
 }
 
+// A reset-failed that exits non-zero does not fail the stop, and is not
+// silent: one op-log line names it (review CR-1; the lead's ruling is that no
+// command's result is dropped with `_`).
+func TestStopBlockingLogsAFailedResetFailed(t *testing.T) {
+	t.Parallel()
+	h, m := newV5(t)
+	h.FailCommand([]string{systemctlBin, "reset-failed"}, 1)
+	var out bytes.Buffer
+	if _, err := m.StopBlocking(context.Background(), 60*time.Second, &out); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	const want = "pihole: systemctl reset-failed nexus-pihole-reenable.timer nexus-pihole-reenable.service exited 1; continuing"
+	if !strings.Contains(out.String(), want) {
+		t.Errorf("op log lacks %q:\n%s", want, out.String())
+	}
+	if h.BlockingEnabled() != "false" {
+		t.Errorf("BLOCKING_ENABLED=%s, want false: the failed reset must not fail the stop", h.BlockingEnabled())
+	}
+}
+
 // TC-81 (live-state, FR-6/FR-8): the blocking read reflects state A, then
 // the changed state A', then the re-enabled state, without caching.
 func TestTC81_BlockingReadFollowsState(t *testing.T) {
