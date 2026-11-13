@@ -22,12 +22,12 @@ func TestDeployScript(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("deploy.sh --stage-only exited %d:\n%s", code, out)
 		}
-		for _, f := range []string{"nexusd", "install.sh", "uninstall.sh", "nexusd.service", "nexusd.default.yaml", "README.md", "docs/install.md"} {
+		for _, f := range []string{"nexusd", "install.sh", "uninstall.sh", "nexusd.service", "nexusd.openrc", "nexusd.default.yaml", "README.md", "docs/install.md"} {
 			if _, err := os.Stat(filepath.Join(stage, f)); err != nil {
 				t.Errorf("staged tree lacks %s: %v", f, err)
 			}
 		}
-		for _, f := range []string{"nexusd.service", "nexusd.default.yaml", "install.sh", "uninstall.sh"} {
+		for _, f := range []string{"nexusd.service", "nexusd.openrc", "nexusd.default.yaml", "install.sh", "uninstall.sh"} {
 			want, err := os.ReadFile(filepath.Join(root, "deploy", f))
 			if err != nil {
 				t.Fatal(err)
@@ -40,7 +40,7 @@ func TestDeployScript(t *testing.T) {
 				t.Errorf("staged %s differs from deploy/%s", f, f)
 			}
 		}
-		for _, f := range []string{"nexusd", "install.sh", "uninstall.sh"} {
+		for _, f := range []string{"nexusd", "nexusd.openrc", "install.sh", "uninstall.sh"} {
 			fi, err := os.Stat(filepath.Join(stage, f))
 			if err == nil && fi.Mode().Perm() != 0o755 {
 				t.Errorf("staged %s has mode %v, want 0755", f, fi.Mode().Perm())

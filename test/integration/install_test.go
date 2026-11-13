@@ -102,10 +102,11 @@ func freshHost(t *testing.T) {
 	t.Cleanup(func() { restoreHarness(t) })
 }
 
-// runInstall runs install.sh as an operator would and requires success.
+// runInstall runs install.sh with sh (dash on Ubuntu, BusyBox ash on
+// Alpine), as an operator would, and requires success.
 func runInstall(t *testing.T) string {
 	t.Helper()
-	out, err := sh(3*time.Minute, installSh)
+	out, err := sh(3*time.Minute, "sh", installSh)
 	t.Logf("install.sh: %v\n%s", err, strings.TrimSpace(out))
 	if err != nil {
 		t.Fatalf("install.sh failed: %v", err)
@@ -353,8 +354,9 @@ func TestInstallCleanIsLoopbackOnly(t *testing.T) {
 		}
 	}
 	t.Logf("providers: %q", states)
-	if len(caps.Providers) != 3 {
-		t.Fatalf("want the 3 compiled-in providers, got %q", states)
+	// apt, docker, scripts and, since nginx-provider WI 4.4, nginx.
+	if len(caps.Providers) != 4 {
+		t.Fatalf("want the 4 compiled-in providers, got %q", states)
 	}
 
 	// Mode of every file nexusd keeps. Each exists by now: the store and
@@ -554,7 +556,7 @@ func TestUninstallRetentionAndPurge(t *testing.T) {
 	}
 
 	// Step 1: uninstall with the op unit running.
-	out, err := sh(3*time.Minute, uninstallSh)
+	out, err := sh(3*time.Minute, "sh", uninstallSh)
 	t.Logf("uninstall.sh: %v\n%s", err, strings.TrimSpace(out))
 	if err != nil {
 		t.Fatal(err)
@@ -619,7 +621,7 @@ func TestUninstallRetentionAndPurge(t *testing.T) {
 		releaseFile(t, gate)
 		waitUnitGone(t, op2.ID)
 	})
-	out, err = sh(3*time.Minute, uninstallSh, "--purge")
+	out, err = sh(3*time.Minute, "sh", uninstallSh, "--purge")
 	t.Logf("uninstall.sh --purge: %v\n%s", err, strings.TrimSpace(out))
 	if err != nil {
 		t.Fatal(err)

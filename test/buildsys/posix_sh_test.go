@@ -1,9 +1,8 @@
 // Stub-style: SKIP-only (nginx-provider)
 //
-// Stubs of planning/nginx-provider/test-cases.md TC-32 and TC-34. TC-32's
-// body is complete; TC-34's assertions are in its comment. The developer of
-// WI 3.2 deletes the t.Skip lines. An un-skipped passing test is the GREEN
-// signal (test-strategy.md, RED Stub Style).
+// Stubs of planning/nginx-provider/test-cases.md TC-32 and TC-34. WI 3.2
+// removed the skips and wrote TC-34's body. An un-skipped passing test is
+// the GREEN signal (test-strategy.md, RED Stub Style).
 
 package buildsys
 
@@ -19,8 +18,6 @@ import (
 // nginx-provider TC-32: Deploy scripts are POSIX sh. Owner WI 3.2.
 // Requirements: FR-24, CON-12.
 func TestDeployScriptsArePOSIX(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-32 (WI 3.2)")
-
 	root := repoRoot(t)
 	forbidden := map[string]*regexp.Regexp{
 		"[[ ]]":            regexp.MustCompile(`\[\[`),
@@ -85,6 +82,102 @@ func TestDeployScriptsArePOSIX(t *testing.T) {
 //	    records the next remote command).
 //	  - neither: non-zero exit, stderr names both systemd and OpenRC, and the
 //	    shim records no command after the check.
+//
+// deploy.sh runs on the host itself, not over ssh, so the shim is a PATH
+// directory: uname and id answer as an x86-64 Linux normal user, and sudo
+// and go record their arguments. The markers are laid out under
+// NEXUS_HOST_ROOT, which deploy.sh reads for exactly this. Proceeding past
+// the host check is the go shim recording the build, the next command.
 func TestDeployScriptAcceptsEitherInit(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-34 (WI 3.2)")
+	root := repoRoot(t)
+	shims := t.TempDir()
+	record := filepath.Join(t.TempDir(), "record")
+	writeShim := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(shims, name), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeShim("uname", `case "$1" in -m) echo x86_64 ;; *) echo Linux ;; esac`+"\n")
+	writeShim("id", "echo 1000\n")
+	writeShim("sudo", `echo "sudo $*" >>"$NEXUS_SHIM_RECORD"; exit 1`+"\n")
+	writeShim("go", `echo "go $*" >>"$NEXUS_SHIM_RECORD"; exit 1`+"\n")
+
+	executable := func(t *testing.T, path string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cases := []struct {
+		name    string
+		layout  func(t *testing.T, host string)
+		proceed bool
+	}{
+		{"systemd", func(t *testing.T, host string) {
+			if err := os.MkdirAll(filepath.Join(host, "run", "systemd", "system"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}, true},
+		{"openrc", func(t *testing.T, host string) {
+			if err := os.MkdirAll(filepath.Join(host, "run", "openrc"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			executable(t, filepath.Join(host, "sbin", "openrc-run"))
+			executable(t, filepath.Join(host, "sbin", "rc-service"))
+		}, true},
+		{"neither", func(*testing.T, string) {}, false},
+		// platform.DetectAt also requires both OpenRC binaries to be
+		// executable.
+		{"openrc without an executable rc-service", func(t *testing.T, host string) {
+			if err := os.MkdirAll(filepath.Join(host, "run", "openrc"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			executable(t, filepath.Join(host, "sbin", "openrc-run"))
+			if err := os.WriteFile(filepath.Join(host, "sbin", "rc-service"), nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			host := t.TempDir()
+			c.layout(t, host)
+			if err := os.RemoveAll(record); err != nil {
+				t.Fatal(err)
+			}
+			env := append(envWithout("PATH", "NEXUS_HOST_ROOT", "NEXUS_SHIM_RECORD", "TMPDIR"),
+				"PATH="+shims+string(os.PathListSeparator)+os.Getenv("PATH"),
+				"NEXUS_HOST_ROOT="+host,
+				"NEXUS_SHIM_RECORD="+record,
+				"TMPDIR="+t.TempDir(),
+			)
+			out, code := run(t, root, env, "./deploy.sh")
+			recorded, err := os.ReadFile(record)
+			if err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+			if c.proceed {
+				if !strings.Contains(string(recorded), "go build") {
+					t.Errorf("deploy.sh stopped before the build (exit %d):\n%s\nrecorded: %q", code, out, recorded)
+				}
+				if strings.Contains(out, "OpenRC is running") {
+					t.Errorf("deploy.sh refused the host:\n%s", out)
+				}
+				return
+			}
+			if code == 0 {
+				t.Errorf("deploy.sh exited 0 on a host with neither init system:\n%s", out)
+			}
+			if !strings.Contains(out, "systemd") || !strings.Contains(out, "OpenRC") {
+				t.Errorf("the refusal does not name systemd and OpenRC:\n%s", out)
+			}
+			if len(recorded) != 0 {
+				t.Errorf("deploy.sh ran commands after refusing the host: %q", recorded)
+			}
+		})
+	}
 }

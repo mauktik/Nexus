@@ -9,7 +9,19 @@
 
 package integration
 
-import "testing"
+import (
+	"crypto/sha256"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+)
 
 // nginx-provider TC-33: The systemd branch of the installer behaves exactly as before, under dash
 // Owner WI 3.2. Requirements: FR-24, NFR-9.
@@ -28,7 +40,105 @@ import "testing"
 //	  - The existing TC-179, TC-180 and TC-181 (base feature) still pass with sh
 //	    instead of bash.
 func TestSystemdInstallUnderDashUnchanged(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-33 (WI 3.2)")
+	if fi, err := os.Stat("/run/systemd/system"); err != nil || !fi.IsDir() {
+		t.Skip("requires systemd: TC-33 runs on the Ubuntu harness")
+	}
+	shell, err := filepath.EvalSymlinks("/bin/sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Base(shell) != "dash" {
+		t.Fatalf("/bin/sh is %s, want dash", shell)
+	}
+	baseInstall := "/harness/fixtures/base-install.sh"
+	roots := []string{"/usr/local/bin", "/etc/systemd/system", "/etc/nexus", nexusdState}
+
+	// Step 1 and 2: the current installer under dash, on a fresh host.
+	freshHost(t)
+	out, err := sh(3*time.Minute, "/bin/sh", installSh)
+	t.Logf("sh install.sh: %v\n%s", err, strings.TrimSpace(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireExactUnit(t)
+	gotTree := recordTrees(t, roots)
+	gotOut := withoutTimestamps(out)
+
+	// Step 3: the base SHA's installer under bash, on a fresh host, from a
+	// copy of the same release tree.
+	wipeInstall(t)
+	dir := t.TempDir()
+	for _, f := range []string{"nexusd", "nexusd.service", "nexusd.default.yaml"} {
+		mustSh(t, "install", "-o", "root", "-g", "root", "-m", "0755", filepath.Join(releaseTree, f), filepath.Join(dir, f))
+	}
+	mustSh(t, "install", "-o", "root", "-g", "root", "-m", "0755", baseInstall, filepath.Join(dir, "install.sh"))
+	out, err = sh(3*time.Minute, "bash", filepath.Join(dir, "install.sh"))
+	t.Logf("bash base install.sh: %v\n%s", err, strings.TrimSpace(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantTree := recordTrees(t, roots)
+	wantOut := withoutTimestamps(out)
+
+	if gotTree != wantTree {
+		t.Errorf("the installed trees differ\nsh install.sh:\n%s\nbash base install.sh:\n%s", gotTree, wantTree)
+	}
+	if gotOut != wantOut {
+		t.Errorf("the installer output differs\nsh install.sh:\n%s\nbash base install.sh:\n%s", gotOut, wantOut)
+	}
+}
+
+// recordTrees lists every file, directory and link under roots with its
+// mode, owner and SHA-256 or link target. Times are left out.
+func recordTrees(t *testing.T, roots []string) string {
+	t.Helper()
+	var b strings.Builder
+	for _, root := range roots {
+		if _, err := os.Lstat(root); errors.Is(err, fs.ErrNotExist) {
+			fmt.Fprintf(&b, "%s absent\n", root)
+			continue
+		}
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			fi, err := os.Lstat(path)
+			if err != nil {
+				return err
+			}
+			st, ok := fi.Sys().(*syscall.Stat_t)
+			if !ok {
+				return fmt.Errorf("%s: no stat_t", path)
+			}
+			what := ""
+			switch {
+			case fi.Mode()&fs.ModeSymlink != 0:
+				target, err := os.Readlink(path)
+				if err != nil {
+					return err
+				}
+				what = "-> " + target
+			case fi.Mode().IsRegular():
+				data, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+				what = fmt.Sprintf("sha256:%x", sha256.Sum256(data))
+			}
+			fmt.Fprintf(&b, "%s %v %d:%d %s\n", path, fi.Mode(), st.Uid, st.Gid, what)
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("record %s: %v", root, err)
+		}
+	}
+	return b.String()
+}
+
+var timestampRE = regexp.MustCompile(`\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?`)
+
+func withoutTimestamps(s string) string {
+	return timestampRE.ReplaceAllString(s, "TIMESTAMP")
 }
 
 // nginx-provider TC-47: install.sh on OpenRC installs, never enables, and restarts only on upgrade

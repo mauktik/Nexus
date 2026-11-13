@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # Builds nexusd from this checkout and installs it on this host.
 #
 #   ./deploy.sh                 build, then install with sudo (install or upgrade)
@@ -9,38 +9,58 @@
 #   ./deploy.sh --uninstall [--purge]
 #                               run deploy/uninstall.sh with sudo
 #
-# Run it as your normal user from the repository root on the Ubuntu x86-64
-# host. It builds as you, so no Go cache or build output ends up owned by root,
-# and calls sudo only for the install step. The install itself is
-# deploy/install.sh, the same installer the release tarball carries:
+# Run it as your normal user from the repository root on the x86-64 host,
+# Ubuntu (systemd) or Alpine (OpenRC). It builds as you, so no Go cache or
+# build output ends up owned by root, and calls sudo only for the install
+# step. The install itself is deploy/install.sh, the same installer the
+# release tarball carries:
 #
 #   - The first install writes /etc/nexus/nexusd.yaml (listening on loopback
 #     only, every provider disabled). It does not start the service.
-#   - Later runs replace the binary and the unit, keep the config, the tokens,
-#     the certificate and the history, and restart a running nexusd.
+#   - Later runs replace the binary and the unit or service script, keep the
+#     config, the tokens, the certificate and the history, and restart a
+#     running nexusd.
 #
 # Needs Go 1.21 or newer on PATH. go.mod pins the exact toolchain, which Go
 # downloads on first use. To install Go on Ubuntu, run one of:
 #   sudo apt install golang-go
 #   sudo snap install go --classic
-set -euo pipefail
+# On Alpine: apk add go.
+#
+# NEXUS_HOST_ROOT, empty on a real host, is for test/buildsys only: the
+# host check looks for the init-system markers under it instead of /.
+set -eu
 
 MODULE=github.com/mauktik/nexus
 ROOT=$(cd "$(dirname "$0")" && pwd)
+HOST_ROOT=${NEXUS_HOST_ROOT:-}
 
-say() { echo "deploy.sh: $*"; }
+say() { printf '%s\n' "deploy.sh: $*"; }
 die() {
-	echo "deploy.sh: $*" >&2
+	printf '%s\n' "deploy.sh: $*" >&2
 	exit 1
 }
 usage() {
-	echo "usage: $0 [--stage-only DIR | --uninstall [--purge]]"
+	printf '%s\n' "usage: $0 [--stage-only DIR | --uninstall [--purge]]"
+}
+
+is_exec() { [ -f "$1" ] && [ -x "$1" ]; }
+
+# host_init prints systemd or openrc, found by the markers platform.DetectAt
+# uses, or nothing for any other init system.
+host_init() {
+	if [ -d "$HOST_ROOT/run/systemd/system" ]; then
+		echo systemd
+	elif [ -e "$HOST_ROOT/run/openrc" ] && is_exec "$HOST_ROOT/sbin/openrc-run" &&
+		is_exec "$HOST_ROOT/sbin/rc-service"; then
+		echo openrc
+	fi
 }
 
 mode=install
 stage=
 goarch=amd64
-uninstall_args=()
+uninstall_arg=
 case "${1:-}" in
 "") ;;
 --stage-only)
@@ -50,9 +70,12 @@ case "${1:-}" in
 	;;
 --uninstall)
 	shift
-	[ "$#" -le 1 ] && { [ "$#" -eq 0 ] || [ "$1" = --purge ]; } || { usage >&2; exit 2; }
+	if [ "$#" -gt 1 ] || { [ "$#" -eq 1 ] && [ "$1" != --purge ]; }; then
+		usage >&2
+		exit 2
+	fi
 	mode=uninstall
-	uninstall_args=("$@")
+	uninstall_arg=${1:-}
 	;;
 -h | --help)
 	usage
@@ -69,7 +92,7 @@ esac
 
 if [ "$mode" = uninstall ]; then
 	[ "$(id -u)" -ne 0 ] || die "run as your normal user; it calls sudo itself"
-	exec sudo "$ROOT/deploy/uninstall.sh" "${uninstall_args[@]}"
+	exec sudo "$ROOT/deploy/uninstall.sh" ${uninstall_arg:+"$uninstall_arg"}
 fi
 
 if [ "$mode" = install ]; then
@@ -83,7 +106,8 @@ if [ "$mode" = install ]; then
 	aarch64 | arm64) goarch=arm64 ;;
 	*) die "nexusd builds for x86-64 (or arm64) only; this host is $(uname -m)" ;;
 	esac
-	[ -d /run/systemd/system ] || die "systemd is not running on this host; nexusd runs only as a systemd service"
+	[ -n "$(host_init)" ] ||
+		die "neither systemd nor OpenRC is running on this host; nexusd runs only as a systemd or OpenRC service"
 	command -v sudo >/dev/null || die "sudo is not installed"
 fi
 
@@ -111,11 +135,11 @@ CGO_ENABLED=0 GOOS=linux GOARCH=$goarch go build -trimpath \
 	-o "$stage/nexusd" ./cmd/nexusd
 
 # The same tree `make release` packs into the nexusd tarball.
-cp deploy/nexusd.service deploy/nexusd.default.yaml deploy/install.sh deploy/uninstall.sh README.md "$stage/"
+cp deploy/nexusd.service deploy/nexusd.openrc deploy/nexusd.default.yaml deploy/install.sh deploy/uninstall.sh README.md "$stage/"
 mkdir -p "$stage/docs"
 cp -R docs/. "$stage/docs/"
 chmod -R u=rwX,go=rX "$stage"
-chmod 0755 "$stage/nexusd" "$stage/install.sh" "$stage/uninstall.sh"
+chmod 0755 "$stage/nexusd" "$stage/nexusd.openrc" "$stage/install.sh" "$stage/uninstall.sh"
 
 if [ "$mode" = stage ]; then
 	say "staged nexusd $version in $stage; install it on the host with: sudo $stage/install.sh"
