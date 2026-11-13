@@ -1,0 +1,4 @@
+ * Stopping nginx ... [ ok ]
+nginx: [emerg] unknown directive "bogus_directive" in /etc/nginx/http.d/zz-bad.conf:1
+nginx: configuration file /etc/nginx/nginx.conf test failed
+ * ERROR: nginx failed to start

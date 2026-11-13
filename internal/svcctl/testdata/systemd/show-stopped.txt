@@ -1,0 +1,5 @@
+LoadState=loaded
+ActiveState=inactive
+SubState=dead
+StateChangeTimestamp=@1794584490
+MainPID=0

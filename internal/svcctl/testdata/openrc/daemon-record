@@ -1,0 +1,5 @@
+exec=/usr/sbin/nginx
+argv_0=/usr/sbin/nginx
+argv_1=-c
+argv_2=/etc/nginx/nginx.conf
+pidfile=/run/nginx/nginx.pid
