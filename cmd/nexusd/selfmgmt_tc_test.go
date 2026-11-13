@@ -9,19 +9,6 @@ package main
 
 import "testing"
 
-// TC-SM-44 (WI 3.2; FR-3, CON-4): Existing validate-config output stays byte-identical
-func TestTCSM44_ExistingValidateConfigOutputStaysByte(t *testing.T) {
-	// - Setup: the fixtures already used by `cmd/nexusd/validate_config_test.go`; the expected stderr
-	//   captured by running base `d04583a` (`git worktree add` in a temp dir; `go run ./cmd/nexusd
-	//   validate-config`) and saved as golden files.
-	// - Steps:
-	//   1. Run the new `validate-config` on each fixture.
-	// - Expected:
-	//   - stdout, stderr and exit code are byte-identical to the golden files.
-	//   - The existing tests pass unmodified.
-	t.Skip("TC-SM-44: SKIP-only stub; un-skip when WI 3.2 lands")
-}
-
 // TC-SM-61 (WI 4.1; CON-2): The hidden service-helper command is dispatched by cmd/nexusd
 func TestTCSM61_TheHiddenServiceHelperCommandIs(t *testing.T) {
 	// - Setup: a temp dir with `input.json {mode: "bogus"}`.

@@ -74,8 +74,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return 2
 }
 
-// validateConfig loads the file exactly as startup does, runs the checks the
-// providers make on their sections, prints every problem, and exits. It never opens a listener or starts anything.
+// validateConfig checks the file with daemon.CheckConfig: it loads it
+// exactly as startup does, runs the checks the providers make on their
+// sections, prints every problem, one per line, and exits. It never opens a
+// listener or starts anything.
 func validateConfig(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet(name+" validate-config", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -90,15 +92,10 @@ func validateConfig(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "%s validate-config: unexpected argument %q\n", name, fs.Arg(0))
 		return 2
 	}
-	cfg, err := config.Load(*path)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	// The providers make checks of their own on their sections (the docker
-	// socket path, for one); nexusd refuses to start on any of them.
-	if err := daemon.ValidateProviders(cfg); err != nil {
-		fmt.Fprintf(stderr, "%s: %v\n", *path, err)
+	if _, errs := daemon.CheckConfig(*path); len(errs) > 0 {
+		for _, e := range errs {
+			fmt.Fprintln(stderr, e.Error())
+		}
 		return 1
 	}
 	if _, err := fmt.Fprintf(stdout, "%s: configuration is valid\n", *path); err != nil {

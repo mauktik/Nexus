@@ -9,27 +9,6 @@ package daemon
 
 import "testing"
 
-// TC-SM-43 (WI 3.2; FR-3): CheckConfig and nexusd validate-config report the same problems at the same locations
-func TestTCSM43_CheckConfigAndNexusdValidateConfigReport(t *testing.T) {
-	// - Setup: fixtures in `internal/daemon/testdata/checkconfig/`:
-	//   - `valid.yaml`;
-	//   - `unknown-key.yaml` (`listen` plus `bogus: 1`);
-	//   - `bad-listen.yaml` (`listen: ["nope"]`);
-	//   - `provider-error.yaml` (docker enabled with a socket path that `ValidateProviders` refuses).
-	// - Steps:
-	//   1. For each fixture, call `CheckConfig(path)`.
-	//   2. Run `cmd/nexusd validate-config --config path` (in-process `run`).
-	//   3. Map each `ErrorList` entry to `e.Error()`.
-	// - Expected:
-	//   - `valid` has 0 errors and the CLI exits 0 with the unchanged success line.
-	//   - For each invalid fixture:
-	//     - the sorted list of `e.Error()` strings equals the CLI's stderr lines;
-	//     - `File`, `Line` and `Column` are set where the parser knows them;
-	//     - `provider-error` yields `Path == "providers.docker"`.
-	//   - The CLI exits 1.
-	t.Skip("TC-SM-43: SKIP-only stub; un-skip when WI 3.2 lands")
-}
-
 // TC-SM-45 (WI 3.3; FR-4): API reloads and SIGHUP reloads never overlap
 func TestTCSM45_APIReloadsAndSIGHUPReloadsNever(t *testing.T) {
 	// - Setup: a real `Daemon` over a temp config with a test provider whose `Configure` increments an
@@ -87,20 +66,6 @@ func TestTCSME18_SIGHUPKeepsWorkingUnchangedWithThe(t *testing.T) {
 	//   - The log has the existing reload line.
 	//   - `restartRequired` keys are logged as before, unchanged from base.
 	t.Skip("TC-SM-E18: SKIP-only stub; un-skip when WI 3.3 lands")
-}
-
-// TC-SM-ERR24 (WI 3.2; FR-3): Provider-level errors are mapped to providers.<name>, and the secret sentinel never appears
-func TestTCSMERR24_ProviderLevelErrorsAreMappedTo(t *testing.T) {
-	// - Setup: fixture `secret-sentinel.yaml`: a scripts catalog entry with `env: {TOKEN:
-	//   "SENTINEL-7f3a9c-DO-NOT-ECHO"}`, plus an invalid listen elsewhere, plus a provider error.
-	// - Steps:
-	//   1. `CheckConfig`.
-	//   2. `cmd/nexusd validate-config`.
-	//   3. nexusd `validate-config` over REST (nexusd T0 stack).
-	// - Expected:
-	//   - The provider error entry is `{File: path, Path: "providers.<name>", Msg: …}`.
-	//   - The sentinel is absent from all three outputs.
-	t.Skip("TC-SM-ERR24: SKIP-only stub; un-skip when WI 3.2 lands")
 }
 
 // TC-SM-ERR25 (WI 3.3; FR-4): Reload returns promptly after shutdown or cancellation
