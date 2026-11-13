@@ -68,8 +68,8 @@ an operation:
   budget in [mcp.md](mcp.md).
 - `CLI` names the generated `nexus <noun> <verb>` command. The noun is one
   lower-case word, and the verb is one of the approved verbs in
-  `internal/def/verbs.go`: `get`, `start`, `stop`, `restart`, `update`,
-  `install`, `remove`, `invoke`, `test`, `add` and `cancel`.
+  `internal/def/verbs.go`: `get`, `start`, `stop`, `restart`, `reload`,
+  `update`, `install`, `remove`, `invoke`, `test`, `add` and `cancel`.
 - `Sensitive` lists input paths that are redacted from audit and never
   persisted; `Untrusted` marks output that carries host-originated text.
 - No operation may accept a command, a shell string, an executable path or

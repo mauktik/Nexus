@@ -5,9 +5,10 @@ import (
 	"testing"
 )
 
-// TC-4: the approved verb list is exactly FR-29's, with no synonyms.
+// TC-4: the approved verb list is exactly FR-29's, as amended to add reload
+// (nginx-provider TC-53), with no synonyms.
 func TestApprovedVerbsAreExact(t *testing.T) {
-	want := []string{"get", "start", "stop", "restart", "update", "install", "remove", "invoke", "test", "add", "cancel"}
+	want := []string{"get", "start", "stop", "restart", "update", "install", "remove", "invoke", "test", "add", "cancel", "reload"}
 
 	got := ApprovedVerbs()
 	if !sameSet(got, want) {
@@ -21,7 +22,7 @@ func TestApprovedVerbsAreExact(t *testing.T) {
 			t.Errorf("IsApprovedVerb(%q) = false, want true", v)
 		}
 	}
-	for _, synonym := range []string{"list", "delete", "run", "create", "set", "show", "describe", "exec", "Get", ""} {
+	for _, synonym := range []string{"list", "delete", "run", "create", "set", "show", "describe", "exec", "refresh", "reconfigure", "Get", ""} {
 		if IsApprovedVerb(synonym) {
 			t.Errorf("IsApprovedVerb(%q) = true, want false: synonyms are not approved", synonym)
 		}
