@@ -1121,9 +1121,11 @@ func TestTCSMERR37_ARollbackThatFailsHealthSwaps(t *testing.T) {
 func TestTCSMERR38_AThirdConcurrentOrStagedUpload(t *testing.T) {
 	// - Setup: nexusd T0 stack with F-CLK as `Options.Now`. In run A, two uploads are in flight (their
 	//   bodies blocked mid-stream). In run B, two different uploads are staged at virtual t0 and t0 +
-	//   10 min; keep each 201 response's `expiresAt`. In run C, the stack's audit writer (core
-	//   `Options.Audit`) wraps the real audit log and fails the next two `requested` writes, then
-	//   delegates to the real log.
+	//   10 min; keep each 201 response's `expiresAt`. In run C, the stack's audit-failure option (core
+	//   `Options.Audit`, WI 5.1 `stack_test.go`) wraps the real audit log and fails the next two
+	//   `requested` writes, then delegates to the real log. Run D works on the provider's staging
+	//   directly (internal test package). Run E is on the T0 stack and reads the staging in-flight
+	//   count after each request returns.
 	// - Steps:
 	//   1. Start a third upload in each of runs A and B.
 	//   2. In run A, let the first blocked upload finish, advance F-CLK 10 min, let the second finish
@@ -1131,6 +1133,11 @@ func TestTCSMERR38_AThirdConcurrentOrStagedUpload(t *testing.T) {
 	//   3. In run C, POST two uploads while the `requested` write fails. Then upload two different
 	//     valid tarballs at virtual t0 and t0 + 10 min (keep both `expiresAt` values). Then start a
 	//     fifth upload.
+	//   4. In run D: (i) call `reserve()`, then call its `release` twice; (ii) with one upload stored
+	//     (count 1), start two `reserve()` calls together behind a start barrier, 100 repetitions,
+	//     releasing any success before the next repetition.
+	//   5. In run E: a successful upload, then an upload identical to it (dedup), then a body aborted
+	//     at 512 KiB; read the in-flight count after each request returns.
 	// - Expected:
 	//   - 409 `conflict` in both runs.
 	//   - No new staging dir.
@@ -1145,6 +1152,12 @@ func TestTCSMERR38_AThirdConcurrentOrStagedUpload(t *testing.T) {
 	//   - Run C: the fifth upload → 409 `conflict`. Its `detail` contains the t0 upload's `expiresAt`
 	//     and not the later one's, and does not contain `still receiving` (no reservation is in
 	//     flight).
+	//   - Run D (i): the in-flight count goes 0 → 1 → 0 and stays 0 after the second `release` (the
+	//     `sync.Once` guard).
+	//   - Run D (ii): in every repetition exactly one `reserve()` succeeds and the other returns 409
+	//     `conflict`.
+	//   - Run E: the in-flight count is 0 after each of the three requests; the dedup upload returns
+	//     the first upload's ID.
 	t.Skip("TC-SM-ERR38: SKIP-only stub; un-skip when WI 5.1 lands")
 }
 

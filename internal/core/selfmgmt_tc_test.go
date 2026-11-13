@@ -20,7 +20,9 @@ func TestTCSM26_DispatcherUploadPathRunsScopeThen(t *testing.T) {
 	//     &UploadBody{Reader: bytes.NewReader(1 KiB), ContentType: "application/gzip", ContentLength:
 	//     1024}`.
 	//   2. Variant: F-UPL's `Receive` returns `errors.New("disk full")` after reading the body.
-	//   3. Variant: F-UPL's `Admit` succeeds and returns a nil `release`.
+	//   3. Variant: F-UPL's `Receive` panics after reading the body.
+	//   4. Variant: F-UPL's `Admit` succeeds and returns a nil `release`.
+	//   5. Variant: the binding's spec `Admit` is nil.
 	// - Expected:
 	//   - Step 1: `InvokeResult.Status == 201`.
 	//   - Step 1: the body is the provider's output.
@@ -31,7 +33,9 @@ func TestTCSM26_DispatcherUploadPathRunsScopeThen(t *testing.T) {
 	//     after `Receive` returned.
 	//   - Step 2: no 201 (the existing post-`requested` failure mapping), and the `release` count is
 	//     exactly 1.
-	//   - Step 3: 201 and no panic (a nil `release` is allowed).
+	//   - Step 3: the panic is contained (the existing `contain` mapping, no 201, the process
+	//     survives), and the `release` count is exactly 1, called after `Receive` unwound (A-51).
+	//   - Steps 4 and 5: 201 and no panic (a nil `release` and a nil spec `Admit` are allowed).
 	t.Skip("TC-SM-26: SKIP-only stub; un-skip when WI 2.2 lands")
 }
 
@@ -145,8 +149,8 @@ func TestTCSMERR13_AnAuditWriteFailureRefusesThe(t *testing.T) {
 	//   - Row (a): the `release` count is exactly 1 when `Invoke` returns, although `Receive` was never
 	//     called.
 	//   - Row (b): no 201, and no `stored` audit record.
-	//   - Row (b): the `release` count is exactly 1 when `Invoke` returns, whether or not `Receive` was
-	//     entered.
+	//   - Row (b): Receive 0 (a ctx already done after `requested` skips `Receive`, A-51), and the
+	//     `release` count is exactly 1 when `Invoke` returns.
 	t.Skip("TC-SM-ERR13: SKIP-only stub; un-skip when WI 2.2 lands")
 }
 
