@@ -79,6 +79,16 @@ providers:
     lockWait: 300s           # How long a mutation waits for the dpkg lock
     maxRuntime: 6h           # Bound on one apt operation, after which it reports outcome-unknown
 
+  # DNS names served by a Pi-hole v5 on this host. Nexus owns one dnsmasq
+  # file, dnsFile, and never edits Pi-hole's own files. dnsFile must be an
+  # absolute path directly in /etc/dnsmasq.d, with a name dnsmasq loads (not
+  # starting with ".", ending with "~", or both starting and ending with "#"),
+  # and not one Pi-hole manages: 01-pihole.conf, 02-pihole-dhcp.conf,
+  # 04-pihole-static-dhcp.conf, 05-pihole-custom-cname.conf or 06-rfc6761.conf.
+  pihole:
+    enabled: false
+    dnsFile: /etc/dnsmasq.d/03-custom-dns-names.conf   # The dnsmasq file Nexus owns
+
   # The script catalog. Scripts are defined only here: no API, MCP or CLI call
   # can add, change or remove one. Reads return every field except env values,
   # which are listed by name only. A reload (SIGHUP) swaps the whole catalog;

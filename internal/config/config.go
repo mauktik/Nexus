@@ -90,6 +90,7 @@ type Providers struct {
 	Docker  Section[DockerConfig]  `yaml:"docker"`
 	Apt     Section[AptConfig]     `yaml:"apt"`
 	Scripts Section[ScriptsConfig] `yaml:"scripts"`
+	Pihole  Section[PiholeConfig]  `yaml:"pihole"`
 }
 
 // DockerConfig is the docker provider section.
@@ -121,6 +122,12 @@ type AptConfig struct {
 type ScriptsConfig struct {
 	Enabled bool     `yaml:"enabled"`
 	Catalog []Script `yaml:"catalog"`
+}
+
+// PiholeConfig is the pihole provider section.
+type PiholeConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	DNSFile string `yaml:"dnsFile"` // The dnsmasq file Nexus owns, directly in PiholeDNSDir
 }
 
 // Script is one catalog entry.
@@ -210,6 +217,7 @@ func Default() Config {
 				MaxRuntime: 6 * time.Hour,
 			}},
 			Scripts: Section[ScriptsConfig]{Settings: ScriptsConfig{Catalog: []Script{}}},
+			Pihole:  Section[PiholeConfig]{Settings: PiholeConfig{DNSFile: "/etc/dnsmasq.d/03-custom-dns-names.conf"}},
 		},
 	}
 }
