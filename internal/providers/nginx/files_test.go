@@ -13,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -400,17 +401,35 @@ func TestSymlinkAtDestinationReplaced(t *testing.T) {
 // Owner WI 6.1. Requirements: FR-7, L-23.
 func TestLeftoverTempIsHarmless(t *testing.T) {
 	ownedByTester(t)
-	f := newFixture(t, runningSystemd())
-	siteTree(t, f.dir, map[string]entry{"a.conf": file("server { listen 18080; }\n"), tc90Temp: file("INVALID\n")})
-	s := startNginx(t, f)
+	f, _ := helperFixture(t, false)
+	writeTree(t, f.dir, map[string]string{"a.conf": "server {\n    listen 8181;\n}\n", tc90Temp: "INVALID\n"})
+	s := startOps(t, f, nil)
 
+	code, b := s.do(http.MethodGet, "/providers/nginx/sites", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET sites = %d %s", code, b)
+	}
 	var page listPage
-	s.getJSON("/providers/nginx/sites", http.StatusOK, &page)
+	if err := json.Unmarshal(b, &page); err != nil {
+		t.Fatal(err)
+	}
 	if names := siteNames(decodeSites(t, page.Items)); !slices.Equal(names, []string{"a"}) {
 		t.Errorf("list = %q, want only a: the leftover temp file is not a site", names)
 	}
+
+	r := testResultOf(t, s.wait(s.startTest().ID, 30*time.Second))
+	if !r.Valid {
+		t.Errorf("test op = %+v, want valid: the leftover is never included", r)
+	}
+	for _, c := range readFakeCalls(t, f.nginx) {
+		for _, inc := range c.IncludedFiles {
+			if filepath.Base(inc) == tc90Temp {
+				t.Errorf("nginx -t included %s", inc)
+			}
+		}
+	}
 	if got := readString(t, filepath.Join(f.dir, tc90Temp)); got != "INVALID\n" {
-		t.Errorf("the leftover holds %q: listing changed it", got)
+		t.Errorf("the leftover holds %q: it was changed", got)
 	}
 }
 
