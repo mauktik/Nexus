@@ -4047,6 +4047,76 @@ Response `202` (`application/json`):
 }
 ```
 
+### Problem.config-apply-failed
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "urn:nexus:problem:config-apply-failed"
+    }
+  },
+  "title": "Configuration apply failed",
+  "description": "Appears only inside a failed operation's error.",
+  "required": [
+    "type"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.config-invalid
+
+```json
+{
+  "properties": {
+    "configPath": {
+      "type": "string"
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string",
+            "description": "JSON Pointer into the input; empty for the input as a whole."
+          }
+        },
+        "required": [
+          "path",
+          "message"
+        ]
+      },
+      "description": "The failing input fields."
+    },
+    "status": {
+      "const": 422
+    },
+    "type": {
+      "const": "urn:nexus:problem:config-invalid"
+    }
+  },
+  "title": "Configuration invalid",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
 ### Problem.conflict
 
 ```json
@@ -4419,6 +4489,97 @@ Response `202` (`application/json`):
 }
 ```
 
+### Problem.restart-unhealthy
+
+```json
+{
+  "properties": {
+    "condition": {
+      "type": "string"
+    },
+    "type": {
+      "const": "urn:nexus:problem:restart-unhealthy"
+    },
+    "version": {
+      "type": "string"
+    }
+  },
+  "title": "Restart unhealthy",
+  "description": "Appears only inside a failed operation's error.",
+  "required": [
+    "type"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.rollback-failed
+
+```json
+{
+  "properties": {
+    "condition": {
+      "type": "string"
+    },
+    "fromVersion": {
+      "type": "string"
+    },
+    "rolledBack": {
+      "type": "boolean",
+      "description": "Whether the previous container was restored."
+    },
+    "toVersion": {
+      "type": "string"
+    },
+    "type": {
+      "const": "urn:nexus:problem:rollback-failed"
+    }
+  },
+  "title": "Rollback failed",
+  "description": "Appears only inside a failed operation's error.",
+  "required": [
+    "type"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.rollback-unavailable
+
+```json
+{
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "status": {
+      "const": 409
+    },
+    "type": {
+      "const": "urn:nexus:problem:rollback-unavailable"
+    }
+  },
+  "title": "Rollback unavailable",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
 ### Problem.route-not-found
 
 ```json
@@ -4591,6 +4752,41 @@ Response `202` (`application/json`):
 }
 ```
 
+### Problem.update-failed
+
+```json
+{
+  "properties": {
+    "newVersion": {
+      "type": "string"
+    },
+    "previousVersion": {
+      "type": "string"
+    },
+    "rolledBack": {
+      "type": "boolean",
+      "description": "Whether the previous container was restored."
+    },
+    "step": {
+      "type": "string"
+    },
+    "type": {
+      "const": "urn:nexus:problem:update-failed"
+    }
+  },
+  "title": "Update failed",
+  "description": "Appears only inside a failed operation's error.",
+  "required": [
+    "type"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
 ### Problem.update-health-failed
 
 ```json
@@ -4614,6 +4810,175 @@ Response `202` (`application/json`):
   "description": "Appears only inside a failed operation's error.",
   "required": [
     "type"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.update-not-configured
+
+```json
+{
+  "properties": {
+    "status": {
+      "const": 409
+    },
+    "type": {
+      "const": "urn:nexus:problem:update-not-configured"
+    }
+  },
+  "title": "Update not configured",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.update-package-invalid
+
+```json
+{
+  "properties": {
+    "check": {
+      "type": "string"
+    },
+    "status": {
+      "const": 422
+    },
+    "type": {
+      "const": "urn:nexus:problem:update-package-invalid"
+    }
+  },
+  "title": "Update package invalid",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.update-rollback-failed
+
+```json
+{
+  "properties": {
+    "newVersion": {
+      "type": "string"
+    },
+    "previousVersion": {
+      "type": "string"
+    },
+    "rolledBack": {
+      "type": "boolean",
+      "description": "Whether the previous container was restored."
+    },
+    "step": {
+      "type": "string"
+    },
+    "type": {
+      "const": "urn:nexus:problem:update-rollback-failed"
+    }
+  },
+  "title": "Update rollback failed",
+  "description": "Appears only inside a failed operation's error.",
+  "required": [
+    "type"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.update-signature-invalid
+
+```json
+{
+  "properties": {
+    "status": {
+      "const": 422
+    },
+    "type": {
+      "const": "urn:nexus:problem:update-signature-invalid"
+    }
+  },
+  "title": "Update signature invalid",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.upload-not-found
+
+```json
+{
+  "properties": {
+    "status": {
+      "const": 422
+    },
+    "type": {
+      "const": "urn:nexus:problem:upload-not-found"
+    },
+    "uploadId": {
+      "type": "string"
+    }
+  },
+  "title": "Upload not found",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.upload-too-large
+
+```json
+{
+  "properties": {
+    "maxBytes": {
+      "type": "string"
+    },
+    "status": {
+      "const": 413
+    },
+    "type": {
+      "const": "urn:nexus:problem:upload-too-large"
+    }
+  },
+  "title": "Upload too large",
+  "required": [
+    "type",
+    "status"
   ],
   "allOf": [
     {
@@ -4656,6 +5021,37 @@ Response `202` (`application/json`):
     }
   },
   "title": "Validation failed",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.version-downgrade
+
+```json
+{
+  "properties": {
+    "packageVersion": {
+      "type": "string"
+    },
+    "runningVersion": {
+      "type": "string"
+    },
+    "status": {
+      "const": 409
+    },
+    "type": {
+      "const": "urn:nexus:problem:version-downgrade"
+    }
+  },
+  "title": "Version downgrade",
   "required": [
     "type",
     "status"
