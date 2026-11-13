@@ -433,6 +433,16 @@ retry them.
   `pihole restartdns reload`, without a restart. It never runs
   `pihole flush`, which deletes Pi-hole's query log rather than the cache.
 
+Pi-hole's FTL service allows 5 starts a minute; a sixth leaves FTL stopped.
+Before each DNS restart it starts (`nexus piholeresolver restart`, a record
+change, and the restart after a rollback), Nexus runs
+`systemctl reset-failed pihole-FTL.service`, so that limit never refuses a
+Nexus restart or rollback. Systemd's automatic restarts of a crashing FTL
+stay limited. Restarts are serialized on the `pihole` lane. If a restart is
+refused anyway, the `pihole-command-failed` problem says so and names the
+recovery command, `systemctl reset-failed pihole-FTL.service && pihole
+restartdns`.
+
 ## Commands
 
 Every command takes `--host` and `--output`, and every mutation waits for
