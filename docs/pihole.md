@@ -419,7 +419,9 @@ A domain or adlist change written to the old database after the copy is
 lost. Nexus reduces the risk: before a domain, adlist or gravity operation
 changes anything, it waits for a running gravity run
 (`/opt/pihole/gravity.sh`) to finish, and fails `pihole-busy` after 30
-minutes. A gravity run that starts after that check, while the change is
+minutes. It counts a process as a gravity run only when root runs it and
+the script's path is its first argument, so another user's process cannot
+hold Pi-hole operations back by naming the script. A gravity run that starts after that check, while the change is
 being written, can still lose it. If a change was made near a scheduled
 gravity run, read the list again to confirm it is there. Reads that land
 while gravity replaces the database can answer `dependency-unavailable`;

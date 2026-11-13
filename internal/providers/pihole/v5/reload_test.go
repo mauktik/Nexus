@@ -959,6 +959,24 @@ func TestListReloadBarrierRecoveryPaths(t *testing.T) {
 		}
 	})
 
+	t.Run("ctx is cancelled while the probe after the commit waits", func(t *testing.T) {
+		h, m := barrierHost(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		scriptTime(t, h, m,
+			scriptStep{150 * time.Millisecond, endReload(t, h)},
+			scriptStep{150 * time.Millisecond, func() { h.FTL().ForceStuckUnlogged() }}, // the probe is never answered
+			scriptStep{150 * time.Millisecond, func() { time.AfterFunc(100*time.Millisecond, cancel) }},
+		)
+		err := add(ctx, m, io.Discard)
+		if !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "probing FTL") {
+			t.Fatalf("err %v, want a cancelled probe", err)
+		}
+		if len(h.DomainRows()) != 1 {
+			t.Error("the committed row must stay")
+		}
+	})
+
 	t.Run("the log shows a reload but the probe gets no answer", func(t *testing.T) {
 		h, m := barrierHost(t)
 		ran := scriptTime(t, h, m,
