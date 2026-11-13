@@ -324,12 +324,16 @@ func TestTCSM72_ReUploadingTheSameBytesAnd(t *testing.T) {
 }
 
 // TC-SM-73 (WI 5.1; FR-6, NFR-4): Expiry deletes the staged upload, and a
-// later update is upload-not-found. The update op is WI 5.3's; here the
-// staging lookup it will use reports the upload gone.
+// later update is upload-not-found: both the staging lookup and, over REST,
+// the update op (WI 5.3).
 func TestTCSM73_ExpiryDeletesTheStagedUploadAnd(t *testing.T) {
+	setRunningVersion(t, "v9.9.1")
 	clk := newFakeClock(stagingT0)
-	s := newStack(t, stackConfig{opts: Options{Now: clk.Now}, clock: clk})
-	res, _ := stored(t, s.upload(t, s.admin, newSignature(t), randomBytes(t, 4096)))
+	k := pkgKey(seedTrusted)
+	u := newUpdateStack(t, updateStackConfig{keys: []ed25519.PrivateKey{k}, opts: Options{Now: clk.Now}, clock: clk})
+	s := u.stack
+	pkg := updatePackage(t, "v9.9.2", "v9.9.2")
+	res, _ := stored(t, s.upload(t, s.admin, signBytes(k, pkg), pkg))
 	dir := filepath.Join(s.stagingDir(), res.UploadID)
 	if _, err := os.Stat(dir); err != nil {
 		t.Fatalf("before expiry: %v", err)
@@ -343,6 +347,14 @@ func TestTCSM73_ExpiryDeletesTheStagedUploadAnd(t *testing.T) {
 	}
 	if _, _, ok := s.stg(t).get(res.UploadID); ok {
 		t.Error("the expired upload is still found")
+	}
+	body := wantProblem(t, u.update(t, updateOf(res.UploadID, false)), http.StatusUnprocessableEntity,
+		problem.UploadNotFound)
+	if body["uploadId"] != res.UploadID {
+		t.Errorf("problem %v, want uploadId %s", body, res.UploadID)
+	}
+	if ops := s.operations(t); len(ops) != 0 {
+		t.Errorf("operations %+v, want none", ops)
 	}
 }
 
@@ -624,19 +636,32 @@ func TestTCSME16_ADisabledNexusdProviderRefusesEvery(t *testing.T) {
 }
 
 // TC-SM-E17 (WI 5.1; FR-6): Expiry boundary: an upload is found at 59:59
-// and gone at 60:00. The update op is WI 5.3's; here the staging lookup it
-// will use is checked at both instants.
+// and gone at 60:00, both by the staging lookup and, over REST, by the
+// update op (WI 5.3): 202 at 59:59, upload-not-found at 60:00.
 func TestTCSME17_ExpiryBoundaryAnUploadIsFound(t *testing.T) {
+	setRunningVersion(t, "v9.9.1")
 	clk := newFakeClock(stagingT0)
-	s := newStack(t, stackConfig{opts: Options{Now: clk.Now}, clock: clk})
-	body, sig := randomBytes(t, 4096), newSignature(t)
+	k := pkgKey(seedTrusted)
+	u := newUpdateStack(t, updateStackConfig{keys: []ed25519.PrivateKey{k}, opts: Options{Now: clk.Now}, clock: clk})
+	s := u.stack
+	body := updatePackage(t, "v9.9.2", "v9.9.2")
+	sig := signBytes(k, body)
 	first, _ := stored(t, s.upload(t, s.admin, sig, body))
 	clk.Advance(t, 59*time.Minute+59*time.Second)
 	if _, _, ok := s.stg(t).get(first.UploadID); !ok {
 		t.Fatal("the upload is gone at 59:59")
 	}
-	if err := s.stg(t).remove(first.UploadID); err != nil { // As the update's Finalize would
+	id := accepted(t, u.update(t, updateOf(first.UploadID, false)))
+	u.spy.await(t, id)
+	// The update holds the lane while its unit runs; end it as the
+	// supervisor would, and its Finalize deletes the upload.
+	now := time.Now()
+	if err := detach.WriteExit(filepath.Join(s.opsDir, id), detach.Exit{Started: now, Ended: now}); err != nil {
 		t.Fatal(err)
+	}
+	s.awaitOp(t, id)
+	if _, _, ok := s.stg(t).get(first.UploadID); ok {
+		t.Fatal("the update's Finalize did not delete the upload")
 	}
 
 	second, _ := stored(t, s.upload(t, s.admin, sig, body))
@@ -646,6 +671,11 @@ func TestTCSME17_ExpiryBoundaryAnUploadIsFound(t *testing.T) {
 	}
 	if names := stagingEntries(t, s.stagingDir()); len(names) != 0 {
 		t.Errorf("staging holds %v at 60:00", names)
+	}
+	p := wantProblem(t, u.update(t, updateOf(second.UploadID, false)), http.StatusUnprocessableEntity,
+		problem.UploadNotFound)
+	if p["uploadId"] != second.UploadID {
+		t.Errorf("problem %v, want uploadId %s", p, second.UploadID)
 	}
 }
 

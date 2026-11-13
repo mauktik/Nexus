@@ -132,6 +132,8 @@ type Provider struct {
 	opsDir   atomic.Pointer[string]  // Operations' directories; set by UseOpsDir
 	staging  atomic.Pointer[staging] // Uploaded releases; set by UseDaemon
 
+	updateHooks atomic.Pointer[updateHooks] // Test-only; nil in production
+
 	prev prevCache
 }
 
@@ -249,8 +251,8 @@ func (p *Provider) requireSelfManagement() error {
 		With("provider", spec.Name).With("reason", a.Reason)
 }
 
-// Bindings binds get, validate-config, reload, restart, rollback and the
-// upload.
+// Bindings binds get, validate-config, reload, restart, update, rollback
+// and the upload.
 func (p *Provider) Bindings() []provider.Binding {
 	return []provider.Binding{
 		provider.Sync(spec.List, p.get),
@@ -261,6 +263,7 @@ func (p *Provider) Bindings() []provider.Binding {
 			Run:   p.reload,
 		}),
 		p.restartBinding(),
+		p.updateBinding(),
 		p.rollbackBinding(),
 		p.uploadBinding(),
 	}

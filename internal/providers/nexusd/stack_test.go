@@ -22,6 +22,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -284,6 +285,14 @@ type stackConfig struct {
 	// builds its own Dispatcher over the registry's log, so a test drives
 	// this one through stack.invoke.
 	failRequested int
+	// launch, when set, gives the ops manager a detach launcher whose
+	// Launch is this spy and whose units always report active, so a
+	// launched operation stays Running until the test writes its
+	// exit.json; the provider's ops directory is then the manager's
+	// (WI 5.3).
+	launch func(ctx context.Context, inv detach.Invocation) error
+	// extra are further providers registered enabled (TC-SM-86).
+	extra []provider.Provider
 }
 
 // stack is a running nexusd T0 stack. reader holds nexusd:read, admin holds
@@ -300,6 +309,7 @@ type stack struct {
 	http   *http.Client
 
 	stateDir, auditDir string
+	opsDir             string           // The ops manager's directory
 	logs               *syncBuffer      // The server's and registry's log
 	disp               *core.Dispatcher // Set by stackConfig.failRequested
 	failing            *failingAudit    // disp's audit writer
@@ -415,8 +425,24 @@ func newStack(t *testing.T, cfg stackConfig) *stack {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mgr, err := ops.New(ops.Options{Store: st, Audit: alog, Dir: filepath.Join(stateDir, "ops"), Host: opts.Host,
-		Logger: log})
+	opsDir := filepath.Join(stateDir, "ops")
+	var launcher *detach.Launcher
+	if cfg.launch != nil {
+		launcher, err = detach.New(detach.Config{OpsDir: opsDir, Executable: "/x/nexusd", Logger: log}, detach.Options{
+			Launch: cfg.launch,
+			UnitState: func(context.Context, string) (detach.UnitState, error) {
+				return detach.UnitState{ActiveState: "active", LoadState: "loaded"}, nil
+			},
+			Signal:    func(context.Context, string, syscall.Signal) error { return nil },
+			ListUnits: func(context.Context) ([]string, error) { return nil, nil },
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.UseOpsDir(opsDir)
+	}
+	mgr, err := ops.New(ops.Options{Store: st, Audit: alog, Dir: opsDir, Host: opts.Host, Logger: log,
+		Detach: launcher})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -425,6 +451,10 @@ func newStack(t *testing.T, cfg stackConfig) *stack {
 		sections[spec.Name] = core.ProviderConfig{}
 	}
 	provs := []provider.Provider{p}
+	for _, x := range cfg.extra {
+		provs = append(provs, x)
+		sections[x.Spec().Name] = core.ProviderConfig{Enabled: true}
+	}
 	for _, x := range cfg.disabledExtra {
 		provs = append(provs, x)
 		sections[x.Spec().Name] = core.ProviderConfig{}
@@ -447,7 +477,7 @@ func newStack(t *testing.T, cfg stackConfig) *stack {
 		nobody: token("nobody"),
 		p:      p, reg: reg, alog: alog, daemon: d, paths: opts.Paths,
 		http:     &http.Client{Timeout: 30 * time.Second},
-		stateDir: d.StateDir(), auditDir: auditDir, logs: logs, mint: token,
+		stateDir: d.StateDir(), auditDir: auditDir, opsDir: opsDir, logs: logs, mint: token,
 	}
 	if cfg.failRequested > 0 {
 		s.failing = &failingAudit{real: alog, n: cfg.failRequested}
