@@ -331,7 +331,11 @@ func TestTCSM53_ValidateConfigOverRESTReturnsValid(t *testing.T) {
 // TC-SM-ERR24 step 3 (WI 3.2, carried to 3.5; FR-3): nexusd validate-config over REST never echoes the secret sentinel
 func TestTCSMERR24_ProviderLevelErrorsAreMappedTo(t *testing.T) {
 	s := newStack(t, stackConfig{})
-	for _, name := range []string{"secret-sentinel.yaml", "secret-sentinel-provider.yaml"} {
+	for _, name := range []string{
+		"secret-sentinel.yaml", "secret-sentinel-provider.yaml",
+		// SEC-1: a malformed env block, in both shapes, whole or truncated.
+		"secret-sentinel-env-scalar.yaml", "secret-sentinel-env-kv.yaml",
+	} {
 		t.Run(name, func(t *testing.T) {
 			path := fixture(t, name)
 			raw, err := os.ReadFile(path)
@@ -343,8 +347,10 @@ func TestTCSMERR24_ProviderLevelErrorsAreMappedTo(t *testing.T) {
 			}
 			s.daemon.setConfigPath(path)
 			r := s.action(t, "validate-config", s.reader, nil).want(t, http.StatusOK)
-			if bytes.Contains(r.body, []byte(secretSentinel)) {
-				t.Fatalf("the sentinel is in the output: %s", r.body)
+			for _, leak := range []string{secretSentinel, "SENTINEL", "7f3a9c", "TOKEN="} {
+				if bytes.Contains(r.body, []byte(leak)) {
+					t.Fatalf("%q is in the output: %s", leak, r.body)
+				}
 			}
 			got := decodeJSON[spec.ValidateResult](t, r.body)
 			if got.Valid || len(got.Errors) == 0 {

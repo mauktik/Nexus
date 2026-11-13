@@ -581,6 +581,9 @@ func TestTCSMERR24_ValidateConfigNeverEchoesCatalogEnv(t *testing.T) {
 	for _, tc := range []struct{ name, want string }{
 		{"secret-sentinel.yaml", `listen[0]: "nope" is not a host:port address`},
 		{"secret-sentinel-provider.yaml", `: providers.docker: provider "docker": `},
+		// SEC-1: a malformed env block, in both shapes.
+		{"secret-sentinel-env-scalar.yaml", `providers.scripts.catalog[0].env`},
+		{"secret-sentinel-env-kv.yaml", `providers.scripts.catalog[0].env`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := checkconfigFixture(tc.name)
@@ -593,8 +596,10 @@ func TestTCSMERR24_ValidateConfigNeverEchoesCatalogEnv(t *testing.T) {
 			if code != 1 || !strings.Contains(stderr.String(), tc.want) {
 				t.Fatalf("exit %d, want 1 and %q in:\n%s", code, tc.want, out)
 			}
-			if strings.Contains(out, sentinel) {
-				t.Fatalf("the catalog env value is echoed:\n%s", out)
+			for _, leak := range []string{sentinel, "SENTINEL", "7f3a9c", "TOKEN="} {
+				if strings.Contains(out, leak) {
+					t.Fatalf("the catalog env content %q is echoed:\n%s", leak, out)
+				}
 			}
 		})
 	}

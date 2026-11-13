@@ -103,7 +103,31 @@ func TestTCSMERR24_ProviderLevelErrorsAreMappedTo(t *testing.T) {
 			t.Fatalf("the catalog env value is echoed:\n%s", out)
 		}
 	})
+
+	// SEC-1: a malformed env block must not put its content in the message,
+	// whole or truncated.
+	for _, name := range []string{"secret-sentinel-env-scalar.yaml", "secret-sentinel-env-kv.yaml"} {
+		t.Run(name, func(t *testing.T) {
+			_, errs := CheckConfig(checkconfigFixture(name))
+			if len(errs) == 0 {
+				t.Fatal("no error for a malformed env block")
+			}
+			out := dump(errs)
+			for _, leak := range envLeaks {
+				if strings.Contains(out, leak) {
+					t.Fatalf("the env content %q is echoed:\n%s", leak, out)
+				}
+			}
+			if !strings.Contains(out, "env") {
+				t.Errorf("no error names the env field:\n%s", out)
+			}
+		})
+	}
 }
+
+// envLeaks are the pieces of a malformed env entry no message may carry: the
+// value, its prefix as yaml truncates it, and the KEY= part.
+var envLeaks = []string{sentinel, "SENTINEL", "7f3a9c", "TOKEN="}
 
 // providerErrors flattens what core.ValidateProviders returns: an ErrorList
 // member, wrapped or not, contributes its own located entries; any other
