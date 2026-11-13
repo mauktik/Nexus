@@ -281,9 +281,14 @@ func (a phAnswer) String() string {
 	return a.status + " " + fmt.Sprint(a.addrs)
 }
 
-// phDig asks FTL on 127.0.0.1:53 for name's A records with dig.
+// phDig asks FTL on 127.0.0.1:53 for name's A records with dig. FTL holds
+// queries while it reloads its lists and answers them after (PROVENANCE
+// "QUERIES DURING A RELOAD": a seeded 80,000-regex reload takes about 2.7 s,
+// and the backlog clears within 0.8 s), so a 1 s timeout reported a held
+// query as "no answer". 6 s outlasts one such reload; a stuck FTL, which
+// drops queries, still gives no answer.
 func phDig(name string) phAnswer {
-	out, _ := sh(10*time.Second, "dig", "+time=1", "+tries=1", "@127.0.0.1", name, "A", "+noall", "+answer", "+comments")
+	out, _ := sh(15*time.Second, "dig", "+time=6", "+tries=1", "@127.0.0.1", name, "A", "+noall", "+answer", "+comments")
 	var a phAnswer
 	for line := range strings.Lines(out) {
 		if _, rest, ok := strings.Cut(line, "status: "); ok {
