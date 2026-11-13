@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"mime"
 	"regexp"
 	"runtime/debug"
 	"slices"
@@ -40,6 +41,11 @@ const (
 // ErrTargetNotFound is what a TargetLoader returns when no operation record
 // has the ID.
 var ErrTargetNotFound = errors.New("target operation not found")
+
+// ErrUploadTooLarge is what reading an upload body past its cap returns,
+// wrapped. The Dispatcher answers an upload whose Receive fails with it as
+// upload-too-large.
+var ErrUploadTooLarge = errors.New("upload exceeds the size limit")
 
 // TargetRecord is what authorization needs from the operation record a
 // Scope.FromTarget op names.
@@ -94,11 +100,13 @@ type InvokeRequest struct {
 	InputError *problem.Error
 	// IdempotencyKey is used by long-running ops (3.2).
 	IdempotencyKey string
+	// Upload is the request body of a KindUpload op; other ops ignore it.
+	Upload *provider.UploadBody
 }
 
 // InvokeResult is a successful call's answer.
 type InvokeResult struct {
-	Status      int // 200, or 202 for an accepted operation
+	Status      int // 200, 201 for a stored upload, or 202 for an accepted operation
 	Body        any // Sync output, or apitypes.Operation for 202 and cancel
 	OperationID string
 	// Stream is non-nil for a ModeStream op; the transport drives it. Every
@@ -211,6 +219,8 @@ func (d *Dispatcher) Invoke(ctx context.Context, req InvokeRequest) (InvokeResul
 			}
 			return nil
 		}}, nil
+	case provider.BindUpload:
+		return d.upload(ctx, op, req, b, in)
 	}
 	if funcs, ok := b.InProcess(); ok && d.ops != nil {
 		return d.longRunning(ctx, op, e.Provider, req, in, funcs.Admit, funcs.Lane, ops.Work{
@@ -756,6 +766,75 @@ func (d *Dispatcher) sanitize(ctx context.Context, op def.Op, err error) *proble
 		d.log.Error("operation failed", "op", op.ID, "error", err.Error())
 	}
 	return problem.New(problem.InternalError, genericDetail)
+}
+
+// upload is the KindUpload path after authorization, capability and
+// validation (Data Flow F4): the Content-Type and the declared length are
+// checked before anything else runs, then the storage check, Admit, the
+// requested record, and Receive, which streams the body. Nothing reads the
+// body before the requested record is written.
+func (d *Dispatcher) upload(ctx context.Context, op def.Op, req InvokeRequest, b provider.Binding, in any) (InvokeResult, error) {
+	funcs, ok := b.Upload()
+	body := req.Upload
+	if !ok || op.Upload == nil || body == nil {
+		d.log.Error("upload op called without an upload binding or body", "op", op.ID)
+		return InvokeResult{}, d.refuse(op, req, problem.New(problem.InternalError, genericDetail))
+	}
+	if !acceptsContentType(op.Upload.ContentTypes, body.ContentType) {
+		return InvokeResult{}, d.refuse(op, req, invalidInput(problem.FieldError{Path: "",
+			Message: "Content-Type must be one of " + strings.Join(op.Upload.ContentTypes, ", ")}))
+	}
+	maxBytes := funcs.MaxBytes()
+	if body.ContentLength > maxBytes {
+		return InvokeResult{}, d.refuse(op, req, tooLarge(maxBytes))
+	}
+	if d.reg.storageCheck != nil {
+		if perr := d.reg.storageCheck(); perr != nil {
+			return InvokeResult{}, d.refuse(op, req, perr)
+		}
+	}
+	var release func()
+	err := d.provide(op, func() (err error) { release, err = funcs.Admit(ctx, in); return err })
+	// Whatever Admit holds is freed exactly once, on every path from here,
+	// after Receive returned or unwound (A-51).
+	if release != nil {
+		defer release()
+	}
+	if err != nil {
+		return InvokeResult{}, d.refuse(op, req, d.sanitize(ctx, op, err))
+	}
+	requestID, perr := d.requested(op, req)
+	if perr != nil {
+		return InvokeResult{}, perr
+	}
+	if err := ctx.Err(); err != nil {
+		return InvokeResult{}, d.refuseAfter(op, req, d.sanitize(ctx, op, err), requestID)
+	}
+	var out any
+	err = d.provide(op, func() (err error) { out, err = funcs.Receive(ctx, in, *body); return err })
+	switch {
+	case errors.Is(err, ErrUploadTooLarge):
+		return InvokeResult{}, d.refuseAfter(op, req, tooLarge(maxBytes), requestID)
+	case err != nil:
+		return InvokeResult{}, d.refuseAfter(op, req, d.sanitize(ctx, op, err), requestID)
+	}
+	return InvokeResult{Status: 201, Body: out}, nil
+}
+
+// acceptsContentType reports whether a Content-Type header names one of the
+// accepted media types. Media types compare case-insensitively, and
+// parameters are ignored (RFC 9110, section 8.3.1).
+func acceptsContentType(accepted []string, header string) bool {
+	mt, _, err := mime.ParseMediaType(header)
+	if err != nil {
+		return false
+	}
+	return slices.ContainsFunc(accepted, func(a string) bool { return strings.EqualFold(a, mt) })
+}
+
+func tooLarge(maxBytes int64) *problem.Error {
+	return problem.New(problem.UploadTooLarge, fmt.Sprintf("the upload is larger than the limit of %d bytes", maxBytes)).
+		With("maxBytes", maxBytes)
 }
 
 // maxIdempotencyKeyLen bounds an Idempotency-Key, which is stored hashed.

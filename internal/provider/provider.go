@@ -133,6 +133,7 @@ const (
 	BindStream    BindingKind = "stream"
 	BindInProcess BindingKind = "in-process"
 	BindDetached  BindingKind = "detached"
+	BindUpload    BindingKind = "upload"
 )
 
 // InProcessFuncs is an in-process binding with its types erased. Each function
@@ -153,6 +154,44 @@ type DetachedFuncs struct {
 	LostDetail func(r *Run, in any) string // Empty when the spec has none
 }
 
+// UploadBody is the raw request body of a KindUpload call.
+type UploadBody struct {
+	// Reader streams the body. The transport caps it: a read past the cap
+	// fails with an error wrapping core.ErrUploadTooLarge.
+	Reader        io.Reader
+	ContentType   string
+	ContentLength int64 // -1 when unknown
+}
+
+// UploadSpec is a KindUpload operation: a sync, mutating call whose input
+// comes from the query and whose request body is streamed to Receive.
+type UploadSpec[In, Out any] struct {
+	// MaxBytes is the body size limit at run time. Nil means the op's
+	// Upload.MaxBytes; a larger value is clamped to it.
+	MaxBytes func() int64
+	// Admit is an optional pre-check that runs before the requested audit
+	// record and before the body is read; return a *problem.Error to refuse.
+	// Its release frees whatever Admit holds (nexusd: one upload slot) and
+	// may be nil. The Dispatcher defers a non-nil release the moment Admit
+	// returns, before it looks at err, so release runs exactly once on every
+	// later path: Admit refusal, requested-write failure, a context done
+	// before Receive, Receive error or panic, and success. An Admit that
+	// refuses should hold nothing and return a nil release. release must be
+	// cheap, non-blocking and safe to call from the request goroutine.
+	Admit func(context.Context, In) (release func(), err error)
+	// Receive reads the body and stores it. Required. It must remove any
+	// partial state when it fails.
+	Receive func(context.Context, In, UploadBody) (Out, error)
+}
+
+// UploadFuncs is an upload binding with its types erased. Each function
+// takes the value returned by Binding.Decode.
+type UploadFuncs struct {
+	MaxBytes func() int64                                                  // Never above the op's Upload.MaxBytes
+	Admit    func(ctx context.Context, in any) (release func(), err error) // A nil spec Admit returns (nil, nil)
+	Receive  func(ctx context.Context, in any, b UploadBody) (any, error)
+}
+
 // Binding is a handler bound to its declaration. The core calls it through
 // the type-erased methods; the types were already checked at compile time.
 type Binding struct {
@@ -163,6 +202,7 @@ type Binding struct {
 	stream    func(context.Context, any, func(apitypes.Frame) error) error
 	inProcess *InProcessFuncs
 	detached  *DetachedFuncs
+	upload    *UploadFuncs
 }
 
 // Op returns the declaration the binding implements.
@@ -204,6 +244,14 @@ func (b Binding) Detached() (DetachedFuncs, bool) {
 		return DetachedFuncs{}, false
 	}
 	return *b.detached, true
+}
+
+// Upload returns the erased functions of an upload binding.
+func (b Binding) Upload() (UploadFuncs, bool) {
+	if b.upload == nil {
+		return UploadFuncs{}, false
+	}
+	return *b.upload, true
 }
 
 // Sync binds a handler to a ModeSync operation.
@@ -340,6 +388,46 @@ func Detached[In, Out any](op def.Typed[In, Out], s DetachedSpec[In, Out]) Bindi
 		},
 	}
 	return Binding{op: d, kind: BindDetached, decode: decoder[In](), detached: funcs}
+}
+
+// Upload binds a KindUpload operation, whose request body is streamed to
+// Receive.
+func Upload[In, Out any](op def.Typed[In, Out], s UploadSpec[In, Out]) Binding {
+	d := op.Op()
+	requireMode(d, def.ModeSync, "Upload")
+	if d.Kind != def.KindUpload || d.Upload == nil {
+		panic(fmt.Sprintf("provider: op %q: Upload requires KindUpload, op is %s", d.ID, d.Kind))
+	}
+	if s.Receive == nil {
+		panic(fmt.Sprintf("provider: op %q: UploadSpec.Receive is nil", d.ID))
+	}
+	ceiling := d.Upload.MaxBytes
+	funcs := &UploadFuncs{
+		MaxBytes: func() int64 {
+			if s.MaxBytes == nil {
+				return ceiling
+			}
+			return min(s.MaxBytes(), ceiling)
+		},
+		Admit: func(ctx context.Context, in any) (func(), error) {
+			v, err := typedInput[In](d, in)
+			if err != nil {
+				return nil, err
+			}
+			if s.Admit == nil {
+				return nil, nil
+			}
+			return s.Admit(ctx, v)
+		},
+		Receive: func(ctx context.Context, in any, b UploadBody) (any, error) {
+			v, err := typedInput[In](d, in)
+			if err != nil {
+				return nil, err
+			}
+			return s.Receive(ctx, v, b)
+		},
+	}
+	return Binding{op: d, kind: BindUpload, decode: decoder[In](), upload: funcs}
 }
 
 func requireMode(op def.Op, want def.Mode, constructor string) {

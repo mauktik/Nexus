@@ -166,6 +166,9 @@ func New(providers []provider.Provider, opts Options) (*Registry, error) {
 		r.providers = append(r.providers, p)
 		r.recheck[spec.Name] = &sync.Mutex{}
 	}
+	if err := checkCLIUploads(providers, r.entries); err != nil {
+		return nil, err
+	}
 	for _, b := range r.systemBindings() {
 		r.entries = append(r.entries, Entry{Provider: def.SystemProvider, Binding: b})
 	}
@@ -180,6 +183,51 @@ func New(providers []provider.Provider, opts Options) (*Registry, error) {
 	r.state.Store(r.preflightAll(context.Background(), opts.Providers))
 	r.preflightTimeout = fullTimeout
 	return r, nil
+}
+
+// checkCLIUploads checks the CLI.Upload of every bound op: the op it names
+// must be bound too, be KindUpload, and belong to the same provider. Only
+// bound ops are checked, because a provider may be partially bound while it
+// is built up; the catalog test checks every declared op.
+func checkCLIUploads(providers []provider.Provider, entries []Entry) error {
+	bound := make(map[string]Entry, len(entries))
+	for _, e := range entries {
+		bound[e.Binding.Op().ID] = e
+	}
+	for _, e := range entries {
+		op := e.Binding.Op()
+		if op.CLI.Upload == nil {
+			continue
+		}
+		ref := op.CLI.Upload.Op
+		var reason string
+		if target, ok := bound[ref]; ok {
+			switch {
+			case target.Provider != e.Provider:
+				reason = fmt.Sprintf("belongs to another provider, %q", target.Provider)
+			case target.Binding.Op().Kind != def.KindUpload:
+				reason = fmt.Sprintf("is not a KindUpload op (kind %q)", target.Binding.Op().Kind)
+			}
+		} else if declared(providers, e.Provider, ref) {
+			reason = "is not bound"
+		} else {
+			reason = "does not exist"
+		}
+		if reason != "" {
+			return fmt.Errorf("provider %q: op %q: CLI.Upload.Op %q %s", e.Provider, op.ID, ref, reason)
+		}
+	}
+	return nil
+}
+
+// declared reports whether provider name's spec declares op id.
+func declared(providers []provider.Provider, name, id string) bool {
+	for _, p := range providers {
+		if s := p.Spec(); s.Name == name {
+			return slices.ContainsFunc(s.Ops, func(o def.Op) bool { return o.ID == id })
+		}
+	}
+	return false
 }
 
 // Entries returns every binding, system ones included, sorted by op ID.
