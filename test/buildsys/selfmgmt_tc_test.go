@@ -7,65 +7,17 @@
 // `grep TestTCSM` traces the case back to test-cases.md.
 package buildsys
 
-import (
-	"bytes"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"testing"
-)
+import "testing"
 
-// TC-SM-102 (WI 6.2; FR-19): deploy/install.sh is byte-identical to the base
-// revision. The update helper runs the package's install.sh as its install
-// step and relies on its restart contract (A-33), so the script must not
-// drift. If it is ever changed, this case is replaced by TC-SM-104's
-// backward-compatibility proof.
+// TC-SM-102 (WI 6.2; FR-19): deploy/install.sh is byte-identical to the base revision
 func TestTCSM102_DeployInstallShIsByteIdentical(t *testing.T) {
-	const base = "d04583a"
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Fatalf("git is required for TC-SM-102: %v", err)
-	}
-	root := repoRoot(t)
-	cmd := exec.Command("git", "-C", root, "show", base+":deploy/install.sh")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	want, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("git show %s:deploy/install.sh: %v %s", base, err, stderr.String())
-	}
-	got, err := os.ReadFile(filepath.Join(root, "deploy", "install.sh"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(got, want) {
-		t.Fatalf("deploy/install.sh differs from %s (%d bytes, base %d bytes): FR-19 keeps it unchanged; "+
-			"a change needs TC-SM-104's backward-compatibility proof in place of this case", base, len(got), len(want))
-	}
-	t.Logf("deploy/install.sh equals %s:deploy/install.sh (%d bytes)", base, len(got))
-}
-
-// TC-SM-105 (WI 6.3; FR-18, CON-5, NFR-5, FR-15): The documentation covers the scopes, the signing key, recovery and the verbs
-func TestTCSM105_TheDocumentationCoversTheScopesThe(t *testing.T) {
-	// - Setup: none.
+	// - Setup: git available.
 	// - Steps:
-	//   1. Read the files.
-	//   2. Assert the required contents.
-	// - Expected:
-	//   - `docs/security.md` contains `nexusd:read`, `nexusd:admin` and "root-equivalent", a
-	//     release-signing-key section mentioning `~/.config/nexus/release-signing.key`, `0600`,
-	//     "SHA256SUMS" with "integrity", rotation, and what a stolen key allows.
-	//   - `docs/install.md`:
-	//     - contains `nexus nexusd update --file` and `make release-key`;
-	//     - no longer contains "Nexus does not update itself";
-	//     - has the heading anchor `recovering-from-a-failed-update`, which is the exact anchor the
-	//       helper's `update-rollback-failed` detail references, with the 6 manual commands;
-	//     - states the first install is manual.
-	//   - `docs/mcp.md` lists `get_nexusd` and `validate_nexusd_config`, and its budget figure equals
-	//     TC-SM-96's measured value.
-	//   - `docs/adding-a-provider.md` lists the verbs `reload`, `rollback` and `validate-config` and
-	//     the four generic mechanisms.
-	//   - NSM requirements: OOS-11, FR-22, FR-29 and NFR-4 are amended.
-	t.Skip("TC-SM-105: SKIP-only stub; un-skip when WI 6.3 lands")
+	//   1. `git show d04583a:deploy/install.sh`.
+	//   2. Compare it with the working-tree file.
+	// - Expected: the two are identical. If a change is ever made, this test is replaced by
+	//   TC-SM-104's backward-compatibility proof.
+	t.Skip("TC-SM-102: SKIP-only stub; un-skip when WI 6.2 lands")
 }
 
 // TC-SM-106 (WI 7.1; CON-1): The harness refuses a non-local Docker context

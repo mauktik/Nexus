@@ -6,7 +6,14 @@ surface is derived from the provider's declarations: the REST routes, the
 OpenAPI document, the MCP tools, the `nexus` commands, authorization, audit
 and idempotency. Adding a provider therefore means writing a **spec**
 package, an **implementation** with its **bindings**, and adding **two
-composition lines**. Core, server, OpenAPI, MCP and CLI code do not change.
+composition lines**. Core, server, OpenAPI, MCP and CLI code do not change
+for a provider that uses the mechanisms they already have. Those include
+four generic mechanisms added for the `nexusd` provider: `def.KindUpload`
+with `CLI.Upload`, `CLI.ReconnectWindow`, `provider.DaemonUser` and audit
+facts (`audit.AddFact`); see
+[section 5](#5-generic-mechanisms-added-for-nexusd). A provider that needs
+a new kind of mechanism changes core, and that change must be generic, not
+keyed on the provider's name, and documented here.
 
 The `scripts` provider is the smallest complete example:
 `internal/providers/scripts/spec/spec.go` and
@@ -56,7 +63,8 @@ an operation:
 
 - `Kind` places it in the resource model and so decides its route: `list`,
   `get` and `subresource` are `GET`, `resource-action` and
-  `provider-action` are `POST`, under `/v1/providers/<name>/`.
+  `provider-action` are `POST`, under `/v1/providers/<name>/`. `upload` is
+  a `POST` whose body is raw bytes (section 5).
 - `Risk` is `read-only`, `mutating` or `destructive`. Destructive commands
   ask for confirmation in the CLI, and MCP reports the class as hints.
 - `Mode` is `sync`, `stream` (NDJSON frames) or `long-running` (202 and an
@@ -69,7 +77,11 @@ an operation:
 - `CLI` names the generated `nexus <noun> <verb>` command. The noun is one
   lower-case word, and the verb is one of the approved verbs in
   `internal/def/verbs.go`: `get`, `start`, `stop`, `restart`, `update`,
-  `install`, `remove`, `invoke`, `test`, `add` and `cancel`.
+  `install`, `remove`, `invoke`, `test`, `add`, `cancel`, `reload`,
+  `rollback` and `validate-config`. The last three were added for the
+  `nexusd` provider: `reload` re-reads a configuration, `rollback` returns
+  to a previous version, and `validate-config` checks a configuration
+  without applying it.
 - `Sensitive` lists input paths that are redacted from audit and never
   persisted; `Untrusted` marks output that carries host-originated text.
 - No operation may accept a command, a shell string, an executable path or
@@ -100,6 +112,7 @@ output type differs from the declaration does not compile:
 | `stream` | `provider.Stream(spec.Logs, p.logs)` |
 | `long-running`, inside `nexusd` | `provider.InProcess(spec.Op, provider.InProcessSpec[In, Out]{Admit, Lane, Run})`; a crash of `nexusd` ends it `outcome-unknown` |
 | `long-running`, in its own unit | `provider.Detached(spec.Op, provider.DetachedSpec[In, Out]{Admit, Lane, Prepare, Finalize, LostDetail})`; it runs in a `nexus-op-<id>` systemd unit and survives a restart of `nexusd` |
+| `sync`, `Kind: def.KindUpload` | `provider.Upload(spec.Upload, provider.UploadSpec[In, Out]{MaxBytes, Admit, Receive})`; see section 5 |
 
 ```go
 func (p *Provider) Bindings() []provider.Binding {
@@ -172,3 +185,42 @@ func builtinProviders(host string, log *slog.Logger) []provider.Provider {
   known behavior and is never proof on its own.
 - **Reference docs:** run `make docs` and commit `docs/cli/` and
   `docs/api.md`. `make test` fails while they are stale.
+
+## 5. Generic mechanisms added for nexusd
+
+The `nexusd` provider (`internal/providers/nexusd`) manages the daemon
+itself, and needed four things no earlier provider did. Each was added to
+core as a generic mechanism, keyed on declarations rather than on the
+provider's name, so any provider can use it.
+
+- **`def.KindUpload` with `CLI.Upload`: a raw upload.** An operation with
+  `Kind: def.KindUpload` is served at `POST /v1/providers/<name>/<type>`
+  and takes its input from the query and a raw request body, streamed and
+  never held in memory whole. It must be `sync` and `mutating`, have a
+  scope, declare `Upload` (`def.Upload{ContentTypes, MaxBytes}`, the ceiling
+  of its body), have no `MCP` binding and an empty `CLI` binding; the
+  `system` provider may not declare one. Bind it with `provider.Upload`, whose
+  `MaxBytes` can lower the ceiling at run time from configuration, whose
+  `Admit` runs before the body is read, and whose `Receive` stores the body.
+  The route answers 413 `upload-too-large` past the limit. The CLI reaches an
+  upload only through a long-running operation's `CLI.Upload`
+  (`def.CLIUpload`): the command gets a required `--<FileFlag>` flag and a
+  flag per sidecar (a small file such as a detached signature, default path
+  `<file><Suffix>`), uploads them first, and sets the operation's input field
+  `Field` from the upload's result. `nexus nexusd update --file` is built this
+  way.
+- **`CLI.ReconnectWindow`: waiting across a restart.** A long-running
+  operation that restarts `nexusd` declares how long a waited command keeps
+  reconnecting while the daemon is away, at most 10 minutes. A certificate
+  pin mismatch is never retried.
+- **`provider.DaemonUser`: the daemon's own facts.** A provider that
+  implements `UseDaemon(provider.Daemon)` is given, once and before any
+  request, the configuration path, the state directory and start time of
+  the `nexusd` serving it, the same configuration check as `nexusd
+  validate-config` (`CheckConfig`), and a reload through the daemon's own
+  loop, serialized with SIGHUP (`Reload`).
+- **Audit facts: `audit.AddFact`.** Provider code may add `key=value` facts
+  to the request's context, and they are written into that request's audit
+  records, such as an upload's SHA-256 or a signature verdict. They are
+  bounded in number and length and written as they are, so they must never
+  hold a secret or key material.
