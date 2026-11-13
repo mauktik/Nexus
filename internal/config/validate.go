@@ -207,9 +207,9 @@ func CheckCatalog(entries []Script, fail func(path, msg string)) {
 			names = append(names, name)
 		}
 		sort.Strings(names)
-		for _, name := range names {
+		for i, name := range names {
 			if !envNameRE.MatchString(name) {
-				failf(p+".env", "variable name %q must match %s", name, EnvNamePattern)
+				failf(p+".env", "%s must match %s", envNameRef(name, i), EnvNamePattern)
 			}
 		}
 
@@ -279,6 +279,23 @@ func CheckCatalog(entries []Script, fail func(path, msg string)) {
 			}
 		}
 	}
+}
+
+// envNameRef refers to an invalid script environment variable name in a
+// message. A name is a key, so it is quoted, except when it holds "=": a
+// NAME=value pair written as a flow-mapping key puts the value, a secret, in
+// the name, and a report any nexusd:read caller can fetch would echo it. Such
+// a name is cut at the "=" (the part before it is the name the author meant),
+// or, if that part is not a short valid name, identified by its position
+// among the sorted names.
+func envNameRef(name string, index int) string {
+	if !strings.Contains(name, "=") {
+		return fmt.Sprintf("variable name %q", name)
+	}
+	if k, _, _ := strings.Cut(name, "="); len(k) <= 64 && envNameRE.MatchString(k) {
+		return fmt.Sprintf("variable name %q is followed by a value (write NAME: value, not a NAME=value pair), and the name", k)
+	}
+	return fmt.Sprintf("variable name #%d in name order", index+1)
 }
 
 // Parameter types a script catalog may declare.

@@ -1,7 +1,6 @@
 package config
 
 import (
-	"errors"
 	"reflect"
 	"strconv"
 	"strings"
@@ -117,7 +116,7 @@ func (d *decoder) leaf(n *yaml.Node, v reflect.Value, path string) {
 	}
 	tmp := reflect.New(v.Type())
 	if err := n.Decode(tmp.Interface()); err != nil {
-		d.errs.addf(n.Line, n.Column, path, "invalid value %s: %s", describe(n), yamlReason(err))
+		d.errs.addf(n.Line, n.Column, path, "invalid value: expected %s, got %s", expectedType(v.Type()), describe(n))
 		return
 	}
 	v.Set(tmp.Elem())
@@ -172,6 +171,9 @@ func isNull(n *yaml.Node) bool {
 	return n.Kind == yaml.ScalarNode && n.ShortTag() == "!!null"
 }
 
+// describe names what a node is, never what it holds: the value may be a
+// secret (a script env entry, for one), and validate-config output reaches
+// every nexusd:read caller.
 func describe(n *yaml.Node) string {
 	switch n.Kind {
 	case yaml.MappingNode:
@@ -179,27 +181,42 @@ func describe(n *yaml.Node) string {
 	case yaml.SequenceNode:
 		return "a sequence"
 	case yaml.ScalarNode:
-		return strconv.Quote(n.Value)
+		switch n.ShortTag() {
+		case "!!str":
+			return "a string"
+		case "!!int", "!!float":
+			return "a number"
+		case "!!bool":
+			return "a boolean"
+		case "!!null":
+			return "null"
+		}
+		return "a scalar"
 	default:
 		return "an unexpected node"
 	}
 }
 
-// yamlReason strips yaml's "unmarshal errors" framing and line prefix, since
-// the error is already located.
-func yamlReason(err error) string {
-	var te *yaml.TypeError
-	if errors.As(err, &te) && len(te.Errors) > 0 {
-		reasons := make([]string, len(te.Errors))
-		for i, e := range te.Errors {
-			if _, rest, ok := strings.Cut(e, ": "); ok && strings.HasPrefix(e, "line ") {
-				e = rest
-			}
-			reasons[i] = e
-		}
-		return strings.Join(reasons, "; ")
+// expectedType names what a leaf field accepts, from its Go type. yaml's own
+// decode error is not used: it quotes a prefix of the offending value.
+func expectedType(t reflect.Type) string {
+	switch t.Kind() {
+	case reflect.Map:
+		return "a mapping of NAME: value"
+	case reflect.Slice, reflect.Array:
+		return "a list"
+	case reflect.String:
+		return "a string"
+	case reflect.Bool:
+		return "a boolean"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return "an integer"
+	case reflect.Float32, reflect.Float64:
+		return "a number"
+	default:
+		return "a different kind of value"
 	}
-	return strings.TrimPrefix(err.Error(), "yaml: ")
 }
 
 func join(path, key string) string {
