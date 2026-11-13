@@ -18,7 +18,9 @@ import (
 	"strings"
 	"time"
 
+	nexusdspec "github.com/mauktik/nexus/internal/providers/nexusd/spec"
 	"github.com/mauktik/nexus/internal/providers/scripts/spec"
+	"github.com/mauktik/nexus/internal/release"
 )
 
 // validate checks values after decoding. Each problem is located at the
@@ -98,6 +100,38 @@ func (c *Config) validate(errs *collector) {
 	v.positiveDuration("providers.apt.maxRuntime", apt.MaxRuntime)
 
 	v.catalog(c.Providers.Scripts.Settings.Catalog)
+
+	v.nexusd(c.Providers.Nexusd.Settings)
+}
+
+// nexusd checks the nexusd section. A trusted key is never quoted: the
+// message names only its index, so validate-config output and logs carry no
+// key material.
+func (v validator) nexusd(n NexusdConfig) {
+	const p = "providers.nexusd"
+	if n.HealthTimeout < MinNexusdHealthTimeout || n.HealthTimeout > MaxNexusdHealthTimeout {
+		v.failf(p+".healthTimeout", "must be between %s and %s, got %s",
+			MinNexusdHealthTimeout, MaxNexusdHealthTimeout, n.HealthTimeout)
+	}
+	if b := n.Update.MaxUploadBytes; b < MinNexusdMaxUploadBytes || b > nexusdspec.MaxUploadBytesCeiling {
+		v.failf(p+".update.maxUploadBytes", "must be between %d (1 MiB) and %d (256 MiB), got %d",
+			MinNexusdMaxUploadBytes, nexusdspec.MaxUploadBytesCeiling, b)
+	}
+	first := map[string]int{}
+	for i, k := range n.Update.TrustedKeys {
+		path := fmt.Sprintf("%s.update.trustedKeys[%d]", p, i)
+		if _, err := release.ParsePublicKey(k); err != nil {
+			v.failf(path, "trustedKeys[%d] is not a valid key: want the standard base64 of a raw 32-byte "+
+				"Ed25519 public key, as make release-key prints", i)
+			continue
+		}
+		// The encoding is strict, so equal keys are equal strings.
+		if j, dup := first[k]; dup {
+			v.failf(path, "trustedKeys[%d] is the same key as trustedKeys[%d]", i, j)
+			continue
+		}
+		first[k] = i
+	}
 }
 
 // catalog applies the Configuration rules for script entries, located in the

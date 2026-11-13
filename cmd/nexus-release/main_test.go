@@ -21,6 +21,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/release"
 )
 
@@ -103,12 +104,9 @@ func TestTCSM14_NexusReleaseKeygenWritesA0600(t *testing.T) {
 		}
 
 		// The line is the YAML a host's providers.nexusd.update section
-		// takes. WI 3.1 (config.NexusdConfig) has not landed, so the line
-		// is decoded into the same key here and each entry checked with the
-		// parser that config validation uses.
-		var update struct {
-			TrustedKeys []string `yaml:"trustedKeys"`
-		}
+		// takes: it decodes into config.NexusdUpdateConfig, and a config
+		// file holding it there passes the providers.nexusd validation.
+		var update config.NexusdUpdateConfig
 		dec := yaml.NewDecoder(strings.NewReader(r.stdout))
 		dec.KnownFields(true)
 		if err := dec.Decode(&update); err != nil {
@@ -117,8 +115,12 @@ func TestTCSM14_NexusReleaseKeygenWritesA0600(t *testing.T) {
 		if len(update.TrustedKeys) != 1 || update.TrustedKeys[0] != m[1] {
 			t.Fatalf("decoded trustedKeys = %q", update.TrustedKeys)
 		}
-		if _, err := release.ParsePublicKey(update.TrustedKeys[0]); err != nil {
-			t.Fatal(err)
+		cfg, err := config.Parse([]byte("providers:\n  nexusd:\n    update:\n      "+r.stdout), "nexusd.yaml")
+		if err != nil {
+			t.Fatalf("a config with the printed line is invalid: %v", err)
+		}
+		if got := cfg.Providers.Nexusd.Settings.Update.TrustedKeys; len(got) != 1 || got[0] != m[1] {
+			t.Fatalf("configured trustedKeys = %q", got)
 		}
 	}
 
