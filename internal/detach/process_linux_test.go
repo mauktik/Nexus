@@ -12,16 +12,23 @@ package detach
 import "testing"
 
 // nginx-provider TC-13: The process backend launches a session-leader supervisor and records its identity
-// Owner WI 2.1. Requirements: FR-20 (items 1, 2), CON-11.
+// Owner WI 2.1. Requirements: FR-20 (items 1, 2), CON-11, NFR-8.
 //
 //	Setup: Linux. ProcessBackend(ProcessConfig{Executable:
 //	detachtest.Supervisor(), CgroupRoot: "-"}) wired into detach.New. The op's
-//	spec runs a child that writes its /proc/self/environ, cwd and stdin target
-//	to a marker, then sleeps 2 s.
+//	spec runs a child that writes its /proc/self/environ, cwd, stdin target
+//	and the Umask: line of /proc/self/status to a marker, creates a file
+//	umask-probe with os.OpenFile(..., O_CREATE|O_WRONLY, 0666), then sleeps 2
+//	s. Before Launcher.Start the test sets its own umask to 077 with
+//	syscall.Umask(0o077) (the value nexusd runs with under OpenRC) and
+//	restores the old value in t.Cleanup. The umask is process-wide, so this
+//	test must not call t.Parallel.
 //	Steps:
 //	  1. Launcher.Start.
 //	  2. Read ops/<id>/supervisor.json.
-//	  3. Read /proc/<pid>/stat and /proc/<pid>/cmdline of the supervisor.
+//	  3. Read /proc/<pid>/stat, /proc/<pid>/cmdline and /proc/<pid>/status of
+//	     the supervisor.
+//	  4. Read the child's marker and stat the umask-probe file.
 //	Expected:
 //	  - The identity's pid is the supervisor's PID.
 //	  - startTicks equals field 22 of its stat, parsed independently by the
@@ -32,6 +39,12 @@ import "testing"
 //	  - cmdline is [<exe> op-supervise --dir <ops/id> --process].
 //	  - The supervisor's own environment is empty, its cwd is /, and fd 0 is
 //	    /dev/null.
+//	  - The child's Umask: is 0022, although the launching process ran with
+//	    0077. The supervisor sets umask(0022) before it starts the child,
+//	    matching the default of systemd's transient units (L-47, NFR-8). The
+//	    umask-probe file's mode is 0644 (0666 &^ 0022, computed in the test).
+//	  - The test process's own umask is still 077 after Launcher.Start, so the
+//	    backend does not change nexusd's umask (FR-23).
 func TestProcessLaunchRecordsIdentityInOwnSession(t *testing.T) {
 	t.Skip("not implemented: nginx-provider TC-13 (WI 2.1)")
 }

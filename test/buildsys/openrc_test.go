@@ -52,7 +52,7 @@ func TestOpenRCScriptAudit(t *testing.T) {
 		`command_args="serve --config /etc/nexus/nexusd.yaml"`,
 		`command_user="root:root"`,
 		`umask=077`,
-		`rc_cgroup_cleanup="NO"`,
+		`rc_cgroup_cleanup="${rc_cgroup_cleanup:-NO}"`,
 		`extra_started_commands="reload"`,
 	}
 	for _, line := range once {
@@ -75,6 +75,29 @@ func TestOpenRCScriptAudit(t *testing.T) {
 	} {
 		if !regexp.MustCompile(re).MatchString(script) {
 			t.Errorf("script does not match %s", re)
+		}
+	}
+	// The default must not override an operator's /etc/conf.d/nexusd value
+	// (review Finding 1): exactly one assignment, the defaulting form above.
+	if n := len(regexp.MustCompile(`(?m)^\s*rc_cgroup_cleanup=`).FindAllString(script, -1)); n != 1 {
+		t.Errorf("want exactly one rc_cgroup_cleanup assignment, found %d", n)
+	}
+	// openrc-run sources /etc/conf.d/<service> before the service script.
+	// Model that order: a prior YES must survive sourcing, and no prior value
+	// must default to NO.
+	for _, c := range []struct{ prior, want string }{
+		{"rc_cgroup_cleanup=YES; ", "YES"},
+		{"", "NO"},
+	} {
+		cmd := exec.Command("sh", "-c", c.prior+`. "$1"; printf %s "$rc_cgroup_cleanup"`, "sh", path)
+		cmd.Env = []string{"PATH=/usr/bin:/bin"}
+		out, err := cmd.Output()
+		if err != nil {
+			t.Errorf("source %s with prior %q: %v", path, c.prior, err)
+			continue
+		}
+		if got := string(out); got != c.want {
+			t.Errorf("rc_cgroup_cleanup after sourcing with prior %q = %q, want %q", c.prior, got, c.want)
 		}
 	}
 	// Supervisors must survive a stop: nothing but nexusd is signaled.

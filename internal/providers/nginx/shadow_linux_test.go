@@ -39,7 +39,7 @@ func TestShadowMatchesLiveAndLeavesHostUnchanged(t *testing.T) {
 // nginx-provider TC-89: The shadow tree mirrors includeDir's top level
 // Owner WI 5.4. Requirements: ASM-10.
 //
-//	Setup: Linux, root. A fakenginx variant (-t with LIST=1 in its JSON) that
+//	Setup: Linux, root. fakenginx with controls.list: true in its JSON, so -t
 //	prints every file it sees with its mode, owner and hash. The includeDir
 //	contains a file at mode 0640 owned by uid 0 gid 4, a symlink, a
 //	subdirectory, a FIFO, and an existing cand.conf.
@@ -47,8 +47,9 @@ func TestShadowMatchesLiveAndLeavesHostUnchanged(t *testing.T) {
 //	  1. Run a shadow test of a new cand.conf.
 //	Expected:
 //	  - The listing shows the file with the same mode, owner and hash; the
-//	    symlink with the same target; the subdirectory's contents (bind-mounted);
-//	    no FIFO; and cand.conf with the candidate's hash (replaced).
+//	    symlink with the same target; the subdirectory's contents
+//	    (bind-mounted); no FIFO; and cand.conf with the candidate's hash
+//	    (replaced).
 //	  - The child's env is exactly {PATH=/usr/sbin:/usr/bin:/sbin:/bin,
 //	    LC_ALL=C}.
 func TestShadowTreeConstruction(t *testing.T) {
@@ -59,13 +60,13 @@ func TestShadowTreeConstruction(t *testing.T) {
 // Owner WI 5.4. Requirements: ASM-10, L-30.
 //
 //	Setup: Linux, root. Make / MS_SHARED in a test mount namespace (the test
-//	runs inside unshare -m with --propagation shared) to model systemd's shared
-//	root.
+//	runs inside unshare -m with --propagation shared) to model systemd's
+//	shared root.
 //	Steps:
-//	  1. Run a shadow test with a fakenginx variant that sleeps 1 s.
+//	  1. Run a shadow test with fakenginx's controls.sleepMs: 1000.
 //	  2. During the sleep, read the test namespace's mountinfo.
-//	Expected: No tmpfs or bind over includeDir is visible in the test namespace
-//	at any time.
+//	Expected: No tmpfs or bind over includeDir is visible in the test
+//	namespace at any time.
 func TestShadowPropagationPrivate(t *testing.T) {
 	t.Skip("not implemented: nginx-provider TC-E23 (WI 5.4)")
 }

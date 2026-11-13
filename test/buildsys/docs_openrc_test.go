@@ -84,6 +84,10 @@ func unitDirectives(t *testing.T) []string {
 	return keys
 }
 
+// rcCleanupKill matches a statement that, without writable cgroup v2,
+// rc_cgroup_cleanup="YES" kills running supervisors (TC-35, TC-36).
+const rcCleanupKill = `(?is)rc_cgroup_cleanup.{0,300}cgroup v2.{0,300}kill|rc_cgroup_cleanup.{0,300}kill.{0,300}cgroup v2|cgroup v2.{0,300}rc_cgroup_cleanup.{0,300}kill`
+
 // nginx-provider TC-35: security.md lists every unit directive with its
 // OpenRC outcome. Owner WI 3.3. Requirements: FR-27, CON-9, ASM-18, ASM-19.
 func TestSecurityDocCoversEveryUnitDirective(t *testing.T) {
@@ -117,7 +121,6 @@ func TestSecurityDocCoversEveryUnitDirective(t *testing.T) {
 	}
 	want := map[string]string{
 		"Restart":               "replaced.*supervise-daemon",
-		"UMask":                 "replaced.*umask",
 		"Type":                  "replaced.*pidfile",
 		"RefuseManualStop":      "not applicable",
 		"NoNewPrivileges":       "lost",
@@ -128,6 +131,18 @@ func TestSecurityDocCoversEveryUnitDirective(t *testing.T) {
 	for k, re := range want {
 		if row, ok := rows[k]; ok && !regexp.MustCompile("(?i)"+re).MatchString(row) {
 			t.Errorf("row for %s does not match %q: %s", k, re, row)
+		}
+	}
+	// The unit has no UMask= directive (review Finding 2), so umask is free
+	// text after the table, not a row.
+	for _, c := range []struct{ re, why string }{
+		{`(?is)UMask.{0,200}0022`, "the unit sets no UMask, so nexusd runs with systemd's default 0022"},
+		{`(?is)umask.{0,40}077`, "OpenRC's umask=077 is stricter"},
+		{`(?is)detached.{0,200}0022|0022.{0,200}detached`, "detached operations start at 0022 on both platforms"},
+		{rcCleanupKill, "without writable cgroup v2, rc_cgroup_cleanup=YES kills running supervisors (CON-10)"},
+	} {
+		if !regexp.MustCompile(c.re).MatchString(sec) {
+			t.Errorf("section does not say: %s (pattern %s)", c.why, c.re)
 		}
 	}
 	if !strings.Contains(sec, "unconfined root") {
@@ -157,6 +172,9 @@ func TestInstallDocCoversAlpine(t *testing.T) {
 	}
 	if !regexp.MustCompile(`(?is)apk.{0,80}not managed|not managed.{0,80}apk`).MatchString(sec) {
 		t.Error("Alpine section does not say apk packages are not managed (ASM-20)")
+	}
+	if !regexp.MustCompile(rcCleanupKill).MatchString(sec) {
+		t.Error("Alpine section does not say that without writable cgroup v2, rc_cgroup_cleanup=YES kills running supervisors (CON-10)")
 	}
 	if !strings.Contains(readDoc(t, "README.md"), "OpenRC") {
 		t.Error("README.md does not mention OpenRC")

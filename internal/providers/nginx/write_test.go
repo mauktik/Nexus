@@ -15,14 +15,26 @@ import "testing"
 //	Setup: Empty includeDir. The fake is running with lockstep.
 //	Steps:
 //	  1. POST /sites/new/add with {content: C}.
+//	  2. POST /sites/fresh/update with {content: D} and no ifMatch, where
+//	     neither fresh.conf nor fresh.conf.disabled exists (update that
+//	     creates, FR-11).
 //	Expected:
-//	  - new.conf exists with bytes C, mode 0644 and owner root (the in-package
-//	    seam owner at T0).
-//	  - The result is {name: new, fileName: new.conf, sha256: sha256(C),
-//	    sizeBytes: len(C), created: true, enabled: true, reloaded: true}.
-//	  - There is no previousSha256.
-//	  - ops/<id>/content is gone. previous/meta.json records that the file did
-//	    not exist.
+//	  - Step 1:
+//	    - new.conf exists with bytes C, mode 0644 and owner root (the
+//	      in-package seam owner at T0).
+//	    - The result is {name: new, fileName: new.conf, sha256: sha256(C),
+//	      sizeBytes: len(C), created: true, enabled: true, reloaded: true}.
+//	    - There is no previousSha256.
+//	    - ops/<id>/content is gone. previous/meta.json records that the file
+//	      did not exist.
+//	  - Step 2:
+//	    - fresh.conf exists with bytes D, mode 0644, root-owned, and
+//	      fresh.conf.disabled does not exist (enabled defaults to true for a
+//	      new config).
+//	    - The result is {name: fresh, fileName: fresh.conf, sha256: sha256(D),
+//	      sizeBytes: len(D), created: true, enabled: true, reloaded: true},
+//	      with no previousSha256.
+//	    - The recorded calls are nginx -t then Do(reload).
 func TestAddCreatesEnabledConfig(t *testing.T) {
 	t.Skip("not implemented: nginx-provider TC-96 (WI 6.3)")
 }
@@ -30,16 +42,28 @@ func TestAddCreatesEnabledConfig(t *testing.T) {
 // nginx-provider TC-97: Update overwrites with a matching ifMatch
 // Owner WI 6.3. Requirements: FR-11, ASM-9.
 //
-//	Setup: a.conf with bytes P at mode 0640.
+//	Setup: a.conf with bytes P at mode 0640. The fake is running with
+//	lockstep, both init modes.
 //	Steps:
 //	  1. POST /sites/a/update with {content: N, ifMatch: sha256(P)}.
 //	  2. Repeat with ifMatch omitted.
+//	  3. Stop the fake nginx (through the svcctl fake's model, not through
+//	     Nexus). POST /sites/a/update with {content: S} (enabled target, nginx
+//	     stopped; FR-11 step 6).
 //	Expected:
 //	  - Step 1:
 //	    - a.conf holds N at mode 0644, root-owned;
 //	    - previousSha256 == sha256(P) and created == false;
 //	    - previous/content equals P.
 //	  - Step 2 succeeds unconditionally.
+//	  - Step 3:
+//	    - The op Succeeded, a.conf holds S, and the result has enabled: true
+//	      and reloaded: false.
+//	    - The recorded calls include nginx -t and Status, and no Do(reload) or
+//	      Do(start).
+//	    - nginx is still stopped in the fake's model.
+//	    - A stopped nginx needs no master, so this write is not refused as an
+//	      unidentifiable master (contrast TC-ERR43).
 func TestUpdateWithIfMatch(t *testing.T) {
 	t.Skip("not implemented: nginx-provider TC-97 (WI 6.3)")
 }
@@ -56,7 +80,8 @@ func TestUpdateWithIfMatch(t *testing.T) {
 //	    - b.conf.disabled has the new bytes and b.conf does not exist;
 //	    - reloaded: false and enabled: false;
 //	    - the shadow tester was called with the presented name b.conf;
-//	    - no live nginx -t saw b.conf (fakenginx call log).
+//	    - no live nginx -t saw b.conf (no includedFiles entry naming b.conf in
+//	      fakenginx's call log <exe>.json.calls).
 //	  - Step 2 fails nginx-config-invalid with rolledBack: true, and
 //	    b.conf.disabled has its prior bytes.
 func TestUpdateDisabledTargetShadowValidated(t *testing.T) {
@@ -88,14 +113,14 @@ func TestWhatIfChangesNothing(t *testing.T) {
 //	Steps:
 //	  1. Update a with C.
 //	  2. Read the audit files, the bbolt operation record (raw bytes), the op
-//	    log and the op dir.
+//	     log and the op dir.
 //	Expected:
 //	  - The audit params.content is "[REDACTED]" and the target is a.
 //	  - The marker appears in no audit file and no state.db byte.
 //	  - The op log contains content: <len(C)> bytes, sha256 <sha256(C)>.
 //	  - The result's sha256 equals sha256(C).
 //	  - ops/<id>/content is absent after the op. While the op runs, it is 0600
-//	    (sampled through a fakenginx FIFO block).
+//	    (sampled while -t is held by controls.blockFifo).
 func TestContentRedactionAndDigestLine(t *testing.T) {
 	t.Skip("not implemented: nginx-provider TC-100 (WI 6.3)")
 }
@@ -104,11 +129,12 @@ func TestContentRedactionAndDigestLine(t *testing.T) {
 // Owner WI 6.3. Requirements: FR-12, CON-4.
 //
 //	Setup: Content $(touch /tmp/pwned-<rand>);  followed by valid config.
-//	fakenginx's -t blocks once so the processes can be inspected.
+//	fakenginx's -t blocks once (controls.blockFifo, blockCount: 1) so the
+//	processes can be inspected.
 //	Steps:
 //	  1. Run the update.
 //	  2. While it is blocked, read every /proc/*/cmdline (Linux) or ps -ww
-//	    (macOS) of the supervisor, helper and fakenginx.
+//	     (macOS) of the supervisor, helper and fakenginx.
 //	Expected:
 //	  - No cmdline contains the content or the marker.
 //	  - /tmp/pwned-<rand> never exists.
@@ -121,18 +147,18 @@ func TestContentNeverInArgv(t *testing.T) {
 // Owner WI 6.3. Requirements: NFR-3, ASM-6, L-40.
 //
 //	Setup: detachtest.Local, daemon.New twice on one state dir. fakenginx -t
-//	blocks on a FIFO.
+//	blocks through controls.blockFifo (blockCount: 1).
 //	Steps:
 //	  1. Case A: start an update, wait until previous/meta.json exists, close
-//	    the daemon, start a new daemon, then release the FIFO.
+//	     the daemon, start a new daemon, then release the FIFO.
 //	  2. Case B: the same, but SIGKILL the supervisor and helper instead of
-//	    releasing.
+//	     releasing.
 //	Expected:
 //	  - A: the op Succeeded, finalized from result.json.
 //	  - B: the op is outcome-unknown, and its detail contains a.conf and the
 //	    absolute ops/<id>/previous/content path.
-//	  - In both cases, the previous content is kept under the ops dir and never
-//	    under includeDir.
+//	  - In both cases, the previous content is kept under the ops dir and
+//	    never under includeDir.
 func TestWriteAcrossRestartAndLostHelper(t *testing.T) {
 	t.Skip("not implemented: nginx-provider TC-102 (WI 6.3)")
 }
@@ -254,13 +280,30 @@ func TestWriteReloadRejectedRollsBack(t *testing.T) {
 // nginx-provider TC-ERR37: Invalid content is refused before an operation is created
 // Owner WI 6.3. Requirements: FR-12, FR-17.
 //
-//	Setup: None.
+//	Setup: None for steps 1 and 2. Step 3 uses a running fake with lockstep
+//	and an empty includeDir.
 //	Steps:
-//	  1. Add with content containing \x00.
-//	  2. Add with the bytes \xff\xfe (not UTF-8, sent through the JSON \u
-//	    escapes that decode to invalid surrogates, or through the in-process API).
-//	Expected: validation-failed for each, with no op created and no audit
-//	requested record.
+//	  1. Add with content containing \x00, over HTTP (the JSON escape \u0000
+//	     decodes to a NUL byte, so this reaches Admit intact).
+//	  2. Call the write operation's Admit directly (in process, no HTTP and no
+//	     JSON decoding) with name: "u8" and a Go string content
+//	     "ab\xff\xfecd". JSON cannot deliver invalid UTF-8: encoding/json
+//	     replaces invalid bytes and lone-surrogate \u escapes with U+FFFD when
+//	     it decodes into a string.
+//	  3. HTTP variant, which documents the wire behavior: POST /sites/u8/add
+//	     with a body whose content holds the raw bytes ab\xff\xfecd, and a
+//	     second body (name u9) whose content is the escape text ab\udcffcd.
+//	Expected:
+//	  - Steps 1 and 2: validation-failed for each, with no op created and no
+//	    audit requested record.
+//	  - Step 3: both requests are admitted (202 with an operation ID) because
+//	    the decoded content is valid UTF-8. Each op Succeeded. The bytes of
+//	    u8.conf and u9.conf equal the content the test obtains by
+//	    json.Unmarshal of the same body bytes into struct{ Content string },
+//	    computed in the test and never typed as a constant. That decoded
+//	    content contains U+FFFD (\xef\xbf\xbd) and no \xff. The test's comment
+//	    states that this replacement is expected and that only the in-process
+//	    path of step 2 can present invalid UTF-8 to Admit.
 func TestContentValidation(t *testing.T) {
 	t.Skip("not implemented: nginx-provider TC-ERR37 (WI 6.3)")
 }
@@ -283,8 +326,8 @@ func TestWriteHelperRecheck(t *testing.T) {
 // nginx-provider TC-ERR39: A queued sensitive write across a restart never runs
 // Owner WI 6.3. Requirements: FR-15, NFR-3.
 //
-//	Setup: A running test op blocks lane nginx (FIFO). An update is queued
-//	behind it.
+//	Setup: A running test op blocks lane nginx (fakenginx controls.blockFifo).
+//	An update is queued behind it.
 //	Steps:
 //	  1. Close the daemon.
 //	  2. Start a new daemon on the same state.
@@ -432,4 +475,38 @@ func TestQueuedWriteAcrossRestart(t *testing.T) {
 //	Every case has an owner, and every work item owns at least one case.
 func TestEveryNameOpRefusesBadNames(t *testing.T) {
 	t.Skip("not implemented: nginx-provider TC-ERR40 (WI 6.3)")
+}
+
+// nginx-provider TC-ERR43: A write refuses, before writing, when a running nginx's master cannot be identified
+// Owner WI 6.3. Requirements: FR-11, FR-6, FR-17, NFR-2, NFR-3, L-20, L-55.
+//
+//	Setup: a.conf (enabled) with bytes P, b.conf.disabled with bytes Q, and a
+//	byte-identity snapshot of includeDir. nginx is running in the fake's model
+//	with an unidentifiable master: Case A, OpenRC MainPID 0; Case B, systemd
+//	MainPID with exe /usr/bin/sleep.
+//	Steps:
+//	  1. Update a with valid content N and ifMatch: sha256(P).
+//	  2. Add new with valid content C.
+//	  3. Update the disabled b with valid content R. A disabled target is
+//	     never reloaded, so it skips master resolution (Data Flow 2 step b2).
+//	Expected: for each case:
+//	  - Steps 1 and 2:
+//	    - The op ends Failed (not outcome-unknown) with
+//	      dependency-unavailable, and the detail starts nginx master process
+//	      could not be identified: followed by the reason (init system reports
+//	      no main PID for A, naming exe for B).
+//	    - includeDir equals the snapshot: a.conf still holds P with its inode
+//	      and mode, new.conf does not exist, and there is no hidden temp file.
+//	    - fakenginx's call log has no -t invocation, and no Do(reload) was
+//	      recorded.
+//	    - ops/<id>/previous/ does not exist (no backup was taken). The result
+//	      has no rolledBack: true and no previousSha256. ops/<id>/content is
+//	      removed when the op ends, as in TC-100.
+//	  - Step 3: the op Succeeded, b.conf.disabled holds R, the result has
+//	    enabled: false and reloaded: false, the shadow tester was called, and
+//	    no Do(reload) was recorded.
+//	  - Compare TC-97 step 3: a stopped nginx needs no master, and that write
+//	    succeeds.
+func TestWriteRefusesUnidentifiableMaster(t *testing.T) {
+	t.Skip("not implemented: nginx-provider TC-ERR43 (WI 6.3)")
 }

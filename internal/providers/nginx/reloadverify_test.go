@@ -102,14 +102,26 @@ func TestNonZeroExitRejectedImmediately(t *testing.T) {
 	t.Skip("not implemented: nginx-provider TC-E19 (WI 5.2)")
 }
 
-// nginx-provider TC-ERR15: ValidateMaster refuses a PID that is not the nginx master
-// Owner WI 5.2. Requirements: FR-6, L-24.
+// nginx-provider TC-ERR15: ValidateMaster refuses a PID that is not the nginx master, and accepts an upgraded master
+// Owner WI 5.2. Requirements: FR-6, L-24, L-53.
 //
-//	Setup: A fake proc whose exe points at /usr/bin/sleep. One whose cmdline is
-//	nginx: worker process. A dead PID.
+//	Setup: A fake proc root, nginxPath /usr/sbin/nginx. The exe entries are
+//	symlinks whose target text is the value below, so os.Readlink returns it
+//	exactly as the kernel would. Every row except the title row uses the
+//	captured master title nginx: master process /usr/sbin/nginx.
 //	Steps:
-//	  1. ValidateMaster.
-//	Expected: An error for each, naming exe, title and gone respectively.
+//	  1. ValidateMaster(pid, "/usr/sbin/nginx") for each row.
+//	Expected:
+//	  | Row | exe | cmdline | Result |
+//	  |---|---|---|---|
+//	  | 1 | /usr/bin/sleep | master title | error naming exe |
+//	  | 2 | /usr/sbin/nginx | nginx: worker process | error naming title |
+//	  | 3 | (dead PID, no entry) | none | error naming gone |
+//	  | 3a | PID 0 | none | error (its text is the reason the caller puts in the dependency-unavailable detail) |
+//	  | 4 | /usr/sbin/nginx (deleted) | master title | accepted (nil). After apk upgrade nginx the kernel reports the replaced binary this way, and Alpine does not restart services on upgrade |
+//	  | 5 | /usr/bin/sleep (deleted) | master title | error naming exe |
+//	  | 6 | /usr/sbin/nginx.new (deleted) | master title | error naming exe (only the exact configured path plus the kernel's  (deleted) suffix is accepted) |
+//	  | 7 | /usr/sbin/nginx (deleted) (deleted) | master title | error naming exe |
 func TestValidateMasterRefuses(t *testing.T) {
 	t.Skip("not implemented: nginx-provider TC-ERR15 (WI 5.2)")
 }

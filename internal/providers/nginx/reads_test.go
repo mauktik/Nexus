@@ -43,12 +43,13 @@ func TestStatusStoppedAndOpenRC(t *testing.T) {
 // nginx-provider TC-65: The version cache refreshes when the nginx binary changes
 // Owner WI 4.5. Requirements: FR-3.
 //
-//	Setup: fakenginx reporting 1.26.3. The test counts invocations through
-//	fakenginx's call log.
+//	Setup: fakenginx reporting 1.26.3. The test counts -v invocations through
+//	fakenginx's call log (<exe>.json.calls, test-strategy.md "fakenginx test
+//	controls").
 //	Steps:
 //	  1. Call status twice.
 //	  2. Replace the binary with one reporting 1.27.0 (different size and
-//	    mtime).
+//	     mtime).
 //	  3. Call status.
 //	Expected:
 //	  - Step 1 makes one -v invocation in total, and both calls return 1.26.3.
@@ -175,8 +176,9 @@ func TestReadLatencyAndNoBackgroundWork(t *testing.T) {
 // nginx-provider TC-E16: A hanging nginx -v is bounded and yields an empty version
 // Owner WI 4.5. Requirements: FR-3, NFR-2, NFR-4.
 //
-//	Setup: fakenginx with HANG_V. The version timeout is injected at 300 ms (the
-//	production default is 5 s, which the test asserts as a constant).
+//	Setup: fakenginx with controls.hangV: true. The version timeout is
+//	injected at 300 ms (the production default is 5 s, which the test asserts
+//	as a constant).
 //	Steps:
 //	  1. GET status.
 //	Expected:

@@ -12,20 +12,28 @@ package integration
 import "testing"
 
 // nginx-provider TC-106: Lifecycle commanded state equals the init system's observed state
-// Owner WI 7.1. Requirements: NFR-6, FR-5, FR-6.
+// Owner WI 7.1. Requirements: NFR-6, FR-5, FR-6, L-53.
 //
 //	Setup: Each harness, with distribution nginx installed and started. Ubuntu
 //	includeDir: /etc/nginx/conf.d; Alpine default.
 //	Steps:
 //	  1. For each of stop, start, restart and reload, run it through the CLI.
 //	  2. Read back with systemctl is-active nginx or rc-service nginx status,
-//	    and with pidof nginx / /proc.
+//	     and with pidof nginx / /proc.
+//	  3. Model a package upgrade without a restart: with nginx running, cp -p
+//	     /usr/sbin/nginx /usr/sbin/nginx.tmp && mv /usr/sbin/nginx.tmp
+//	     /usr/sbin/nginx. Read readlink /proc/<master>/exe. Then nexus nginx
+//	     reload, and read back as in step 2. t.Cleanup restarts nginx so later
+//	     tests see a normal exe.
 //	Expected:
 //	  - The readback matches the commanded state: stopped after stop, running
 //	    after start and restart.
 //	  - After restart, the master PID changed.
 //	  - After reload, the master PID is unchanged and the worker PIDs changed.
 //	  - The Nexus result's state and mainPid equal the readback.
+//	  - Step 3: readlink prints /usr/sbin/nginx (deleted) (logged, and the
+//	    source of the TC-ERR15 row 4 value). The reload Succeeded with verdict
+//	    confirmed, the master PID is unchanged, and the worker PIDs changed.
 func TestNginxLifecycleObserved(t *testing.T) {
 	t.Skip("not implemented: nginx-provider TC-106 (WI 7.1)")
 }
@@ -205,19 +213,26 @@ func TestNginxIsolation(t *testing.T) {
 }
 
 // nginx-provider TC-116: nginx started through Nexus survives the operation's end
-// Owner WI 7.1. Requirements: FR-5, FR-20, L-41.
+// Owner WI 7.1. Requirements: FR-5, FR-20, L-41, L-47, NFR-8.
 //
 //	Setup: nginx stopped.
 //	Steps:
-//	  1. nexus nginx start.
-//	  2. Wait for Succeeded, then 5 s.
-//	  3. Read the master PID, /proc/<pid>/cgroup, and rc-service nginx status or
-//	    systemctl is-active.
+//	  1. Baseline: start nginx from a login shell in the container (sh -lc
+//	     'rc-service nginx start' or sh -lc 'systemctl start nginx'), read
+//	     Umask: from /proc/<master>/status, then stop it the same way.
+//	  2. nexus nginx start.
+//	  3. Wait for Succeeded, then 5 s.
+//	  4. Read the master PID, /proc/<pid>/cgroup, Umask: from
+//	     /proc/<pid>/status, and rc-service nginx status or systemctl
+//	     is-active.
 //	Expected:
 //	  - The master is alive and the init system reports it started.
 //	  - The cgroup path is recorded in the log. On OpenRC, it is not under
 //	    nexus-ops/ (L-41); if it is, the test fails, citing L-41.
 //	  - nexus-ops/<id> does not exist after the op.
+//	  - The master's Umask: after the Nexus start equals the baseline from
+//	    step 1. On OpenRC it is not 0077, so nginx did not inherit nexusd's
+//	    umask through the helper (L-47). Both values are logged.
 func TestNginxSurvivesOpEnd(t *testing.T) {
 	t.Skip("not implemented: nginx-provider TC-116 (WI 7.1)")
 }

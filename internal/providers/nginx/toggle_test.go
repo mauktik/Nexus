@@ -73,17 +73,23 @@ func TestEnableAlreadyEnabled(t *testing.T) {
 	t.Skip("not implemented: nginx-provider TC-E26 (WI 6.2)")
 }
 
-// nginx-provider TC-E27: Enable while nginx is stopped renames and tests, but does not start nginx
-// Owner WI 6.2. Requirements: FR-9.
+// nginx-provider TC-E27: Enable or disable while nginx is stopped renames and tests, but does not start nginx
+// Owner WI 6.2. Requirements: FR-9, FR-10.
 //
-//	Setup: a.conf.disabled. Stopped.
+//	Setup: a.conf.disabled and b.conf, both valid. Stopped.
 //	Steps:
 //	  1. Enable a.
+//	  2. Disable b.
 //	Expected:
-//	  - a.conf exists and reloaded is false.
-//	  - The recorded calls are nginx -t and Status only, with no Do(start) or
-//	    Do(reload).
-//	  - nginx is still stopped.
+//	  - Step 1: a.conf exists with the inode of the old a.conf.disabled, and
+//	    reloaded is false.
+//	  - Step 2: b.conf.disabled exists with the inode of the old b.conf,
+//	    b.conf is absent, the result has enabled: false and reloaded: false,
+//	    and the op is Succeeded.
+//	  - For each step, the recorded calls are nginx -t (one line per step in
+//	    fakenginx's call log <exe>.json.calls) and Status only, with no
+//	    Do(start) or Do(reload).
+//	  - nginx is still stopped after both steps.
 func TestEnableWhileStopped(t *testing.T) {
 	t.Skip("not implemented: nginx-provider TC-E27 (WI 6.2)")
 }
@@ -181,4 +187,30 @@ func TestToggleHelperRecheck(t *testing.T) {
 //	  - B: outcome-unknown, with a detail naming p.conf.disabled.
 func TestToggleReloadRejected(t *testing.T) {
 	t.Skip("not implemented: nginx-provider TC-ERR31 (WI 6.2)")
+}
+
+// nginx-provider TC-ERR42: Enable and disable refuse, before renaming, when a running nginx's master cannot be identified
+// Owner WI 6.2. Requirements: FR-9, FR-10, FR-6, FR-17, NFR-2, L-20, L-55.
+//
+//	Setup: a.conf.disabled and b.conf, both valid, and a byte-identity
+//	snapshot of includeDir (names, inodes, bytes, modes). nginx is running in
+//	the fake's model, with an unidentifiable master, as a table:
+//	  - Case A: OpenRC fake, started, no daemon record (MainPID 0).
+//	  - Case B: systemd fake, active, MainPID whose exe is /usr/bin/sleep.
+//	Steps:
+//	  1. Enable a.
+//	  2. Disable b.
+//	Expected: for each case and each step:
+//	  - The op ends Failed (not outcome-unknown) with dependency-unavailable.
+//	    The detail starts nginx master process could not be identified: and
+//	    names the reason (init system reports no main PID for A, exe for B).
+//	  - includeDir equals the snapshot: a.conf.disabled and b.conf keep their
+//	    names and inodes, and a.conf and b.conf.disabled do not exist. No
+//	    rename was made and none was reverted.
+//	  - fakenginx's call log has no -t invocation, and the svcctl fake
+//	    recorded no Do(reload). Identification happens before any change, so
+//	    there is nothing to test or roll back.
+//	  - The result has no rolledBack: true.
+func TestToggleRefusesUnidentifiableMaster(t *testing.T) {
+	t.Skip("not implemented: nginx-provider TC-ERR42 (WI 6.2)")
 }
