@@ -29,5 +29,6 @@ func providerConfigs(cfg *config.Config) map[string]core.ProviderConfig {
 		"docker":  {Enabled: p.Docker.Settings.Enabled, Decode: p.Docker.Decode},
 		"apt":     {Enabled: p.Apt.Settings.Enabled, Decode: p.Apt.Decode},
 		"scripts": {Enabled: p.Scripts.Settings.Enabled, Decode: p.Scripts.Decode},
+		"nginx":   {Enabled: p.Nginx.Settings.Enabled, Decode: p.Nginx.Decode},
 	}
 }

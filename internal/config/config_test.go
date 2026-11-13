@@ -26,9 +26,11 @@ func TestDefaultConfigLoads(t *testing.T) {
 		t.Fatalf("Load(%s): %v", defaultConfigPath, err)
 	}
 
-	if cfg.Providers.Docker.Settings.Enabled || cfg.Providers.Apt.Settings.Enabled || cfg.Providers.Scripts.Settings.Enabled {
-		t.Errorf("providers enabled: docker=%v apt=%v scripts=%v, want all false",
-			cfg.Providers.Docker.Settings.Enabled, cfg.Providers.Apt.Settings.Enabled, cfg.Providers.Scripts.Settings.Enabled)
+	if cfg.Providers.Docker.Settings.Enabled || cfg.Providers.Apt.Settings.Enabled || cfg.Providers.Scripts.Settings.Enabled ||
+		cfg.Providers.Nginx.Settings.Enabled {
+		t.Errorf("providers enabled: docker=%v apt=%v scripts=%v nginx=%v, want all false",
+			cfg.Providers.Docker.Settings.Enabled, cfg.Providers.Apt.Settings.Enabled, cfg.Providers.Scripts.Settings.Enabled,
+			cfg.Providers.Nginx.Settings.Enabled)
 	}
 	if want := []string{"127.0.0.1:7443"}; !reflect.DeepEqual(cfg.Listen, want) {
 		t.Errorf("listen = %q, want %q", cfg.Listen, want)
@@ -348,6 +350,7 @@ func assertSameSettings(t *testing.T, got, want *Config) {
 		{"providers.docker", got.Providers.Docker.Settings, want.Providers.Docker.Settings},
 		{"providers.apt", got.Providers.Apt.Settings, want.Providers.Apt.Settings},
 		{"providers.scripts", got.Providers.Scripts.Settings, want.Providers.Scripts.Settings},
+		{"providers.nginx", got.Providers.Nginx.Settings, want.Providers.Nginx.Settings},
 	}
 	for _, p := range pairs {
 		if !reflect.DeepEqual(p.got, p.want) {

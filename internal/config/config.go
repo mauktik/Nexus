@@ -90,6 +90,7 @@ type Providers struct {
 	Docker  Section[DockerConfig]  `yaml:"docker"`
 	Apt     Section[AptConfig]     `yaml:"apt"`
 	Scripts Section[ScriptsConfig] `yaml:"scripts"`
+	Nginx   Section[NginxConfig]   `yaml:"nginx"`
 }
 
 // DockerConfig is the docker provider section.
@@ -121,6 +122,21 @@ type AptConfig struct {
 type ScriptsConfig struct {
 	Enabled bool     `yaml:"enabled"`
 	Catalog []Script `yaml:"catalog"`
+}
+
+// NginxConfig is the nginx provider section. An empty IncludeDir means the
+// distribution's default, which the provider resolves; it is never written
+// back here.
+type NginxConfig struct {
+	Enabled             bool          `yaml:"enabled"`
+	IncludeDir          string        `yaml:"includeDir"`
+	IncludeSuffix       string        `yaml:"includeSuffix"`
+	DisabledSuffix      string        `yaml:"disabledSuffix"`
+	Service             string        `yaml:"service"`
+	TestTimeout         time.Duration `yaml:"testTimeout"`
+	StateTimeout        time.Duration `yaml:"stateTimeout"`
+	ReloadVerifyTimeout time.Duration `yaml:"reloadVerifyTimeout"`
+	MaxConfigBytes      int64         `yaml:"maxConfigBytes"`
 }
 
 // Script is one catalog entry.
@@ -210,6 +226,15 @@ func Default() Config {
 				MaxRuntime: 6 * time.Hour,
 			}},
 			Scripts: Section[ScriptsConfig]{Settings: ScriptsConfig{Catalog: []Script{}}},
+			Nginx: Section[NginxConfig]{Settings: NginxConfig{
+				IncludeSuffix:       ".conf",
+				DisabledSuffix:      ".disabled",
+				Service:             "nginx",
+				TestTimeout:         30 * time.Second,
+				StateTimeout:        30 * time.Second,
+				ReloadVerifyTimeout: 15 * time.Second,
+				MaxConfigBytes:      256 << 10,
+			}},
 		},
 	}
 }
