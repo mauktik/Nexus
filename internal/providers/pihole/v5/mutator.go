@@ -112,11 +112,14 @@ func (m *Mutator) WaitExternalGravity(ctx context.Context, out io.Writer) error 
 // /proc/<pid>/comm names a script interpreter (gravityComms). Each is
 // needed: any local user can start a process whose command line merely
 // contains the script's path, and Nexus would wait for it up to
-// GravityWaitLimit with the pihole lane held (security review SEC-2); and a
-// setuid-root program such as `sudo /opt/pihole/gravity.sh`, left at its
-// password prompt, has uid 0 and that argv too (SEC-3). comm is the name of
-// the executed file, which the caller cannot choose for a setuid program,
-// unlike argv[0]. On the T1 image, `pihole -g` and cron's `pihole
+// GravityWaitLimit with the pihole lane held (security review SEC-2). The
+// guard against a setuid-root program such as `sudo /opt/pihole/gravity.sh`
+// left at its password prompt is the REAL uid: such a program keeps its
+// caller's real uid (measured on the T1 image: sudo at its prompt reads
+// "Uid: 65534 0 0 0"; security review SEC-3, SEC-4). Do not relax the real-uid
+// check. The comm check is defence in depth only: the kernel sets comm from
+// the basename of the exec'd path, so a caller can spoof it through a symlink
+// (`ln -s /usr/bin/sudo ~/bash`). On the T1 image, `pihole -g` and cron's `pihole
 // updateGravity` run as `bash /opt/pihole/gravity.sh -g` with comm "bash"
 // (PROVENANCE, "GRAVITY PROCESS SHAPE"). The lowest PID is returned when
 // there are several.

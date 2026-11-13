@@ -934,8 +934,12 @@ GRAVITY ENDS WITH restartdns reload (code review CR-3; measured 2026-11-13T21:26
 GRAVITY PROCESS SHAPE (security review SEC-3; measured 2026-11-13T23:15Z, aarch64)
   What an external gravity run looks like in /proc, so that v5.GravityRunning
   can tell it from a setuid-root program that merely has the script as
-  argv[1] (`sudo /opt/pihole/gravity.sh` at its password prompt is uid 0 with
-  that argv; argv[0] is the caller's to set, comm is not).
+  argv[1]. CORRECTED by security review SEC-4 (measured on this image, sudo
+  1.9.5p2): `sudo /opt/pihole/gravity.sh` at its password prompt reads
+  "Uid: 65534 0 0 0" -- its REAL uid stays the caller's, and that real-uid
+  check is the guard. comm is NOT tamper-proof: the kernel sets it from the
+  basename of the exec'd path, so `ln -s /usr/bin/sudo ~/bash` gives sudo
+  comm "bash". The comm check is defence in depth only.
   On nexus-harness-pihole:native (Debian 11, core v5.18.3), by
   `docker run -d --entrypoint sleep nexus-harness-pihole:native 600` and,
   in it, a loop that reads /proc/<pid>/{cmdline,comm,status} and

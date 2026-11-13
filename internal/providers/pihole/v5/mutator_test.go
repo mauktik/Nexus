@@ -1,7 +1,8 @@
-// Security review SEC-3: a setuid-root program that blocks with the script as
-// argv[1] (`sudo /opt/pihole/gravity.sh` at its password prompt) is root with
-// that argv too; only comm, which the caller cannot set on a setuid exec,
-// tells it from the interpreter.
+// Security review SEC-3/SEC-4: a setuid-root program that blocks with the
+// script as argv[1] (`sudo /opt/pihole/gravity.sh` at its password prompt)
+// keeps its caller's real uid (measured: "Uid: 65534 0 0 0"); the real-uid
+// check is the guard. comm is defence in depth only: a symlink named bash
+// to a setuid binary gives it comm "bash".
 //
 // Security review SEC-2: a gravity run outside Nexus is a root process whose
 // argv[1] is the gravity script. Any local user can start a process whose
@@ -56,6 +57,26 @@ func TestGravityRunningNeedsARootProcessWithTheScriptAsArgv1(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("a setuid program keeps its caller's real uid, even with a spoofed comm", func(t *testing.T) {
+		// `ln -s /usr/bin/sudo ~/bash; ~/bash /opt/pihole/gravity.sh` at the
+		// password prompt: argv and comm look real, effective uid is 0, the
+		// real uid is the caller's (security review SEC-4, measured on T1).
+		for _, uids := range []string{"65534\t0\t0\t0", "0\t65534\t65534\t65534"} {
+			h := v5test.NewFakeHost(t)
+			pid, _ := h.PlantProcessComm(0, "bash", "bash", script)
+			status := h.Paths().Host(filepath.Join(v5.ProcDir, strconv.Itoa(pid), "status"))
+			if err := os.Remove(status); err != nil { // PlantProcess writes it read-only
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(status, []byte("Name:\tbash\nUid:\t"+uids+"\nGid:\t0\t0\t0\t0\n"), 0o444); err != nil {
+				t.Fatal(err)
+			}
+			if got, ok := v5.GravityRunning(h.Paths()); ok {
+				t.Errorf("GravityRunning = %d, true for Uid %q", got, uids)
+			}
+		}
+	})
 
 	t.Run("a setuid program that renamed its argv[0] to a shell is not trusted", func(t *testing.T) {
 		// `exec -a bash sudo /opt/pihole/gravity.sh`: argv has the real shape,
