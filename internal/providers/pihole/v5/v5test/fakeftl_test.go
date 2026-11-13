@@ -708,17 +708,17 @@ func TestFakeFTLReadsGravityAfterTheCompletionLine(t *testing.T) {
 		name   string
 		commit time.Duration // after the completion line
 		want   bool
-	}{{"a commit during the read", 0, true}, {"a commit after the read", 200 * time.Millisecond, false}} {
+	}{{"a commit during the read", 0, true}, {"a commit after the read", 700 * time.Millisecond, false}} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := v5test.NewFakeHost(t)
 			f := h.FTL()
-			f.SetPostCompileReads(100 * time.Millisecond)
+			f.SetPostCompileReads(500 * time.Millisecond) // wide: a loaded host (race detector) is slow to commit
 			off := logSize(t, f.LogPath())
 			run(t, h, pihole, "restartdns", "reload-lists")
 			eventually(t, "the reload", func() bool { return f.ReloadsCompleted() == 1 })
 			time.Sleep(tc.commit)
 			h.SeedDomain(1, "during-read.example.com", "")
-			time.Sleep(250 * time.Millisecond)
+			time.Sleep(800 * time.Millisecond)
 			log := ftlLog(t, f.LogPath(), off)
 			if got := strings.Contains(log, v5test.LogInaccessibleAdlists); got != tc.want {
 				t.Errorf("logged %v, want %v:\n%s", got, tc.want, log)

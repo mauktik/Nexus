@@ -385,7 +385,7 @@ func TestTC58_ZoneReads(t *testing.T) {
 	_, p := call(w, spec.ZonesGet, `{"name":"nope.lan"}`)
 	wantProblem(t, "get nope.lan", p, problem.NotFound, 404, "")
 	_, p = call(w, spec.ZonesGet, `{"name":"unzoned"}`)
-	wantProblem(t, "get unzoned", p, problem.NotFound, 404, "") // unzoned is not a zone
+	wantProblem(t, "get unzoned", p, problem.ValidationFailed, 400, "") // unzoned is not a zone: its name is refused
 }
 
 // TC-59: record reads follow a hand edit of the file.
