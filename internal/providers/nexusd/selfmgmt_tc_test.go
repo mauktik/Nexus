@@ -9,110 +9,6 @@ package nexusd
 
 import "testing"
 
-// TC-SM-51 (WI 3.5; FR-2, FR-15): get over REST returns the daemon fields and reflects a second state
-func TestTCSM51_GetOverRESTReturnsTheDaemon(t *testing.T) {
-	// - Setup:
-	//   - nexusd T0 stack, with F-DAEMON `StartedAt` at t0 and `ConfigPath` set to the fixture;
-	//   - `Options.Now` = t0+90s;
-	//   - `Executable` returns `/x/nexusd`;
-	//   - `Paths.Prev` absent;
-	//   - config with `trustedKeys: []`.
-	// - Steps:
-	//   1. `GET /v1/providers/nexusd/daemons` with the `reader` token.
-	//   2. Write `Paths.Prev` as a shell stand-in printing `nexusd v9.9.0`, set `trustedKeys` to one
-	//     key, and apply through `Configure` (the reload path).
-	//   3. GET again.
-	// - Expected:
-	//   - Step 1:
-	//     - `items[0].id == "/providers/nexusd/daemons/nexusd"`;
-	//     - `properties`: `version == version.Version`, `startedAt == t0`, `uptimeSeconds == 90`,
-	//       `configPath` equals the fixture path, `executablePath == "/x/nexusd"`;
-	//     - `previous == {present: false}`, `updateConfigured == false`, `selfManagement.available ==
-	//       true`.
-	//   - Step 3: `previous == {present: true, path: Paths.Prev, version: "v9.9.0"}` and
-	//     `updateConfigured == true`. This is not a stale snapshot.
-	t.Skip("TC-SM-51: SKIP-only stub; un-skip when WI 3.5 lands")
-}
-
-// TC-SM-52 (WI 3.5; FR-2, NFR-2): The prev-version lookup is cached by file identity and reports unknown after 5 s
-func TestTCSM52_ThePrevVersionLookupIsCached(t *testing.T) {
-	// - Setup: F-RUN counting execs of `Paths.Prev`, returning `nexusd v9.9.0\n`; the nexusd T0 stack.
-	// - Steps:
-	//   1. GET twice.
-	//   2. `os.Chtimes(Prev, now+1s)`, then GET.
-	//   3. Make F-RUN block until `ctx.Done()`, rewrite Prev (new size), and GET with an F-CLK-driven
-	//     5 s timeout.
-	// - Expected:
-	//   - Step 1 makes exactly 1 exec.
-	//   - Step 2 makes exactly 1 more.
-	//   - Step 3 returns `previous.version == "unknown"` and `present: true`, with the call returning
-	//     within the injected 5 s and no error status.
-	t.Skip("TC-SM-52: SKIP-only stub; un-skip when WI 3.5 lands")
-}
-
-// TC-SM-53 (WI 3.5; FR-3): validate-config over REST returns valid:false with status 200 for an invalid file
-func TestTCSM53_ValidateConfigOverRESTReturnsValid(t *testing.T) {
-	// - Setup: nexusd T0 stack; F-DAEMON `ConfigPath` points to `valid.yaml`, then to
-	//   `unknown-key.yaml`.
-	// - Steps:
-	//   1. `POST /v1/providers/nexusd/actions/validate-config` with the `reader` token.
-	//   2. Swap the path to `unknown-key.yaml`, then POST.
-	//   3. POST with a query `?path=/etc/shadow`.
-	// - Expected:
-	//   - Step 1: 200 with `{host, valid: true, configPath, errors: []}`.
-	//   - Step 2: 200 with `valid: false` and `errors[0] == {file: <path>, line: N, column: M, path:
-	//     "bogus", message: <the CheckConfig message>}`, where N and M come from `CheckConfig` on the
-	//     same file.
-	//   - Location fields that are 0 are absent from the JSON.
-	//   - Step 3: 400 `validation-failed`, because the op takes no input (NSM FR-25).
-	t.Skip("TC-SM-53: SKIP-only stub; un-skip when WI 3.5 lands")
-}
-
-// TC-SM-54 (WI 3.5; FR-4): reload over REST applies a valid config and reports restartRequired
-func TestTCSM54_ReloadOverRESTAppliesAValid(t *testing.T) {
-	// - Setup: nexusd T0 stack; F-DAEMON `Reload` returns `{RestartRequired: ["limits"]}`; valid
-	//   config.
-	// - Steps:
-	//   1. `POST …/actions/reload` with the `admin` token.
-	//   2. Poll the op.
-	// - Expected:
-	//   - 202 with an op.
-	//   - The op ends `Succeeded` with `result == {changed: true, applied: true, restartRequired:
-	//     ["limits"]}`.
-	//   - F-DAEMON saw exactly 1 `Reload`.
-	//   - The audit log has `requested` and then the outcome.
-	t.Skip("TC-SM-54: SKIP-only stub; un-skip when WI 3.5 lands")
-}
-
-// TC-SM-55 (WI 3.5; FR-1): Preflight is always enabled with selfManagement details, and reads work without systemd
-func TestTCSM55_PreflightIsAlwaysEnabledWithSelfManagement(t *testing.T) {
-	// - Setup: nexusd T0 stack with `Options.Systemd` returning available in run A and `{Available:
-	//   false, Reason: "systemd not running (/run/systemd/system missing)"}` in run B.
-	// - Steps:
-	//   1. `GET /v1/capabilities`.
-	//   2. GET `daemons`.
-	//   3. POST `validate-config`.
-	// - Expected:
-	//   - Run A: capabilities show nexusd `enabled` with `details.selfManagement == "available"`.
-	//   - Run B: nexusd is still `enabled`, with `details.selfManagement == "unavailable"` and
-	//     `details.reason` containing `/run/systemd/system`.
-	//   - Run B: `get` returns 200 with `selfManagement == {available: false, reason}`, and
-	//     `validate-config` returns 200.
-	t.Skip("TC-SM-55: SKIP-only stub; un-skip when WI 3.5 lands")
-}
-
-// TC-SM-56 (WI 3.5; FR-11): A reload with an Idempotency-Key replays the same operation
-func TestTCSM56_AReloadWithAnIdempotencyKey(t *testing.T) {
-	// - Setup: nexusd T0 stack.
-	// - Steps:
-	//   1. Send reload with `Idempotency-Key: r1` twice, with the same empty body.
-	// - Expected:
-	//   - Both responses carry the same op ID.
-	//   - F-DAEMON saw exactly 1 `Reload`.
-	//   - There is exactly one `requested` audit record.
-	t.Skip("TC-SM-56: SKIP-only stub; un-skip when WI 3.5 lands")
-}
-
 // TC-SM-57 (WI 4.1; FR-10): waitHealthy passes when all four FR-10 conditions hold
 func TestTCSM57_WaitHealthyPassesWhenAllFourFR(t *testing.T) {
 	// - Setup: F-SYS with the unit active; MainPID 200 running `#!fake nexusd v9.9.2 ok`; F-CLK; target
@@ -836,18 +732,6 @@ func TestTCSME6_ArchiveHeaderEncodingsAPAXPath(t *testing.T) {
 	t.Skip("TC-SM-E6: SKIP-only stub; un-skip when WI 5.2 lands")
 }
 
-// TC-SM-E7 (WI 3.5; FR-2): A prev binary that is not executable or prints garbage reports previous.version unknown
-func TestTCSME7_APrevBinaryThatIsNot(t *testing.T) {
-	// - Setup: nexusd T0 stack with the real Runner. `Paths.Prev` is (a) mode 0644 and (b) a script
-	//   printing `hello`.
-	// - Steps:
-	//   1. GET daemons for each.
-	// - Expected:
-	//   - 200 with `previous == {present: true, path, version: "unknown"}` in both.
-	//   - No error status.
-	t.Skip("TC-SM-E7: SKIP-only stub; un-skip when WI 3.5 lands")
-}
-
 // TC-SM-E8 (WI 4.1; FR-10, FR-7): The excluded PID never passes condition 2, even while it still serves
 func TestTCSME8_TheExcludedPIDNeverPassesCondition(t *testing.T) {
 	// - Setup: F-SYS with PID 100 active and healthy, reporting the expected version, and no restart
@@ -900,19 +784,6 @@ func TestTCSME11_ACLIUpdateRetriedWithThe(t *testing.T) {
 	t.Skip("TC-SM-E11: SKIP-only stub; un-skip when WI 6.1 lands")
 }
 
-// TC-SM-E14 (WI 3.5; FR-1): Not running as nexusd.service makes self-management unavailable with a reason
-func TestTCSME14_NotRunningAsNexusdServiceMakes(t *testing.T) {
-	// - Setup: nexusd T0 stack with systemd available and `Options.InService` returning
-	//   `errors.New("not running in nexusd.service (cgroup /user.slice/x.scope)")`.
-	// - Steps:
-	//   1. GET daemons.
-	//   2. POST restart.
-	// - Expected:
-	//   - `selfManagement == {available: false, reason}`, where the reason contains `cgroup`.
-	//   - Restart → 503 `capability-unavailable` with the same reason, and no op.
-	t.Skip("TC-SM-E14: SKIP-only stub; un-skip when WI 3.5 lands")
-}
-
 // TC-SM-E15 (WI 6.1; FR-12, FR-13): CLI rollback is destructive and requires confirmation
 func TestTCSME15_CLIRollbackIsDestructiveAndRequires(t *testing.T) {
 	// - Setup: nexusd T0 stack with Prev present; no TTY (`OpenTerminal` errors); stdin empty.
@@ -951,32 +822,6 @@ func TestTCSME17_ExpiryBoundaryAnUploadIsFound(t *testing.T) {
 	//   - Step 1 → 202.
 	//   - Step 2 → 422 `upload-not-found`.
 	t.Skip("TC-SM-E17: SKIP-only stub; un-skip when WI 5.1 lands")
-}
-
-// TC-SM-ERR27 (WI 3.5; FR-4, FR-3, FR-16): Reload with an invalid file is refused config-invalid with no op
-func TestTCSMERR27_ReloadWithAnInvalidFileIs(t *testing.T) {
-	// - Setup: nexusd T0 stack with F-DAEMON `ConfigPath` set to `unknown-key.yaml`.
-	// - Steps:
-	//   1. POST reload with the `admin` token.
-	// - Expected:
-	//   - 422 `config-invalid` with `configPath` and an `errors` array equal to `CheckConfig`'s
-	//     mapping.
-	//   - `GET /v1/operations` has no nexusd op.
-	//   - F-DAEMON `Reload` 0.
-	//   - The audit has a `refused` record with slug `config-invalid`.
-	t.Skip("TC-SM-ERR27: SKIP-only stub; un-skip when WI 3.5 lands")
-}
-
-// TC-SM-ERR28 (WI 3.5; FR-4): A provider refusal during apply fails the op with config-apply-failed
-func TestTCSMERR28_AProviderRefusalDuringApplyFails(t *testing.T) {
-	// - Setup: F-DAEMON `Reload` returns `&provider.ReloadError{Stage: "apply", Err:
-	//   errors.New("docker: socket missing")}`.
-	// - Steps:
-	//   1. POST reload.
-	//   2. Poll the op.
-	// - Expected: the op is `Failed` with `error.type` ending `config-apply-failed` and a detail
-	//   containing `docker: socket missing`.
-	t.Skip("TC-SM-ERR28: SKIP-only stub; un-skip when WI 3.5 lands")
 }
 
 // TC-SM-ERR29 (WI 4.1; FR-10): Each FR-10 condition failing alone is named in the reason
