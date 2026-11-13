@@ -1792,14 +1792,16 @@ func TestTCSM128_T1NFR4UploadRSSBound(t *testing.T) {
 }
 
 // The F-SYS fake's encoded systemd behaviour (internal/providers/nexusd,
-// fakesystem_test.go), which TC-SM-129 checks against real systemd.
+// fakesystem_test.go), which TC-SM-129 checks against real systemd. The
+// values are systemd 259's, as captured in
+// build/harness/logs/20261113T210341Z/test.log.
 const (
 	fsysStartBurst     = 5
-	fsysNRestartsAtHit = 4
-	fsysResultAtLimit  = "start-limit-hit"
+	fsysNRestartsAtHit = 5           // The re-spawn refused at the limit is counted
+	fsysResultAtLimit  = "exit-code" // The last start's failed Result is kept
 	fsysLimitError     = "start request repeated too quickly"
-	fsysNoBlockRefused = true // Restart (--no-block) returns the error
-	fsysLimitSticky    = true // The limit holds until ResetFailed, however long
+	fsysNoBlockRefused = false // Restart (--no-block) returns nil; the start is refused later
+	fsysLimitSticky    = false // The limit lifts once StartLimitIntervalSec has passed
 )
 
 const (
@@ -1978,8 +1980,9 @@ func TestTCSM129_T1RealSystemdConfirmsTheFake(t *testing.T) {
 			hit["Result"], hit["NRestarts"], fsysResultAtLimit, fsysNRestartsAtHit)
 	}
 
-	// Step 3: a restart is refused while the limit holds, blocking and
-	// --no-block.
+	// Step 3: while the limit holds, a blocking restart fails, and a
+	// --no-block restart returns 0 but its start is refused: the unit stays
+	// failed.
 	s3 := time.Now()
 	bout, berr = sh(time.Minute, detach.Systemctl, "restart", fidelityUnit)
 	out, afterBlock := fidelityShow(t)
@@ -1988,9 +1991,10 @@ func TestTCSM129_T1RealSystemdConfirmsTheFake(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 	_, afterNoBlock := fidelityShow(t)
 	j3 := unitJournal(t, fidelityUnit, "@"+strconv.FormatInt(s3.Add(-time.Second).Unix(), 10))
-	t.Logf("step 3: F-SYS: Restart returns %q until ResetFailed; real: blocking restart %v %q, then %v; --no-block "+
-		"restart %v %q, then %v; journal:\n%s", fsysLimitError, berr, strings.TrimSpace(bout), afterBlock, nerr,
-		strings.TrimSpace(nout), afterNoBlock, j3)
+	t.Logf("step 3: F-SYS: the start is refused with %q while the limit holds, Restart (--no-block) returns an "+
+		"error: %v; real: blocking restart %v %q, then %v; --no-block restart %v %q, then %v; journal:\n%s",
+		fsysLimitError, fsysNoBlockRefused, berr, strings.TrimSpace(bout), afterBlock, nerr, strings.TrimSpace(nout),
+		afterNoBlock, j3)
 	if berr == nil || !(strings.Contains(strings.ToLower(bout+j3), fsysLimitError) ||
 		strings.Contains(bout, "attempted too often")) {
 		t.Errorf("step 3: the restart was not refused for the start limit: %v %q", berr, bout)
@@ -1998,6 +2002,11 @@ func TestTCSM129_T1RealSystemdConfirmsTheFake(t *testing.T) {
 	if (nerr != nil) != fsysNoBlockRefused {
 		t.Errorf("step 3: real systemctl restart --no-block at the start limit: %v %q; F-SYS refuses it: %v", nerr,
 			strings.TrimSpace(nout), fsysNoBlockRefused)
+	}
+	if afterNoBlock["ActiveState"] != "failed" || afterNoBlock["MainPID"] != "0" ||
+		afterNoBlock["Result"] != fsysResultAtLimit {
+		t.Errorf("step 3: after the --no-block restart at the start limit the unit is %v, F-SYS encodes failed, "+
+			"MainPID 0, Result=%s", afterNoBlock, fsysResultAtLimit)
 	}
 
 	// The limit's lifetime: once StartLimitIntervalSec has passed since the

@@ -256,6 +256,7 @@ func TestTCSM67_ARollbackSwapsTheBinaryAnd(t *testing.T) {
 	if !strings.Contains(stdout, "swap") {
 		t.Errorf("helper steps do not mention the swap: %s", stdout)
 	}
+	wantStepOrder(t, stdout, "swapping ", "reset-failed nexusd.service", "restarting nexusd.service onto")
 
 	// Step 4.
 	out, err := r.funcs.Finalize(t.Context(), spec.RollbackInput{}, detach.Exit{}, provider.NewRun(id, nil))

@@ -192,7 +192,7 @@ func TestTCSME9_TheStabilityWindowCanExtendUp(t *testing.T) {
 		start := f.Now()
 		f.after(healthyAt-fakeReadyDelay, func() {
 			f.stopMain()
-			f.start()
+			f.start(true)
 		})
 		_, err := waitHealthy(context.Background(), f, testTarget(30*time.Second), "v9.9.2", 100)
 		return f, f.Now().Sub(start), err

@@ -531,14 +531,24 @@ func scenarioERR51(t *testing.T) *updateHelperRig {
 // scenarioERR52 installs a binary that exits at start. install.sh's
 // blocking restart fails, and while it exits non-zero the unit keeps
 // re-spawning until systemd's start limit; reached is what it got to.
-func scenarioERR52(t *testing.T, reached *string) *updateHelperRig {
+// scenarioERR52 has B1 running for longer than StartLimitIntervalSec
+// before install.sh, so its boot start is outside the start limit's window,
+// as on a real host. It lets the exit-at-start binary re-spawn for a second
+// after install.sh, so the unit reaches its start limit (at about 0.55 s),
+// and the restore runs within the 10 s window, while the limit still holds.
+func scenarioERR52(t *testing.T, reached *unitState) *updateHelperRig {
 	r := newUpdateHelperRig(t, updateHelperSetup{pkgBehaviour: "exit-at-start"})
+	r.sys.beforeInstall = func(ctx context.Context) {
+		if err := r.f.Sleep(ctx, time.Minute); err != nil {
+			t.Error(err)
+		}
+	}
 	r.sys.afterInstall = func(ctx context.Context) {
-		if err := r.f.Sleep(ctx, fakeStartInterval); err != nil {
+		if err := r.f.Sleep(ctx, time.Second); err != nil {
 			t.Error(err)
 		}
 		if reached != nil {
-			*reached = r.f.result
+			*reached, _ = r.f.Show(ctx)
 		}
 	}
 	return r
@@ -754,15 +764,19 @@ func TestTCSMERR51_InstallShExit3IsRolled(t *testing.T) {
 
 // TC-SM-ERR52 (WI 5.4; FR-8, FR-10): A binary that exits at start is rolled back after reset-failed clears the start limit
 func TestTCSMERR52_ABinaryThatExitsAtStart(t *testing.T) {
-	var reached string
+	var reached unitState
 	r := scenarioERR52(t, &reached)
 	b1 := r.b1(t)
 
-	res, _ := r.runOK(t)
+	res, stdout := r.runOK(t)
 	wantFailure(t, res, problem.UpdateFailed, true, "install")
-	if reached != "start-limit-hit" {
-		t.Errorf("after install.sh the unit's Result was %q, want start-limit-hit", reached)
+	// The start limit as systemd 259 reaches it (TC-SM-129): failed with the
+	// last start's Result=exit-code and NRestarts 5.
+	if reached.ActiveState != "failed" || reached.Result != "exit-code" || reached.NRestarts != 5 {
+		t.Errorf("after install.sh the unit was %+v, want failed at the start limit, exit-code, NRestarts 5", reached)
 	}
+	wantStepOrder(t, stdout, "restore: nexusd v9.9.1", "restore: reset-failed nexusd.service",
+		"restore: restarting nexusd.service")
 	install := indexOf(r.f, 0, "RunInstall")
 	reset := indexOf(r.f, install, "ResetFailed")
 	restart := -1
@@ -783,14 +797,17 @@ func TestTCSMERR52_ABinaryThatExitsAtStart(t *testing.T) {
 		t.Errorf("Binary = %q, want B1", got)
 	}
 
-	// The planted variant: without reset-failed, F-SYS refuses the restart.
+	// The planted variant: without reset-failed, systemd accepts the
+	// --no-block restart but refuses its start at the limit, so the unit
+	// stays failed and the restore's health check fails on condition 1.
 	t.Run("planted: no reset-failed", func(t *testing.T) {
 		r := scenarioERR52(t, nil)
 		r.sys.skipResetFailed = true
 		res, _ := r.runOK(t)
 		wantFailure(t, res, problem.UpdateRollbackFailed, false, "restore")
-		if res.Error != nil && !strings.Contains(res.Error.Detail, "start request repeated too quickly") {
-			t.Errorf("detail %q, want F-SYS's start request repeated too quickly", res.Error.Detail)
+		if res.Error != nil && (!strings.Contains(res.Error.Detail, "condition 1") ||
+			!strings.Contains(res.Error.Detail, "ActiveState=failed")) {
+			t.Errorf("detail %q, want health condition 1 with ActiveState=failed", res.Error.Detail)
 		}
 	})
 }

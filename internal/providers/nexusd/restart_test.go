@@ -335,12 +335,15 @@ func TestTCSMERR32_ACrashLoopingRestartFailsWith(t *testing.T) {
 	}
 }
 
-// A restart systemd refuses (the unit hit its start limit) fails with
-// restart-unhealthy condition 1, and the helper still exits 0 with a
-// result.
+// A restart of a unit at its start limit: systemctl restart --no-block
+// returns 0 and systemd refuses the start later, as systemd 259 does
+// (TC-SM-129), so the unit stays failed and the health check fails with
+// restart-unhealthy condition 1; the helper still exits 0 with a result.
 func TestRestartRefusedBySystemd(t *testing.T) {
 	r := newRestartRig(t, Paths{}, "")
-	r.f.limited = true
+	r.f.reachStartLimit(t)
+	// A healthy binary again: only the start limit can keep it from running.
+	writeFakeBinary(t, r.f.paths.Binary, "v9.9.1", "ok")
 	const id = "op-limited"
 	s := r.prepare(t, id)
 	if code, _, stderr := runHelperSpec(t, r.f, s); code != 0 {
@@ -349,12 +352,15 @@ func TestRestartRefusedBySystemd(t *testing.T) {
 	_, err := r.funcs.Finalize(t.Context(), spec.RestartInput{}, detach.Exit{}, provider.NewRun(id, nil))
 	perr := problemOfErr(t, err)
 	if perr.Slug() != problem.RestartUnhealthy || perr.Extensions["condition"] != 1 ||
-		!strings.Contains(perr.Detail, "start request repeated too quickly") {
-		t.Errorf("problem %s %v %q, want restart-unhealthy condition 1 with systemctl's error", perr.Slug(),
+		!strings.Contains(perr.Detail, "ActiveState=failed") {
+		t.Errorf("problem %s %v %q, want restart-unhealthy condition 1 with ActiveState=failed", perr.Slug(),
 			perr.Extensions, perr.Detail)
 	}
+	if n := len(r.f.callsOf("Restart")); n != 2 {
+		t.Errorf("Restart calls %d, want 2 (reaching the limit, then the helper's)", n)
+	}
 	if n := len(r.f.callsOf("Healthz")); n != 0 {
-		t.Errorf("the helper checked health %d times after a refused restart", n)
+		t.Errorf("the helper checked health %d times of a unit that never became active", n)
 	}
 }
 

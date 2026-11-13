@@ -285,15 +285,17 @@ func helperRollbackMode(ctx context.Context, h *helperRun, in helperInput) helpe
 }
 
 // rollbackActivate makes systemd run the installed binary and unit:
-// daemon-reload, reset-failed (a unit at its start limit refuses a
-// restart), restart --no-block, then the FR-10 health check against
-// expected, excluding the PID that ran before. exclude < 0 means the
+// daemon-reload, reset-failed (at its start limit systemd accepts a
+// --no-block restart but refuses the start), restart --no-block, then the
+// FR-10 health check against expected, excluding the PID that ran before;
+// the health check is what detects a start that fails. exclude < 0 means the
 // MainPID right before the restart.
 func rollbackActivate(ctx context.Context, h *helperRun, in helperInput, expected string, exclude int) error {
 	unit := in.Paths.withDefaults().Unit
 	if err := h.sys.DaemonReload(ctx); err != nil {
 		return err
 	}
+	step(h.out, fmt.Sprintf("reset-failed %s, clearing a failed state and the start limit", unit))
 	if err := h.sys.ResetFailed(ctx); err != nil {
 		return err
 	}

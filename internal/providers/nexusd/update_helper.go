@@ -274,9 +274,10 @@ func (u *updater) rollback(ctx context.Context, failedStep, why string) helperRe
 
 // restore copies nexusd.prev over the binary, keeping nexusd.prev (A-21),
 // and the saved unit over the unit file, then reloads systemd, clears a
-// failed state (a unit at its start limit refuses a restart), restarts
-// and checks health against the version that ran before, excluding the
-// MainPID right before the restart (F7 steps 1-3).
+// failed state (at its start limit systemd accepts a --no-block restart
+// but refuses the start), restarts and checks health against the version
+// that ran before, excluding the MainPID right before the restart (F7
+// steps 1-3); the health check is what detects a start that fails.
 func (u *updater) restore(ctx context.Context) error {
 	if err := copyOver(u.paths.Prev, u.paths.Binary); err != nil {
 		return fmt.Errorf("copy %s to %s: %w", u.paths.Prev, u.paths.Binary, err)
@@ -289,6 +290,8 @@ func (u *updater) restore(ctx context.Context) error {
 	if err := u.bounded(ctx, "systemctl daemon-reload", u.h.sys.DaemonReload); err != nil {
 		return err
 	}
+	step(u.h.out, fmt.Sprintf("%s: reset-failed %s, clearing a failed state and the start limit", stepRestore,
+		u.paths.Unit))
 	if err := u.bounded(ctx, "systemctl reset-failed "+u.paths.Unit, u.h.sys.ResetFailed); err != nil {
 		return err
 	}

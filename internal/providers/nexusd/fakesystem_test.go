@@ -16,11 +16,23 @@ package nexusd
 //     under Type=notify: it returns after READY, or exit 1 once the start
 //     fails.
 //   - Restart=on-failure with RestartSec 100 ms: a process that exits
-//     re-spawns, counting NRestarts. Starts are rate limited with systemd's
-//     defaults (StartLimitBurst=5 in StartLimitIntervalSec=10s; the unit sets
-//     neither): the fifth failed start within 10 s leaves the unit failed
-//     with Result=start-limit-hit, and from then on Restart returns "start
-//     request repeated too quickly" until ResetFailed.
+//     re-spawns, counting NRestarts when the re-spawn is scheduled; a manual
+//     start that runs resets NRestarts. Starts are rate limited with
+//     systemd's defaults (StartLimitBurst=5 in StartLimitIntervalSec=10s;
+//     the unit sets neither) as systemd's ratelimit_below does: a fixed
+//     window that begins at the first start and is replaced by a new one at
+//     the first start more than 10 s later. A start over the burst is
+//     refused: the unit is failed with MainPID 0, keeping a failed Result
+//     (exit-code after a binary that exits at start; start-limit-hit only
+//     when the Result was success), so a binary that exits at start ends
+//     failed with Result=exit-code and NRestarts 5. Restart (--no-block)
+//     still returns nil and its start is refused later; the blocking restart
+//     exits 1. The limit lifts by itself once the window has passed, and
+//     ResetFailed lifts it at once. Real systemd 259 shows each of these
+//     (TC-SM-129, build/harness/logs/20261113T210341Z/test.log).
+//   - ResetFailed of an inactive unit fails with "Unit ... not loaded":
+//     systemd unloads a stopped unit nothing references (enabled marks one
+//     that stays loaded).
 //   - ExeVersion("/proc/<pid>/exe") is the image the PID started from, so it
 //     stays right after a rename over Paths.Binary (A-17).
 //   - RunInstall models install.sh: version check, rename the binary and the
@@ -34,7 +46,6 @@ package nexusd
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -208,9 +219,10 @@ type fakeSystem struct {
 	procs               map[int]*fakeProc
 	gen                 int // Bumped by every start and stop: a stale auto-restart does nothing
 
-	starts   int // Start jobs requested: Restart and the install script's restart
-	attempts []time.Time
-	limited  bool
+	starts  int       // Start jobs requested: Restart and the install script's restart
+	rlBegin time.Time // The start limit's window; zero: none yet
+	rlNum   int       // Starts counted in the window, refused ones too
+	enabled bool      // The unit stays loaded while inactive
 
 	calls []fakeCall
 
@@ -244,7 +256,22 @@ func newFakeSystem(t *testing.T, firstPID int) *fakeSystem {
 func (f *fakeSystem) bootStart(t *testing.T, version, behaviour string) {
 	t.Helper()
 	writeFakeBinary(t, f.paths.Binary, version, behaviour)
-	f.start()
+	f.start(true)
+}
+
+// reachStartLimit puts the unit at its start limit as a binary that exits
+// at start does: Paths.Binary becomes such a binary, the unit is
+// restarted, and a second passes.
+func (f *fakeSystem) reachStartLimit(t *testing.T) {
+	t.Helper()
+	writeFakeBinary(t, f.paths.Binary, "v0.0.0", "exit-at-start")
+	if err := f.Restart(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	f.runUntil(f.now.Add(time.Second))
+	if f.active != "failed" {
+		t.Fatalf("fake unit did not reach its start limit: %s/%s", f.active, f.sub)
+	}
 }
 
 // bootActive is bootStart, then waits out the ready delay.
@@ -272,20 +299,26 @@ func (f *fakeSystem) callsOf(name string) []fakeCall {
 	return out
 }
 
-func (f *fakeSystem) recentAttempts() int {
-	n := 0
-	for _, a := range f.attempts {
-		if f.Now().Sub(a) < fakeStartInterval {
-			n++
-		}
+// startAllowed counts one start against the start limit, as systemd's
+// ratelimit_below: a start more than the interval after the window began
+// opens a new window.
+func (f *fakeSystem) startAllowed() bool {
+	if f.rlBegin.IsZero() || f.Now().Sub(f.rlBegin) > fakeStartInterval {
+		f.rlBegin, f.rlNum = f.Now(), 1
+		return true
 	}
-	return n
+	f.rlNum++
+	return f.rlNum <= fakeStartBurst
 }
 
-func (f *fakeSystem) hitLimit() {
-	f.limited = true
+// refuseStart is a start over the limit: the unit fails, keeping a failed
+// Result.
+func (f *fakeSystem) refuseStart() {
 	f.mainPID = 0
-	f.active, f.sub, f.result = "failed", "failed", "start-limit-hit"
+	f.active, f.sub = "failed", "failed"
+	if f.result == "success" {
+		f.result = "start-limit-hit"
+	}
 }
 
 // stopMain stops the main process cleanly, as a restart's stop half does.
@@ -297,14 +330,17 @@ func (f *fakeSystem) stopMain() {
 	f.mainPID = 0
 }
 
-// start runs one start attempt of the unit from the file at Paths.Binary.
-func (f *fakeSystem) start() {
+// start runs one start attempt of the unit from the file at Paths.Binary;
+// manual is a start job rather than an automatic re-spawn.
+func (f *fakeSystem) start(manual bool) {
 	f.gen++
-	if f.recentAttempts() >= fakeStartBurst {
-		f.hitLimit()
+	if !f.startAllowed() {
+		f.refuseStart()
 		return
 	}
-	f.attempts = append(f.attempts, f.Now())
+	if manual {
+		f.nRestarts = 0
+	}
 	bin, err := readFakeBinary(f.paths.Binary)
 	if err != nil {
 		bin = fakeBinary{behaviour: "exit-at-start"} // 203/EXEC: fails like an exit at start
@@ -331,7 +367,7 @@ func (f *fakeSystem) start() {
 }
 
 // exit is a process ending with a non-zero code: Restart=on-failure
-// re-spawns it after RestartSec unless the start limit is reached.
+// re-spawns it after RestartSec unless the start limit refuses it.
 func (f *fakeSystem) exit(p *fakeProc) {
 	if !p.alive {
 		return
@@ -347,12 +383,8 @@ func (f *fakeSystem) exit(p *fakeProc) {
 		if f.gen != gen {
 			return
 		}
-		if f.recentAttempts() >= fakeStartBurst {
-			f.hitLimit()
-			return
-		}
 		f.nRestarts++
-		f.start()
+		f.start(false)
 	})
 }
 
@@ -362,17 +394,14 @@ func (f *fakeSystem) Show(context.Context) (unitState, error) {
 		NRestarts: f.nRestarts}, nil
 }
 
-var errFakeStartLimit = errors.New("start request repeated too quickly")
-
+// Restart only enqueues the job, so it returns nil even at the start
+// limit; the start is refused when the job runs.
 func (f *fakeSystem) Restart(context.Context) error {
 	f.record("Restart", "--no-block")
-	if f.limited {
-		return fmt.Errorf("systemctl restart --no-block %s: %w", f.paths.Unit, errFakeStartLimit)
-	}
 	f.starts++
 	f.after(0, func() {
 		f.stopMain()
-		f.start()
+		f.start(true)
 	})
 	return nil
 }
@@ -384,12 +413,16 @@ func (f *fakeSystem) DaemonReload(context.Context) error {
 
 func (f *fakeSystem) ResetFailed(context.Context) error {
 	f.record("ResetFailed", "")
-	f.limited = false
-	f.attempts = nil
+	if f.active == "inactive" && !f.enabled {
+		return fmt.Errorf("systemctl reset-failed %[1]s: exit status 1: Failed to reset failed state of unit "+
+			"%[1]s: Unit %[1]s not loaded.", f.paths.Unit)
+	}
+	f.rlBegin, f.rlNum = time.Time{}, 0
 	if f.active == "failed" {
 		f.active, f.sub = "inactive", "dead"
 	}
 	f.result = "success"
+	f.nRestarts = 0
 	return nil
 }
 
@@ -486,19 +519,16 @@ func (f *fakeSystem) RunInstall(ctx context.Context, script, dir string, out io.
 }
 
 // blockingRestart is `systemctl restart nexusd.service` under Type=notify:
-// it returns 0 after READY and 1 once the start fails.
+// it returns 0 after READY and 1 once the start fails or is refused at the
+// start limit.
 func (f *fakeSystem) blockingRestart(ctx context.Context, say func(string, ...any)) int {
 	f.record("Restart", "blocking")
-	if f.limited {
-		say("Job for %s failed: start request repeated too quickly", f.paths.Unit)
-		return 1
-	}
 	f.starts++
 	f.stopMain()
-	f.start()
+	f.start(true)
 	pid := f.mainPID
 	if pid == 0 {
-		say("Job for %s failed: start request repeated too quickly", f.paths.Unit)
+		say("Job for %s failed (Result=%s).", f.paths.Unit, f.result)
 		return 1
 	}
 	deadline := f.Now().Add(fakeStartTimeout)
@@ -577,7 +607,10 @@ func TestTCSM63_TheFakeSystemHonoursItsFidelity(t *testing.T) {
 			f.procs[f.mainPID].bin)
 	}
 
-	// Step 3: a binary that exits at start reaches the start limit.
+	// Step 3: a binary that exits at start reaches the start limit: the
+	// explicit start and four re-spawns run, the fifth re-spawn is refused,
+	// and the unit ends failed with the last start's Result=exit-code and
+	// NRestarts 5, as systemd 259 does (TC-SM-129).
 	f = newFakeSystem(t, 200)
 	f.bootActive(t, "v9.9.1", "ok")
 	// The boot start is older than the 10s start-limit interval.
@@ -588,29 +621,76 @@ func TestTCSM63_TheFakeSystemHonoursItsFidelity(t *testing.T) {
 	if err := f.Restart(ctx); err != nil {
 		t.Fatal(err)
 	}
-	f.Advance(10 * time.Second)
+	f.Advance(time.Second)
 	st, _ := f.Show(ctx)
-	if st.Result != "start-limit-hit" || st.ActiveState != "failed" || st.NRestarts != 4 {
-		t.Errorf("after 10s: %+v, want failed, start-limit-hit, NRestarts 4", st)
+	if st.Result != "exit-code" || st.ActiveState != "failed" || st.MainPID != 0 || st.NRestarts != 5 {
+		t.Errorf("after 1s: %+v, want failed, exit-code, MainPID 0, NRestarts 5", st)
 	}
 	if f.starts != 1 {
 		t.Errorf("starts = %d, want 1 (only the explicit start)", f.starts)
 	}
 
-	// Step 4: a restart is refused until reset-failed.
-	if err := f.Restart(ctx); err == nil || !strings.Contains(err.Error(), "start request repeated too quickly") {
-		t.Errorf("Restart after start-limit-hit = %v, want start request repeated too quickly", err)
+	// Step 4: within the interval a --no-block restart is accepted, and its
+	// start is refused later; the unit stays failed.
+	if err := f.Restart(ctx); err != nil {
+		t.Errorf("Restart at the start limit = %v, want nil (--no-block only enqueues)", err)
+	}
+	if err := f.Sleep(ctx, time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := f.Show(ctx); st.ActiveState != "failed" || st.Result != "exit-code" || st.MainPID != 0 ||
+		st.NRestarts != 5 {
+		t.Errorf("after a restart at the start limit: %+v, want failed, exit-code, MainPID 0, NRestarts 5", st)
 	}
 
-	// Step 5: reset-failed, then the restart is accepted.
+	// Step 5: once StartLimitIntervalSec has passed since the window began,
+	// a start runs again without ResetFailed, and a manual start resets
+	// NRestarts.
+	if err := f.Sleep(ctx, fakeStartInterval); err != nil {
+		t.Fatal(err)
+	}
+	pid := f.nextPID
+	if err := f.Restart(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Sleep(ctx, time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := f.Show(ctx); st.ActiveState != "activating" || st.MainPID != pid || st.NRestarts != 0 {
+		t.Errorf("a restart after the interval: %+v, want activating, MainPID %d, NRestarts 0", st, pid)
+	}
+
+	// Step 6: ResetFailed clears the limit at once.
+	f.Advance(time.Second)
+	if st, _ := f.Show(ctx); st.ActiveState != "failed" {
+		t.Fatalf("the second burst: %+v, want failed at the start limit", st)
+	}
 	if err := f.ResetFailed(ctx); err != nil {
 		t.Fatal(err)
 	}
+	if st, _ := f.Show(ctx); st.ActiveState != "inactive" || st.SubState != "dead" || st.Result != "success" ||
+		st.NRestarts != 0 {
+		t.Errorf("after ResetFailed: %+v, want inactive/dead, success, NRestarts 0", st)
+	}
+	pid = f.nextPID
 	if err := f.Restart(ctx); err != nil {
 		t.Errorf("Restart after ResetFailed = %v, want nil", err)
 	}
+	if err := f.Sleep(ctx, time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := f.Show(ctx); st.ActiveState != "activating" || st.MainPID != pid {
+		t.Errorf("a restart after ResetFailed: %+v, want activating, MainPID %d", st, pid)
+	}
 
-	// Step 6: /proc/<pid>/exe is the image the PID started from.
+	// Step 7: reset-failed of an inactive unit that systemd has unloaded
+	// fails.
+	f = newFakeSystem(t, 200)
+	if err := f.ResetFailed(ctx); err == nil || !strings.Contains(err.Error(), "not loaded") {
+		t.Errorf("ResetFailed of an unloaded unit = %v, want Unit nexusd.service not loaded", err)
+	}
+
+	// Step 8: /proc/<pid>/exe is the image the PID started from.
 	f = newFakeSystem(t, 200)
 	f.bootActive(t, "v9.9.1", "ok")
 	writeFakeBinary(t, f.paths.Binary, "v9.9.2", "ok")
@@ -621,7 +701,7 @@ func TestTCSM63_TheFakeSystemHonoursItsFidelity(t *testing.T) {
 		t.Errorf("ExeVersion(binary) = %q, %v; want v9.9.2", v, err)
 	}
 
-	// Step 7: Advance with no waiter panics.
+	// Step 9: Advance with no waiter panics.
 	func() {
 		defer func() {
 			if r := recover(); r == nil || !strings.Contains(fmt.Sprint(r), "advance with no waiter") {
