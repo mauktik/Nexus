@@ -1,0 +1,22 @@
+dnsfile test fixtures (WI 1.5; TC-15 to TC-31 in planning/pihole-dns-zones/test-cases.md)
+
+fr23-seven-lines.conf
+  Source: planning/pihole-dns-zones/requirements.md, FR-23 "Fixture expectation":
+  the 7 verbatim live lines of /etc/dnsmasq.d/03-custom-dns-names.conf, in the
+  order given there, each terminated by "\n".
+  sha256: 72772cf0139e932a5bad045262d3166ac7e66e20a4550babdfb1c58f95493bd6
+
+fr23-seven-lines.rendered.conf
+  Source: the same FR-23 section, "The rendering is:" block, verbatim, each line
+  terminated by "\n" (architecture WI 1.5: no header line, output ends with "\n").
+  sha256: 6f36005c3ffe69a33d84eb399244773f063774824057ec7f69b0ba1defa9b7ad
+
+live-53-lines.conf
+  STATUS: DEFERRED to WI 6.1 step 0 (read-only capture). Not captured yet.
+  The tester had no read-only access to the live host. When captured, replace
+  this block with: host, path (/etc/dnsmasq.d/03-custom-dns-names.conf), capture
+  date (UTC), the exact read-only command used (e.g. `ssh <host> sudo cat <path>`),
+  `ls -l` owner/mode, line count, and sha256 of the bytes, then delete the word
+  DEFERRED from this file. TestTC30 skips only while this block says DEFERRED;
+  TestTC135 (WI 6.1) fails while it does.
+  Never write to the host to produce this fixture.
