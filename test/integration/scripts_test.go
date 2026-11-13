@@ -360,6 +360,13 @@ func (d *scriptsd) waitTerminal(id string, timeout time.Duration) (apitypes.Oper
 		op = d.get(id)
 		return terminal(op.Status), string(op.Status)
 	})
+	if op.Status == apitypes.StatusFailed {
+		// A process-backend supervisor that could not start leaves its
+		// reason here, and nowhere else.
+		if b, err := os.ReadFile(filepath.Join(d.opDir(id), detach.SupervisorLog)); err == nil && len(b) > 0 {
+			d.t.Logf("%s %s:\n%s", id, detach.SupervisorLog, b)
+		}
+	}
 	return op, time.Since(start)
 }
 

@@ -634,6 +634,23 @@ func canary(t *testing.T) int {
 	return pid
 }
 
+// removeServiceCgroup removes /sys/fs/cgroup/openrc.nexusd once nexusd is
+// stopped and the group is empty; OpenRC makes a new one at the next start.
+func removeServiceCgroup(t *testing.T) {
+	t.Helper()
+	path := filepath.Join(cgroupRoot, "openrc.nexusd")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return
+	}
+	waitUntil(t, 10*time.Second, path+" to empty", func() (bool, string) {
+		b, err := os.ReadFile(filepath.Join(path, "cgroup.events"))
+		return err != nil || strings.Contains(string(b), "populated 0"), string(b)
+	})
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		t.Errorf("remove %s: %v", path, err)
+	}
+}
+
 // setCgroupCleanup writes /etc/conf.d/nexusd with rc_cgroup_cleanup="YES",
 // or removes it; cleanup removes it.
 func setCgroupCleanup(t *testing.T, yes bool) {
@@ -666,6 +683,15 @@ func TestCgroupCleanupDoesNotKillSupervisor(t *testing.T) {
 	marker := filepath.Join(m, "marker")
 	catalog := catalogYAML(entry{id: "sleeper", path: sleepThenMark(t, filepath.Join(dir, "sleeper.sh"), marker, 20)})
 	version := strings.TrimSpace(mustSh(t, "openrc", "--version"))
+	// Registered first, so it runs after both subtests: drop the
+	// openrc.nexusd group OpenRC's cleanup wrote cgroup.kill to. On the
+	// harness kernel a group once killed keeps killing every child cloned
+	// into or out of it with CLONE_INTO_CGROUP, so the next nexusd started in
+	// it could launch no operation; a fresh group has no such history.
+	t.Cleanup(func() {
+		lib(t, "stop-nexusd")
+		removeServiceCgroup(t)
+	})
 
 	t.Run("stock", func(t *testing.T) {
 		// The stock rc-cgroup.sh, case B only: is YES in effect?
