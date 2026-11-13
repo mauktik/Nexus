@@ -270,5 +270,5 @@ func (p *Provider) Bindings() []provider.Binding {
 		provider.Sync(spec.RecordsList, p.listRecords),
 		provider.Sync(spec.RecordsGet, p.getRecord),
 	}
-	return append(reads, p.serviceBindings()...)
+	return append(append(reads, p.serviceBindings()...), p.blockingBindings()...)
 }

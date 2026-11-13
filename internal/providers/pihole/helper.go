@@ -81,6 +81,7 @@ type helperCall struct {
 	In        helperInput
 	Mutator   backend.Mutator
 	Paths     v5.Paths
+	Runner    v5.Runner // Host commands; actions read with it, such as the re-enable timer's state
 	DNSServer netip.AddrPort
 	Now       func() time.Time
 	// ReadyWindow is how long FTL has to answer after a restart or reload.
@@ -99,6 +100,7 @@ var helperActions = newHelperActions()
 func newHelperActions() map[string]helperAction {
 	m := map[string]helperAction{}
 	registerServiceActions(m)
+	registerBlockingActions(m)
 	return m
 }
 
@@ -232,7 +234,7 @@ func helperRun(ctx context.Context, dir string, stdout io.Writer, inject *helper
 		return errorResult(problem.New(problem.InternalError,
 			fmt.Sprintf("the pi-hole helper cannot select backend %q: %v; nothing was changed", in.Backend, err)))
 	}
-	out, err := action(ctx, &helperCall{In: in, Mutator: m, Paths: paths, DNSServer: s.DNSServer, Now: s.Now,
+	out, err := action(ctx, &helperCall{In: in, Mutator: m, Paths: paths, Runner: s.Runner, DNSServer: s.DNSServer, Now: s.Now,
 		ReadyWindow: s.ReadyWindow, Out: stdout})
 	if err != nil {
 		var pe *problem.Error

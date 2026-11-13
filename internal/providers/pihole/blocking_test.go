@@ -1,9 +1,7 @@
-//go:build pihole_red
-
-// Stub-style: SKIP-only (WI 3.3). Excluded from `make test` by the
-// pihole_red build tag; the WI 3.3 developer deletes the //go:build line and
-// these must pass. Cases: TC-77 to TC-81, TC-E10, TC-ERR14, TC-ERR15 in
-// planning/pihole-dns-zones/test-cases.md. Shared helpers are in
+// Cases: TC-77 to TC-81, TC-E10, TC-ERR14, TC-ERR15 in
+// planning/pihole-dns-zones/test-cases.md (WI 3.3): the v5 blocking
+// methods, and the stop-blocking and start-blocking helper actions run
+// through Prepare, the helper and Finalize. Shared helpers are in
 // service_test.go (WI 3.2).
 //
 // Regression for the verified v5 hazard "timed disable re-enable lifetime"
@@ -15,10 +13,17 @@ package pihole
 import (
 	"bytes"
 	"context"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/mauktik/nexus/internal/def"
+	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/problem"
+	"github.com/mauktik/nexus/internal/provider"
+	"github.com/mauktik/nexus/internal/providers/pihole/spec"
 	"github.com/mauktik/nexus/internal/providers/pihole/v5"
 )
 
@@ -214,4 +219,121 @@ func TestTC81_BlockingReadFollowsState(t *testing.T) {
 	if b, err := r.Blocking(ctx); err != nil || b.State != "enabled" || b.ReenableAt != nil {
 		t.Fatalf("after re-enable: %+v %v", b, err)
 	}
+}
+
+// runBlockingOp runs op's binding as the core would: Prepare, the helper on
+// the operation's directory, then Finalize.
+func runBlockingOp[In any](w *helperWorld, op def.Typed[In, spec.BlockingResult], in In, id string) (spec.BlockingResult, string, error) {
+	w.t.Helper()
+	df := detachedBinding(w, op.Op().ID)
+	ctx := context.Background()
+	if _, err := df.Prepare(ctx, in, provider.NewRun(id, nil)); err != nil {
+		w.t.Fatalf("Prepare: %v", err)
+	}
+	var out bytes.Buffer
+	if code := runHelper(ctx, filepath.Join(w.opsDir, id), &out, &out, w.inject()); code != 0 {
+		w.t.Fatalf("helper exit %d: %s", code, out.String())
+	}
+	res, err := df.Finalize(ctx, in, detach.Exit{}, provider.NewRun(id, nil))
+	if err != nil {
+		return spec.BlockingResult{}, out.String(), err
+	}
+	return res.(spec.BlockingResult), out.String(), nil
+}
+
+// detachedBinding is the provider's own detached binding of op ID id.
+func detachedBinding(w *helperWorld, id string) provider.DetachedFuncs {
+	w.t.Helper()
+	for _, b := range w.p.Bindings() {
+		if b.Op().ID == id {
+			df, ok := b.Detached()
+			if !ok {
+				w.t.Fatalf("%s is not detached", id)
+			}
+			return df
+		}
+	}
+	w.t.Fatalf("%s is not bound", id)
+	return provider.DetachedFuncs{}
+}
+
+// TC-78, TC-80, action half (FR-8): stop-blocking with durationSeconds and
+// start-blocking run through the helper return the state read back, with
+// reenableAt and changed; a repeated indefinite stop and a start with
+// blocking already on report changed false.
+func TestBlockingActions(t *testing.T) {
+	w := newHelperWorld(t)
+	start := w.h.Now()
+	res, out, err := runBlockingOp(w, spec.StopBlocking, spec.StopBlockingInput{DurationSeconds: 60}, "op-stop")
+	if err != nil {
+		t.Fatalf("stop-blocking: %v\n%s", err, out)
+	}
+	if !res.Changed || res.State != "disabled" || res.ReenableAt == nil || !res.ReenableAt.Equal(start.Add(time.Minute)) {
+		t.Errorf("stop result %+v, want changed, disabled until %v", res, start.Add(time.Minute))
+	}
+	for _, a := range w.h.Argvs() {
+		if isDisable(a) && len(a) != 2 {
+			t.Errorf("recorded %q: a native timed disable", a)
+		}
+	}
+	if !strings.Contains(out, "pihole: running pihole disable") {
+		t.Errorf("output lacks the disable step:\n%s", out)
+	}
+
+	res, out, err = runBlockingOp(w, spec.StopBlocking, spec.StopBlockingInput{}, "op-stop-2")
+	if err != nil || !res.Changed || res.State != "disabled" || res.ReenableAt != nil {
+		t.Errorf("indefinite stop cancelling the timer: %+v, %v; want changed, disabled, no reenableAt\n%s", res, err, out)
+	}
+	res, out, err = runBlockingOp(w, spec.StopBlocking, spec.StopBlockingInput{}, "op-stop-3")
+	if err != nil || res.Changed || res.State != "disabled" {
+		t.Errorf("repeated indefinite stop: %+v, %v; want changed false\n%s", res, err, out)
+	}
+
+	res, out, err = runBlockingOp(w, spec.StartBlocking, spec.NoInput{}, "op-start")
+	if err != nil || !res.Changed || res.State != "enabled" || res.ReenableAt != nil {
+		t.Errorf("start: %+v, %v; want changed, enabled\n%s", res, err, out)
+	}
+	res, out, err = runBlockingOp(w, spec.StartBlocking, spec.NoInput{}, "op-start-2")
+	if err != nil || res.Changed || res.State != "enabled" {
+		t.Errorf("start with blocking on: %+v, %v; want changed false\n%s", res, err, out)
+	}
+}
+
+// TC-ERR14, action half: a timer-creation failure reaches Finalize as
+// pihole-command-failed{command: systemd-run}, with blocking still on.
+func TestStopBlockingActionTimerFailure(t *testing.T) {
+	w := newHelperWorld(t)
+	w.h.FailCommand([]string{systemdRun}, 1)
+	_, out, err := runBlockingOp(w, spec.StopBlocking, spec.StopBlockingInput{DurationSeconds: 60}, "op-fail")
+	slug, pe := slugOf(t, err)
+	if slug != problem.PiholeCommandFailed || pe.Extensions["command"] != "systemd-run" || pe.Extensions["exitCode"] != 1 {
+		t.Errorf("got %v %+v\n%s", slug, pe.Extensions, out)
+	}
+	if w.h.BlockingEnabled() != "true" {
+		t.Errorf("BLOCKING_ENABLED=%s, want true", w.h.BlockingEnabled())
+	}
+}
+
+// stop-blocking and start-blocking are bound detached with MaxRuntime 10 min
+// and the blocking LostDetail, which a lost unit's outcome-unknown carries.
+func TestBlockingBindings(t *testing.T) {
+	const lost = "blocking may be off; a re-enable timer nexus-pihole-reenable.timer may exist; run `piholeblocking get`"
+	check := func(id string, in any) {
+		w := newHelperWorld(t)
+		df := detachedBinding(w, id)
+		run := provider.NewRun("op-lost", nil)
+		s, err := df.Prepare(context.Background(), in, run)
+		if err != nil || s.MaxRuntime != 10*time.Minute {
+			t.Errorf("%s: Prepare MaxRuntime %s, %v; want 10m", id, s.MaxRuntime, err)
+		}
+		if df.LostDetail == nil || df.LostDetail(run, in) != lost {
+			t.Errorf("%s: LostDetail is not %q", id, lost)
+		}
+		_, err = df.Finalize(context.Background(), in, detach.Exit{ExitCode: -1, Signal: "SIGKILL"}, run)
+		if slug, pe := slugOf(t, err); slug != problem.OutcomeUnknown || !strings.Contains(pe.Detail, lost) {
+			t.Errorf("%s: lost unit: %v %q; want outcome-unknown containing %q", id, slug, pe.Detail, lost)
+		}
+	}
+	check(spec.StopBlocking.Op().ID, spec.StopBlockingInput{DurationSeconds: 60})
+	check(spec.StartBlocking.Op().ID, spec.NoInput{})
 }
