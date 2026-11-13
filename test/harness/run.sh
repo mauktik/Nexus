@@ -75,6 +75,12 @@ docker_guard() {
 		echo "harness: WARNING: docker endpoint '$endpoint' is not a local socket; running anyway because NEXUS_HARNESS_ALLOW_REMOTE=1" >&2
 		;;
 	esac
+	# Pin the endpoint that was checked: each later docker call would
+	# otherwise resolve the CLI's current context again, and a
+	# `docker context use` in another shell during the builds could send
+	# the privileged container elsewhere (SEC-3).
+	export DOCKER_HOST="$endpoint"
+	unset DOCKER_CONTEXT
 }
 docker_guard
 
