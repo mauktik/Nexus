@@ -71,85 +71,6 @@ func TestTCSM34_GeneratedHelpShowsFileSignatureAnd(t *testing.T) {
 	t.Skip("TC-SM-34: SKIP-only stub; un-skip when WI 2.4 lands")
 }
 
-// TC-SM-36 (WI 2.5; FR-14): FR-14 acceptance: a 20 s outage mid-operation exits 0 with the final operation
-func TestTCSM36_FR14AcceptanceA20S(t *testing.T) {
-	// - Setup:
-	//   - the real server with a gate-style long-running test op declaring `ReconnectWindow: 60s`;
-	//   - F-PROXY in `refuse` mode for virtual `[t+2s, t+22s)`;
-	//   - F-CLK injected through the WI 2.5 seam (A-45): replace the package-level `waitClock` with
-	//     `clock{now: F-CLK.Now, sleep: F-CLK.Sleep}` and restore it with `t.Cleanup`; the test does
-	//     not call `t.Parallel()`. `newReconnector`, the regular `await` poll interval, the progress
-	//     cadence and the `followFrames` retry gap all read `waitClock`, so no reconnector field is set
-	//     from the test;
-	//   - the op releases at virtual t+25s.
-	// - Steps:
-	//   1. Run `gate gadget start gated` (the gated op), which waits by default.
-	// - Expected:
-	//   - Exit 0, and stdout is the Succeeded operation.
-	//   - stderr contains `is unreachable, likely restarting; retrying (0s of 60s)` and later progress
-	//     lines at intervals of at most 10 s of virtual time. The progress cadence is computed from
-	//     `now`, so the elapsed values printed (`10s of 60s`, `20s of 60s`) match F-CLK, not wall time.
-	//   - The number of failed polls is 20 ± 1, one per virtual second.
-	//   - Wall time is under 5 s, which proves no real `time.Sleep` sits on the poll or retry path.
-	t.Skip("TC-SM-36: SKIP-only stub; un-skip when WI 2.5 lands")
-}
-
-// TC-SM-37 (WI 2.5; FR-14): FR-14 acceptance: a 61 s outage exits 5 naming the operation
-func TestTCSM37_FR14AcceptanceA61S(t *testing.T) {
-	// - Setup: as TC-SM-36, with the outage `[t+2s, t+63s)`.
-	// - Steps:
-	//   1. Run the gated op.
-	// - Expected:
-	//   - Exit 5.
-	//   - stderr names the op ID and the exact text `nexus operation get <id> --host <host>`.
-	//   - No poll is attempted after virtual t+2s+60s plus one gap.
-	t.Skip("TC-SM-37: SKIP-only stub; un-skip when WI 2.5 lands")
-}
-
-// TC-SM-38 (WI 2.5; FR-14): --follow tolerates the outage and resumes the log from the last offset
-func TestTCSM38_FollowToleratesTheOutageAndResumes(t *testing.T) {
-	// - Setup: a counter op printing lines `1`…`40`, one per virtual second, with `ReconnectWindow:
-	//   60s`. F-PROXY refuses for 20 s after line 10, then 61 s in a second run. F-CLK is injected as in
-	//   TC-SM-36; the `followFrames` stream retry gap sleeps through the same injected `sleep`.
-	// - Steps:
-	//   1. Run 1: `gate gadget start counter --follow` with the 20 s outage.
-	//   2. Run 2: the same with the 61 s outage.
-	// - Expected:
-	//   - Run 1: exit 0. The printed lines are exactly `1`…`40`, with no duplicate and no gap.
-	//   - Run 1: the number of streams opened after the outage is 1, from the stored offset.
-	//   - Run 2: exit 5 with the op ID.
-	//   - Both runs finish in under 5 s of wall time.
-	t.Skip("TC-SM-38: SKIP-only stub; un-skip when WI 2.5 lands")
-}
-
-// TC-SM-39 (WI 2.5; FR-14): 503 counts as retryable, and a success resets the clock
-func TestTCSM39_503CountsAsRetryableAndA(t *testing.T) {
-	// - Setup: F-PROXY in `503` mode for `[t+2, t+42)`, then healthy for `[t+42, t+44)`, then `refuse`
-	//   for `[t+44, t+84)`. The op releases at t+90.
-	// - Steps:
-	//   1. Run the gated op.
-	// - Expected:
-	//   - Exit 0: no continuous outage reached 60 s.
-	//   - A second progress sequence restarts at `0s of 60s` after the healthy gap.
-	t.Skip("TC-SM-39: SKIP-only stub; un-skip when WI 2.5 lands")
-}
-
-// TC-SM-40 (WI 2.5; FR-14): The real-time short window exercises real sleeps
-func TestTCSM40_TheRealTimeShortWindowExercises(t *testing.T) {
-	// - Setup: a test op with `ReconnectWindow: 3s` and the real clock (the package-level defaults
-	//   `time.Now` and the ctx-aware sleep, no injection); a real proxy outage.
-	// - Steps:
-	//   1. Run with a 1 s outage, then the op ends.
-	//   2. Run with a 4 s outage.
-	//   3. Call the package-level default sleep with `d = 10s` and a ctx cancelled after 50 ms.
-	// - Expected:
-	//   - Run 1 → exit 0.
-	//   - Run 2 → exit 5 after 3 s to 4.5 s of continuous failure.
-	//   - Step 3 returns `context.Canceled` within 200 ms, so the default sleep selects on `ctx.Done()`
-	//     (`go/select-on-ctx-done`).
-	t.Skip("TC-SM-40: SKIP-only stub; un-skip when WI 2.5 lands")
-}
-
 // TC-SM-E12 (WI 2.4; FR-13): An explicit --signature path that is missing does not fall back to <file>.sig
 func TestTCSME12_AnExplicitSignaturePathThatIs(t *testing.T) {
 	// - Setup: F and `F.sig` both exist; `/nonexistent.sig` does not.
@@ -159,18 +80,6 @@ func TestTCSME12_AnExplicitSignaturePathThatIs(t *testing.T) {
 	//   - Exit 2, and the message names `/nonexistent.sig`.
 	//   - Zero requests reached the server.
 	t.Skip("TC-SM-E12: SKIP-only stub; un-skip when WI 2.4 lands")
-}
-
-// TC-SM-E13 (WI 2.5; FR-14): In machine formats, reconnect progress is JSON on stderr
-func TestTCSME13_InMachineFormatsReconnectProgressIs(t *testing.T) {
-	// - Setup: as TC-SM-36.
-	// - Steps:
-	//   1. Run with `-o json`.
-	// - Expected:
-	//   - Every reconnect progress line on stderr is a JSON object with fields for the host, the
-	//     elapsed seconds and the 60-second window.
-	//   - stdout is exactly one JSON operation.
-	t.Skip("TC-SM-E13: SKIP-only stub; un-skip when WI 2.5 lands")
 }
 
 // TC-SM-ERR18 (WI 2.4; FR-13, FR-15): CLI pre-check failures exit 2 with no network, and the private key is never read
@@ -202,41 +111,4 @@ func TestTCSMERR19_AServer413Or403On(t *testing.T) {
 	//   - Run 2: exit 3, `forbidden`.
 	//   - Both: no POST to `/actions/update`.
 	t.Skip("TC-SM-ERR19: SKIP-only stub; un-skip when WI 2.4 lands")
-}
-
-// TC-SM-ERR20 (WI 2.5; FR-14): A certificate pin mismatch is never retried, even inside a reconnect window
-func TestTCSMERR20_ACertificatePinMismatchIsNever(t *testing.T) {
-	// - Setup: an op with a 60 s window over TLS; F-PROXY switches to `pin` mode after the POST.
-	// - Steps:
-	//   1. Run the gated op (plain wait).
-	//   2. Run it with `--follow`.
-	// - Expected:
-	//   - Both exit 5 at once: virtual time elapsed under 1 s and exactly 1 failed poll.
-	//   - stderr names the fingerprint mismatch and has no `likely restarting` line.
-	t.Skip("TC-SM-ERR20: SKIP-only stub; un-skip when WI 2.5 lands")
-}
-
-// TC-SM-ERR21 (WI 2.5; FR-14, CON-4): A windowless op keeps today's behaviour
-func TestTCSMERR21_AWindowlessOpKeepsTodayS(t *testing.T) {
-	// - Setup: the existing gate op with no `ReconnectWindow`; F-PROXY refuse mode after the POST.
-	// - Steps:
-	//   1. Plain wait.
-	//   2. `--follow`.
-	// - Expected:
-	//   - Plain wait fails on the first poll error with exit 5, after exactly 1 poll.
-	//   - `--follow` gives up after `followRetries=5` failures 1 s apart, matching base behaviour byte
-	//     for byte (output compared with a golden captured from base `d04583a`).
-	t.Skip("TC-SM-ERR21: SKIP-only stub; un-skip when WI 2.5 lands")
-}
-
-// TC-SM-ERR22 (WI 2.5; FR-14): Non-retryable errors inside a window are not retried
-func TestTCSMERR22_NonRetryableErrorsInsideAWindow(t *testing.T) {
-	// - Setup: an op with a 60 s window; F-PROXY answers polls with real-problem-shaped 401, 404 and
-	//   500 in three runs.
-	// - Steps:
-	//   1. Run the gated op in each run.
-	// - Expected:
-	//   - The exit codes follow the existing mapping: 3, 4 and 1.
-	//   - Each run made exactly 1 poll and printed no reconnect progress.
-	t.Skip("TC-SM-ERR22: SKIP-only stub; un-skip when WI 2.5 lands")
 }
