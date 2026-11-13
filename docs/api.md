@@ -4243,6 +4243,132 @@ Response `202` (`application/json`):
 }
 ```
 
+### Problem.nginx-config-invalid
+
+```json
+{
+  "properties": {
+    "rolledBack": {
+      "type": "boolean",
+      "description": "Whether the previous container was restored."
+    },
+    "status": {
+      "const": 422
+    },
+    "testOutput": {
+      "type": "string"
+    },
+    "type": {
+      "const": "urn:nexus:problem:nginx-config-invalid"
+    }
+  },
+  "title": "nginx configuration invalid",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.nginx-config-unmanaged
+
+```json
+{
+  "properties": {
+    "fileName": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "status": {
+      "const": 422
+    },
+    "type": {
+      "const": "urn:nexus:problem:nginx-config-unmanaged"
+    }
+  },
+  "title": "nginx configuration not managed",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.nginx-not-running
+
+```json
+{
+  "properties": {
+    "state": {
+      "type": "string"
+    },
+    "status": {
+      "const": 422
+    },
+    "type": {
+      "const": "urn:nexus:problem:nginx-not-running"
+    }
+  },
+  "title": "nginx not running",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.nginx-reload-failed
+
+```json
+{
+  "properties": {
+    "observed": {
+      "type": "string"
+    },
+    "rollbackReload": {
+      "type": "string"
+    },
+    "rolledBack": {
+      "type": "boolean",
+      "description": "Whether the previous container was restored."
+    },
+    "testOutput": {
+      "type": "string"
+    },
+    "type": {
+      "const": "urn:nexus:problem:nginx-reload-failed"
+    }
+  },
+  "title": "nginx reload failed",
+  "description": "Appears only inside a failed operation's error.",
+  "required": [
+    "type"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
 ### Problem.not-cancelable
 
 ```json
