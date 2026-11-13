@@ -83,6 +83,12 @@ type helperRun struct {
 	out    io.Writer // Step lines, into the op log
 	errOut io.Writer // Diagnostics, into the op log
 	dir    string    // The operation's directory
+	// procDir is where /proc/<pid>/exe lives: /proc, a test's directory
+	// in T0.
+	procDir string
+	// callTimeout bounds each systemctl call the update mode makes
+	// (systemctlTimeout); a test injects a shorter one.
+	callTimeout time.Duration
 }
 
 // helperMode performs one operation. It returns the result to record
@@ -90,11 +96,13 @@ type helperRun struct {
 // result, never a missing one.
 type helperMode func(ctx context.Context, h *helperRun, in helperInput) helperResult
 
-// modeOf returns the function of a mode. update (5.4) adds its case.
+// modeOf returns the function of a mode.
 func modeOf(name string) (helperMode, bool) {
 	switch name {
 	case modeRestart:
 		return helperRestartMode, true
+	case modeUpdate:
+		return helperUpdateMode, true
 	case modeRollback:
 		return helperRollbackMode, true
 	default:
@@ -167,6 +175,10 @@ type helperEnv struct {
 	// beforeRename runs between the temp write of result.json and its
 	// rename (a test's fault injection); nil in production.
 	beforeRename func(tmp string) error
+	// procDir replaces /proc, and callTimeout the 30 s bound of a
+	// systemctl call, in a test; zero values are the defaults.
+	procDir     string
+	callTimeout time.Duration
 }
 
 // Helper is `nexusd service-helper --dir D`, run by op-supervise in the
@@ -224,13 +236,26 @@ func runHelper(args []string, stdout, stderr io.Writer, env helperEnv) int {
 	case !errors.Is(err, fs.ErrNotExist):
 		return refuse("%v; not running again", err)
 	}
-	h := &helperRun{sys: env.newSystem(in), out: stdout, errOut: stderr, dir: *dir}
+	h := &helperRun{sys: env.newSystem(in), out: stdout, errOut: stderr, dir: *dir, procDir: env.procDir,
+		callTimeout: env.callTimeout}
+	if h.procDir == "" {
+		h.procDir = "/proc"
+	}
+	if h.callTimeout <= 0 {
+		h.callTimeout = systemctlTimeout
+	}
 	step(stdout, fmt.Sprintf("service helper: %s", in.Mode))
 	res := run(context.Background(), h, in)
 	if err := writeJSONAtomic(*dir, resultFileName, res, env.beforeRename); err != nil {
 		return refuse("%v", err)
 	}
 	step(stdout, "wrote "+resultFileName)
+	if in.Mode == modeUpdate {
+		// Only now that result.json is written: the package is not needed
+		// any more, since install.sh's output is in the op log (F6 step 8,
+		// A-50). A lost unit keeps it until the op's retention.
+		removePackage(*dir, stdout, stderr)
+	}
 	return 0
 }
 
