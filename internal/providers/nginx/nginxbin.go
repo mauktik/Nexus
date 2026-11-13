@@ -116,8 +116,10 @@ type TestOutput struct {
 // Test runs `nginx -t`, bounded by testTimeout. Its output goes to the log
 // as nginx writes it, and the first TestOutputCap bytes into the result.
 // An invalid configuration is a TestOutput with Valid false; the error is
-// for a test that could not run or did not finish.
+// for a test that could not run or did not finish. First it makes nginx's
+// pid directory if the init script would and has not yet (piddir.go).
 func (n nginxBin) Test(ctx context.Context) (TestOutput, error) {
+	n.ensurePidDir(ctx)
 	w := &capWriter{max: TestOutputCap, tee: n.log}
 	code, err := n.run(ctx, n.testTimeout, w, "-t")
 	var pathErr *fs.PathError
