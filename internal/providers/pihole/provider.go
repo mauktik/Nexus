@@ -72,6 +72,9 @@ type Provider struct {
 	preflight func(context.Context) provider.Status
 	settings  atomic.Pointer[config.PiholeConfig]
 	opsDir    atomic.Pointer[string] // Operations' directories; set by UseOpsDir
+	// reader is the backend Reader the last preflight selected; the reads
+	// use it. Nil before a real preflight, or after one that selected none.
+	reader atomic.Pointer[readerBox]
 
 	// Test seams. The zero paths are the production ones under "/".
 	paths     v5.Paths
@@ -174,13 +177,15 @@ func (p *Provider) Preflight(ctx context.Context) provider.Status {
 	}
 
 	v := backend.Detect(ctx, p.paths, ftlVersionTimeout)
-	_, _, name, err := backend.Select(v, p.paths, backend.Deps{Runner: p.runner, DNSServer: p.dnsServer})
+	rd, _, name, err := backend.Select(v, p.paths, p.deps())
 	if err != nil {
+		p.reader.Store(nil)
 		if v.Major != 0 {
 			return unavailable("pi-hole major version %d is not supported", v.Major)
 		}
 		return unavailable("%s", err.Error())
 	}
+	p.reader.Store(&readerBox{r: rd})
 
 	dnsFile := p.Settings().DNSFile
 	if st, ok := p.checkDNSFile(dnsFile); !ok {
@@ -248,8 +253,20 @@ func version(v *string) any {
 }
 
 // Bindings binds the provider's operations. The provider binds a subset of
-// its declarations (A-35): the reads and mutations are added by their own
-// work items, and until then none is served.
+// its declarations (A-35): the 11 reads; the mutations are added by their
+// own work items, and until then are not served.
 func (p *Provider) Bindings() []provider.Binding {
-	return nil
+	return []provider.Binding{
+		provider.Sync(spec.StatusGet, p.status),
+		provider.Sync(spec.SummaryGet, p.summary),
+		provider.Sync(spec.BlockingGet, p.blocking),
+		provider.Sync(spec.DomainsList, p.listDomains),
+		provider.Sync(spec.DomainsGet, p.getDomain),
+		provider.Sync(spec.AdlistsList, p.listAdlists),
+		provider.Sync(spec.AdlistsGet, p.getAdlist),
+		provider.Sync(spec.ZonesList, p.listZones),
+		provider.Sync(spec.ZonesGet, p.getZone),
+		provider.Sync(spec.RecordsList, p.listRecords),
+		provider.Sync(spec.RecordsGet, p.getRecord),
+	}
 }
