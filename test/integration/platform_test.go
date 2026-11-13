@@ -191,6 +191,13 @@ var privilegedSkipRE = regexp.MustCompile(`(?i)root|cgroup|systemd|openrc|init s
 var rootOnlyCgroupTests = []string{"TestOperationCgroupContainment", "TestCancelKillsSetsidGrandchild",
 	"TestLeftoverSweepOnlyForControlGroup"}
 
+// perInitCases are parity cases whose verdict as root depends on the init
+// system by design: TestSystemdAvailabilityRefusesSilentDowngrade's
+// negative case needs a host without systemd.
+var perInitCases = map[string]map[platform.InitSystem]string{
+	"TestSystemdAvailabilityRefusesSilentDowngrade": {platform.Systemd: "SKIP", platform.OpenRC: "PASS"},
+}
+
 // nginx-provider TC-46: Parity suites run as root on both harnesses, and
 // gated cases are not silently skipped. run.sh runs this test on its own,
 // after integration.test, with the logs copied to $NEXUS_HARNESS_LOGS.
@@ -220,6 +227,12 @@ func TestParitySuitesRanAsRoot(t *testing.T) {
 				if r.verdict != "PASS" {
 					t.Errorf("%s: process-backend subtest %s is %s %s", log, r.name, r.verdict, r.reason)
 				}
+			}
+			if want, ok := perInitCases[r.name]; ok {
+				if r.verdict != want[here] {
+					t.Errorf("%s (root): %s is %s on %s, want %s %s", log, r.name, r.verdict, here, want[here], r.reason)
+				}
+				continue
 			}
 			if r.verdict == "SKIP" && privilegedSkipRE.MatchString(r.reason) {
 				t.Errorf("%s (root): %s skipped: %s", log, r.name, strings.TrimSpace(r.reason))
