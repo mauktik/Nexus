@@ -62,7 +62,7 @@ Parameters:
 | Name | In | Required | Schema | Description |
 | --- | --- | --- | --- | --- |
 | `cursor` | query | no | `{"type":"string","maxLength":512,"pattern":"^[A-Za-z0-9_-]*$"}` | Opaque cursor from a previous page's nextCursor. |
-| `filter` | query | no | `{"type":"array","items":{"type":"string","maxLength":256,"pattern":"^(after\|before\|tokenName\|provider\|action\|outcome)=[^\\x00-\\x1f]*$"}}` | Repeatable key=value filter; an undeclared key is refused. Keys: after (Only records after this RFC 3339 time); before (Only records before this RFC 3339 time); tokenName (Name of the token that made the request); provider (Provider of the requested action); action (Operation ID of the requested action); outcome (Record outcome, such as requested, denied, refused or replayed). |
+| `filter` | query | no | `{"type":"array","items":{"type":"string","maxLength":256,"pattern":"^(after\|before\|tokenName\|provider\|action\|outcome)=[^\\x00-\\x1f]*$"}}` | Repeatable key=value filter; an undeclared key is refused. Keys: after (Only records after this RFC 3339 time); before (Only records before this RFC 3339 time); tokenName (Name of the token that made the request); provider (Provider of the requested action); action (Operation ID of the requested action); outcome (Record outcome, such as requested, denied, refused, replayed or stored). |
 | `limit` | query | no | `{"type":"integer","minimum":1,"maximum":1000}` | Page size: default 100, maximum 1000. |
 
 Responses:
@@ -149,6 +149,12 @@ Response `200` (`application/json`):
           },
           "count": {
             "type": "integer"
+          },
+          "facts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
           }
         },
         "required": [

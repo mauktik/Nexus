@@ -298,9 +298,10 @@ func TestTCSM26_DispatcherUploadPathRunsScopeThen(t *testing.T) {
 		if res.Body != (uplOut{UploadID: "u-1", SizeBytes: 1024}) {
 			t.Fatalf("body = %#v, want the provider's output", res.Body)
 		}
-		// release is last: it ran once, after Receive returned.
-		if got := rec.calls(); !slices.Equal(got, []string{"admit", "audit:requested", "receive", "release"}) {
-			t.Fatalf("order = %v, want admit, audit:requested, receive, release", got)
+		// release is last: it ran once, after Receive returned and the
+		// stored record (WI 3.4) was written.
+		if got := rec.calls(); !slices.Equal(got, []string{"admit", "audit:requested", "receive", "audit:stored", "release"}) {
+			t.Fatalf("order = %v, want admit, audit:requested, receive, audit:stored, release", got)
 		}
 		if cr.n.Load() != 1024 || !bytes.Equal(rec.got, data) {
 			t.Fatalf("Receive read %d bytes (equal %t), want the 1024 bytes sent", cr.n.Load(), bytes.Equal(rec.got, data))
@@ -358,8 +359,8 @@ func TestTCSM26_DispatcherUploadPathRunsScopeThen(t *testing.T) {
 		b, _, _ := uplBody(1024, octetStream, 1024)
 		res, err := invokeUpload(context.Background(), d, admin, b)
 		want201(t, res, err)
-		if got := rec.calls(); !slices.Equal(got, []string{"audit:requested", "receive"}) {
-			t.Fatalf("order = %v, want audit:requested, receive", got)
+		if got := rec.calls(); !slices.Equal(got, []string{"audit:requested", "receive", "audit:stored"}) {
+			t.Fatalf("order = %v, want audit:requested, receive, audit:stored", got)
 		}
 	})
 }
