@@ -1,7 +1,7 @@
 // Package apt is the apt provider: it reads the host's packages through
 // fixed apt and dpkg binaries in the C locale, and refreshes the package
-// indexes in a detached systemd unit. Its declarations live in the spec
-// subpackage.
+// indexes in a detached operation (a systemd unit, or a supervised process
+// on OpenRC). Its declarations live in the spec subpackage.
 //
 // Nothing here reads the OS release or branches on it (D-7, ASM-9): the
 // only inputs are the machine-stable interfaces apt and dpkg print under
@@ -67,8 +67,8 @@ type Provider struct {
 	log       *slog.Logger
 	preflight func(context.Context) provider.Status
 	run       runner
-	root      string // Prefix of every host file the provider stats or reads; "/" outside tests
-	systemd   func() detach.Availability
+	root      string                     // Prefix of every host file the provider stats or reads; "/" outside tests
+	systemd   func() detach.Availability // detach.Available outside tests
 	settings  atomic.Pointer[config.AptConfig]
 	opsDir    atomic.Pointer[string] // Operations' directories; set by UseOpsDir
 	probe     lockProbe              // probeLock outside tests
@@ -83,7 +83,7 @@ type Provider struct {
 // New returns the provider with the default settings until Configure.
 func New(opts Options) *Provider {
 	p := &Provider{host: opts.Host, log: opts.Logger, preflight: opts.Preflight, run: execRun, root: "/",
-		systemd: detach.SystemdAvailable, probe: probeLock, lockPoll: lockPoll}
+		systemd: detach.Available, probe: probeLock, lockPoll: lockPoll}
 	if p.log == nil {
 		p.log = slog.Default()
 	}
@@ -122,8 +122,11 @@ func (p *Provider) opDir(id string) (string, error) {
 	return filepath.Join(*dir, id), nil
 }
 
-// Preflight checks the fixed binaries, then systemd, which refresh and every
-// later mutation need: there is no fallback to a child of nexusd (CON-4).
+// Preflight checks the fixed binaries, then whether detached operations are
+// available on this host's init system, which refresh and every later
+// mutation need: there is no fallback to a child of nexusd (CON-4). The
+// binaries come first, so a host without apt (Alpine) reports them, never
+// the detach check; nothing here asks which distribution it is (D-7).
 // Its details carry the native architecture and the reboot-required state,
 // so capabilities with refresh=true re-reads them.
 func (p *Provider) Preflight(ctx context.Context) provider.Status {
@@ -139,7 +142,7 @@ func (p *Provider) Preflight(ctx context.Context) provider.Status {
 	}
 	if a := p.systemd(); !a.Available {
 		return provider.Status{State: apitypes.ProviderUnavailable,
-			Reason: "apt operations run only under systemd: " + a.Reason}
+			Reason: "apt operations run only as detached operations: " + a.Reason}
 	}
 	arch, err := p.architecture(ctx)
 	if err != nil {

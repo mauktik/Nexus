@@ -9,7 +9,10 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -22,6 +25,8 @@ import (
 	"time"
 
 	"github.com/mauktik/nexus/internal/apitypes"
+	"github.com/mauktik/nexus/internal/auth"
+	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/detach"
 	"github.com/mauktik/nexus/internal/detach/detachtest"
 	"github.com/mauktik/nexus/internal/platform"
@@ -277,6 +282,122 @@ func TestRecoveryWithProcessBackend(t *testing.T) {
 //	    reason naming no supported init system (systemd or OpenRC).
 //	  - The invoke gives capability-unavailable naming the same.
 //	  - nexusd is serving: /healthz is 200.
+//
+// The compiled-in providers keep the real detach.Available, which reads the
+// host's own init system: the case runs only on a host that has neither
+// systemd nor OpenRC (macOS at T0).
 func TestUnknownInitRefusesDetachedWork(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-ERR6 (WI 2.4)")
+	if a := detach.Available(); a.Available {
+		t.Skip("this host has a supported init system; the case needs one without")
+	}
+	const noInit = "no supported init system (systemd or OpenRC)"
+	dir := t.TempDir()
+	stateDir, auditDir, cfgPath := filepath.Join(dir, "state"), filepath.Join(dir, "audit"), filepath.Join(dir, "nexusd.yaml")
+	tok, _, err := auth.Create(stateDir, auth.CreateRequest{Name: "t", Scopes: []string{"scripts:read", "scripts:run"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker, script := filepath.Join(dir, "ran"), filepath.Join(dir, "touch.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\ntouch '"+marker+"'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// The docker socket does not exist: docker is enabled, and its update
+	// gate is the docker package's TC-27 half.
+	cfg := fmt.Sprintf("listen: [%q]\ntls: {mode: off}\nproviders:\n"+
+		"  docker: {enabled: true, socket: %q}\n"+
+		"  scripts:\n    enabled: true\n    catalog:\n"+
+		"      - id: touch\n        description: Touch a marker\n        path: %s\n        runAs: nobody\n"+
+		"        workingDirectory: %s\n", freePort(t), "/nonexistent/docker.sock", script, dir)
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := New(c, Options{ConfigPath: cfgPath, StateDir: stateDir, AuditDir: auditDir,
+		Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), Platform: &platform.Info{Init: platform.Unknown}})
+	if err != nil {
+		t.Fatalf("startup failed: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- d.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Errorf("Run: %v", err)
+		}
+	})
+	select {
+	case <-d.Ready():
+	case err := <-done:
+		t.Fatalf("Run returned before ready: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("daemon not ready")
+	}
+	base := "http://" + d.Addrs()[0].String()
+	do := func(method, path string) (int, []byte) {
+		t.Helper()
+		var body io.Reader
+		if method == http.MethodPost {
+			body = strings.NewReader("{}")
+		}
+		req, err := http.NewRequest(method, base+path, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer "+tok)
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp.StatusCode, b
+	}
+
+	// Step 1.
+	code, b := do(http.MethodGet, "/v1/capabilities")
+	var caps apitypes.Capabilities
+	if err := json.Unmarshal(b, &caps); err != nil || code != http.StatusOK {
+		t.Fatalf("capabilities: %d %s", code, b)
+	}
+	if caps.InitSystem != string(platform.Unknown) {
+		t.Errorf("initSystem %q, want %q", caps.InitSystem, platform.Unknown)
+	}
+	i := slices.IndexFunc(caps.Providers, func(p apitypes.ProviderCapability) bool { return p.Name == "scripts" })
+	if i < 0 {
+		t.Fatalf("scripts is not compiled in: %s", b)
+	}
+	if p := caps.Providers[i]; p.Status != apitypes.ProviderUnavailable || !strings.Contains(p.Reason, noInit) {
+		t.Errorf("scripts %+v, want unavailable naming %q", p, noInit)
+	}
+
+	// Step 2.
+	code, b = do(http.MethodPost, "/v1/providers/scripts/scripts/touch/invoke")
+	var pe problem.Error
+	if err := json.Unmarshal(b, &pe); err != nil || code != http.StatusServiceUnavailable ||
+		pe.Slug() != problem.CapabilityUnavailable || !strings.Contains(fmt.Sprint(pe.Extensions["reason"]), noInit) {
+		t.Fatalf("invoke: %d %s, want 503 capability-unavailable naming %q", code, b, noInit)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("the script ran: stat marker: %v", err)
+	}
+
+	// Step 3: the provider is unavailable as a whole, so its reads are
+	// refused the same way; nexusd itself keeps serving.
+	if code, b := do(http.MethodGet, "/v1/providers/scripts/scripts"); code != http.StatusServiceUnavailable {
+		t.Errorf("list scripts: %d %s, want 503", code, b)
+	}
+	if code, b := do(http.MethodGet, "/healthz"); code != http.StatusOK {
+		t.Errorf("/healthz: %d %s, want 200", code, b)
+	}
 }

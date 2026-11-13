@@ -34,10 +34,11 @@ const readySettle = 2 * time.Second
 const readyPoll = 250 * time.Millisecond
 
 // admitUpdate refuses, before an operation exists, an update the host
-// cannot run (no systemd, CON-4) or a container that is notUpdatable.
+// cannot run (no detached operations, CON-4) or a container that is
+// notUpdatable.
 func (p *Provider) admitUpdate(ctx context.Context, in spec.ContainerInput) error {
 	if a := p.systemd(); !a.Available {
-		return problem.New(problem.CapabilityUnavailable, "container updates run only in a systemd unit: "+a.Reason).
+		return problem.New(problem.CapabilityUnavailable, "container updates run only as detached operations: "+a.Reason).
 			With("provider", spec.Name).With("reason", a.Reason)
 	}
 	cli, c, err := p.target(ctx, in.Name)

@@ -175,7 +175,7 @@ func (p *Provider) prepareUpdate(ctx context.Context, in spec.ContainerInput, r 
 	if err := writeJSONAtomic(dir, inputFile, hin); err != nil {
 		return detach.Spec{}, err
 	}
-	say(r, "updating container %s in unit %s", name, detach.Unit(r.ID()))
+	say(r, "updating container %s in detached operation %s", name, r.ID())
 	return detach.Spec{
 		Argv:       []string{exe, HelperCommand, "--dir", dir},
 		Dir:        dir,

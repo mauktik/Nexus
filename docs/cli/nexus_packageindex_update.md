@@ -4,7 +4,7 @@
 
 Refresh the package indexes
 
-Runs apt-get update to download the package indexes of the host's configured sources. Side effects: replaces the package index files under /var/lib/apt/lists; installs, upgrades and removes nothing. Long-running: answers 202 with an operation, queued in order behind any other apt operation; it runs in its own systemd unit, so it survives a restart of nexusd. The operation fails with apt-failed, naming apt-get's exit status, when apt-get update fails.
+Runs apt-get update to download the package indexes of the host's configured sources. Side effects: replaces the package index files under /var/lib/apt/lists; installs, upgrades and removes nothing. Long-running: answers 202 with an operation, queued in order behind any other apt operation; it runs detached from nexusd (a systemd unit, or a supervised process on OpenRC), so it survives a restart of nexusd. The operation fails with apt-failed, naming apt-get's exit status, when apt-get update fails.
 
 ## Usage
 

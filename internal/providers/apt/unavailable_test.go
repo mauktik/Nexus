@@ -49,8 +49,8 @@ func TestAptUnavailableOnNonDebianHost(t *testing.T) {
 			present++
 		}
 	}
-	if present == len(apt.Binaries) && detach.SystemdAvailable().Available {
-		t.Skip("this host has apt and systemd; the case needs a host without them")
+	if present == len(apt.Binaries) && detach.Available().Available {
+		t.Skip("this host has apt and detached operations; the case needs a host without them")
 	}
 	dir := t.TempDir()
 	stateDir, auditDir, cfgPath := filepath.Join(dir, "state"), filepath.Join(dir, "audit"), filepath.Join(dir, "nexusd.yaml")

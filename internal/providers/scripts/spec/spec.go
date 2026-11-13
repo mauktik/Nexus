@@ -186,7 +186,9 @@ var (
 			"Nexus neither knows nor limits them. Only declared parameters are accepted, each checked against " +
 			"its declaration first, and each value reaches the script as one argument or environment variable, " +
 			"never through a shell. Long-running: answers 202 with an operation, whose result holds the exit " +
-			"code; a running script can be canceled. Answers 409 when the script's concurrency limit is reached. " +
+			"code; it runs detached from nexusd (a systemd unit, or a supervised process on OpenRC), so it " +
+			"survives a restart of nexusd, and a running script can be canceled. Answers 409 when the script's " +
+			"concurrency limit is reached. " +
 			"Requires scripts:run, or scripts:run:<id> for this script.",
 		Scope: def.Scope{Name: RunScope, PerTarget: RunTargetScope}, Risk: def.RiskDestructive,
 		Mode: def.ModeLongRunning, Cancel: def.CancelRunning,
