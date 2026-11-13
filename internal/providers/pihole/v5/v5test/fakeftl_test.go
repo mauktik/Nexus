@@ -674,3 +674,82 @@ func TestFakeFTLHoldsQueriesDuringAReload(t *testing.T) {
 		}
 	})
 }
+
+// Code review CR-11 (TC-151: "PID 1326 -> 0"): a restart that fails has run
+// its stop half, so the old FTL is gone: its /proc entry and its reads of the
+// PID file report no live FTL, as Stop leaves it.
+func TestFakeFTLFailedRestartLeavesNoLiveFTL(t *testing.T) {
+	for _, fault := range []v5test.Fault{v5test.FaultRestartFails, v5test.FaultRollbackRestartFails} {
+		h := v5test.NewFakeHost(t)
+		if _, ok := v5.FTLPID(h.Paths()); !ok {
+			t.Fatal("setup: FTL has no live PID")
+		}
+		h.FTL().SetFault(fault)
+		if fault == v5test.FaultRollbackRestartFails {
+			run(t, h, pihole, "restartdns") // the first restart succeeds
+			eventually(t, "the new PID file", func() bool { _, ok := v5.FTLPID(h.Paths()); return ok })
+		}
+		if code, _ := run(t, h, pihole, "restartdns"); code == 0 {
+			t.Fatalf("fault %v: the restart exited 0", fault)
+		}
+		if pid, ok := v5.FTLPID(h.Paths()); ok || h.FTL().PID() != 0 {
+			t.Errorf("fault %v: FTLPID = %d, %v and FakeFTL PID %d after a failed restart; FTL is stopped", fault, pid, ok, h.FTL().PID())
+		}
+	}
+}
+
+// Code review CR-3: a successful reload still reads gravity.db for a moment
+// after its completion line (check_inaccessible_adlists, PROVENANCE "FTL LIST
+// RELOAD SIGNALS"); a commit during that read makes it fail and FTL logs
+// "check_inaccessible_adlists(): Gravity database not available", a commit
+// after it does not. Queries are not held by the read, but the ones the
+// reload held are answered no sooner than DefaultHeldQueryLag after the
+// completion line.
+func TestFakeFTLReadsGravityAfterTheCompletionLine(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		commit time.Duration // after the completion line
+		want   bool
+	}{{"a commit during the read", 0, true}, {"a commit after the read", 200 * time.Millisecond, false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := v5test.NewFakeHost(t)
+			f := h.FTL()
+			f.SetPostCompileReads(100 * time.Millisecond)
+			off := logSize(t, f.LogPath())
+			run(t, h, pihole, "restartdns", "reload-lists")
+			eventually(t, "the reload", func() bool { return f.ReloadsCompleted() == 1 })
+			time.Sleep(tc.commit)
+			h.SeedDomain(1, "during-read.example.com", "")
+			time.Sleep(250 * time.Millisecond)
+			log := ftlLog(t, f.LogPath(), off)
+			if got := strings.Contains(log, v5test.LogInaccessibleAdlists); got != tc.want {
+				t.Errorf("logged %v, want %v:\n%s", got, tc.want, log)
+			}
+			if strings.Contains(log, markLocked) {
+				t.Errorf("the reload itself did not fail, but the log says it did:\n%s", log)
+			}
+		})
+	}
+
+	t.Run("held queries wait DefaultHeldQueryLag after the completion line", func(t *testing.T) {
+		h := v5test.NewFakeHost(t)
+		f := h.FTL()
+		f.HoldReloads()
+		run(t, h, pihole, "restartdns", "reload-lists")
+		eventually(t, "the reload", f.Reloading)
+		got := make(chan time.Time, 1)
+		go func() {
+			if _, err := dnscheck.Query(context.Background(), f.Addr(), "held.invalid", 5*time.Second); err != nil {
+				t.Error(err)
+			}
+			got <- time.Now()
+		}()
+		eventually(t, "the query to arrive", func() bool { return f.PendingQueries() == 1 })
+		f.SetHeldQueryLag(300 * time.Millisecond)
+		ended := time.Now()
+		f.ReleaseReloads()
+		if at := <-got; at.Sub(ended) < 280*time.Millisecond {
+			t.Errorf("a held query was answered %s after the completion line, want at least 300 ms", at.Sub(ended))
+		}
+	})
+}

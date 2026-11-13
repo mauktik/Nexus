@@ -575,3 +575,42 @@ func TestTC154_FakeHostSeedsFTLLogAndRFC6761(t *testing.T) {
 		}
 	}
 }
+
+// Code review CR-11 (webpage.sh L567, V-9): `pihole -a adlist add`
+// interpolates the address and the comment into its SQL unescaped, so a
+// comment with a quote breaks the statement: sqlite3 prints an error,
+// nothing is stored, and the exit code is still 0. A comment without one is
+// stored.
+func TestFakeHostAdlistAddInterpolatesItsComment(t *testing.T) {
+	h := v5test.NewFakeHost(t)
+	code, out := run(t, h, pihole, "-a", "adlist", "add", "https://lists.example/quote.txt", "it's broken")
+	if code != 0 || !strings.Contains(out, "Error:") || len(h.Adlists()) != 0 {
+		t.Errorf("exit %d, output %q, adlists %v: want exit 0, an error line, and nothing stored", code, out, h.Adlists())
+	}
+	if code, _ := run(t, h, pihole, "-a", "adlist", "add", "https://lists.example/plain.txt", "fine"); code != 0 || len(h.Adlists()) != 1 {
+		t.Errorf("a comment without a quote: exit %d, adlists %v", code, h.Adlists())
+	}
+}
+
+// Code review CR-3 (gravity.sh L946 on the harness image): `pihole -g` ends
+// with `pihole restartdns reload`, a SIGHUP list reload, so FTL is
+// reloading its lists when it returns.
+func TestFakeHostGravityEndsWithASighupReload(t *testing.T) {
+	h := v5test.NewFakeHost(t)
+	h.FTL().SetReloadDuration(time.Hour)
+	if code, out := run(t, h, pihole, "-g"); code != 0 {
+		t.Fatalf("-g exit %d: %s", code, out)
+	}
+	if got := h.FTLEvents(); len(got) != 1 || got[0] != "reload" || !h.FTL().Reloading() {
+		t.Errorf("events %v, reloading %v: want one reload, in progress", got, h.FTL().Reloading())
+	}
+	if !strings.Contains(ftlLog(t, h.FTL().LogPath(), 0), markHUP) {
+		t.Errorf("FTL log lacks the SIGHUP start line:\n%s", ftlLog(t, h.FTL().LogPath(), 0))
+	}
+	h2 := v5test.NewFakeHost(t)
+	h2.FTL().Stop()
+	run(t, h2, pihole, "-g")
+	if got := h2.FTLEvents(); len(got) != 0 {
+		t.Errorf("a stopped FTL got events %v", got)
+	}
+}
