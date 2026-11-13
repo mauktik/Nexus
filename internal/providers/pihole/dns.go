@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
@@ -18,19 +19,26 @@ import (
 
 var _ dnswrite.Mutator = (*v5.Mutator)(nil)
 
-// dnsBindings binds add-zone and zones.remove. Every DNS write goes through
-// dnswrite.Apply in the helper; nothing else replaces the DNS file.
+// dnsBindings binds add-zone, zones.remove, add-record, records.update and
+// records.remove. Every DNS write goes through dnswrite.Apply in the helper;
+// nothing else replaces the DNS file.
 func (p *Provider) dnsBindings() []provider.Binding {
 	return []provider.Binding{
 		detachedOp(p, spec.AddZone, p.admitAddZone, maxRuntimeDefault, dnsLost[spec.ZoneAddInput](p)),
 		detachedOp(p, spec.ZonesRemove, p.admitRemoveZone, maxRuntimeDefault, dnsLost[spec.ZoneRemoveInput](p)),
+		detachedOp(p, spec.AddRecord, p.admitAddRecord, maxRuntimeDefault, dnsLost[spec.RecordAddInput](p)),
+		detachedOp(p, spec.RecordsUpdate, p.admitUpdateRecord, maxRuntimeDefault, dnsLost[spec.RecordUpdateInput](p)),
+		detachedOp(p, spec.RecordsRemove, p.admitRemoveRecord, maxRuntimeDefault, dnsLost[spec.RecordRemoveInput](p)),
 	}
 }
 
-// registerDNSActions adds the helper actions of add-zone and zones.remove.
+// registerDNSActions adds the helper actions of the DNS writes.
 func registerDNSActions(m map[string]helperAction) {
 	m[spec.AddZone.Op().ID] = runAddZone
 	m[spec.ZonesRemove.Op().ID] = runRemoveZone
+	m[spec.AddRecord.Op().ID] = runAddRecord
+	m[spec.RecordsUpdate.Op().ID] = runUpdateRecord
+	m[spec.RecordsRemove.Op().ID] = runRemoveRecord
 }
 
 // dnsLost is the outcome-unknown detail of a DNS write whose unit was lost
@@ -53,6 +61,35 @@ func (p *Provider) admitAddZone(ctx context.Context, in spec.ZoneAddInput) error
 
 func (p *Provider) admitRemoveZone(ctx context.Context, in spec.ZoneRemoveInput) error {
 	return p.admitDNS(ctx, in.IfMatch, dnsfile.RemoveZone{Zone: in.Name, Cascade: in.Cascade})
+}
+
+func (p *Provider) admitAddRecord(ctx context.Context, in spec.RecordAddInput) error {
+	return p.admitDNS(ctx, in.IfMatch, dnsfile.AddRecord{FQDN: in.FQDN, IPv4: in.IPv4})
+}
+
+func (p *Provider) admitUpdateRecord(ctx context.Context, in spec.RecordUpdateInput) error {
+	fqdn, err := recordFQDN(in.Name)
+	if err != nil {
+		return err
+	}
+	return p.admitDNS(ctx, in.IfMatch, dnsfile.UpdateRecord{FQDN: fqdn, IPv4: in.IPv4})
+}
+
+func (p *Provider) admitRemoveRecord(ctx context.Context, in spec.RecordRemoveInput) error {
+	fqdn, err := recordFQDN(in.Name)
+	if err != nil {
+		return err
+	}
+	return p.admitDNS(ctx, in.IfMatch, dnsfile.RemoveRecord{FQDN: fqdn})
+}
+
+// recordFQDN is the FQDN of a record ID, "<fqdn>~A" (FR-20); A is the only
+// record type, so any other ID is invalid.
+func recordFQDN(name string) (string, error) {
+	if len(name) > spec.MaxRecordNameLength || !recordRE.MatchString(name) {
+		return "", probErr(invalid("/name", "must match "+spec.RecordNamePattern))
+	}
+	return strings.TrimSuffix(name, spec.RecordIDSeparator+spec.RecordTypeA), nil
 }
 
 // admitDNS is the shared DNS Admit, run in nexusd before an operation
@@ -146,6 +183,44 @@ func runRemoveZone(ctx context.Context, c *helperCall) (any, error) {
 			fmt.Sprintf("the pi-hole helper cannot decode the zones.remove input: %v; nothing was changed", err)))
 	}
 	return applyDNS(ctx, c, in.IfMatch, dnsfile.RemoveZone{Zone: in.Name, Cascade: in.Cascade})
+}
+
+func runAddRecord(ctx context.Context, c *helperCall) (any, error) {
+	var in spec.RecordAddInput
+	if err := json.Unmarshal(c.In.Input, &in); err != nil {
+		return nil, probErr(problem.New(problem.InternalError,
+			fmt.Sprintf("the pi-hole helper cannot decode the add-record input: %v; nothing was changed", err)))
+	}
+	return applyDNS(ctx, c, in.IfMatch, dnsfile.AddRecord{FQDN: in.FQDN, IPv4: in.IPv4})
+}
+
+// runUpdateRecord rewrites the record's one line in place: the pipeline
+// renders the whole file and swaps it in one rename, so the name is never
+// absent from it (FR-21).
+func runUpdateRecord(ctx context.Context, c *helperCall) (any, error) {
+	var in spec.RecordUpdateInput
+	if err := json.Unmarshal(c.In.Input, &in); err != nil {
+		return nil, probErr(problem.New(problem.InternalError,
+			fmt.Sprintf("the pi-hole helper cannot decode the records.update input: %v; nothing was changed", err)))
+	}
+	fqdn, err := recordFQDN(in.Name)
+	if err != nil {
+		return nil, err
+	}
+	return applyDNS(ctx, c, in.IfMatch, dnsfile.UpdateRecord{FQDN: fqdn, IPv4: in.IPv4})
+}
+
+func runRemoveRecord(ctx context.Context, c *helperCall) (any, error) {
+	var in spec.RecordRemoveInput
+	if err := json.Unmarshal(c.In.Input, &in); err != nil {
+		return nil, probErr(problem.New(problem.InternalError,
+			fmt.Sprintf("the pi-hole helper cannot decode the records.remove input: %v; nothing was changed", err)))
+	}
+	fqdn, err := recordFQDN(in.Name)
+	if err != nil {
+		return nil, err
+	}
+	return applyDNS(ctx, c, in.IfMatch, dnsfile.RemoveRecord{FQDN: fqdn})
 }
 
 // applyDNS runs the DNS write pipeline on the DNS file Prepare recorded.

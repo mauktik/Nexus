@@ -1,6 +1,7 @@
-// Cases: TC-104 to TC-108 and TC-ERR26 in
-// planning/pihole-dns-zones/test-cases.md (WI 4.2): add-zone and
-// zones.remove through the Dispatcher (schema, the shared DNS Admit, lane),
+// Cases: TC-104 to TC-108 and TC-ERR26 (WI 4.2), TC-109 to TC-114, TC-E13
+// and TC-ERR27 (WI 4.3) in planning/pihole-dns-zones/test-cases.md:
+// add-zone, zones.remove, add-record, records.update and records.remove
+// through the Dispatcher (schema, the shared DNS Admit, lane),
 // the operation manager and the helper, whose dnswrite pipeline runs against
 // FakeHost + FakeFTL. Also the worked example of A-44 and the helper's own
 // re-check of conf-dir.
@@ -36,6 +37,7 @@ import (
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/providers/pihole/backend"
 	"github.com/mauktik/nexus/internal/providers/pihole/dnscheck"
+	"github.com/mauktik/nexus/internal/providers/pihole/dnsfile"
 	"github.com/mauktik/nexus/internal/providers/pihole/dnswrite"
 	"github.com/mauktik/nexus/internal/providers/pihole/spec"
 	"github.com/mauktik/nexus/internal/providers/pihole/v5"
@@ -491,21 +493,7 @@ func TestZoneOpsMaxRuntimeAndLostDetail(t *testing.T) {
 	w := newHelperWorld(t)
 	check := func(name string, df provider.DetachedFuncs, in any) {
 		t.Helper()
-		id := "op-" + name
-		run := provider.NewRun(id, nil)
-		s, err := df.Prepare(context.Background(), in, run)
-		if err != nil || s.MaxRuntime != 10*time.Minute {
-			t.Errorf("%s: MaxRuntime %s, %v; want 10m", name, s.MaxRuntime, err)
-		}
-		want := "the DNS file may have been replaced; the previous bytes are at " +
-			filepath.Join(w.opsDir, id, dnswrite.RollbackCopyName)
-		if df.LostDetail == nil || !strings.HasPrefix(df.LostDetail(run, in), want) {
-			t.Fatalf("%s: LostDetail does not start %q", name, want)
-		}
-		_, err = df.Finalize(context.Background(), in, detach.Exit{ExitCode: -1, Signal: "SIGKILL"}, run)
-		if slug, pe := slugOf(t, err); slug != problem.OutcomeUnknown || !strings.Contains(pe.Detail, df.LostDetail(run, in)) {
-			t.Errorf("%s: lost unit: %s %q", name, slug, pe.Detail)
-		}
+		checkDNSOpLifetime(t, w, name, df, in)
 	}
 	found := 0
 	for _, b := range w.p.Bindings() {
@@ -525,5 +513,425 @@ func TestZoneOpsMaxRuntimeAndLostDetail(t *testing.T) {
 	}
 	if found != 2 {
 		t.Errorf("%d of add-zone and zones.remove bound, want 2", found)
+	}
+}
+
+// checkDNSOpLifetime checks that a DNS write op runs up to 10 min (A-3) and
+// that its unit, lost without a result, is outcome-unknown naming the
+// rollback copy in the op directory.
+func checkDNSOpLifetime(t *testing.T, w *helperWorld, name string, df provider.DetachedFuncs, in any) {
+	t.Helper()
+	id := "op-" + name
+	run := provider.NewRun(id, nil)
+	s, err := df.Prepare(context.Background(), in, run)
+	if err != nil || s.MaxRuntime != 10*time.Minute {
+		t.Errorf("%s: MaxRuntime %s, %v; want 10m", name, s.MaxRuntime, err)
+	}
+	want := "the DNS file may have been replaced; the previous bytes are at " +
+		filepath.Join(w.opsDir, id, dnswrite.RollbackCopyName)
+	if df.LostDetail == nil || !strings.HasPrefix(df.LostDetail(run, in), want) {
+		t.Fatalf("%s: LostDetail does not start %q", name, want)
+	}
+	_, err = df.Finalize(context.Background(), in, detach.Exit{ExitCode: -1, Signal: "SIGKILL"}, run)
+	if slug, pe := slugOf(t, err); slug != problem.OutcomeUnknown || !strings.Contains(pe.Detail, df.LostDetail(run, in)) {
+		t.Errorf("%s: lost unit: %s %q", name, slug, pe.Detail)
+	}
+}
+
+// records is the record list read through the provider, as fqdn=ipv4, with
+// the etag every item carries.
+func (w *dnsWorld) records(filter ...string) ([]string, string) {
+	w.t.Helper()
+	l, err := w.p.listRecords(context.Background(), spec.RecordListInput{Filter: filter})
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	out, etag := []string{}, ""
+	for _, r := range l.Items {
+		out = append(out, r.Properties.FQDN+"="+r.Properties.IPv4)
+		etag = r.Properties.Etag
+	}
+	return out, etag
+}
+
+// resolve asks FakeFTL for name's A records, as dig @<pihole> does.
+func (w *dnsWorld) resolve(name string) []string {
+	w.t.Helper()
+	ans, err := dnscheck.Query(context.Background(), w.h.FTL().Addr(), name, 2*time.Second)
+	if err != nil {
+		w.t.Fatalf("query %s: %v", name, err)
+	}
+	out := []string{}
+	for _, a := range ans.A {
+		out = append(out, a.String())
+	}
+	return out
+}
+
+// restartdnsRuns counts the `pihole restartdns` argvs run since the last
+// ResetArgvs.
+func (w *dnsWorld) restartdnsRuns() int {
+	n := 0
+	for _, a := range w.h.Argvs() {
+		if len(a) == 2 && a[0] == piholeBin && a[1] == "restartdns" {
+			n++
+		}
+	}
+	return n
+}
+
+// mustSucceed invokes op and returns its result, failing on a refusal.
+func (w *dnsWorld) mustSucceed(op def.Op, input string) spec.DNSChangeResult {
+	w.t.Helper()
+	rec, pe := w.invoke(op, input)
+	if pe != nil {
+		w.t.Fatalf("%s %s: %s %q", op.ID, input, pe.Slug(), pe.Detail)
+	}
+	return succeeded[spec.DNSChangeResult](w.t, rec)
+}
+
+// verifiedOne is the one verified name of res, which must have passed with
+// the expected addresses want.
+func verifiedOne(t *testing.T, what string, res spec.DNSChangeResult, fqdn string, want []string) {
+	t.Helper()
+	if len(res.Verified) != 1 {
+		t.Fatalf("%s: verified %+v, want only %s", what, res.Verified, fqdn)
+	}
+	v := res.Verified[0]
+	if v.FQDN != fqdn || !v.Passed || !slices.Equal(v.Expected, want) || !slices.Equal(v.Observed, want) {
+		t.Errorf("%s: verified %+v, want %s passed with %v", what, v, fqdn, want)
+	}
+}
+
+// TC-109 (FR-20, FR-21, FR-24): an add under app.lan grows the zone's list
+// from 1 to 2 records with the new etag; FakeFTL serves the commanded
+// address; the result is verified with one restart.
+func TestTC109_RecordAddSecondState(t *testing.T) {
+	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
+	w := newDNSWorld(t, rendered)
+	restarts := w.h.FTL().Restarts()
+	if got, etag := w.records("zone=app.lan"); len(got) != 1 || etag != etagOf(rendered) {
+		t.Fatalf("before: %v %s, want 1 record with etag %s", got, etag, etagOf(rendered))
+	}
+
+	res := w.mustSucceed(spec.AddRecord.Op(), `{"fqdn":"nexus-test.app.lan","ipv4":"192.168.7.9"}`)
+	if !res.Changed || !res.Restarted || res.Etag != etagOf(w.live()) {
+		t.Errorf("result %+v, want changed and restarted with the live etag", res)
+	}
+	verifiedOne(t, "add", res, "nexus-test.app.lan", []string{"192.168.7.9"})
+	got, etag := w.records("zone=app.lan")
+	slices.Sort(got) // The renderer orders a zone's records; TC-109 asks only for both
+	if want := []string{"nexus-test.app.lan=192.168.7.9", "photon.app.lan=192.168.7.5"}; !slices.Equal(got, want) ||
+		etag != res.Etag || etag == etagOf(rendered) {
+		t.Errorf("after: %v %s, want %v with the new etag %s", got, etag, want, res.Etag)
+	}
+	if ips := w.resolve("nexus-test.app.lan"); !slices.Equal(ips, []string{"192.168.7.9"}) {
+		t.Errorf("FakeFTL answers %v, want 192.168.7.9", ips)
+	}
+	if n := w.h.FTL().Restarts() - restarts; n != 1 {
+		t.Errorf("%d restarts, want 1", n)
+	}
+	noLocalLine(t, w.live())
+}
+
+// TC-110 (FR-21, FR-22): updating a record to the address it has is
+// changed:false with no write and no restart.
+func TestTC110_UpdateSameIPNoOp(t *testing.T) {
+	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
+	w := newDNSWorld(t, rendered)
+	pid, restarts := w.h.FTL().PID(), w.h.FTL().Restarts()
+	fi0, err := os.Stat(w.file)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res := w.mustSucceed(spec.RecordsUpdate.Op(), `{"name":"kiwi.home.local~A","ipv4":"192.168.7.5"}`)
+	if res.Changed || res.Restarted || res.Etag != etagOf(rendered) || len(res.Verified) != 0 {
+		t.Errorf("result %+v, want changed false, not restarted, etag unchanged", res)
+	}
+	fi1, err := os.Stat(w.file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(w.live()) != string(rendered) || !os.SameFile(fi0, fi1) {
+		t.Error("the DNS file was written")
+	}
+	if w.restartdnsRuns() != 0 || w.ranConfigTest() || w.h.FTL().Restarts() != restarts || w.h.FTL().PID() != pid {
+		t.Errorf("argvs %q, restarts %d -> %d: want no test and no restart", w.h.Argvs(), restarts, w.h.FTL().Restarts())
+	}
+}
+
+// TC-111 (FR-21): an update rewrites the line in place in one atomic
+// replacement: every read of the file during the op holds the name, and
+// the final file has the new line where the old one was.
+func TestTC111_UpdateInPlaceNeverAbsent(t *testing.T) {
+	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
+	w := newDNSWorld(t, rendered)
+
+	stop := make(chan struct{})
+	done := make(chan []string)
+	var reads int
+	go func() {
+		var bad []string
+		defer func() { done <- bad }()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			b, err := os.ReadFile(w.file)
+			if err != nil {
+				bad = append(bad, err.Error())
+				continue
+			}
+			reads++
+			m := dnsfile.Parse(b).Model()
+			if !slices.ContainsFunc(m.Records, func(r dnsfile.Record) bool { return r.FQDN == "kiwi.home.local" }) {
+				bad = append(bad, string(b))
+			}
+		}
+	}()
+	res := w.mustSucceed(spec.RecordsUpdate.Op(), `{"name":"kiwi.home.local~A","ipv4":"192.168.7.50"}`)
+	close(stop)
+	if bad := <-done; len(bad) != 0 || reads == 0 {
+		t.Errorf("%d reads; %d without kiwi.home.local: %q", reads, len(bad), bad)
+	}
+	verifiedOne(t, "update", res, "kiwi.home.local", []string{"192.168.7.50"})
+
+	oldLines := strings.Split(string(rendered), "\n")
+	newLines := strings.Split(string(w.live()), "\n")
+	i := slices.Index(oldLines, "address=/kiwi.home.local/192.168.7.5")
+	if len(newLines) != len(oldLines) || i < 0 || newLines[i] != "address=/kiwi.home.local/192.168.7.50" {
+		t.Errorf("final file:\n%s\nwant line %d rewritten and %d lines", w.live(), i+1, len(oldLines))
+	}
+	want := slices.Clone(oldLines)
+	want[i] = "address=/kiwi.home.local/192.168.7.50"
+	if !slices.Equal(newLines, want) {
+		t.Errorf("final file:\n%s\nwant only the kiwi line changed", w.live())
+	}
+}
+
+// TC-112 (FR-21): unzoned records can be updated and removed; verification
+// uses the commanded address and absence; the updated one stays in the
+// unzoned section.
+func TestTC112_UnzonedRecordsManageable(t *testing.T) {
+	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
+	w := newDNSWorld(t, rendered)
+
+	res := w.mustSucceed(spec.RecordsUpdate.Op(), `{"name":"unity.local~A","ipv4":"192.168.7.2"}`)
+	verifiedOne(t, "update unity.local", res, "unity.local", []string{"192.168.7.2"})
+	res = w.mustSucceed(spec.RecordsRemove.Op(), `{"name":"unity.lan~A"}`)
+	verifiedOne(t, "remove unity.lan", res, "unity.lan", []string{})
+
+	live := string(w.live())
+	if strings.Contains(live, "unity.lan") {
+		t.Errorf("unity.lan is still in the file:\n%s", live)
+	}
+	if !strings.HasSuffix(live, "# nexus:unzoned\naddress=/unity.local/192.168.7.2\n") {
+		t.Errorf("unity.local is not in the unzoned section:\n%s", live)
+	}
+	if got, _ := w.records("zone=unzoned"); !slices.Equal(got, []string{"unity.local=192.168.7.2"}) {
+		t.Errorf("unzoned records %v", got)
+	}
+	if ips := w.resolve("unity.local"); !slices.Equal(ips, []string{"192.168.7.2"}) {
+		t.Errorf("unity.local answers %v", ips)
+	}
+}
+
+// TC-113 (FR-21): a name on two lines cannot be updated or removed: 409
+// naming it, no operation, the file unchanged.
+func TestTC113_DuplicatesRefused(t *testing.T) {
+	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
+	seed := strings.Replace(string(rendered), "address=/photon.app.lan/192.168.7.5\n",
+		"address=/photon.app.lan/192.168.7.5\naddress=/dup.app.lan/192.168.7.8\naddress=/dup.app.lan/192.168.7.9\n", 1)
+	w := newDNSWorld(t, []byte(seed))
+
+	for _, c := range []struct {
+		op    def.Op
+		input string
+	}{
+		{spec.RecordsUpdate.Op(), `{"name":"dup.app.lan~A","ipv4":"192.168.7.10"}`},
+		{spec.RecordsRemove.Op(), `{"name":"dup.app.lan~A"}`},
+	} {
+		_, pe := w.invoke(c.op, c.input)
+		wantProblem(t, c.op.ID, pe, problem.Conflict, 409, "")
+		if !strings.Contains(pe.Detail, "dup.app.lan") {
+			t.Errorf("%s: detail %q does not name dup.app.lan", c.op.ID, pe.Detail)
+		}
+	}
+	if n := w.opCount(); n != 0 || string(w.live()) != seed {
+		t.Errorf("%d operations, file changed %v", n, string(w.live()) != seed)
+	}
+}
+
+// TC-114 (NFR-2): an add, an update and a remove each run `pihole
+// restartdns` exactly once.
+func TestTC114_OneRestartPerRecordOp(t *testing.T) {
+	w := newDNSWorld(t, dnsFixture(t, "fr23-seven-lines.rendered.conf"))
+	for _, c := range []struct {
+		op    def.Op
+		input string
+	}{
+		{spec.AddRecord.Op(), `{"fqdn":"one.app.lan","ipv4":"192.168.7.11"}`},
+		{spec.RecordsUpdate.Op(), `{"name":"one.app.lan~A","ipv4":"192.168.7.12"}`},
+		{spec.RecordsRemove.Op(), `{"name":"one.app.lan~A"}`},
+	} {
+		w.h.ResetArgvs()
+		restarts := w.h.FTL().Restarts()
+		if res := w.mustSucceed(c.op, c.input); !res.Restarted {
+			t.Errorf("%s: not restarted: %+v", c.op.ID, res)
+		}
+		if n, r := w.restartdnsRuns(), w.h.FTL().Restarts()-restarts; n != 1 || r != 1 {
+			t.Errorf("%s: %d restartdns argvs, %d FTL restarts; want 1 and 1", c.op.ID, n, r)
+		}
+	}
+}
+
+// TC-E13 (FR-17, FR-21): a record named exactly like its zone belongs to
+// it and covers the zone's names that have no line of their own.
+func TestTCE13_RecordNamedLikeItsZone(t *testing.T) {
+	w := newDNSWorld(t, dnsFixture(t, "fr23-seven-lines.rendered.conf"))
+	res := w.mustSucceed(spec.AddRecord.Op(), `{"fqdn":"app.lan","ipv4":"192.168.7.3"}`)
+	verifiedOne(t, "add app.lan", res, "app.lan", []string{"192.168.7.3"})
+	r, err := w.p.getRecord(context.Background(), spec.NameInput{Name: "app.lan~A"})
+	if err != nil || r.Properties.Zone == nil || *r.Properties.Zone != "app.lan" {
+		t.Errorf("app.lan~A: %+v %v, want zone app.lan", r.Properties, err)
+	}
+	if ips := w.resolve("x.app.lan"); !slices.Equal(ips, []string{"192.168.7.3"}) {
+		t.Errorf("x.app.lan answers %v, want 192.168.7.3", ips)
+	}
+	if ips := w.resolve("photon.app.lan"); !slices.Equal(ips, []string{"192.168.7.5"}) {
+		t.Errorf("photon.app.lan answers %v, want its own 192.168.7.5", ips)
+	}
+}
+
+// Removing a name that a shorter record name still covers verifies against
+// that name's address, not absence (FR-24).
+func TestRecordRemoveCoveredBySuffix(t *testing.T) {
+	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
+	seed := strings.Replace(string(rendered), "# nexus:zone app.lan\n", "# nexus:zone app.lan\naddress=/app.lan/192.168.7.3\n", 1)
+	w := newDNSWorld(t, []byte(seed))
+	res := w.mustSucceed(spec.RecordsRemove.Op(), `{"name":"photon.app.lan~A"}`)
+	verifiedOne(t, "remove photon.app.lan", res, "photon.app.lan", []string{"192.168.7.3"})
+	if v := res.Verified[0]; v.RCode != "NOERROR" {
+		t.Errorf("rcode %q, want NOERROR", v.RCode)
+	}
+	if strings.Contains(string(w.live()), "photon.app.lan") {
+		t.Errorf("photon.app.lan is still in the file:\n%s", w.live())
+	}
+}
+
+// TC-ERR27 (FR-21, ASM-9, ASM-11): an add under no zone is 422
+// dns-name-unzoned naming it; an add of an existing name 409; an update of
+// an unknown record 404; 0.0.0.0 400; a stale ifMatch 409
+// dns-file-conflict. No operation is created and the file is unchanged.
+func TestTCERR27_RecordRefusals(t *testing.T) {
+	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
+	w := newDNSWorld(t, rendered)
+
+	_, pe := w.invoke(spec.AddRecord.Op(), `{"fqdn":"new.example.org","ipv4":"192.168.7.9"}`)
+	wantProblem(t, "unzoned add", pe, problem.DNSNameUnzoned, 422, "")
+	if pe.Extensions["name"] != "new.example.org" {
+		t.Errorf("unzoned add: extensions %+v, want name new.example.org", pe.Extensions)
+	}
+	_, pe = w.invoke(spec.AddRecord.Op(), `{"fqdn":"kiwi.home.local","ipv4":"192.168.7.9"}`)
+	wantProblem(t, "existing add", pe, problem.Conflict, 409, "")
+	_, pe = w.invoke(spec.RecordsUpdate.Op(), `{"name":"ghost.app.lan~A","ipv4":"192.168.7.9"}`)
+	wantProblem(t, "ghost update", pe, problem.NotFound, 404, "")
+	_, pe = w.invoke(spec.RecordsRemove.Op(), `{"name":"ghost.app.lan~A"}`)
+	wantProblem(t, "ghost remove", pe, problem.NotFound, 404, "")
+	_, pe = w.invoke(spec.AddRecord.Op(), `{"fqdn":"new.app.lan","ipv4":"0.0.0.0"}`)
+	wantProblem(t, "0.0.0.0", pe, problem.ValidationFailed, 400, "")
+	_, pe = w.invoke(spec.RecordsUpdate.Op(), `{"name":"kiwi.home.local~B","ipv4":"192.168.7.9"}`)
+	wantProblem(t, "type B", pe, problem.ValidationFailed, 400, "")
+	stale := "sha256:" + strings.Repeat("0", 64)
+	_, pe = w.invoke(spec.RecordsRemove.Op(), `{"name":"kiwi.home.local~A","ifMatch":"`+stale+`"}`)
+	wantProblem(t, "stale ifMatch", pe, problem.DNSFileConflict, 409, "")
+
+	if n := w.opCount(); n != 0 || string(w.live()) != string(rendered) {
+		t.Errorf("%d operations, file changed %v", n, string(w.live()) != string(rendered))
+	}
+}
+
+// The record ops refuse a DNS write on the v6 backend at Admit, as every DNS
+// write does.
+func TestRecordOpsRefusedOnV6(t *testing.T) {
+	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
+	w := newDNSWorld(t, rendered)
+	w.p.reader.Store(&readerBox{r: backend.Unsupported{}})
+	for _, c := range []struct {
+		op    def.Op
+		input string
+	}{
+		{spec.AddRecord.Op(), `{"fqdn":"new.app.lan","ipv4":"192.168.7.9"}`},
+		{spec.RecordsUpdate.Op(), `{"name":"kiwi.home.local~A","ipv4":"192.168.7.9"}`},
+		{spec.RecordsRemove.Op(), `{"name":"kiwi.home.local~A"}`},
+	} {
+		_, pe := w.invoke(c.op, c.input)
+		wantProblem(t, c.op.ID, pe, problem.CapabilityUnavailable, 503, "")
+	}
+	if n := w.opCount(); n != 0 || string(w.live()) != string(rendered) {
+		t.Errorf("%d operations, file changed %v", n, string(w.live()) != string(rendered))
+	}
+}
+
+// add-record, records.update and records.remove run up to 10 min (A-3); a
+// unit lost without a result is outcome-unknown naming the rollback copy.
+func TestRecordOpsMaxRuntimeAndLostDetail(t *testing.T) {
+	w := newHelperWorld(t)
+	found := 0
+	for _, b := range w.p.Bindings() {
+		df, ok := b.Detached()
+		switch b.Op().ID {
+		case spec.AddRecord.Op().ID:
+			checkDNSOpLifetime(t, w, "add-record", df, spec.RecordAddInput{FQDN: "a.app.lan", IPv4: "192.168.7.9"})
+		case spec.RecordsUpdate.Op().ID:
+			checkDNSOpLifetime(t, w, "update-record", df, spec.RecordUpdateInput{Name: "a.app.lan~A", IPv4: "192.168.7.9"})
+		case spec.RecordsRemove.Op().ID:
+			checkDNSOpLifetime(t, w, "remove-record", df, spec.RecordRemoveInput{Name: "a.app.lan~A"})
+		default:
+			continue
+		}
+		if !ok {
+			t.Errorf("%s is not detached", b.Op().ID)
+		}
+		found++
+	}
+	if found != 3 {
+		t.Errorf("%d of add-record, records.update and records.remove bound, want 3", found)
+	}
+}
+
+// The helper parses the record ID again and refuses one that is not
+// <fqdn>~A, writing nothing.
+func TestRecordHelperRefusesBadRecordID(t *testing.T) {
+	rendered := dnsFixture(t, "fr23-seven-lines.rendered.conf")
+	w := newDNSWorld(t, rendered)
+	var df provider.DetachedFuncs
+	for _, b := range w.p.Bindings() {
+		if b.Op().ID == spec.RecordsRemove.Op().ID {
+			df, _ = b.Detached()
+		}
+	}
+	if df.Prepare == nil {
+		t.Fatal("records.remove is not bound")
+	}
+	const id = "op-record-bad-id"
+	in := spec.RecordRemoveInput{Name: "kiwi.home.local"}
+	if _, err := df.Prepare(context.Background(), in, provider.NewRun(id, nil)); err != nil {
+		t.Fatal(err)
+	}
+	inj := w.inject()
+	inj.DNSServer = w.h.FTL().Addr()
+	if code := runHelper(context.Background(), filepath.Join(w.opsDir, id), io.Discard, io.Discard, inj); code != 0 {
+		t.Fatalf("helper exit %d", code)
+	}
+	_, err := df.Finalize(context.Background(), in, detach.Exit{}, provider.NewRun(id, nil))
+	if slug, _ := slugOf(t, err); slug != problem.ValidationFailed {
+		t.Errorf("got %s, want validation-failed", slug)
+	}
+	if string(w.live()) != string(rendered) {
+		t.Error("the DNS file changed")
 	}
 }
