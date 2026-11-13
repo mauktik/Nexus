@@ -149,6 +149,19 @@ func waitFile(t *testing.T, path string, limit time.Duration) []byte {
 	}
 }
 
+// waitNoFile waits until path does not exist.
+func waitNoFile(t *testing.T, path string, limit time.Duration) {
+	t.Helper()
+	for deadline := time.Now().Add(limit); ; time.Sleep(20 * time.Millisecond) {
+		if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s still exists after %s", path, limit)
+		}
+	}
+}
+
 func waitExit(t *testing.T, dir string, limit time.Duration) detach.Exit {
 	t.Helper()
 	waitFile(t, filepath.Join(dir, detach.ExitFile), limit)
@@ -368,6 +381,10 @@ func TestListUnitsReturnsLiveIdentitiesOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
+		// A SIGTERM before the supervisor's signal.Notify kills it with no
+		// exit.json; it unlinks spec.json only after that, so the cancel
+		// waits for that first.
+		waitNoFile(t, filepath.Join(l.Dir("a"), detach.SpecFile), 10*time.Second)
 		if err := l.Cancel(context.Background(), "a"); err == nil {
 			waitExit(t, l.Dir("a"), 10*time.Second)
 		}
