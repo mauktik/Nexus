@@ -1,0 +1,13 @@
+=== RUN   TestParitySuitesRanAsRoot
+    platform_test.go:239: ops.log: 138 results, 40 process-backend subtests
+    platform_test.go:239: detach.log: 44 results, 1 process-backend subtests
+    platform_test.go:265: ops-nonroot.log: 138 results; skips:
+    platform_test.go:265: detach-nonroot.log: 44 results; skips:
+        TestOperationCgroupContainment: cgroup_linux_test.go:227: needs root
+        TestCancelKillsSetsidGrandchild: cgroup_linux_test.go:272: needs root
+        TestLeftoverSweepOnlyForControlGroup: cgroup_linux_test.go:301: needs root
+        TestCgroupFallbacks: cgroup_linux_test.go:381: needs root
+        TestSystemdAvailabilityRefusesSilentDowngrade: launcher_test.go:113: this host has systemd; the negative case needs a host without it
+    platform_test.go:301: test.log: 178 results; 11 gated to openrc or to apt: TestOpenRCInstallFirstAndUpgrade, TestOpenRCUninstallAndPurge, TestOpenRCServiceLifecycle, TestOpRunsAcrossNexusdRestart, TestLostSupervisorWhileDownIsOutcomeUnknown, TestCancelLeavesNoDescendantOnOpenRC, TestAptUnavailableOnAlpine, TestCgroupCleanupDoesNotKillSupervisor, TestAlpineHarnessSelfCheck, TestReleaseBinaryStaticOnMusl, TestRequireInitGating/openrc-gated
+--- PASS: TestParitySuitesRanAsRoot (0.00s)
+PASS
