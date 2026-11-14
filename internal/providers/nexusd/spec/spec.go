@@ -313,7 +313,9 @@ var (
 		Description: "Stages a release tarball, the request body, with its detached signature for a later " +
 			"nexusd update, and answers 201 with uploadId, sha256, sizeBytes and expiresAt. Side effects: the " +
 			"body is stored on the host, never in memory whole, and deleted an hour later or when the update " +
-			"that used it ends; at most 2 are staged at once, a third answers 409. A body over " +
+			"that used it ends; at most 2 are staged at once, and a body that matches neither answers 409 once " +
+			"received, while re-sending a staged upload (same bytes and signature) answers 201 with its " +
+			"existing uploadId. A body over " +
 			"providers.nexusd.update.maxUploadBytes answers 413 upload-too-large and nothing is kept. The " +
 			"signature is verified by update, not here." + adminNote,
 		Scope: def.Scope{Name: AdminScope}, Risk: def.RiskMutating, Mode: def.ModeSync,

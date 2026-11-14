@@ -67,7 +67,10 @@ type stagingHooks struct {
 
 // staging holds uploaded release tarballs until an update uses them or they
 // expire an hour after they were received (FR-6, A-9). At most maxStaged
-// count at once, in flight and stored together. One mutex guards both the
+// are stored at once, and in flight and stored together they stay under
+// maxStaged, except for one probe upload that is received while every slot
+// holds a stored upload, so a retry can be recognised by its digest (A-26):
+// at most maxStaged stored plus one in flight. One mutex guards both the
 // anonymous in-flight count and the map of stored uploads: a reservation
 // carries no upload ID, and receive generates one (A-51).
 type staging struct {
@@ -96,14 +99,17 @@ func (s *staging) open() error {
 	return s.sweep()
 }
 
-// reserve takes one of the maxStaged slots for an upload about to be
-// received, before its body is read, so with maxStaged counted any further
-// upload is refused, identical to a staged one or not (A-26). The release
-// it returns frees the slot; calls after the first do nothing.
+// reserve admits an upload about to be received, before its body is read
+// (A-26). It is refused when another upload is already in flight and the
+// in-flight and stored counts together reach maxStaged. With nothing in
+// flight it is admitted even when maxStaged uploads are stored: that one
+// probe is received so that a retry of a stored upload is recognised by its
+// digest, and receive refuses it when it matches none. The release it
+// returns frees the slot; calls after the first do nothing.
 func (s *staging) reserve() (release func(), err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.inflight+len(s.stored) >= maxStaged {
+	if s.inflight > 0 && s.inflight+len(s.stored) >= maxStaged {
 		return nil, s.fullLocked()
 	}
 	s.inflight++
@@ -126,6 +132,12 @@ func (s *staging) fullLocked() *problem.Error {
 		return problem.New(problem.Conflict, fmt.Sprintf("%d uploads are still receiving, the most allowed at "+
 			"once. Retry once one of them has finished.", maxStaged))
 	}
+	return s.storedFullLocked()
+}
+
+// storedFullLocked is the conflict for a body that matches no stored upload
+// while maxStaged are stored. s.mu is held.
+func (s *staging) storedFullLocked() *problem.Error {
 	var earliest time.Time
 	for _, u := range s.stored {
 		if earliest.IsZero() || u.meta.Expires.Before(earliest) {
@@ -134,6 +146,22 @@ func (s *staging) fullLocked() *problem.Error {
 	}
 	return problem.New(problem.Conflict, fmt.Sprintf("%d uploads are already staged, the most allowed; the "+
 		"earliest expires at %s. Retry after that.", maxStaged, earliest.UTC().Format(time.RFC3339)))
+}
+
+// settleLocked decides what a received body with digest and signature
+// becomes: an unexpired stored upload with the same digest and signature is
+// returned as dup, whatever the count (A-26); otherwise the body is refused
+// with conflict when maxStaged uploads are stored. s.mu is held.
+func (s *staging) settleLocked(digest, signature string) (existing stagedMeta, dup bool, err error) {
+	for _, u := range s.stored {
+		if u.meta.SHA256 == digest && u.meta.Signature == signature && s.now().Before(u.meta.Expires) {
+			return u.meta, true, nil
+		}
+	}
+	if len(s.stored) >= maxStaged {
+		return stagedMeta{}, false, s.storedFullLocked()
+	}
+	return stagedMeta{}, false, nil
 }
 
 // newUploadID returns 128 random bits as lowercase hex.
@@ -150,9 +178,10 @@ func newUploadID() (string, error) {
 // (0600, O_EXCL), then fsync, rename to release.tar.gz, chmod 0400 and
 // meta.json (F4). On success the upload is stored, with its expiry armed,
 // before receive returns. When a stored upload has the same digest and
-// signature, the new copy is discarded and that upload is returned (A-26).
-// Any failure removes the directory. receive never touches the in-flight
-// count: the reservation's release does.
+// signature, the new copy is discarded and that upload is returned, even
+// with maxStaged stored; a body that matches none is refused with conflict
+// when maxStaged are stored (A-26). Any failure removes the directory.
+// receive never touches the in-flight count: the reservation's release does.
 func (s *staging) receive(ctx context.Context, signature string, body io.Reader) (_ stagedMeta, err error) {
 	id, err := newUploadID()
 	if err != nil {
@@ -184,6 +213,19 @@ func (s *staging) receive(ctx context.Context, signature string, body io.Reader)
 			return stagedMeta{}, err
 		}
 	}
+	// Settled once before meta.json is written, so a refused body never
+	// leaves a valid-looking upload for a restart's sweep, and again at
+	// the insert, which is the atomic decision.
+	s.mu.Lock()
+	existing, dup, err := s.settleLocked(digest, signature)
+	s.mu.Unlock()
+	if err != nil {
+		return stagedMeta{}, err
+	}
+	if dup {
+		discardDuplicate(dir)
+		return existing, nil
+	}
 	received := s.now().UTC().Truncate(time.Second)
 	meta := stagedMeta{UploadID: id, SHA256: digest, SizeBytes: size, Signature: signature, Received: received,
 		Expires: received.Add(stagingTTL)}
@@ -192,21 +234,28 @@ func (s *staging) receive(ctx context.Context, signature string, body io.Reader)
 	}
 
 	s.mu.Lock()
-	for _, u := range s.stored {
-		if u.meta.SHA256 == digest && u.meta.Signature == signature && s.now().Before(u.meta.Expires) {
-			existing := u.meta
-			s.mu.Unlock()
-			if err := os.RemoveAll(dir); err != nil {
-				// The existing upload stands; the duplicate is only clutter
-				// that the next sweep removes.
-				slog.Warn("nexusd: cannot remove a duplicate upload", "dir", dir, "error", err.Error())
-			}
-			return existing, nil
-		}
+	existing, dup, err = s.settleLocked(digest, signature)
+	if err == nil && !dup {
+		s.insertLocked(meta, dir)
 	}
-	s.insertLocked(meta, dir)
 	s.mu.Unlock()
+	if err != nil {
+		return stagedMeta{}, err
+	}
+	if dup {
+		discardDuplicate(dir)
+		return existing, nil
+	}
 	return meta, nil
+}
+
+// discardDuplicate removes the directory of a body that matched a stored
+// upload. The stored upload stands; a failed removal is only clutter that the
+// next sweep removes.
+func discardDuplicate(dir string) {
+	if err := os.RemoveAll(dir); err != nil {
+		slog.Warn("nexusd: cannot remove a duplicate upload", "dir", dir, "error", err.Error())
+	}
 }
 
 // writeBody streams body into path+".partial" and renames it to path, mode

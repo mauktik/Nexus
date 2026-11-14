@@ -206,11 +206,12 @@ func TestTCSM98_CLIEndToEndUpdateRefusals(t *testing.T) {
 		pkgFile(updateTop("v9.9.2")+"/../../evil", "x", 0o644)), k)
 	old := writePackage(t, dir, "old-v9.9.0.tar.gz", updatePackage(t, "v9.9.0", "v9.9.0"), k)
 
+	old2 := writePackage(t, dir, "old-v9.8.0.tar.gz", updatePackage(t, "v9.8.0", "v9.8.0"), k)
+
 	// Step 1 runs on a host with no trusted key, and steps 2 to 5 on one
-	// with K trusted. On one host, step 1's and step 4's refused uploads
-	// would stay staged (update-not-configured and version-downgrade keep
-	// the upload), and step 5's re-upload would meet the bound of 2 staged
-	// uploads (409, TC-SM-E3) instead of the deduplicated staged copy.
+	// with K trusted. Step 4's and step 4b's refused uploads stay staged
+	// (version-downgrade keeps the upload), so step 5's retry meets the bound
+	// of 2 staged uploads and is answered by the staged copy (A-26, TC-SM-E3).
 	unconfigured := newUpdateStack(t, updateStackConfig{})
 	u := newUpdateStack(t, updateStackConfig{keys: []ed25519.PrivateKey{k}})
 	update := func(t *testing.T, args ...string) cliResult {
@@ -245,11 +246,16 @@ func TestTCSM98_CLIEndToEndUpdateRefusals(t *testing.T) {
 	if p["runningVersion"] != "v9.9.1" || p["packageVersion"] != "v9.9.0" {
 		t.Errorf("downgrade problem %v, want v9.9.1 and v9.9.0", p)
 	}
+	// Step 4b: a second distinct refused upload, so 2 are staged.
+	refused(t, update(t, "--file", old2), problem.VersionDowngrade)
 	if ops := u.operations(t); len(ops) != 0 {
 		t.Fatalf("refused updates created operations %+v", ops)
 	}
+	if n := len(stagingEntries(t, u.stagingDir())); n != 2 {
+		t.Fatalf("staging holds %d uploads, want the 2 refused ones", n)
+	}
 
-	// Step 5.
+	// Step 5: at the bound, the retry reuses the staged upload (A-26).
 	r := update(t, "--file", old, "--allow-downgrade", "--no-wait")
 	if r.code != 0 {
 		t.Fatalf("downgrade with the flag: exit %d: %s", r.code, r.stderr)

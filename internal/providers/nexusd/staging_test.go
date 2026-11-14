@@ -312,14 +312,19 @@ func TestTCSM72_ReUploadingTheSameBytesAnd(t *testing.T) {
 	if n := len(stagingEntries(t, s.stagingDir())); n != 2 {
 		t.Errorf("staging holds %d dirs, want 2", n)
 	}
+	// With 2 staged, a retry of a staged upload is still the existing one (A-26).
+	fourth, _ := stored(t, s.upload(t, s.admin, sig, body))
+	if fourth != first {
+		t.Errorf("re-upload at the bound answered %+v, want the first upload %+v", fourth, first)
+	}
 	var storedRecs int
 	for _, r := range s.auditOf(t, spec.Upload.Op().ID) {
 		if r.Outcome == audit.OutcomeStored {
 			storedRecs++
 		}
 	}
-	if storedRecs != 3 {
-		t.Errorf("%d stored records, want 3", storedRecs)
+	if storedRecs != 4 {
+		t.Errorf("%d stored records, want 4", storedRecs)
 	}
 }
 
@@ -573,8 +578,10 @@ func countBodies(st *staging) func() int64 {
 	}
 }
 
-// TC-SM-E3 (WI 5.1; FR-6): Re-uploading a staged upload while 2 are staged
-// is refused 409 before the body is read.
+// TC-SM-E3 (WI 5.1; FR-6, A-26): With 2 uploads staged, re-uploading a
+// staged one returns its existing uploadId, and any other body is refused
+// 409 once it has been received. The body is read in both cases: dedup needs
+// its digest.
 func TestTCSME3_ReUploadingAStagedUploadWhile(t *testing.T) {
 	clk := newFakeClock(stagingT0)
 	s := newStack(t, stackConfig{opts: Options{Now: clk.Now}, clock: clk})
@@ -582,22 +589,35 @@ func TestTCSME3_ReUploadingAStagedUploadWhile(t *testing.T) {
 	a, expA := stored(t, s.upload(t, s.admin, sigA, bodyA))
 	clk.Advance(t, 10*time.Minute)
 	b, expB := stored(t, s.upload(t, s.admin, newSignature(t), randomBytes(t, 4096)))
+	want := []string{a.UploadID, b.UploadID}
+	slices.Sort(want)
+	st := s.stg(t)
 
-	read := countBodies(s.stg(t))
-	detail := wantConflict(t, s.upload(t, s.admin, sigA, bodyA))
+	read := countBodies(st)
+	again, _ := stored(t, s.upload(t, s.admin, sigA, bodyA))
+	if again != a {
+		t.Errorf("re-upload at the bound answered %+v, want the staged upload %+v", again, a)
+	}
+	if n := read(); n != int64(len(bodyA)) {
+		t.Errorf("Receive read %d body bytes of the re-upload, want %d", n, len(bodyA))
+	}
+	if names := stagingEntries(t, s.stagingDir()); !slices.Equal(names, want) {
+		t.Errorf("staging holds %v after the re-upload, want %v", names, want)
+	}
+
+	// Same bytes, another signature: not a retry of A, so the bound refuses it.
+	detail := wantConflict(t, s.upload(t, s.admin, newSignature(t), bodyA))
 	if !strings.Contains(detail, expA) {
 		t.Errorf("detail %q does not name A's expiresAt %s", detail, expA)
 	}
 	if strings.Contains(detail, expB) {
 		t.Errorf("detail %q names B's expiresAt %s", detail, expB)
 	}
-	want := []string{a.UploadID, b.UploadID}
-	slices.Sort(want)
 	if names := stagingEntries(t, s.stagingDir()); !slices.Equal(names, want) {
-		t.Errorf("staging holds %v, want %v", names, want)
+		t.Errorf("staging holds %v after the refusal, want %v", names, want)
 	}
-	if n := read(); n != 0 {
-		t.Errorf("Receive read %d body bytes, want 0", n)
+	if n := st.inflightCount(); n != 0 {
+		t.Errorf("in flight %d after the refusal, want 0", n)
 	}
 }
 
@@ -891,6 +911,46 @@ func TestTCSMERR38_AThirdConcurrentOrStagedUpload(t *testing.T) {
 		}
 		if n := st.inflightCount(); n != 0 {
 			t.Errorf("in flight %d at the end, want 0", n)
+		}
+	})
+
+	t.Run("F probe at the bound", func(t *testing.T) {
+		clk := newFakeClock(stagingT0)
+		st := newStaging(filepath.Join(t.TempDir(), stagingDirName), clk.Now, clk.AfterFunc)
+		if err := st.open(); err != nil {
+			t.Fatal(err)
+		}
+		bodyA, sigA := randomBytes(t, 512), newSignature(t)
+		a, err := st.receive(t.Context(), sigA, bytes.NewReader(bodyA))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.receive(t.Context(), newSignature(t), bytes.NewReader(randomBytes(t, 512))); err != nil {
+			t.Fatal(err)
+		}
+		// Two stored: one probe is admitted, a second one while it is in flight is not.
+		probe, err := st.reserve()
+		if err != nil {
+			t.Fatalf("the probe at the bound: %v", err)
+		}
+		if _, err := st.reserve(); err == nil {
+			t.Fatal("a second reservation at the bound was admitted, want conflict")
+		}
+		again, err := st.receive(t.Context(), sigA, bytes.NewReader(bodyA))
+		if err != nil || again != a {
+			t.Errorf("the probe of a staged body answered %+v, %v; want %+v", again, err, a)
+		}
+		_, err = st.receive(t.Context(), newSignature(t), bytes.NewReader(randomBytes(t, 512)))
+		var pe *problem.Error
+		if !errors.As(err, &pe) || pe.Slug() != problem.Conflict {
+			t.Errorf("the probe of a new body: %v, want conflict", err)
+		}
+		probe()
+		if n := st.storedCount(); n != 2 {
+			t.Errorf("%d stored, want 2", n)
+		}
+		if names := stagingEntries(t, st.dir); len(names) != 2 {
+			t.Errorf("staging holds %v, want the 2 stored uploads only", names)
 		}
 	})
 
