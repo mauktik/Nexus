@@ -1097,6 +1097,11 @@ func TestTCSM117_T1IReloadRefusesAnUnknown(t *testing.T) {
 
 // TC-SM-118 (WI 7.2; FR-11, FR-9; W-10): T1 (j): a concurrent request
 // during an update gets 409, including right after the restart.
+//
+// Each attempt is judged by the server's timestamps, not by the status the
+// test read before it: U can end between that read and the POST, and a
+// restart admitted after U's end is correct (FR-11 refuses only while U is
+// non-terminal). See tc118Classify.
 func TestTCSM118_T1JAConcurrentRequestDuring(t *testing.T) {
 	h := newSMHost(t, "tcsm118")
 	stop := h.observe()
@@ -1107,14 +1112,17 @@ func TestTCSM118_T1JAConcurrentRequestDuring(t *testing.T) {
 		t.Fatalf("update --no-wait: exit %d, want 0 with an operation", r.code)
 	}
 	type attempt struct {
-		code            int
-		status          any
-		blocking        any
+		tc118Attempt
 		pidBefore, pidA int
 		uStatus         string
+		verdict         tc118Verdict
+		why             string
 	}
 	var attempts []attempt
-	var created []string
+	// pidNew is the MainPID the update itself produced: the first one other
+	// than h.pid0 seen around an attempt nexusd refused or did not answer,
+	// so before any restart was admitted.
+	pidNew := 0
 	deadline := time.Now().Add(smOpMaxRuntime)
 	for time.Now().Before(deadline) {
 		u, err := h.op(U)
@@ -1131,10 +1139,33 @@ func TestTCSM118_T1JAConcurrentRequestDuring(t *testing.T) {
 		if p := ar.problem(); p != nil {
 			a.status, a.blocking = p["status"], p["blockingOperationId"]
 		}
+		accepted := false
 		if id := ar.opID(); ar.code == 0 && id != "" {
-			created = append(created, id)
+			// Admitted: read both records to terminal (the restart restarts
+			// nexusd) and judge by the server's Created and Ended.
+			accepted = true
+			a.opID = id
+			a.created = h.awaitOp(id, smOpMaxRuntime).Created
+		}
+		var uEnd apitypes.Operation
+		if accepted {
+			uEnd = h.awaitOp(U, smOpMaxRuntime)
+		}
+		a.verdict, a.why = tc118Classify(a.tc118Attempt, U, terminal(uEnd.Status), uEnd.Ended)
+		if a.verdict == tc118Refused || a.verdict == tc118Unanswered {
+			for _, pid := range []int{a.pidBefore, a.pidA} {
+				if pidNew == 0 && pid != h.pid0 {
+					pidNew = pid
+				}
+			}
 		}
 		attempts = append(attempts, a)
+		if accepted {
+			t.Logf("attempt %d: restart %s created %s, %s ended %s (%s): %s", len(attempts)-1, a.opID,
+				tc118Stamp(&a.created), U, tc118Stamp(uEnd.Ended), uEnd.Status, a.verdict)
+			// U is terminal now: nothing later can be judged against it.
+			break
+		}
 		time.Sleep(200 * time.Millisecond)
 	}
 	end := h.awaitOp(U, smOpMaxRuntime)
@@ -1142,40 +1173,43 @@ func TestTCSM118_T1JAConcurrentRequestDuring(t *testing.T) {
 	if end.Status != apitypes.StatusSucceeded {
 		t.Fatalf("update %s ended %s %v", U, end.Status, end.Error)
 	}
-	pidNew := unitPID(t)
 	var conflicts, fromNew int
 	for i, a := range attempts {
-		t.Logf("attempt %d: U %s, MainPID %d -> %d, exit %d, status %v, blockingOperationId %v", i, a.uStatus, a.pidBefore,
-			a.pidA, a.code, a.status, a.blocking)
-		switch {
-		case a.code == 1 && fmt.Sprint(a.status) == "409":
-			if a.blocking != U {
-				t.Errorf("attempt %d: 409 naming %v, want %s", i, a.blocking, U)
-			}
+		t.Logf("attempt %d: U %s, MainPID %d -> %d, exit %d, status %v, blockingOperationId %v: %s", i, a.uStatus,
+			a.pidBefore, a.pidA, a.code, a.status, a.blocking, a.verdict)
+		switch a.verdict {
+		case tc118Refused:
 			conflicts++
-			if a.pidBefore == pidNew && a.pidA == pidNew && pidNew != h.pid0 {
+			if a.pidBefore == pidNew && a.pidA == pidNew && pidNew != 0 {
 				fromNew++
 			}
-		case a.code == cli5:
-			// Not answered: nexusd was restarting.
-		default:
-			t.Errorf("attempt %d while %s was not terminal: exit %d, status %v; want 409 or no answer", i, U, a.code, a.status)
+		case tc118Violation:
+			t.Errorf("attempt %d: %s", i, a.why)
 		}
 	}
-	t.Logf("%d attempts: %d answered 409 naming %s, %d of them by the new MainPID %d (was %d)", len(attempts), conflicts,
-		U, fromNew, pidNew, h.pid0)
+	t.Logf("%d attempts: %d answered 409 naming %s, %d of them by the update's new MainPID %d (was %d)",
+		len(attempts), conflicts, U, fromNew, pidNew, h.pid0)
 	if fromNew == 0 {
-		t.Errorf("no 409 came from the new MainPID %d: the lane was not shown restored before the listener opened", pidNew)
+		t.Errorf("no 409 came from the update's new MainPID %d: the lane was not shown restored before the listener opened",
+			pidNew)
 	}
+	// Every restart operation, including one whose answer was lost, must
+	// postdate U's end; one admitted after it is awaited so it does not
+	// leak into later cases.
 	for _, op := range h.nexusdOps() {
-		if op.Action == spec.Restart.Op().ID {
-			t.Errorf("a restart operation was created: %s (attempts that created one: %q)", op.ID, created)
+		if op.Action != spec.Restart.Op().ID {
+			continue
 		}
+		if !tc118AdmittedAfterU(terminal(end.Status), end.Ended, op.Created) {
+			t.Errorf("restart %s was created %s, before %s ended %s", op.ID, tc118Stamp(&op.Created), U,
+				tc118Stamp(end.Ended))
+			continue
+		}
+		rop := h.awaitOp(op.ID, smOpMaxRuntime)
+		t.Logf("restart %s created %s after %s ended %s: legitimate, ended %s", op.ID, tc118Stamp(&op.Created), U,
+			tc118Stamp(end.Ended), rop.Status)
 	}
 }
-
-// cli5 is the CLI's exit for a host that did not answer.
-const cli5 = 5
 
 // stampedLine is one output line with when it was read.
 type stampedLine struct {
