@@ -30,7 +30,10 @@ import (
 //   - `<test binary> op-supervise --dir D [--process]` is nexusd's
 //     op-supervise. NEXUS_TEST_HANDSHAKE_TIMEOUT shortens the identity wait,
 //     and a file flood-diag in D makes the supervisor write diagnostics past
-//     the supervisor.log cap.
+//     the supervisor.log cap. A file delay-notify in D holding a duration
+//     holds the supervisor that long before Supervise installs its signal
+//     handlers, the window of a supervisor still starting up, and a file
+//     exit-before-notify makes it exit 3 at that point.
 //   - GO_WANT_LAUNCHER=1 launches one operation with a process backend and
 //     exits at once, as a nexusd that is killed or restarted does.
 func TestMain(m *testing.M) {
@@ -67,6 +70,16 @@ func fakeNexusdSupervise(args []string) int {
 				logf("diagnostic line %08d %s", i, strings.Repeat("x", 40))
 			}
 		}
+	}
+	if b, err := os.ReadFile(filepath.Join(*dir, "delay-notify")); err == nil {
+		d, err := time.ParseDuration(strings.TrimSpace(string(b)))
+		if err != nil {
+			return 2
+		}
+		time.Sleep(d)
+	}
+	if _, err := os.Stat(filepath.Join(*dir, "exit-before-notify")); err == nil {
+		return 3
 	}
 	mode := detach.ModeUnit
 	if *process {
@@ -566,4 +579,67 @@ func TestIdentityWriteFailureKillsSupervisor(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "marker")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("the child ran (%v)", err)
 	}
+}
+
+// startupWindowDir makes operation id's directory with a delay-notify file:
+// its supervisor (this test binary) starts Supervise only after delay.
+func startupWindowDir(t *testing.T, l *detach.Launcher, id string, delay time.Duration) string {
+	t.Helper()
+	dir := l.Dir(id)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "delay-notify"), []byte(delay.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	endSupervisorAtCleanup(t, dir)
+	return dir
+}
+
+// WI 3.4 finding: a cancel sent as soon as Start returns reaches a
+// supervisor that already handles SIGTERM, so the operation ends canceled
+// from exit.json instead of lost. The supervisor here takes a second to
+// reach signal.Notify, far longer than a real one, which makes the window
+// certain rather than likely.
+func TestCancelRightAfterStartEndsCanceled(t *testing.T) {
+	l, _, _ := processLauncher(t, testBinary(t))
+	const id = "01JSIGTERM1"
+	dir := startupWindowDir(t, l, id, time.Second)
+	if err := l.Start(context.Background(), id, shSpec(dir, `: > "$DIR/marker"; sleep 30`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Cancel(context.Background(), id); err != nil {
+		t.Fatalf("Cancel right after Start: %v", err)
+	}
+
+	// Lost takes LivenessInterval plus RecheckDelay to be confirmed.
+	ctx, cancel := context.WithTimeout(context.Background(), detach.LivenessInterval+detach.RecheckDelay+15*time.Second)
+	defer cancel()
+	var o detach.Outcome
+	select {
+	case o = <-l.Watch(ctx, id, time.Now(), time.Hour):
+	case <-ctx.Done():
+		t.Fatal("no outcome")
+	}
+	if o.Exit == nil {
+		t.Fatalf("outcome %+v, want exit.json (lost: %v); %s:\n%s", o, o.Lost, detach.SupervisorLog, readFileOrErr(filepath.Join(dir, detach.SupervisorLog)))
+	}
+	if !o.Exit.Canceled || o.Exit.ExitCode != -1 || o.Exit.Error != "" {
+		t.Errorf("exit.json %+v, want canceled before the child started (exit code -1)", *o.Exit)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "marker")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the child ran after the cancel (%v)", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, detach.SpecFile)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("spec.json left behind (%v)", err)
+	}
+}
+
+// readFileOrErr is path's content, or why it cannot be read, for a message.
+func readFileOrErr(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err.Error()
+	}
+	return string(b)
 }
