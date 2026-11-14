@@ -798,3 +798,32 @@ func TestRollbackAdmissionCancelledByTheCaller(t *testing.T) {
 		t.Errorf("Admit = problem %s, want the cancellation", perr.Slug())
 	}
 }
+
+// A caller that leaves while the rollback binary's -version runs (CR-6):
+// validate-config passes, then the context ends during -version, so that
+// run's failure is the cancellation's, not rollback-unavailable.
+func TestRollbackAdmissionCancelledDuringVersion(t *testing.T) {
+	r := newRollbackRig(t, true)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var sawVersion bool
+	r.run.setReply(func(ctx context.Context, argv []string) (RunResult, error) {
+		if len(argv) > 1 && argv[1] == "-version" {
+			sawVersion = true
+			cancel()
+			return execRunner{}.Run(ctx, argv)
+		}
+		return RunResult{}, nil
+	})
+	err := r.funcs.Admit(ctx, spec.RollbackInput{})
+	if !sawVersion {
+		t.Fatal("the -version run was never reached")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Admit cancelled during -version = %v, want context.Canceled", err)
+	}
+	var perr *problem.Error
+	if errors.As(err, &perr) {
+		t.Errorf("Admit = problem %s, want the cancellation", perr.Slug())
+	}
+}
