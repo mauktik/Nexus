@@ -831,10 +831,12 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 	var caps apitypes.Capabilities
 	n.mustGet("/v1/capabilities?refresh=true", &caps)
 	// Every provider this config enables is enabled: all but pihole, which
-	// this image does not install (the Pi-hole harness covers it).
+	// this image does not install (the Pi-hole harness covers it), and
+	// nexusd, whose operations restart the daemon under test (its own
+	// TC-SM T1 cases cover it).
 	enabled := 0
 	for _, pc := range caps.Providers {
-		if pc.Name == "pihole" {
+		if pc.Name == "pihole" || pc.Name == "nexusd" {
 			continue
 		}
 		if pc.Status != apitypes.ProviderEnabled {
@@ -1413,6 +1415,9 @@ func installTree(t *testing.T, tree string) string {
 // rollback leaves, and keeps the staged uploads and the operation history;
 // --purge removes /var/lib/nexus with staging/.
 func TestTCSM103_UninstallRemovesNexusdPrevAndRollback(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	freshHost(t)
 	tree := unpackFixture(t, "v9.9.1")
 	uninstall := filepath.Join(tree, "uninstall.sh")
@@ -1516,6 +1521,9 @@ func TestTCSM103_UninstallRemovesNexusdPrevAndRollback(t *testing.T) {
 // while the service is active, restarts it exactly once onto the new binary
 // and keeps the config (A-33, the restart the update helper relies on).
 func TestTCSM104_AManualInstallShFromAn(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	freshHost(t)
 	// Step 1: unpack both trees.
 	v1, v2 := unpackFixture(t, "v9.9.1"), unpackFixture(t, "v9.9.2")
