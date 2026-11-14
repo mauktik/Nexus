@@ -122,6 +122,9 @@ type Options struct {
 	ListUnits func(ctx context.Context) ([]string, error)
 	// Now is the clock of MaxRuntime. Nil means time.Now.
 	Now func() time.Time
+	// PollInterval is how often the watcher reads exit.json. Zero, in
+	// production, means the PollInterval constant; tests shorten it.
+	PollInterval time.Duration
 }
 
 // Launcher starts operation units, signals them and watches them to their
@@ -135,6 +138,7 @@ type Launcher struct {
 	signal    func(context.Context, string, syscall.Signal) error
 	listUnits func(context.Context) ([]string, error)
 	now       func() time.Time
+	pollEvery time.Duration
 	real      bool
 
 	mu       sync.Mutex
@@ -177,6 +181,9 @@ func New(cfg Config, opts Options) (*Launcher, error) {
 	}
 	if l.now == nil {
 		l.now = time.Now
+	}
+	if l.pollEvery = opts.PollInterval; l.pollEvery <= 0 {
+		l.pollEvery = PollInterval
 	}
 	return l, nil
 }

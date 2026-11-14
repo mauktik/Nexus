@@ -1,0 +1,45 @@
+v5 reader test fixtures (WI 2.2; TC-38 to TC-47, TC-E4, TC-ERR6 in
+planning/pihole-dns-zones/test-cases.md)
+
+Captured (external test vectors). Each file is a byte-for-byte copy of the
+WI 0.1 capture of the same name in test/harness/pihole/transcripts/, taken
+from a real Pi-hole (core v5.18.3, web v5.21, FTL v5.25.2; image
+pihole/pihole:2024.07.0) in check 4. See test/harness/pihole/PROVENANCE for
+the image digest, the capture times and the commands (check4-pihole-v.txt).
+The sha256 of each copy equals the one recorded there.
+
+ftl-v5.25.2-stats.txt
+  Source: test/harness/pihole/transcripts/ftl-v5.25.2-stats.txt
+  The raw bytes of `>stats` on 127.0.0.1:4711: key/value lines,
+  ---EOM---, then the blank line FTL sends before >quit closes (V-1, V-2).
+  Bytes: 488
+  sha256: b6558b38fd7dfc1c9e26a50e8c09164614a61d8c5788201a1302cd6905968a3a
+
+ftl-v5.25.2-version.txt
+  Source: test/harness/pihole/transcripts/ftl-v5.25.2-version.txt
+  The raw bytes of `>version`, same framing (V-3).
+  Bytes: 97
+  sha256: 641be574228cefaaa4ee912a667f5038d93309c5128b9b93b1772ccceca88e3b
+
+versions
+  Source: test/harness/pihole/transcripts/versions
+  /etc/pihole/versions after `pihole updatechecker` ran online (V-8). It
+  carries GITHUB_CORE_VERSION=v6.6, GITHUB_WEB_VERSION=v6.6.1 and
+  GITHUB_FTL_VERSION=v6.9, the newest upstream releases, next to the
+  installed CORE_VERSION=v5.18.3, WEB_VERSION=v5.21 and FTL_VERSION=v5.25.2.
+  Bytes: 377
+  sha256: ee3faef5a3749ed8d7fcd7aa29bf01099e6c5099ecc07e557defa1dde2276295
+
+Authored (not captured).
+
+setupVars.conf
+  A v5 /etc/pihole/setupVars.conf shape (KEY=VALUE lines) with a planted
+  WEBPASSWORD of 64 random hex digits (openssl rand -hex 32; not a hash of
+  any password) and BLOCKING_ENABLED=false, for TC-42 (FR-29): the hash must
+  appear in no result, error or log line.
+  Bytes: 370
+  sha256: c20e3e8286cccea77ff839fb39f73454583f841f256e6cdde6ad6365f562904f
+
+The gravity.db the tests use is built from
+../../gravitydb/testdata/gravity.db.sql (Pi-hole core v5.18.4's template; see
+that directory's PROVENANCE).

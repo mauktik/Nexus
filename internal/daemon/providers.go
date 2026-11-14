@@ -9,6 +9,7 @@ import (
 	"github.com/mauktik/nexus/internal/providers/apt"
 	"github.com/mauktik/nexus/internal/providers/docker"
 	"github.com/mauktik/nexus/internal/providers/nexusd"
+	"github.com/mauktik/nexus/internal/providers/pihole"
 	"github.com/mauktik/nexus/internal/providers/scripts"
 )
 
@@ -21,6 +22,7 @@ func builtinProviders(host string, log *slog.Logger) []provider.Provider {
 		apt.New(apt.Options{Host: host, Logger: log}),
 		scripts.New(scripts.Options{Host: host}),
 		nexusd.New(nexusd.Options{Host: host}),
+		pihole.New(pihole.Options{Host: host, Logger: log}),
 	}
 }
 
@@ -32,5 +34,6 @@ func providerConfigs(cfg *config.Config) map[string]core.ProviderConfig {
 		"apt":     {Enabled: p.Apt.Settings.Enabled, Decode: p.Apt.Decode},
 		"scripts": {Enabled: p.Scripts.Settings.Enabled, Decode: p.Scripts.Decode},
 		"nexusd":  {Enabled: p.Nexusd.Settings.Enabled, Decode: p.Nexusd.Decode},
+		"pihole":  {Enabled: p.Pihole.Settings.Enabled, Decode: p.Pihole.Decode},
 	}
 }

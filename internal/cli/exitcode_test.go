@@ -38,6 +38,13 @@ var tabledExits = map[problem.Slug]int{
 	"rollback-unavailable": 1,
 }
 
+// piholeTabledExits is the CLI exit column of the HTTP-level rows of the
+// problem types table in planning/pihole-dns-zones/architecture.md, which
+// adds to the table above rather than changing it.
+var piholeTabledExits = map[problem.Slug]int{
+	"dns-file-conflict": 1, "dns-name-unzoned": 1, "dns-batch-rejected": 1,
+}
+
 // planTable names a problem types table in a planning document: the file, the
 // header line that opens it, and how many HTTP-level rows it carries.
 type planTable struct {
@@ -138,6 +145,9 @@ func TestExitCodeMapping(t *testing.T) {
 		if !typ.OperationLevel {
 			var tabled bool
 			want, tabled = tabledExits[typ.Slug]
+			if !tabled {
+				want, tabled = piholeTabledExits[typ.Slug]
+			}
 			if !tabled {
 				t.Errorf("%s: registered but not in the architecture table", typ.Slug)
 				continue

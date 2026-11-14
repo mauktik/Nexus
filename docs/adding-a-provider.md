@@ -1,16 +1,19 @@
 # Adding a provider
 
 A provider is a set of operations on one kind of thing on the host: `docker`
-for containers, `apt` for packages, `scripts` for cataloged scripts. Every
+for containers, `apt` for packages, `scripts` for cataloged scripts, `nexusd`
+for the daemon itself, `pihole` for a Pi-hole and its local DNS names. Every
 surface is derived from the provider's declarations: the REST routes, the
 OpenAPI document, the MCP tools, the `nexus` commands, authorization, audit
 and idempotency. Adding a provider therefore means writing a **spec**
 package, an **implementation** with its **bindings**, and adding **two
-composition lines**. Core, server, OpenAPI, MCP and CLI code do not change
-for a provider that uses the mechanisms they already have. Those include
-four generic mechanisms added for the `nexusd` provider: `def.KindUpload`
-with `CLI.Upload`, `CLI.ReconnectWindow`, `provider.DaemonUser` and audit
-facts (`audit.AddFact`); see
+composition lines**, plus a third, optional helper line (§3) when the
+provider's detached operations need a multi-step Go helper. Core, server,
+OpenAPI, MCP and CLI code do not change for a provider that uses the
+mechanisms they already have. Those include four generic mechanisms added
+for the `nexusd` provider: `def.KindUpload` with `CLI.Upload`,
+`CLI.ReconnectWindow`, `provider.DaemonUser` and audit facts
+(`audit.AddFact`); see
 [section 5](#5-generic-mechanisms-added-for-nexusd). A provider that needs
 a new kind of mechanism changes core, and that change must be generic, not
 keyed on the provider's name, and documented here.
@@ -19,9 +22,11 @@ The `scripts` provider is the smallest complete example:
 `internal/providers/scripts/spec/spec.go` and
 `internal/providers/scripts/provider.go`.
 
-Proxmox and Pi-hole hosts are expected future targets. No such provider
-exists yet; the `apt` provider avoids Ubuntu-only assumptions so it can run
-on those Debian-based hosts later.
+Pi-hole hosts are served by the `pihole` provider
+([pihole.md](pihole.md)), which runs on the Debian-based Pi-hole host itself.
+Proxmox hosts are an expected future target, without a provider so far; the
+`apt` provider avoids Ubuntu-only assumptions so it can run on Debian-based
+hosts such as these.
 
 ## 1. The spec package: declarations only
 
@@ -148,6 +153,8 @@ func All() []def.ProviderSpec {
 		docker.Spec(),
 		apt.Spec(),
 		scripts.Spec(),
+		nexusd.Spec(),
+		pihole.Spec(),
 		widgets.Spec(), // the new line
 	}
 }
@@ -162,10 +169,47 @@ func builtinProviders(host string, log *slog.Logger) []provider.Provider {
 		docker.New(docker.Options{Host: host, Logger: log}),
 		apt.New(apt.Options{Host: host, Logger: log}),
 		scripts.New(scripts.Options{Host: host}),
+		nexusd.New(nexusd.Options{Host: host}),
+		pihole.New(pihole.Options{Host: host, Logger: log}),
 		widgets.New(widgets.Options{Host: host}), // the new line
 	}
 }
 ```
+
+### The optional third line: a helper subcommand
+
+A detached operation whose work is one host command needs nothing more:
+`Prepare` returns that command's argv in its `detach.Spec`. A provider whose
+detached operations need a multi-step Go helper instead, such as a
+container update that pulls, recreates and waits for health, or a Pi-hole
+DNS change that writes, tests, restarts, verifies and rolls back, adds a
+third line: a hidden subcommand `case` in `run` in `cmd/nexusd/main.go`.
+`docker`, `nexusd` and `pihole` all do:
+
+```go
+		case docker.HelperCommand: // "docker-update"
+			return docker.UpdateHelper(args[1:], stdout, stderr)
+		case nexusd.HelperCommand: // "service-helper"
+			return nexusd.Helper(args[1:], stdout, stderr)
+		case pihole.HelperCommand: // "pihole-helper"
+			return pihole.Helper(args[1:], stdout, stderr)
+```
+
+`Prepare` writes the operation's validated input to a file in the
+operation's directory and returns
+`detach.Spec{Argv: []string{exe, HelperCommand, "--dir", dir}, ...}`, where
+`exe` is the running `nexusd`. `op-supervise` then runs the helper in the
+operation's `nexus-op-<id>` unit, outside the `nexusd` sandbox. The helper:
+
+- reads its input only from that directory, and writes its result there for
+  `Finalize` to read;
+- writes its progress to stdout, which the supervisor frames into the
+  operation's output;
+- never takes a shell string: it passes every value to a host command as
+  one argv element.
+
+The subcommand is not listed in `nexusd`'s usage; only `op-supervise` runs
+it.
 
 ## 4. Tests and documentation
 

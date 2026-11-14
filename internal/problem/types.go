@@ -41,6 +41,11 @@ const (
 	UpdatePackageInvalid   Slug = "update-package-invalid"
 	VersionDowngrade       Slug = "version-downgrade"
 	RollbackUnavailable    Slug = "rollback-unavailable"
+
+	// pihole-dns-zones (pihole-dns-zones architecture.md, Problem types).
+	DNSFileConflict  Slug = "dns-file-conflict"
+	DNSNameUnzoned   Slug = "dns-name-unzoned"
+	DNSBatchRejected Slug = "dns-batch-rejected"
 )
 
 // Operation-level problem types: they appear only inside operation.error.
@@ -59,6 +64,14 @@ const (
 	UpdateFailed         Slug = "update-failed"
 	UpdateRollbackFailed Slug = "update-rollback-failed"
 	RollbackFailed       Slug = "rollback-failed"
+
+	// pihole-dns-zones.
+	DNSConfigTestFailed   Slug = "dns-config-test-failed"
+	DNSVerificationFailed Slug = "dns-verification-failed"
+	DNSRollbackFailed     Slug = "dns-rollback-failed"
+	GravityFailed         Slug = "gravity-failed"
+	PiholeCommandFailed   Slug = "pihole-command-failed"
+	PiholeBusy            Slug = "pihole-busy"
 )
 
 // Type is one registered problem type. Problem types are part of the
@@ -115,6 +128,13 @@ var registry = []Type{
 	{Slug: UpdatePackageInvalid, Title: "Update package invalid", Status: 422, Exit: 1, Extensions: []string{"check"}},
 	{Slug: VersionDowngrade, Title: "Version downgrade", Status: 409, Exit: 1, Extensions: []string{"runningVersion", "packageVersion"}},
 	{Slug: RollbackUnavailable, Title: "Rollback unavailable", Status: 409, Exit: 1, Extensions: []string{"path"}},
+	// pihole-dns-zones.
+	// Like dependency-unavailable, dns-file-conflict and dns-batch-rejected
+	// may also appear in operation.error: the DNS write pipeline re-checks
+	// them after admission, inside the operation.
+	{Slug: DNSFileConflict, Title: "DNS file conflict", Status: 409, Exit: 1, Extensions: []string{"expectedEtag", "currentEtag"}},
+	{Slug: DNSNameUnzoned, Title: "DNS name not in a zone", Status: 422, Exit: 1, Extensions: []string{"name"}},
+	{Slug: DNSBatchRejected, Title: "DNS batch rejected", Status: 422, Exit: 1, Extensions: []string{"changeIndex", "cause"}},
 
 	// An operation that fails makes the CLI exit 1.
 	{Slug: OutcomeUnknown, Title: "Outcome unknown", Exit: 1, OperationLevel: true},
@@ -140,6 +160,17 @@ var registry = []Type{
 		Extensions: []string{"rolledBack", "step", "previousVersion", "newVersion"}},
 	{Slug: RollbackFailed, Title: "Rollback failed", Exit: 1, OperationLevel: true,
 		Extensions: []string{"rolledBack", "condition", "fromVersion", "toVersion"}},
+	// pihole-dns-zones: the outcomes of DNS writes, gravity and pihole commands.
+	{Slug: DNSConfigTestFailed, Title: "DNS configuration test failed", Exit: 1, OperationLevel: true,
+		Extensions: []string{"exitCode", "rolledBack", "preExisting"}},
+	{Slug: DNSVerificationFailed, Title: "DNS verification failed", Exit: 1, OperationLevel: true,
+		Extensions: []string{"rolledBack", "name", "expected", "observed"}},
+	// The rollback restart itself failed, so DNS may be down.
+	{Slug: DNSRollbackFailed, Title: "DNS rollback failed", Exit: 1, OperationLevel: true, Extensions: []string{"rollbackCopy"}},
+	{Slug: GravityFailed, Title: "Gravity update failed", Exit: 1, OperationLevel: true, Extensions: []string{"exitCode"}},
+	{Slug: PiholeCommandFailed, Title: "Pi-hole command failed", Exit: 1, OperationLevel: true,
+		Extensions: []string{"command", "exitCode", "rolledBack"}},
+	{Slug: PiholeBusy, Title: "Pi-hole busy", Exit: 1, OperationLevel: true, Extensions: []string{"waitedSeconds"}},
 }
 
 var bySlug = func() map[Slug]Type {

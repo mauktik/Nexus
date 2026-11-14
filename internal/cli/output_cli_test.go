@@ -156,16 +156,43 @@ func jsonLines(t *testing.T, what, s string) []map[string]any {
 	return out
 }
 
+// patternSamples hold, for the ops whose inputs carry schema patterns, a
+// value each pattern admits and the flags the op requires. The default "web"
+// positional and an empty flag set do not pass their validation.
+var patternSamples = map[string]struct {
+	positional string
+	flags      []string
+}{
+	"pihole.domains.get":               {positional: "1"},
+	"pihole.adlists.get":               {positional: "1"},
+	"pihole.zones.get":                 {positional: "home.local"},
+	"pihole.zones.remove":              {positional: "home.local"},
+	"pihole.records.get":               {positional: "kiwi.home.local~A"},
+	"pihole.records.update":            {positional: "kiwi.home.local~A", flags: []string{"--ipv4", "192.168.7.9"}},
+	"pihole.records.remove":            {positional: "kiwi.home.local~A"},
+	"pihole.actions.add-domain":        {flags: []string{"--list", "deny", "--kind", "exact", "--value", "ads.example.com"}},
+	"pihole.actions.add-adlist":        {flags: []string{"--url", "https://lists.example.com/a.txt"}},
+	"pihole.actions.add-zone":          {flags: []string{"--zone", "home.local"}},
+	"pihole.actions.add-record":        {flags: []string{"--fqdn", "nas.home.local", "--ipv4", "192.168.7.9"}},
+	"pihole.actions.apply-dns-changes": {flags: []string{"--changes", "add-record:nas.home.local=192.168.7.9"}},
+}
+
 // argsFor is a valid invocation of each op of a generated command.
 func argsFor(c *opCommand, op def.Op) []string {
 	args := []string{c.noun, c.verb}
+	sample, sampled := patternSamples[op.ID]
 	switch op.CLI.Positional {
 	case "":
 	case "id":
 		args = append(args, fixtureOpID)
 	default:
-		args = append(args, "web")
+		if sampled && sample.positional != "" {
+			args = append(args, sample.positional)
+		} else {
+			args = append(args, "web")
+		}
 	}
+	args = append(args, sample.flags...)
 	if b, _ := newBinding(c); b != nil && b.variadic && b.required {
 		args = append(args, "curl")
 	}

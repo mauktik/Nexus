@@ -40,9 +40,11 @@ import (
 	apt "github.com/mauktik/nexus/internal/providers/apt/spec"
 	docker "github.com/mauktik/nexus/internal/providers/docker/spec"
 	nexusd "github.com/mauktik/nexus/internal/providers/nexusd/spec"
+	pihole "github.com/mauktik/nexus/internal/providers/pihole/spec"
 	scripts "github.com/mauktik/nexus/internal/providers/scripts/spec"
 	"github.com/mauktik/nexus/internal/server"
 	"github.com/mauktik/nexus/internal/store"
+	"github.com/mauktik/nexus/internal/systemspec"
 )
 
 const module = "github.com/mauktik/nexus"
@@ -94,6 +96,36 @@ var catalogStubs = map[string]func(*testprovider.Spy) provider.Provider{
 			testprovider.InProcess(s, nexusd.Update),
 			testprovider.InProcess(s, nexusd.Rollback),
 			testprovider.Upload(s, nexusd.Upload),
+		)
+	},
+	pihole.Name: func(s *testprovider.Spy) provider.Provider {
+		return testprovider.NewStub(pihole.Spec(),
+			testprovider.Sync(s, pihole.StatusGet),
+			testprovider.Sync(s, pihole.SummaryGet),
+			testprovider.Sync(s, pihole.BlockingGet),
+			testprovider.InProcess(s, pihole.StopBlocking),
+			testprovider.InProcess(s, pihole.StartBlocking),
+			testprovider.Sync(s, pihole.DomainsList),
+			testprovider.Sync(s, pihole.DomainsGet),
+			testprovider.InProcess(s, pihole.AddDomain),
+			testprovider.InProcess(s, pihole.RemoveDomain),
+			testprovider.Sync(s, pihole.AdlistsList),
+			testprovider.Sync(s, pihole.AdlistsGet),
+			testprovider.InProcess(s, pihole.AddAdlist),
+			testprovider.InProcess(s, pihole.RemoveAdlist),
+			testprovider.InProcess(s, pihole.UpdateGravity),
+			testprovider.InProcess(s, pihole.RestartDNS),
+			testprovider.InProcess(s, pihole.FlushCache),
+			testprovider.Sync(s, pihole.ZonesList),
+			testprovider.Sync(s, pihole.ZonesGet),
+			testprovider.InProcess(s, pihole.AddZone),
+			testprovider.InProcess(s, pihole.ZonesRemove),
+			testprovider.Sync(s, pihole.RecordsList),
+			testprovider.Sync(s, pihole.RecordsGet),
+			testprovider.InProcess(s, pihole.AddRecord),
+			testprovider.InProcess(s, pihole.RecordsUpdate),
+			testprovider.InProcess(s, pihole.RecordsRemove),
+			testprovider.InProcess(s, pihole.ApplyDNSChanges),
 		)
 	},
 }
@@ -169,7 +201,13 @@ func newStack(t *testing.T) *stack {
 		s.exact[sc] = mint(s.exactName[sc], sc)
 	}
 
-	srv, err := server.New(reg, server.Options{Logger: log, Auth: auth.New(stateDir, auth.Options{Logger: log})})
+	// The walks over every op make one denial per scoped op with the same
+	// token, and with the docker, apt, scripts, nexusd and pihole catalogs
+	// that is more than core.DefaultNoteLimitPerMinute (60) in one minute;
+	// past it the dispatcher collapses denials into a rate-limited aggregate
+	// and the per-op denial records the tests count are not written.
+	srv, err := server.New(reg, server.Options{Logger: log, Auth: auth.New(stateDir, auth.Options{Logger: log}),
+		NoteLimitPerMinute: 1000})
 	if err != nil {
 		t.Fatalf("server.New: %v", err)
 	}
@@ -1060,5 +1098,275 @@ func TestTCSM94_TheConformanceSuiteCoversNexusdThrough(t *testing.T) {
 	}
 	if calls := s.spy.Calls(); len(calls) != 0 {
 		t.Errorf("handlers ran without nexusd:admin: %+v", calls)
+	}
+}
+
+// TC-11 (pihole-dns-zones): the pihole scopes split three ways. Reads need
+// only pihole:read; the zone, record and batch mutations need pihole:dns and
+// a pihole:write token is refused naming it, and the reverse for blocking,
+// domains, adlists, gravity, restart and flush. Each accepted mutation has a
+// requested record, with the validated input, written before its handler
+// ran; an Idempotency-Key replays, and a reused key with another body is
+// refused.
+func TestPiholeScopesAuditAndIdempotency(t *testing.T) {
+	s := newStack(t)
+	sm := sampler{}
+	read, dns, write := s.exact[pihole.ReadScope], s.exact[pihole.DNSScope], s.exact[pihole.WriteScope]
+	if read == "" || dns == "" || write == "" {
+		t.Fatalf("missing a pihole token: read %t, dns %t, write %t", read != "", dns != "", write != "")
+	}
+
+	checked := 0
+	for _, op := range pihole.Spec().Ops {
+		in, _ := sm.value(t, op, "", inputSchema(t, op)).(map[string]any)
+		switch op.Scope.Name {
+		case pihole.ReadScope:
+			if r := s.call(t, op, read, in); r.status != http.StatusOK {
+				t.Errorf("%s with only %s: %d %.200s, want 200", op.ID, pihole.ReadScope, r.status, r.body)
+			}
+		case pihole.DNSScope, pihole.WriteScope:
+			own, other := dns, write
+			if op.Scope.Name == pihole.WriteScope {
+				own, other = write, dns
+			}
+			r := s.call(t, op, other, in)
+			if r.status != http.StatusForbidden {
+				t.Errorf("%s with the other mutation scope: %d %.200s, want 403", op.ID, r.status, r.body)
+			} else if p := r.problem(t); p.Slug() != problem.Forbidden || p.Extensions["requiredScope"] != op.Scope.Name {
+				t.Errorf("%s: problem %s requiredScope %v, want forbidden naming %s", op.ID, p.Slug(), p.Extensions["requiredScope"], op.Scope.Name)
+			}
+			s.assertAuditedBeforeRun(t, op, own, s.exactName[op.Scope.Name], in)
+		default:
+			t.Errorf("%s: scope %q is none of the three pihole scopes", op.ID, op.Scope.Name)
+			continue
+		}
+		checked++
+	}
+	if checked != 26 {
+		t.Errorf("checked %d pihole ops, want 26", checked)
+	}
+
+	// Idempotency: the same key and body replay the first operation; the
+	// same key with another body answers 422 idempotency-key-reused.
+	add := pihole.AddZone.Op()
+	first := s.callKeyed(t, add, dns, "pihole-key-1", map[string]any{"zone": "a.b"})
+	again := s.callKeyed(t, add, dns, "pihole-key-1", map[string]any{"zone": "a.b"})
+	if first.status != http.StatusAccepted || again.status != http.StatusAccepted {
+		t.Fatalf("keyed add-zone: %d then %d, want 202 twice: %s", first.status, again.status, again.body)
+	}
+	var o1, o2 apitypes.Operation
+	if err := errors.Join(json.Unmarshal(first.body, &o1), json.Unmarshal(again.body, &o2)); err != nil {
+		t.Fatal(err)
+	}
+	if o1.ID == "" || o1.ID != o2.ID {
+		t.Errorf("replay answered operation %q, want the first, %q", o2.ID, o1.ID)
+	}
+	r := s.callKeyed(t, add, dns, "pihole-key-1", map[string]any{"zone": "c.d"})
+	if r.status != http.StatusUnprocessableEntity {
+		t.Fatalf("reused key, other body: %d %.200s, want 422", r.status, r.body)
+	}
+	if p := r.problem(t); p.Slug() != problem.IdempotencyKeyReused {
+		t.Errorf("reused key: problem %s, want %s", p.Slug(), problem.IdempotencyKeyReused)
+	}
+}
+
+// assertAuditedBeforeRun calls the long-running op with token and checks its
+// requested record names the token, carries the validated input the handler
+// received, and was written no later than the handler started.
+func (s *stack) assertAuditedBeforeRun(t *testing.T, op def.Op, token, tokenName string, in map[string]any) {
+	t.Helper()
+	r := s.call(t, op, token, in)
+	if r.status != http.StatusAccepted {
+		t.Errorf("%s with exactly %s: %d %.200s, want 202", op.ID, op.Scope.Name, r.status, r.body)
+		return
+	}
+	got := s.received(t, op, r, 0)
+	var o apitypes.Operation
+	if err := json.Unmarshal(r.body, &o); err != nil {
+		t.Fatal(err)
+	}
+	o = s.waitTerminal(t, o.ID)
+	page, err := s.audit.Query(audit.Query{Action: op.ID, TokenName: tokenName, Limit: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The operation's Queued record names the requested record it answers.
+	requestID := ""
+	for _, it := range page.Items {
+		if it.OperationID == o.ID && it.RequestID != "" {
+			requestID = it.RequestID
+		}
+	}
+	var rec *systemspec.AuditRecord
+	for i := range page.Items {
+		if it := &page.Items[i]; requestID != "" && it.ID == requestID && it.Outcome == audit.OutcomeRequested {
+			rec = it
+		}
+	}
+	if rec == nil {
+		t.Errorf("%s: no requested record for operation %s", op.ID, o.ID)
+		return
+	}
+	if o.Started == nil || rec.Time.After(*o.Started) {
+		t.Errorf("%s: requested record at %v, after the run started at %v", op.ID, rec.Time, o.Started)
+	}
+	var params any
+	if err := json.Unmarshal(rec.Params, &params); err != nil {
+		t.Fatalf("%s: requested record params %q: %v", op.ID, rec.Params, err)
+	}
+	if fmt.Sprint(params) != fmt.Sprint(got) {
+		t.Errorf("%s: requested record params %v, the handler received %v", op.ID, params, got)
+	}
+}
+
+// callKeyed is call for a POST op with an Idempotency-Key header.
+func (s *stack) callKeyed(t *testing.T, op def.Op, token, key string, input map[string]any) response {
+	t.Helper()
+	method, path, err := openapi.Route(op)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(method, s.base+path, bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", key)
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return response{status: resp.StatusCode, body: b}
+}
+
+// TC-13 (pihole-dns-zones): a record ID "<fqdn>~A" routes as one path
+// segment and reaches the handler unchanged, on a get and on a resource
+// action; "~AAAA" is no record ID.
+func TestPiholeRecordIDRoutes(t *testing.T) {
+	s := newStack(t)
+	const id = "kiwi.home.local~A"
+	tok := s.full
+
+	before := len(s.spy.Calls())
+	r := s.do(t, http.MethodGet, "/v1/providers/pihole/records/"+id, tok, nil)
+	if r.status != http.StatusOK {
+		t.Fatalf("GET record %s: %d %.200s", id, r.status, r.body)
+	}
+	if got := s.received(t, pihole.RecordsGet.Op(), r, before); fmt.Sprint(got) != fmt.Sprint(map[string]any{"name": id}) {
+		t.Errorf("get handler received %v, want name %q", got, id)
+	}
+
+	r = s.do(t, http.MethodPost, "/v1/providers/pihole/records/"+id+"/update", tok, []byte(`{"ipv4":"192.0.2.1"}`))
+	if r.status != http.StatusAccepted {
+		t.Fatalf("POST record %s update: %d %.200s", id, r.status, r.body)
+	}
+	got, _ := s.received(t, pihole.RecordsUpdate.Op(), r, 0).(map[string]any)
+	if got["name"] != id {
+		t.Errorf("update handler received name %v, want %q", got["name"], id)
+	}
+
+	before = len(s.spy.Calls())
+	r = s.do(t, http.MethodGet, "/v1/providers/pihole/records/kiwi.home.local~AAAA", tok, nil)
+	if r.status != http.StatusBadRequest {
+		t.Errorf("GET record ~AAAA: %d %.200s, want 400", r.status, r.body)
+	} else if p := r.problem(t); p.Slug() != problem.ValidationFailed {
+		t.Errorf("~AAAA: problem %s, want %s", p.Slug(), problem.ValidationFailed)
+	}
+	if n := len(s.spy.Calls()); n != before {
+		t.Errorf("~AAAA reached %d handler calls", n-before)
+	}
+}
+
+// TC-10 (pihole-dns-zones): the served OpenAPI document lists exactly the 26
+// pihole routes under /v1/providers/pihole, with the Refine patterns as
+// schema patterns and the refused addresses as not.enum.
+func TestPiholeOpenAPI(t *testing.T) {
+	s := newStack(t)
+	r := s.do(t, http.MethodGet, openapi.Path, s.none, nil)
+	if r.status != http.StatusOK {
+		t.Fatalf("openapi: %d %.200s", r.status, r.body)
+	}
+	type schema struct {
+		Pattern    string             `json:"pattern"`
+		Properties map[string]*schema `json:"properties"`
+		Not        *struct {
+			Enum []string `json:"enum"`
+		} `json:"not"`
+	}
+	type operation struct {
+		OperationID string `json:"operationId"`
+		Parameters  []struct {
+			Name, In string
+			Schema   schema `json:"schema"`
+		} `json:"parameters"`
+		RequestBody *struct {
+			Content map[string]struct {
+				Schema schema `json:"schema"`
+			} `json:"content"`
+		} `json:"requestBody"`
+	}
+	var doc struct {
+		Paths map[string]map[string]operation `json:"paths"`
+	}
+	if err := json.Unmarshal(r.body, &doc); err != nil {
+		t.Fatal(err)
+	}
+
+	served := map[string]operation{}
+	for path, methods := range doc.Paths {
+		if !strings.HasPrefix(path, "/v1/providers/pihole/") {
+			continue
+		}
+		for method, o := range methods {
+			served[strings.ToUpper(method)+" "+path] = o
+		}
+	}
+	for _, op := range pihole.Spec().Ops {
+		method, path, err := openapi.Route(op)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := served[method+" "+path].OperationID; got != op.ID {
+			t.Errorf("OpenAPI %s %s: operationId %q, want %q", method, path, got, op.ID)
+		}
+	}
+	if len(served) != 26 {
+		t.Errorf("OpenAPI lists %d routes under /v1/providers/pihole, want 26", len(served))
+	}
+
+	_, getPath, _ := openapi.Route(pihole.RecordsGet.Op())
+	pattern := ""
+	for _, p := range served[http.MethodGet+" "+getPath].Parameters {
+		if p.In == "path" && p.Name == "name" {
+			pattern = p.Schema.Pattern
+		}
+	}
+	if pattern != pihole.RecordNamePattern {
+		t.Errorf("records.get {name} pattern %q, want RecordNamePattern %q", pattern, pihole.RecordNamePattern)
+	}
+
+	_, addPath, _ := openapi.Route(pihole.AddRecord.Op())
+	body := served[http.MethodPost+" "+addPath].RequestBody
+	if body == nil {
+		t.Fatal("add-record has no request body")
+	}
+	ipv4 := body.Content["application/json"].Schema.Properties["ipv4"]
+	switch {
+	case ipv4 == nil:
+		t.Error("add-record body has no ipv4 property")
+	case ipv4.Pattern != pihole.IPv4Pattern:
+		t.Errorf("add-record ipv4 pattern %q, want IPv4Pattern", ipv4.Pattern)
+	case ipv4.Not == nil || !slices.Equal(ipv4.Not.Enum, []string{"0.0.0.0", "255.255.255.255"}):
+		t.Errorf("add-record ipv4 not = %+v, want enum 0.0.0.0 and 255.255.255.255", ipv4.Not)
 	}
 }

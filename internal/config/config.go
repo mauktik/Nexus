@@ -93,6 +93,7 @@ type Providers struct {
 	Apt     Section[AptConfig]     `yaml:"apt"`
 	Scripts Section[ScriptsConfig] `yaml:"scripts"`
 	Nexusd  Section[NexusdConfig]  `yaml:"nexusd"`
+	Pihole  Section[PiholeConfig]  `yaml:"pihole"`
 }
 
 // DockerConfig is the docker provider section.
@@ -152,6 +153,12 @@ type NexusdUpdateConfig struct {
 	// release.ParsePublicKey takes. None means updates are not configured.
 	// They change only by editing the file.
 	TrustedKeys []string `yaml:"trustedKeys"`
+}
+
+// PiholeConfig is the pihole provider section.
+type PiholeConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	DNSFile string `yaml:"dnsFile"` // The dnsmasq file Nexus owns, directly in PiholeDNSDir
 }
 
 // Script is one catalog entry.
@@ -248,6 +255,7 @@ func Default() Config {
 					TrustedKeys:    []string{},
 				},
 			}},
+			Pihole: Section[PiholeConfig]{Settings: PiholeConfig{DNSFile: "/etc/dnsmasq.d/03-custom-dns-names.conf"}},
 		},
 	}
 }

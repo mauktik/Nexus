@@ -99,6 +99,9 @@ Keep `nexusd` LAN only.
 | `scripts:read` | The script catalog, without environment values |
 | `scripts:run` | Running any cataloged script |
 | `scripts:run:<id>` | Running the one script `<id>` |
+| `pihole:read` | Pi-hole status, summary, blocking state, allow and deny entries, adlists, zones and records |
+| `pihole:dns` | DNS zone and record changes, single or batched: can redirect any name for every LAN client |
+| `pihole:write` | Pi-hole blocking, allow and deny entries, adlists, gravity, DNS restart and cache flush |
 | `audit:read` | Querying the audit log |
 | `nexusd:read` | The running `nexusd`: version, uptime, rollback binary, whether updates are configured, and checking its configuration file |
 | `nexusd:admin` | Reloading, restarting, updating and rolling back `nexusd`, and uploading a release; **root-equivalent** |
@@ -322,6 +325,104 @@ the edit with `docker compose up -d` yourself, then update again. A container
 without the label, or output that cannot be read, is let through, and the
 operation log says so.
 
+## Pi-hole
+
+The `pihole` provider ([pihole.md](pihole.md)) controls the DNS resolver
+the whole LAN uses. Its scopes are not root on the host through any path
+Nexus offers, but they reach every client on the network, so grant them as
+carefully as a mutating scope above.
+
+- **`pihole:dns` can redirect any name for every LAN client.** A token with
+  it can declare any zone, such as `github.com` or your bank's domain, and
+  add a record that sends that name, and every name under it, to an address
+  of its choosing. Every device that uses Pi-hole for DNS, this host
+  included when it does, then gets that answer. Software that does not
+  verify what it connects to (plain HTTP, update channels without
+  signatures, devices that skip certificate checks) can be steered to an
+  attacker's server. Every record change also interrupts DNS for the whole
+  LAN for a moment while FTL restarts.
+- **`pihole:write` can switch protection off and make the host fetch URLs
+  as root.** A token with it can turn blocking off, allow a known-bad
+  domain, block everything with a deny regex, and restart DNS at will. It
+  can also add an adlist URL, which gravity (`pihole -g`, run by the token
+  or by Pi-hole's weekly cron job) downloads as root from the Pi-hole host.
+  That URL may point at any address the host can reach, a router's admin
+  page or a service bound to the LAN, so adding an adlist is a server-side
+  request forgery (SSRF) on the LAN: the response is not returned, but the
+  adlist's `status` and `domains` count reveal whether the fetch worked.
+  Nexus accepts only `http` and `https` URLs without userinfo, which limits
+  the scheme but not the destination.
+- **`pihole:read` exposes your list and record contents,** not the query
+  log: no read returns per-client or per-domain query history. The values,
+  URLs and comments it returns may have been written by anyone with the
+  Pi-hole web interface or `pihole` command, so they are marked untrusted
+  for agents ([mcp.md](mcp.md)).
+
+### Pi-hole mutations run as root outside the sandbox
+
+Every Pi-hole change runs as root in its own `nexus-op-<id>` unit, outside
+the `nexusd` sandbox, like the other operations (see Operation units). The
+unit runs the `nexusd` binary's hidden `pihole-helper` subcommand, which
+reads the operation's validated input from the operation's directory and
+makes the change. It runs there because the change needs what the sandbox refuses:
+
+- the `pihole` commands write `/etc/pihole` and `/etc/dnsmasq.d`, which
+  `ProtectSystem=strict` makes read-only for `nexusd`;
+- `pihole restartdns` restarts the `pihole-FTL` service;
+- `pihole-FTL` carries file capabilities that the unit's
+  `CapabilityBoundingSet` would refuse, so `nexusd` never runs a Pi-hole
+  binary itself.
+
+`deploy/nexusd.service` is unchanged for this provider: no directive was
+removed and no capability added. The helper never takes a shell string:
+every value reaches a command as one argument, and no operation accepts a
+dnsmasq line or option, a file path, SQL or a `pihole` argument list. The
+only file it writes in `/etc/dnsmasq.d` is `providers.pihole.dnsFile`, and
+the dot-prefixed temporary file it renames over it. Since the helper is
+root, trust in it rests on those input checks, described next, and on the
+scopes above.
+
+### Pi-hole's scripts and SQL injection
+
+Pi-hole v5's own scripts build SQL by pasting values between single
+quotes, without escaping: `list.sh` (behind `pihole -w`, `-b`, `--regex`
+and `--white-regex`) does so for domains, regexes and comments, and
+`webpage.sh` (behind `pihole -a adlist`) for adlist URLs and comments.
+`list.sh` does not check regexes at all, so a `'` in a regex there is SQL
+injection, run as root on `gravity.db`. Nexus avoids both:
+
+- **Allow and deny entries never go through `list.sh`.** The helper writes
+  them to `gravity.db` itself, in one transaction, with the value and
+  comment as bound SQL parameters, then runs
+  `pihole restartdns reload-lists`. A regex can therefore contain the `\`
+  and `;` that FTL's regex syntax needs. Quotes and backticks are still
+  refused.
+- **Adlists go through `pihole -a adlist`,** but only with values that
+  cannot break its SQL: a URL must match a strict subset of what
+  `webpage.sh` accepts, and a comment may hold only letters, digits, space
+  and `_ . , : # -`. Neither can contain `'`, `;`, `\`, a newline or a
+  control character, and neither can start with `-`.
+
+Every input pattern is anchored and is a strict subset of what Pi-hole's
+own validators accept, so a value Nexus admits is never dropped or mangled
+by them.
+
+### What Pi-hole reads touch
+
+Reads run inside the sandbox and never run a Pi-hole command.
+
+- `gravity.db` is opened read-only (`mode=ro` with `query_only`), so a read
+  cannot change it and needs no write access to `/etc/pihole`. Pi-hole
+  keeps the database in rollback-journal mode, so a read creates no
+  `-journal`, `-wal` or `-shm` file.
+- Reads never touch `WEBPASSWORD`. From `setupVars.conf`, which holds the
+  web interface's password hash, the status read keeps only the
+  `BLOCKING_ENABLED` line and discards every other line as it reads. No
+  Pi-hole password, hash or API token is ever placed in a response, a log,
+  an operation record or an audit record.
+- Today's summary comes from FTL's local API on 127.0.0.1, which needs no
+  credentials, and the DNS health check queries 127.0.0.1:53.
+
 ## Audit log and its limits
 
 Every authenticated mutating request, every denied request and every
@@ -361,8 +462,8 @@ The limits (OOS-12):
 
 ## Operation units
 
-Long-running work (apt changes, script runs, container updates, and
-`nexusd`'s own restart, update and rollback) runs in a
+Long-running work (apt changes, script runs, container updates, Pi-hole
+changes, and `nexusd`'s own restart, update and rollback) runs in a
 transient `nexus-op-<id>.service` unit outside the `nexusd` sandbox, so it
 keeps running when `nexusd` restarts or crashes. The units are started with
 `RefuseManualStop=yes`, so `systemctl stop` on one is refused; this is also
@@ -390,12 +491,12 @@ reason.
 
 `nexusd` runs as root under this unit, because Docker socket access and apt
 are root-equivalent anyway. The privileged work (apt changes, script runs,
-container updates, and restarting, updating and rolling back `nexusd`) runs
-in `nexus-op-*` transient units that `nexusd` starts with `systemd-run`.
-Those units are outside this sandbox. The sandbox limits what the `nexusd`
-process itself can do if it is compromised. It is not a boundary between a
-token holder and root: a token with a mutating `docker`, `apt` or `scripts`
-scope is potentially root-equivalent, and `nexusd:admin` is
+container updates, Pi-hole changes, and restarting, updating and rolling
+back `nexusd`) runs in `nexus-op-*` transient units that `nexusd` starts with
+`systemd-run`. Those units are outside this sandbox. The sandbox limits what
+the `nexusd` process itself can do if it is compromised. It is not a boundary
+between a token holder and root: a token with a mutating `docker`, `apt` or
+`scripts` scope is potentially root-equivalent, and `nexusd:admin` is
 root-equivalent. Self-update did not relax any directive: everything
 `nexusd` writes for it inside the sandbox (staged uploads, the extracted
 package, the helper's input) is under `/var/lib/nexus`.
@@ -430,7 +531,8 @@ drop-in, and finds no seccomp or permission denial in the journal.
 
 ## Directives removed since WI 3.5
 
-None. The unit applies every directive of the WI 3.5 set. A directive removed
+None. The unit applies every directive of the WI 3.5 set, and the `pihole`
+provider added none and removed none. A directive removed
 later must be listed here with its reason; the T1 audit fails when a WI 3.5
 directive is missing from the unit and not listed here.
 

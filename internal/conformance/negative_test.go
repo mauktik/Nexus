@@ -23,6 +23,7 @@ import (
 	"github.com/mauktik/nexus/internal/openapi"
 	"github.com/mauktik/nexus/internal/problem"
 	nexusd "github.com/mauktik/nexus/internal/providers/nexusd/spec"
+	pihole "github.com/mauktik/nexus/internal/providers/pihole/spec"
 	scripts "github.com/mauktik/nexus/internal/providers/scripts/spec"
 )
 
@@ -43,6 +44,24 @@ var attacks = []struct{ name, value string }{
 	{"64KiB", strings.Repeat("A", 64<<10)},
 }
 
+// piholeAttacks are sent, besides attacks, through every string parameter
+// of the pihole ops: a path separator, the batch change's "=" and a quote,
+// each of which a Pi-hole input could carry into a dnsmasq line or a shell
+// argument (CON-2).
+var piholeAttacks = []struct{ name, value string }{
+	{"slash", "a/b"},
+	{"equals", "a=b"},
+	{"quote", "a'b"},
+}
+
+// attacksFor returns the attack list for op.
+func attacksFor(op def.Op) []struct{ name, value string } {
+	if op.Provider == pihole.Name {
+		return append(slices.Clip(attacks), piholeAttacks...)
+	}
+	return attacks
+}
+
 // inertAllowed lists the parameters, as "<op> <path>", that may accept a
 // hostile value because their handler takes it only as data. An accepted
 // value must reach the handler byte for byte. Providers add their
@@ -54,6 +73,11 @@ var inertAllowed = map[string]bool{
 	// Script parameter values reach the script only as one argv element or
 	// one env value (5.3 proves it against real processes, TC-106).
 	scripts.Invoke.Op().ID + " /parameters/{key}": true,
+	// A regex domain value reaches gravity.db only as a bound SQL parameter,
+	// never a shell or dnsmasq line; WI 5.2 proves it at T1 by storing a
+	// regex with `\.` and ";querytype=A" byte for byte.
+	pihole.AddDomain.Op().ID + " /value":    true,
+	pihole.RemoveDomain.Op().ID + " /value": true,
 }
 
 // stringParams lists the paths of op's string inputs.
@@ -77,6 +101,7 @@ type sampler struct {
 }
 
 var sampleStrings = []string{"w1", "a", "red", "1", "x-1", "color=red",
+	"a.b", "192.0.2.1", "a.b~A", "add-zone:a.b", "https://a.b/l.txt",
 	strings.Repeat("a", 32),        // An upload ID: 32 lowercase hex digits
 	strings.Repeat("A", 86) + "==", // A signature's form: 64 bytes in padded base64
 }
@@ -94,6 +119,10 @@ func (sm sampler) value(t *testing.T, op def.Op, path string, s *jsonschema.Sche
 		}
 		return obj
 	case hasType(s, "array"):
+		// An array that must not be empty gets one sampled item.
+		if s.MinItems != nil && *s.MinItems >= 1 {
+			return []any{sm.value(t, op, path+"/*", s.Items)}
+		}
 		return []any{}
 	case hasType(s, "boolean"):
 		return false
@@ -222,7 +251,7 @@ func TestAttackStringsAgainstEveryStringParameter(t *testing.T) {
 			key := op.ID + " " + path
 			walked[key] = true
 			isTarget := op.Scope.FromTarget && strings.TrimPrefix(path, "/") == targetWildcard(route)
-			for _, a := range attacks {
+			for _, a := range attacksFor(op) {
 				t.Run(fmt.Sprintf("%s%s/%s", op.ID, path, a.name), func(t *testing.T) {
 					in := sm.withValue(t, op, base, path, a.value)
 					before := len(s.spy.Calls())
