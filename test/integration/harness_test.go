@@ -882,9 +882,15 @@ func TestProductionWiringCreatesRealUnit(t *testing.T) {
 			// supervisor before it can record a cancel (the accepted residual
 			// launch race; seen live at 9 ms in the merged harness run).
 			waitUntil(t, 30*time.Second, unit+" supervisor running its child", func() (bool, string) {
+				// Go may fork from any of its threads, so read every task's list.
 				pid := showUnit(t, unit, "MainPID")["MainPID"]
-				b, err := os.ReadFile("/proc/" + pid + "/task/" + pid + "/children")
-				return err == nil && strings.TrimSpace(string(b)) != "", fmt.Sprint(pid, err)
+				tasks, err := filepath.Glob("/proc/" + pid + "/task/*/children")
+				for _, f := range tasks {
+					if b, _ := os.ReadFile(f); strings.TrimSpace(string(b)) != "" {
+						return true, pid
+					}
+				}
+				return false, fmt.Sprint(pid, " ", len(tasks), " tasks ", err)
 			})
 			if err := l.Cancel(ctx, id); err != nil {
 				t.Fatal(err)

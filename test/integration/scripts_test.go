@@ -1390,8 +1390,14 @@ func TestScriptMaxRuntimeUnderStuckSupervisor(t *testing.T) {
 	end, _ := d.waitTerminal(op.ID, limit+time.Minute)
 	elapsed := end.Ended.Sub(started)
 	t.Logf("stuck: %s %+v after %v (limit %v)", end.Status, end.Error, elapsed, limit)
-	if end.Status != apitypes.StatusFailed || problemSlug(end) != string(problem.OutcomeUnknown) || !strings.Contains(end.Error.Detail, unit) {
-		t.Fatalf("%s %+v, want Failed outcome-unknown naming %s", end.Status, end.Error, unit)
+	// The detail names the runner: the unit on systemd, the supervisor
+	// process on OpenRC's process backend.
+	runner := unit
+	if detectedInit() == platform.OpenRC {
+		runner = "the supervisor process of operation " + op.ID
+	}
+	if end.Status != apitypes.StatusFailed || problemSlug(end) != string(problem.OutcomeUnknown) || !strings.Contains(end.Error.Detail, runner) {
+		t.Fatalf("%s %+v, want Failed outcome-unknown naming %s", end.Status, end.Error, runner)
 	}
 	if elapsed < limit || elapsed > limit+15*time.Second {
 		t.Errorf("ended %v after start, want within [%v, %v]", elapsed, limit, limit+15*time.Second)
