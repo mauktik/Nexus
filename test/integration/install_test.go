@@ -733,8 +733,10 @@ func auditDirectives(t *testing.T) {
 }
 
 // TC-182: under the exact unit, installed by install.sh with no drop-in,
-// every catalog operation of docker, apt and scripts, plus the core
-// operation reads and cancel, reaches its expected outcome through REST,
+// every catalog operation of docker, apt, scripts and nginx (nginx-provider
+// TC-112: ngxEveryOp, against the image's nginx with includeDir
+// /etc/nginx/conf.d), plus the core operation reads and cancel, reaches its
+// expected outcome through REST,
 // with scripts in a home directory and a Compose project under /home
 // (ProtectHome=read-only), and nothing is denied; then the directive audit.
 //
@@ -781,8 +783,8 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 	cfgDir := configDir(t, "tc182", "")
 	cfg := func(dockerExtra string) string {
 		return fmt.Sprintf("host: {name: harness}\nlisten: [%q]\ntls: {mode: off}\nproviders:\n"+
-			"  docker: {enabled: true, socket: %s, configDir: %s%s}\n  apt:\n    enabled: true\n  scripts:\n    enabled: true\n    catalog:\n%s",
-			exactAddr, dockerSocket, cfgDir, dockerExtra,
+			"  docker: {enabled: true, socket: %s, configDir: %s%s}\n  apt:\n    enabled: true\n%s  scripts:\n    enabled: true\n    catalog:\n%s",
+			exactAddr, dockerSocket, cfgDir, dockerExtra, ngxSection(""),
 			catalogYAML(entry{id: "tc182-hello", path: hello, runAs: "deploy", dir: home},
 				entry{id: "tc182-wait", path: wait, runAs: "deploy", dir: home}))
 	}
@@ -804,8 +806,8 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 	dmesgBefore := kernelLines(t)
 	since := time.Now().Add(-time.Second)
 	pid := startExact(t)
-	n := exactNexusd(t, dockerspec.ReadScope, dockerspec.WriteScope, aptspec.ReadScope, aptspec.WriteScope,
-		aptspec.InstallScope, spec.ReadScope, spec.RunScope)
+	n := exactNexusd(t, append([]string{dockerspec.ReadScope, dockerspec.WriteScope, aptspec.ReadScope,
+		aptspec.WriteScope, aptspec.InstallScope, spec.ReadScope, spec.RunScope}, ngxScopes...)...)
 	var done []string
 	ok := func(op string, format string, args ...any) {
 		t.Helper()
@@ -823,26 +825,18 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 
 	var caps apitypes.Capabilities
 	n.mustGet("/v1/capabilities?refresh=true", &caps)
-	// The providers this config enables are enabled. nginx is compiled in
-	// but not configured here: its ops join this test with the nginx T1
-	// suite, until then it must be off by configuration, nothing else.
+	// Every provider this config enables is enabled: all four.
 	enabled := 0
 	for _, pc := range caps.Providers {
-		want := apitypes.ProviderEnabled
-		if pc.Name == "nginx" {
-			want = apitypes.ProviderDisabled
+		if pc.Status != apitypes.ProviderEnabled {
+			t.Fatalf("provider %s %s, want %s: %s", pc.Name, pc.Status, apitypes.ProviderEnabled, pc.Reason)
 		}
-		if pc.Status != want {
-			t.Fatalf("provider %s %s, want %s: %s", pc.Name, pc.Status, want, pc.Reason)
-		}
-		if pc.Status == apitypes.ProviderEnabled {
-			enabled++
-		}
+		enabled++
 	}
-	if enabled != 3 {
-		t.Fatalf("%d providers enabled, want docker, apt and scripts", enabled)
+	if enabled != 4 {
+		t.Fatalf("%d providers enabled, want docker, apt, scripts and nginx", enabled)
 	}
-	ok("capabilities", "%d providers enabled (docker, apt, scripts); nginx disabled by configuration", enabled)
+	ok("capabilities", "%d providers enabled (docker, apt, scripts, nginx)", enabled)
 
 	// docker
 	var list apitypes.List[dockerspec.Container]
@@ -1019,6 +1013,12 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 		}
 	}
 	ok("operations list/get/logs", "%d operations", len(opsList))
+
+	// nginx (nginx-provider TC-112), each op read back without Nexus.
+	ngxEveryOp(t, n, func(op, format string, args ...any) {
+		t.Helper()
+		ok(op, format, args...)
+	})
 
 	// Step 2: nothing denied, nexusd never restarted, then the audit.
 	sinceArg := "@" + strconv.FormatInt(since.Unix(), 10)

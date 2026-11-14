@@ -9,12 +9,14 @@ ENV container=docker DEBIAN_FRONTEND=noninteractive
 
 # expect gives the CLI confirmation tests a controlling terminal (TC-170).
 # docker-compose-v2 is an Ubuntu package; on a base without it the Docker
-# tests skip (NFR-6 runs at BASE=debian:stable).
+# tests skip (NFR-6 runs at BASE=debian:stable). nginx is the distribution's
+# own package under its own nginx.service (enabled, so it starts at boot),
+# and curl reads back what it serves (nginx-provider WI 7.1).
 RUN apt-get update \
  && compose="$(apt-cache show docker-compose-v2 >/dev/null 2>&1 && echo docker-compose-v2 || true)" \
  && apt-get install -y --no-install-recommends \
       systemd systemd-sysv dbus needrestart docker.io ${compose} dpkg-dev ca-certificates \
-      iproute2 procps util-linux git expect \
+      iproute2 procps util-linux git expect nginx curl \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 

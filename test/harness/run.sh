@@ -22,9 +22,13 @@
 # After it, TestParitySuitesRanAsRoot reads those logs and test.log
 # (parity-check.log). Last, internal/svcctl's TestLiveMatrix drives the
 # container's real nginx through the detected init system as root
-# (NEXUS_SVCCTL_LIVE=1, svcctl-live.log); the Ubuntu image has no nginx, so
-# it is installed from the archive then, after every other suite has run.
-# PARITY=0 leaves all of that out for a quick run.
+# (NEXUS_SVCCTL_LIVE=1, svcctl-live.log). Both images carry the
+# distribution's nginx and curl for the nginx T1 suite (nginx-provider WI
+# 7.1), whose TC-113 reads internal/svcctl's captures through the svcctltest
+# fake: they are copied to /harness/src/<module path>/internal/svcctl/testdata,
+# where the fake's -trimpath source path resolves from /harness/src.
+# nginx's error.log is collected with the other logs (nginx-error.log).
+# PARITY=0 leaves the parity suites and the live matrix out for a quick run.
 #
 # The Docker CLI's current context is used as is: no socket is hardcoded.
 #
@@ -195,6 +199,7 @@ collect_and_remove() {
 			docker exec "$container" journalctl -b --no-pager -o short-precise >"$LOGS/journal.log" 2>&1 || true
 			docker exec "$container" systemctl list-units --all --no-pager --plain >"$LOGS/units.log" 2>&1 || true
 		fi
+		docker exec "$container" cat /var/log/nginx/error.log >"$LOGS/nginx-error.log" 2>&1 || true
 		docker logs "$container" >"$LOGS/container.log" 2>&1 || true
 		docker rm -f -v "$container" >/dev/null 2>&1 || true
 		if [ -n "$(docker ps -aq --filter "name=^${name}\$")" ]; then
@@ -252,7 +257,7 @@ if [ $MODE = openrc ]; then
 	done
 	say "rc-status default: $(docker exec "$container" rc-status default | tr -s ' ' | xargs)"
 	say "PID 1: $(docker exec "$container" cat /proc/1/cmdline | tr '\0' ' ')"
-	say "versions: $(docker exec "$container" sh -c 'openrc --version; nginx -v 2>&1; docker version --format "docker {{.Server.Version}}"; . /etc/os-release; echo "$PRETTY_NAME"' | xargs)"
+	say "versions: $(docker exec "$container" sh -c 'openrc --version; nginx -v 2>&1; curl --version | head -1; docker version --format "docker {{.Server.Version}}"; . /etc/os-release; echo "$PRETTY_NAME"' | xargs)"
 else
 	say "waiting for systemd (running or degraded)"
 	deadline=$((SECONDS + READY_TIMEOUT))
@@ -274,7 +279,7 @@ else
 		done
 		say "required unit $u active"
 	done
-	say "versions: $(docker exec "$container" sh -c 'systemctl --version | head -1; needrestart --version 2>&1 | head -1; dpkg-query -W -f="apt \${Version} " apt; dpkg-query -W -f="dpkg \${Version}" dpkg; echo; . /etc/os-release; echo "$PRETTY_NAME"' | xargs)"
+	say "versions: $(docker exec "$container" sh -c 'systemctl --version | head -1; needrestart --version 2>&1 | head -1; dpkg-query -W -f="apt \${Version} " apt; dpkg-query -W -f="dpkg \${Version}" dpkg; echo; nginx -v 2>&1; curl --version | head -1; . /etc/os-release; echo "$PRETTY_NAME"' | xargs)"
 fi
 
 say "copying binaries, unit, lib.sh and fixtures in with docker cp"
@@ -287,6 +292,9 @@ docker cp deploy/nexusd.openrc "$container:/harness/deploy/nexusd.openrc"
 docker cp test/harness/lib.sh "$container:/harness/lib.sh"
 # Script fixtures (WI 5.3); tests install them root-owned where they run.
 docker cp test/harness/fixtures "$container:/harness/fixtures"
+# The svcctl captures the svcctltest fake answers with (TC-113).
+docker exec "$container" mkdir -p /harness/src/github.com/mauktik/nexus/internal/svcctl
+docker cp internal/svcctl/testdata "$container:/harness/src/github.com/mauktik/nexus/internal/svcctl/testdata"
 # The release tree install.sh installs from (WI 10.1), root-owned as tar
 # extracts it for root.
 docker cp "$OUT/release" "$container:/harness/release"
@@ -393,11 +401,6 @@ if [ "$PARITY" = 1 ]; then
 	say "svcctl TestLiveMatrix against the container's nginx ($MODE) -> svcctl-live.log"
 	set +e
 	docker cp "$OUT/svcctl.test" "$container:/harness/parity/svcctl.test"
-	if [ $MODE = systemd ]; then
-		docker exec -e DEBIAN_FRONTEND=noninteractive "$container" sh -c \
-			'command -v nginx >/dev/null || { apt-get update -q && apt-get install -y -q --no-install-recommends nginx; }' \
-			>"$LOGS/svcctl-nginx-install.log" 2>&1
-	fi
 	docker exec -w /harness/parity -e NEXUS_SVCCTL_LIVE=1 "$container" /harness/parity/svcctl.test \
 		-test.v -test.count=1 -test.run '^TestLiveMatrix$' >"$LOGS/svcctl-live.log" 2>&1
 	live=$?
