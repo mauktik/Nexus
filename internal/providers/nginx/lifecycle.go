@@ -257,9 +257,17 @@ func definite(st svcctl.Status, want svcctl.State) bool {
 	return false
 }
 
+// noExitStatus is the exit code recorded for an init-system tool that ended
+// without one.
+const noExitStatus = -1
+
 // logInit writes the init system's answer to action to the operation log.
 func logInit(e env, action svcctl.Action, res svcctl.Result) {
-	say(e.out, "nginx-op: %s %s exited %d", e.svc.Init(), action, res.ExitCode)
+	if res.ExitCode == noExitStatus {
+		say(e.out, "nginx-op: %s %s ended without an exit status", e.svc.Init(), action)
+	} else {
+		say(e.out, "nginx-op: %s %s exited %d", e.svc.Init(), action, res.ExitCode)
+	}
 	if out := strings.TrimSpace(string(res.Output)); out != "" {
 		say(e.out, "%s", out)
 	}
@@ -273,6 +281,9 @@ func initClause(e env, action svcctl.Action, res svcctl.Result) string {
 	out := strings.TrimSpace(string(res.Output))
 	if len(out) > initOutputCap {
 		out = string(validUTF8Prefix([]byte(out[:initOutputCap]))) + "…"
+	}
+	if res.ExitCode == noExitStatus {
+		return fmt.Sprintf("; %s %s ended without an exit status: %s", e.svc.Init(), action, out)
 	}
 	return fmt.Sprintf("; %s %s exited %d: %s", e.svc.Init(), action, res.ExitCode, out)
 }
@@ -334,7 +345,9 @@ func resolveMaster(ctx context.Context, e env, in helperInput) (running bool, m 
 // whatever the outcome once a reload was sent. confirmed is success;
 // rejected and master-gone are nginx-reload-failed with the observation;
 // anything else is outcome-unknown, since a reload was sent and its effect
-// is not known.
+// is not known. A tool that never started (svcctl.ErrNotStarted) sent
+// nothing and is dependency-unavailable, the one slug the callers read as
+// "no reload was sent"; a tool that started and died is a sent reload.
 func reloadAndVerify(ctx context.Context, e env, in helperInput, m Master) (spec.ReloadObservation, *helperError) {
 	service := in.Settings.Service
 	before, err := Observe(e.proc, m)
@@ -352,12 +365,22 @@ func reloadAndVerify(ctx context.Context, e env, in helperInput, m Master) (spec
 	say(e.out, "nginx-op: reload %s through %s (workers %v)", service, e.svc.Init(), workerPIDs(before.Workers))
 	res, err := e.svc.Do(ctx, svcctl.Reload, service)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		switch {
+		case errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled):
 			return spec.ReloadObservation{}, failure(problem.OutcomeUnknown, "the reload through %s did not "+
 				"complete: %v; whether nginx applied the configuration is unknown", e.svc.Init(), err)
+		case errors.Is(err, svcctl.ErrNotStarted):
+			return spec.ReloadObservation{}, failure(problem.DependencyUnavailable, "the reload through %s could "+
+				"not run: %v; nothing was reloaded", e.svc.Init(), err)
 		}
-		return spec.ReloadObservation{}, failure(problem.DependencyUnavailable, "the reload through %s could not "+
-			"run: %v; nothing was reloaded", e.svc.Init(), err)
+		// The tool started and then failed without an exit status (a signal,
+		// a wait error): it may have delivered the reload before it died, so
+		// this is a reload that may have been sent. Its effect is verified
+		// like any other, with no exit status (-1), and the callers roll
+		// back as for a sent reload.
+		say(e.out, "nginx-op: the reload through %s failed after it started: %v; verifying whether nginx "+
+			"reloaded", e.svc.Init(), err)
+		res = svcctl.Result{ExitCode: noExitStatus, Output: []byte(err.Error())}
 	}
 	logInit(e, svcctl.Reload, res)
 	obs, err := Verify(ctx, e.proc, before, res.ExitCode, in.Settings.ReloadVerifyTimeout, DefaultReloadPoll)

@@ -175,3 +175,39 @@ func TestToggleReloadToolDiedAfterAppliedReload(t *testing.T) {
 		}
 	})
 }
+
+// nginx-provider CR-B1 G: a reload tool that never started sent nothing: no verification, no second reload
+func TestReloadToolNeverStarted(t *testing.T) {
+	fakeNginxBinary(t)
+	notStarted := errors.Join(svcctl.ErrNotStarted, errors.New("fork/exec /bin/systemctl: no such file or directory"))
+	t.Run("reload", func(t *testing.T) {
+		h := newLC(t, ubuntu, svcctltest.Model{State: svcctl.Running})
+		writeTree(t, h.f.dir, map[string]string{"a.conf": validSite})
+		h.useCapture("ubuntu-valid.jsonl", true, h.f.nginx)
+		h.set(func(h *lcHarness) { h.reloadFault = reloadFault{n: 1, err: notStarted, before: true} })
+
+		d := h.op(spec.Reload.Op()).failed(t, problem.DependencyUnavailable)
+		if !strings.Contains(d, "nothing was reloaded") {
+			t.Errorf("detail %q, want it to say nothing was reloaded", d)
+		}
+	})
+	t.Run("update", func(t *testing.T) {
+		w := newWriteLC(t, ubuntu, svcctltest.Model{State: svcctl.Running})
+		writeTree(t, w.f.dir, map[string]string{"a.conf": validSite})
+		w.useCapture("ubuntu-valid.jsonl", true, w.f.nginx)
+		w.set(func(h *lcHarness) { h.reloadFault = reloadFault{n: 1, err: notStarted, before: true} })
+		before := contentSnapshot(t, w.f.dir)
+
+		o := w.write(spec.Update.Op(), spec.WriteInput{Name: "a", Content: "server {\n    listen 8233;\n}\n"})
+		o.failed(t, problem.DependencyUnavailable)
+		if !ext[bool](t, o.err, "rolledBack") {
+			t.Errorf("rolledBack false, want true")
+		}
+		if got, want := withoutStatus(w.calls()), []string{"nginx -t", "reload"}; !slices.Equal(got, want) {
+			t.Errorf("calls %q, want %q: nothing was sent, so no second reload", got, want)
+		}
+		if after := contentSnapshot(t, w.f.dir); !maps.Equal(before, after) {
+			t.Errorf("includeDir %v, was %v", after, before)
+		}
+	})
+}

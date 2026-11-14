@@ -236,8 +236,11 @@ func workerPIDs(ws []Worker) []int {
 // then every poll (DefaultReloadPoll when poll is not positive) until the
 // verdict is confirmed or master-gone, or until timeout has passed, when
 // the last snapshot's verdict, rejected or unconfirmed, is final. When
-// exitCode is not zero and the first snapshot shows an unchanged
-// generation, the verdict is rejected at once, without waiting.
+// exitCode is positive (the tool reported a failure) and the first snapshot
+// shows an unchanged generation, the verdict is rejected at once, without
+// waiting. A negative exitCode is a tool that ended without an exit status
+// (it may have delivered the reload before it died): it does not end the
+// wait early.
 //
 // The observation is complete whatever the outcome. The error is set only
 // when /proc could not be read or ctx ended; the verdict is then
@@ -265,7 +268,7 @@ func Verify(ctx context.Context, r ProcReader, before Generation, exitCode int, 
 		case c.Verdict == VerdictConfirmed, c.Verdict == VerdictMasterGone:
 			obs.Verdict = c.Verdict
 			return obs, nil
-		case first && exitCode != 0 && c.Verdict == VerdictRejected:
+		case first && exitCode > 0 && c.Verdict == VerdictRejected:
 			obs.Verdict = VerdictRejected
 			return obs, nil
 		}

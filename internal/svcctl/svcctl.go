@@ -67,6 +67,15 @@ type Result struct {
 	Output   []byte // Combined stdout and stderr, capped at OutputCap
 }
 
+// ErrNotStarted is wrapped by every error that means the init system's tool
+// was never started: an argument refused before any exec, a program that is
+// not there or cannot be executed. An action whose error is not
+// ErrNotStarted (and not a context error) may have reached the service
+// before the tool failed, for example a tool killed by a signal or a wait
+// that failed after it delivered the action, so the caller must not treat
+// it as "nothing was sent".
+var ErrNotStarted = errors.New("svcctl: the init system's tool was not started")
+
 // Controller controls services through one init system.
 type Controller interface {
 	Init() platform.InitSystem
@@ -140,14 +149,14 @@ type base struct {
 
 func checkService(service string) error {
 	if !serviceName.MatchString(service) {
-		return fmt.Errorf("svcctl: invalid service name %q: it must match %s", service, ServiceNamePattern)
+		return fmt.Errorf("%w: invalid service name %q: it must match %s", ErrNotStarted, service, ServiceNamePattern)
 	}
 	return nil
 }
 
 func checkAction(a Action) error {
 	if !a.valid() {
-		return fmt.Errorf("svcctl: invalid action %q: it must be start, stop, restart or reload", string(a))
+		return fmt.Errorf("%w: invalid action %q: it must be start, stop, restart or reload", ErrNotStarted, string(a))
 	}
 	return nil
 }
@@ -173,10 +182,11 @@ func (b base) call(ctx context.Context, argv []string) (Result, error) {
 // realRun executes argv[0], which must be absolute, with argv[1:] as its
 // arguments: no shell, no stdin, the environment exactly env(), and combined
 // output capped at OutputCap. The tool runs in its own process group, which
-// is killed when ctx is done.
+// is killed when ctx is done. A failure before the tool started wraps
+// ErrNotStarted; any other error came after it started.
 func realRun(ctx context.Context, argv []string) (Result, error) {
 	if len(argv) == 0 || !filepath.IsAbs(argv[0]) {
-		return Result{}, fmt.Errorf("refusing to run %q: the program must be an absolute path", argv)
+		return Result{}, fmt.Errorf("%w: refusing to run %q: the program must be an absolute path", ErrNotStarted, argv)
 	}
 	out := &capWriter{max: OutputCap}
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
@@ -188,7 +198,13 @@ func realRun(ctx context.Context, argv []string) (Result, error) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = waitDelay
-	err := cmd.Run()
+	if err := cmd.Start(); err != nil {
+		if ctx.Err() != nil {
+			return Result{}, ctx.Err()
+		}
+		return Result{}, fmt.Errorf("%w: %w", ErrNotStarted, err)
+	}
+	err := cmd.Wait()
 	if ctx.Err() != nil {
 		return Result{}, ctx.Err()
 	}
