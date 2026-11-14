@@ -536,12 +536,14 @@ func (a *app) progress(host string, op apitypes.Operation, elapsed time.Duration
 // ends, which it does when the operation does (FR-33). In a machine format
 // each frame is a JSON line labeled with host and id, else its text. The
 // stream rides out an outage within window, the reconnect window of the
-// operation's own op (FR-14).
+// operation's own op, and shows it on stderr as a plain wait does (FR-14).
 func (a *app) followOperation(ctx context.Context, c *client.Client, t hostTarget, id string, window time.Duration, r *resume) error {
 	op := systemspec.OperationsLogs.Op()
 	op.CLI.ReconnectWindow = window
 	in := map[string]any{"id": id, "follow": true}
-	return followFrames(ctx, c, op, in, r, func(f map[string]any) error {
+	// The same reconnect progress as a plain wait (FR-14).
+	reconnecting := func(elapsed time.Duration) { a.reconnectProgress(t.Name, id, elapsed, window) }
+	return followFrames(ctx, c, op, in, r, reconnecting, func(f map[string]any) error {
 		f["id"] = frameLocator(id, f)
 		if a.format.Machine() {
 			f["level"] = "output"
@@ -653,7 +655,10 @@ func (r *resume) next(f map[string]any) bool {
 // reconnect window on op it gives up after followRetries consecutive
 // failures to connect; with one, after the window of continuous failure, a
 // 503 counting as one and a pin mismatch ending it at once (FR-14).
-func followFrames(ctx context.Context, c *client.Client, op def.Op, in map[string]any, r *resume, emit func(map[string]any) error) error {
+// reconnecting, when not nil, is called with how long the host has been
+// unreachable at the first failure of an outage and every progressEvery
+// after it, as the reconnector's failed reports.
+func followFrames(ctx context.Context, c *client.Client, op def.Op, in map[string]any, r *resume, reconnecting func(elapsed time.Duration), emit func(map[string]any) error) error {
 	rc := newReconnector(op.CLI.ReconnectWindow)
 	gap := followRetryGap
 	if rc.enabled() {
@@ -680,8 +685,12 @@ func followFrames(ctx context.Context, c *client.Client, op def.Op, in map[strin
 			failures = 0
 			rc.reached()
 		case rc.enabled():
-			if _, _, spent := rc.failed(); spent {
+			elapsed, show, spent := rc.failed()
+			if spent {
 				return err
+			}
+			if show && reconnecting != nil {
+				reconnecting(elapsed)
 			}
 		default:
 			if failures++; failures > followRetries {

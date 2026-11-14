@@ -522,7 +522,7 @@ func (a *app) execute(ctx context.Context, c *client.Client, t hostTarget, op de
 	w waitOptions, p *lockedPrinter) ([]byte, error) {
 	if followsStream(op, in) {
 		target, _ := in[op.CLI.Positional].(string)
-		return nil, followFrames(ctx, c, op, in, &resume{lastO: -1}, func(f map[string]any) error {
+		return nil, followFrames(ctx, c, op, in, &resume{lastO: -1}, nil, func(f map[string]any) error {
 			f["id"] = frameLocator(target, f)
 			return p.print(label(f, t))
 		})

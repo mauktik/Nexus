@@ -698,6 +698,17 @@ func TestTCSM38_FollowToleratesTheOutageAndResumes(t *testing.T) {
 			if r.wall >= 5*time.Second {
 				t.Errorf("wall time %s, want under 5s", r.wall)
 			}
+			// --follow shows the same reconnect progress as a plain wait: a line
+			// at the first failure and then at most 10 s apart, in the same format.
+			lines := r.stderr.reconnectLines()
+			if len(lines) < 2 || !strings.Contains(lines[0].text, "is unreachable, likely restarting; retrying (0s of 60s)") ||
+				!strings.Contains(lines[1].text, "retrying (10s of 60s)") {
+				t.Fatalf("reconnect progress %v, want 0s of 60s then 10s of 60s", lines)
+			}
+			if !lines[0].at.Equal(cutAt) {
+				t.Errorf("first reconnect line at virtual +%s after the cut, want +0s", lines[0].at.Sub(cutAt))
+			}
+			checkReconnectCadence(t, lines, "60")
 			streams := r.stderr.attempts(t, "/logs")
 			failed := failedOf(streams)
 			if c.code != ExitOK {
