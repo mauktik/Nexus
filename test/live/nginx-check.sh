@@ -607,9 +607,11 @@ holder_start() {
 }
 
 holder_stop() {
-	[ -n "$HOLDER_PID" ] || return 0
-	# Only the process this run started: its command line names the port.
-	hrun "c=\$(tr '\\0' ' ' </proc/$HOLDER_PID/cmdline 2>/dev/null); case \$c in *$CPORT*) kill $HOLDER_PID && echo killed holder $HOLDER_PID ;; *) echo holder $HOLDER_PID is gone ;; esac"
+	[ -n "$CPORT" ] || return 0
+	# Only a process this run started: the recorded PID naming the port or,
+	# when an interrupt cut the recording short, a holder command line on it.
+	# shellcheck disable=SC2016 # Expanded on the host.
+	hrun 'P='"$CPORT"' H='"${HOLDER_PID:-none}"'; n=0; for d in /proc/[0-9]*; do p=${d#/proc/}; c=$(tr "\0" " " <$d/cmdline 2>/dev/null) || continue; h=; case $c in "busybox nc -l -s 127.0.0.1 -p $P "* | "timeout 600 busybox nc -l -s 127.0.0.1 -p $P "* | "perl -MSocket -e "*" $P " | "python3 -c import socket"*" $P ") h=1 ;; *"$P"*) [ "$p" != "$H" ] || h=1 ;; esac; [ -z "$h" ] || { kill $p && echo "killed holder $p: $c" && n=$((n + 1)); }; done; echo "holders of port $P killed: $n"'
 	HOLDER_PID=
 	save_state
 }
