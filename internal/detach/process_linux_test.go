@@ -585,6 +585,36 @@ func TestIdentityWriteFailureKillsSupervisor(t *testing.T) {
 	}
 }
 
+// CR-A3: writeAtomic renames supervisor.json into place before it syncs the
+// directory, so a sync error leaves a valid identity the supervisor may
+// already have read. The launch is then not failed (it would orphan the
+// child the supervisor started): the record is in place.
+func TestIdentityRenamedButNotSyncedLaunchSucceeds(t *testing.T) {
+	l, _, _ := processLauncher(t, "")
+	saved := *detach.WriteIdentityHook
+	*detach.WriteIdentityHook = func(dir string, id detach.Identity) error {
+		if err := detach.WriteIdentity(dir, id); err != nil {
+			return err
+		}
+		return syscall.EIO // The directory sync after the rename failed
+	}
+	t.Cleanup(func() { *detach.WriteIdentityHook = saved })
+
+	const id = "01JTCRA3"
+	dir := l.Dir(id)
+	endSupervisorAtCleanup(t, dir)
+	if err := l.Start(context.Background(), id, shSpec(dir, `: > "$DIR/marker"`)); err != nil {
+		t.Fatalf("Start: %v, want success: the identity is in place", err)
+	}
+	x := waitExit(t, dir, 10*time.Second)
+	if x.Canceled || x.Interrupted || x.ExitCode != 0 {
+		t.Errorf("exit = %+v, want a normal exit 0", x)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "marker")); err != nil {
+		t.Errorf("the child did not run: %v", err)
+	}
+}
+
 // startupWindowDir makes operation id's directory with a delay-notify file:
 // its supervisor (this test binary) starts Supervise only after delay.
 func startupWindowDir(t *testing.T, l *detach.Launcher, id string, delay time.Duration) string {
