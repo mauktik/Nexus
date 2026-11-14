@@ -1,0 +1,7 @@
+# Loads, but the docker provider refuses its section: an error at
+# providers.docker with no line or column.
+listen: ["127.0.0.1:7443"]
+providers:
+  docker:
+    enabled: true
+    socket: "/run/docker.sock://x"

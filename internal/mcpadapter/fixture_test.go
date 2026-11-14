@@ -20,6 +20,7 @@ import (
 	"github.com/mauktik/nexus/internal/provider"
 	apt "github.com/mauktik/nexus/internal/providers/apt/spec"
 	docker "github.com/mauktik/nexus/internal/providers/docker/spec"
+	nexusd "github.com/mauktik/nexus/internal/providers/nexusd/spec"
 	pihole "github.com/mauktik/nexus/internal/providers/pihole/spec"
 	scripts "github.com/mauktik/nexus/internal/providers/scripts/spec"
 )
@@ -208,6 +209,15 @@ func catalogStubs(s *testprovider.Spy) []provider.Provider {
 			testprovider.Sync(s, scripts.List),
 			testprovider.Sync(s, scripts.Get),
 			testprovider.InProcess(s, scripts.Invoke),
+		),
+		testprovider.NewStub(nexusd.Spec(),
+			testprovider.Sync(s, nexusd.List),
+			testprovider.Sync(s, nexusd.ValidateConfig),
+			testprovider.InProcess(s, nexusd.Reload),
+			testprovider.InProcess(s, nexusd.Restart),
+			testprovider.InProcess(s, nexusd.Update),
+			testprovider.InProcess(s, nexusd.Rollback),
+			testprovider.Upload(s, nexusd.Upload),
 		),
 		testprovider.NewStub(pihole.Spec(),
 			testprovider.Sync(s, pihole.StatusGet),

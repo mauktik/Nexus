@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -38,6 +39,7 @@ import (
 	"github.com/mauktik/nexus/internal/provider"
 	apt "github.com/mauktik/nexus/internal/providers/apt/spec"
 	docker "github.com/mauktik/nexus/internal/providers/docker/spec"
+	nexusd "github.com/mauktik/nexus/internal/providers/nexusd/spec"
 	pihole "github.com/mauktik/nexus/internal/providers/pihole/spec"
 	scripts "github.com/mauktik/nexus/internal/providers/scripts/spec"
 	"github.com/mauktik/nexus/internal/server"
@@ -50,7 +52,7 @@ const module = "github.com/mauktik/nexus"
 // catalogStubs binds stub handlers for each catalog provider other than
 // system, whose ops core binds itself. A provider added to catalog.All()
 // adds one entry here, built with testprovider.NewStub and the spy helpers
-// (testprovider.Sync, Stream, InProcess), one binding per op.
+// (testprovider.Sync, Stream, InProcess, Upload), one binding per op.
 var catalogStubs = map[string]func(*testprovider.Spy) provider.Provider{
 	docker.Name: func(s *testprovider.Spy) provider.Provider {
 		return testprovider.NewStub(docker.Spec(),
@@ -81,6 +83,19 @@ var catalogStubs = map[string]func(*testprovider.Spy) provider.Provider{
 			testprovider.Sync(s, scripts.List),
 			testprovider.Sync(s, scripts.Get),
 			testprovider.InProcess(s, scripts.Invoke),
+		)
+	},
+	// reload is InProcess and restart, update and rollback Detached in the
+	// real provider; InProcess stubs both (testprovider.InProcess).
+	nexusd.Name: func(s *testprovider.Spy) provider.Provider {
+		return testprovider.NewStub(nexusd.Spec(),
+			testprovider.Sync(s, nexusd.List),
+			testprovider.Sync(s, nexusd.ValidateConfig),
+			testprovider.InProcess(s, nexusd.Reload),
+			testprovider.InProcess(s, nexusd.Restart),
+			testprovider.InProcess(s, nexusd.Update),
+			testprovider.InProcess(s, nexusd.Rollback),
+			testprovider.Upload(s, nexusd.Upload),
 		)
 	},
 	pihole.Name: func(s *testprovider.Spy) provider.Provider {
@@ -186,7 +201,13 @@ func newStack(t *testing.T) *stack {
 		s.exact[sc] = mint(s.exactName[sc], sc)
 	}
 
-	srv, err := server.New(reg, server.Options{Logger: log, Auth: auth.New(stateDir, auth.Options{Logger: log})})
+	// The walks over every op make one denial per scoped op with the same
+	// token, and with the docker, apt, scripts, nexusd and pihole catalogs
+	// that is more than core.DefaultNoteLimitPerMinute (60) in one minute;
+	// past it the dispatcher collapses denials into a rate-limited aggregate
+	// and the per-op denial records the tests count are not written.
+	srv, err := server.New(reg, server.Options{Logger: log, Auth: auth.New(stateDir, auth.Options{Logger: log}),
+		NoteLimitPerMinute: 1000})
 	if err != nil {
 		t.Fatalf("server.New: %v", err)
 	}
@@ -283,6 +304,16 @@ func (r response) problem(t *testing.T) *problem.Error {
 
 func (s *stack) do(t *testing.T, method, path, token string, body []byte) response {
 	t.Helper()
+	contentType := ""
+	if body != nil {
+		contentType = "application/json"
+	}
+	return s.doBody(t, method, path, token, contentType, body)
+}
+
+// doBody is do with the body's content type; a nil body sends none.
+func (s *stack) doBody(t *testing.T, method, path, token, contentType string, body []byte) response {
+	t.Helper()
 	var rd io.Reader
 	if body != nil {
 		rd = bytes.NewReader(body)
@@ -292,8 +323,8 @@ func (s *stack) do(t *testing.T, method, path, token string, body []byte) respon
 		t.Fatal(err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
 	if err != nil {
@@ -307,8 +338,17 @@ func (s *stack) do(t *testing.T, method, path, token string, body []byte) respon
 	return response{status: resp.StatusCode, body: b}
 }
 
+// octetStream is the content type the suite sends an upload body as.
+const octetStream = "application/octet-stream"
+
+// uploadBody is the body the suite sends to a KindUpload op: well under
+// testprovider.UploadMaxBytes.
+var uploadBody = []byte("conformance upload body\n")
+
 // call sends input to op over its REST route: route wildcards go in the
-// path, the rest in the query for GET and in the JSON body for POST.
+// path, the rest in the query for GET and for a KindUpload op, and in the
+// JSON body for any other POST. A KindUpload op's body is uploadBody, sent
+// as application/octet-stream.
 func (s *stack) call(t *testing.T, op def.Op, token string, input map[string]any) response {
 	t.Helper()
 	method, path, err := openapi.Route(op)
@@ -327,7 +367,7 @@ func (s *stack) call(t *testing.T, op def.Op, token string, input map[string]any
 		path = strings.Replace(path, "{"+w+"}", url.PathEscape(v), 1)
 		delete(rest, w)
 	}
-	if method == http.MethodGet {
+	if method == http.MethodGet || op.Kind == def.KindUpload {
 		q := url.Values{}
 		for k, v := range rest {
 			switch v := v.(type) {
@@ -343,6 +383,9 @@ func (s *stack) call(t *testing.T, op def.Op, token string, input map[string]any
 		}
 		if len(q) > 0 {
 			path += "?" + q.Encode()
+		}
+		if op.Kind == def.KindUpload {
+			return s.doBody(t, method, path, token, octetStream, uploadBody)
 		}
 		return s.do(t, method, path, token, nil)
 	}
@@ -851,8 +894,11 @@ var (
 // forbiddenWords are op ID and route words outside v1: container create,
 // exec and run (OOS-6), script definition changes (FR-21), reboot and
 // shutdown, repositories and keys (OOS-7), desired state and reconcile
-// (OOS-2, ASM-2), schedules (OOS-5), metrics (OOS-4), self-update (OOS-11)
-// and tokens (no network path manages tokens).
+// (OOS-2, ASM-2), schedules (OOS-5), metrics (OOS-4) and tokens (no
+// network path manages tokens). Self-update is no longer out of scope
+// (OOS-11): it is in scope through the nexusd provider, whose op IDs and
+// routes use none of these words. "self" and "selfupdate" stay as guards
+// against any other self-modifying surface.
 var forbiddenWords = []string{
 	"create", "exec", "execute", "run", "shell", "reboot", "shutdown", "poweroff", "halt",
 	"repository", "repositories", "repo", "repos", "sources", "key", "keys",
@@ -921,6 +967,137 @@ func TestNoArbitraryExecutionSurface(t *testing.T) {
 	got := executionSurface(t, controlCreate.Op())
 	if !slices.ContainsFunc(got, func(f string) bool { return strings.Contains(f, `"create"`) }) {
 		t.Errorf("create control: %q", got)
+	}
+}
+
+// TC-SM-101 (WI 6.1; CON-4): the no-arbitrary-execution surface still holds
+// with nexusd in the catalog, and the forbiddenWords comment says why
+// "self" and "selfupdate" stay.
+func TestTCSM101_TheNoArbitraryExecutionSurfaceStill(t *testing.T) {
+	// Step 1: the nexusd ops are among those TestNoArbitraryExecutionSurface
+	// walks, and none is a surface.
+	var walked []string
+	for _, op := range declared() {
+		if op.Provider != nexusd.Name {
+			continue
+		}
+		walked = append(walked, op.ID)
+		for _, f := range executionSurface(t, op) {
+			t.Errorf("execution surface: %s", f)
+		}
+		_, route, err := openapi.Route(op)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, w := range slices.Concat(words(op.ID), words(route)) {
+			if slices.Contains([]string{"create", "self", "selfupdate"}, w) {
+				t.Errorf("%s: %q in op ID or route %s", op.ID, w, route)
+			}
+		}
+	}
+	if len(walked) != len(nexusd.Spec().Ops) {
+		t.Fatalf("walked nexusd ops %v, want all %d", walked, len(nexusd.Spec().Ops))
+	}
+
+	// Step 2: the words stay as guards, and the comment says why.
+	for _, w := range []string{"create", "self", "selfupdate"} {
+		if !slices.Contains(forbiddenWords, w) {
+			t.Errorf("forbiddenWords lost %q", w)
+		}
+	}
+	src, err := os.ReadFile("conformance_test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	end := strings.Index(text, "var forbiddenWords = ")
+	start := strings.LastIndex(text[:end], "// forbiddenWords are ")
+	if start < 0 || end < 0 {
+		t.Fatal("the forbiddenWords declaration or its comment is missing")
+	}
+	comment := strings.Join(strings.Fields(strings.ReplaceAll(text[start:end], "//", "")), " ")
+	for _, want := range []string{"Self-update is no longer out of scope", "through the nexusd provider",
+		`"self" and "selfupdate" stay as guards`} {
+		if !strings.Contains(comment, want) {
+			t.Errorf("forbiddenWords comment lacks %q: %s", want, comment)
+		}
+	}
+}
+
+// TC-SM-94 (WI 6.1; NFR-7, FR-1, FR-16): the conformance suite covers nexusd
+// through catalogStubs. Steps 1 and 2 are TestScopeAndAuditCoverEveryOp and
+// TestAttackStringsAgainstEveryStringParameter, which walk every served op;
+// this test shows the nexusd ops are among them, sends the attacks through
+// uploadId and signature, and calls each mutating nexusd op with a read
+// token.
+func TestTCSM94_TheConformanceSuiteCoversNexusdThrough(t *testing.T) {
+	s := newStack(t)
+	served := map[string]def.Op{}
+	for _, op := range s.ops() {
+		if op.Provider == nexusd.Name {
+			served[op.ID] = op
+		}
+	}
+	if len(served) != 7 {
+		t.Fatalf("the stack serves %d nexusd ops, want 7", len(served))
+	}
+
+	// Step 2: the hostile strings through uploadId and signature are 400
+	// validation-failed, and no handler runs.
+	sm := sampler{}
+	for _, c := range []struct {
+		op   def.Op
+		path string
+	}{
+		{nexusd.Update.Op(), "/uploadId"},
+		{nexusd.Upload.Op(), "/signature"},
+	} {
+		if !slices.Contains(stringParams(t, c.op), c.path) {
+			t.Fatalf("%s %s is not a string parameter the attack walk visits", c.op.ID, c.path)
+		}
+		base, _ := sm.value(t, c.op, "", inputSchema(t, c.op)).(map[string]any)
+		for _, a := range attacks {
+			before := len(s.spy.Calls())
+			r := s.call(t, c.op, s.full, sm.withValue(t, c.op, base, c.path, a.value))
+			if r.status != http.StatusBadRequest {
+				t.Errorf("%s %s %s: %d %.200s, want 400", c.op.ID, c.path, a.name, r.status, r.body)
+			} else if p := r.problem(t); p.Slug() != problem.ValidationFailed {
+				t.Errorf("%s %s %s: problem %s", c.op.ID, c.path, a.name, p.Slug())
+			}
+			if n := len(s.spy.Calls()); n != before {
+				t.Errorf("%s %s %s: %d handler calls ran", c.op.ID, c.path, a.name, n-before)
+			}
+		}
+	}
+
+	// Step 3: every mutating nexusd op, the upload included, refuses the
+	// read token with 403 naming nexusd:admin, and no handler runs.
+	reader := s.exact[nexusd.ReadScope]
+	var mutating []string
+	for _, op := range s.ops() {
+		if op.Provider != nexusd.Name || !op.Mutating() {
+			continue
+		}
+		mutating = append(mutating, op.ID)
+		base, _ := sm.value(t, op, "", inputSchema(t, op)).(map[string]any)
+		r := s.call(t, op, reader, base)
+		if r.status != http.StatusForbidden {
+			t.Errorf("%s with %s: %d %.200s, want 403", op.ID, nexusd.ReadScope, r.status, r.body)
+			continue
+		}
+		if p := r.problem(t); p.Slug() != problem.Forbidden || p.Extensions["requiredScope"] != nexusd.AdminScope {
+			t.Errorf("%s: problem %s %v, want forbidden naming %s", op.ID, p.Slug(), p.Extensions, nexusd.AdminScope)
+		}
+	}
+	want := []string{nexusd.Reload.Op().ID, nexusd.Restart.Op().ID, nexusd.Update.Op().ID,
+		nexusd.Rollback.Op().ID, nexusd.Upload.Op().ID}
+	slices.Sort(mutating)
+	slices.Sort(want)
+	if !slices.Equal(mutating, want) {
+		t.Errorf("mutating nexusd ops %v, want %v", mutating, want)
+	}
+	if calls := s.spy.Calls(); len(calls) != 0 {
+		t.Errorf("handlers ran without nexusd:admin: %+v", calls)
 	}
 }
 

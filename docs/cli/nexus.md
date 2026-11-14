@@ -36,6 +36,7 @@ nexus [flags]
 | [`nexus containerupdate`](nexus_containerupdate.md) | Verbs: get |
 | [`nexus help`](nexus_help.md) | Show usage and examples for a command |
 | [`nexus host`](nexus_host.md) | Configured hosts |
+| [`nexus nexusd`](nexus_nexusd.md) | Verbs: get, validate-config, reload, restart, update, rollback |
 | [`nexus operation`](nexus_operation.md) | Verbs: get, cancel |
 | [`nexus operationlog`](nexus_operationlog.md) | Verbs: get |
 | [`nexus package`](nexus_package.md) | Verbs: get, update, install, remove |
@@ -74,6 +75,12 @@ nexus [flags]
 | [`nexus host add`](nexus_host_add.md) | Register a host and pin its certificate |
 | [`nexus host get`](nexus_host_get.md) | List configured hosts, or show one |
 | [`nexus host remove`](nexus_host_remove.md) | Remove a configured host and its token |
+| [`nexus nexusd get`](nexus_nexusd_get.md) | Get the running nexusd |
+| [`nexus nexusd reload`](nexus_nexusd_reload.md) | Reload the nexusd configuration |
+| [`nexus nexusd restart`](nexus_nexusd_restart.md) | Restart nexusd |
+| [`nexus nexusd rollback`](nexus_nexusd_rollback.md) | Roll nexusd back to the previous binary |
+| [`nexus nexusd update`](nexus_nexusd_update.md) | Update nexusd from a signed release |
+| [`nexus nexusd validate-config`](nexus_nexusd_validate-config.md) | Validate the nexusd configuration file |
 | [`nexus operation cancel`](nexus_operation_cancel.md) | Cancel an operation |
 | [`nexus operation get`](nexus_operation_get.md) | List operations, or with ID, get one operation |
 | [`nexus operationlog get`](nexus_operationlog_get.md) | Read an operation's output |

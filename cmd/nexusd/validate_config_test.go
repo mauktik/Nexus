@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,6 +16,8 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/mauktik/nexus/internal/daemon"
 )
 
 // nexusdBin is built once by TestMain; cmd/ is tested by executing the binary.
@@ -361,6 +364,242 @@ func TestValidateConfigRunsProviderConfigureChecks(t *testing.T) {
 			// Startup must refuse the same file.
 			if sout, scode := runNexusd(t, "serve", "--config", path, "--state-dir", t.TempDir(), "--audit-dir", t.TempDir()); scode == 0 {
 				t.Errorf("serve accepted what validate-config rejects:\n%s", sout)
+			}
+		})
+	}
+}
+
+// tcsm44Fixture is one configuration the tests above give validate-config.
+// file is a fixed path; otherwise content is written to a temp file, or no
+// file is written when missing is set.
+type tcsm44Fixture struct {
+	name, file, content string
+	missing             bool
+}
+
+// tcsm44Fixtures are the fixtures of the validate-config tests above, with
+// the listen address of TC-11 fixed so that the output is too. The docker
+// fixtures of CR-9 are in TestTCSM44ProviderErrorAtItsPath.
+func tcsm44Fixtures() []tcsm44Fixture {
+	p := func(name string) string {
+		return "          - {name: " + name + ", type: string, pattern: '^a$', arg: --k}"
+	}
+	return []tcsm44Fixture{
+		{name: "default", file: "../../deploy/nexusd.default.yaml"},
+		{name: "three-errors", content: "listen: [\"127.0.0.1:1\"]\ntls:\n  mode: bogus\nlimits:\n  maxBodyBytes: -1\naudit:\n  retentionDayz: 30\n"},
+		{name: "unknown listn", content: "listn: [\"127.0.0.1:7443\"]\n"},
+		{name: "unknown maxBodyByte", content: "limits:\n  maxBodyByte: 1024\n"},
+		{name: "unknown sockt", content: "providers:\n  docker:\n    enabled: false\n    sockt: /run/docker.sock\n"},
+		{name: "unknown timeouts", content: "providers:\n  scripts:\n    catalog:\n      - id: deploy\n        path: /opt/deploy.sh\n        timeouts: 1h\n"},
+		{name: "unknown patern", content: "providers:\n  scripts:\n    catalog:\n      - id: deploy\n        path: /opt/deploy.sh\n        parameters:\n          - name: branch\n            type: string\n            patern: '^[a-z]+$'\n            arg: --branch\n"},
+		{name: "syntax", content: "listen: [\"127.0.0.1:7443\"\ntls: {mode: auto}\n"},
+		{name: "tls-mode", content: "tls:\n  mode: bogus\n"},
+		{name: "duration", content: "providers:\n  apt:\n    lockWait: soon\n"},
+		{name: "negative", content: "limits: {maxBodyBytes: -1}\n"},
+		{name: "missing", missing: true},
+		{name: "empty", content: ""},
+		{name: "catalog ok", content: catalogYAML(0, "")},
+		{name: "missing id", content: catalogYAML(4, "      - description: Deploy the API")},
+		{name: "missing description", content: catalogYAML(5, "")},
+		{name: "missing path", content: catalogYAML(6, "")},
+		{name: "missing runAs", content: catalogYAML(7, "")},
+		{name: "missing workingDirectory", content: catalogYAML(8, "")},
+		{name: "relative path", content: catalogYAML(6, "        path: deploy.sh")},
+		{name: "relative workingDirectory", content: catalogYAML(8, "        workingDirectory: opt")},
+		{name: "bad id", content: catalogYAML(4, "      - id: ../x")},
+		{name: "duplicate id", content: catalogYAML(0, "", "      - id: deploy", "        description: Again", "        path: /opt/b.sh",
+			"        runAs: deploy", "        workingDirectory: /opt")},
+		{name: "string parameter without pattern", content: catalogYAML(10, "          - {name: branch, type: string, arg: --branch}")},
+		{name: "sensitive without env", content: catalogYAML(10, "          - {name: k, type: string, pattern: '^a$', sensitive: true}")},
+		{name: "sensitive with arg", content: catalogYAML(10, "          - {name: k, type: string, pattern: '^a$', sensitive: true, env: K, arg: --k}")},
+		{name: "invalid regex", content: catalogYAML(10, "          - {name: k, type: string, pattern: '(', arg: --k}")},
+		{name: "bad parameter name", content: catalogYAML(10, p("-rf"))},
+		{name: "bad env name", content: catalogYAML(10, "          - {name: k, type: string, pattern: '^a$', env: 'A=B'}")},
+		{name: "bad catalog env name", content: catalogYAML(0, "", "        env: {'A B': x}")},
+		{name: "unknown key in entry", content: catalogYAML(0, "", "        timeoutz: 1h")},
+	}
+}
+
+// path returns the fixture's --config argument, writing it under dir.
+func (f tcsm44Fixture) path(t *testing.T, dir string) string {
+	t.Helper()
+	if f.file != "" {
+		return f.file
+	}
+	path := filepath.Join(dir, "fixture.yaml")
+	if f.missing {
+		return path
+	}
+	if err := os.WriteFile(path, []byte(f.content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// tcsm44Golden is validate-config's output for each fixture, captured from
+// base d04583a (`git archive d04583a`, with this file's fixtures run against
+// the nexusd built from that tree). $CONFIG stands for the --config path.
+var tcsm44Golden = map[string]struct {
+	stdout, stderr string
+	code           int
+}{
+	"default":                          {"$CONFIG: configuration is valid\n", "", 0},
+	"three-errors":                     {"", "$CONFIG:3:9: tls.mode: must be one of auto, files or off, got \"bogus\"\n$CONFIG:5:17: limits.maxBodyBytes: must be greater than zero, got -1\n$CONFIG:7:3: audit.retentionDayz: unknown key \"retentionDayz\"\n", 1},
+	"unknown listn":                    {"", "$CONFIG:1:1: listn: unknown key \"listn\"\n", 1},
+	"unknown maxBodyByte":              {"", "$CONFIG:2:3: limits.maxBodyByte: unknown key \"maxBodyByte\"\n", 1},
+	"unknown sockt":                    {"", "$CONFIG:4:5: providers.docker.sockt: unknown key \"sockt\"\n", 1},
+	"unknown timeouts":                 {"", "$CONFIG:4:9: providers.scripts.catalog[0].description: required\n$CONFIG:4:9: providers.scripts.catalog[0].runAs: required\n$CONFIG:4:9: providers.scripts.catalog[0].workingDirectory: required\n$CONFIG:6:9: providers.scripts.catalog[0].timeouts: unknown key \"timeouts\"\n", 1},
+	"unknown patern":                   {"", "$CONFIG:4:9: providers.scripts.catalog[0].description: required\n$CONFIG:4:9: providers.scripts.catalog[0].runAs: required\n$CONFIG:4:9: providers.scripts.catalog[0].workingDirectory: required\n$CONFIG:7:13: providers.scripts.catalog[0].parameters[0].pattern: required for a string parameter without an enum\n$CONFIG:9:13: providers.scripts.catalog[0].parameters[0].patern: unknown key \"patern\"\n", 1},
+	"syntax":                           {"", "$CONFIG:1: invalid YAML: did not find expected ',' or ']'\n", 1},
+	"tls-mode":                         {"", "$CONFIG:2:9: tls.mode: must be one of auto, files or off, got \"bogus\"\n", 1},
+	"duration":                         {"", "$CONFIG:3:15: providers.apt.lockWait: invalid duration \"soon\": want a string such as \"30s\" or \"1h\"\n", 1},
+	"negative":                         {"", "$CONFIG:1:24: limits.maxBodyBytes: must be greater than zero, got -1\n", 1},
+	"missing":                          {"", "$CONFIG: cannot read configuration: no such file or directory\n", 1},
+	"empty":                            {"$CONFIG: configuration is valid\n", "", 0},
+	"catalog ok":                       {"$CONFIG: configuration is valid\n", "", 0},
+	"missing id":                       {"", "$CONFIG:4:9: providers.scripts.catalog[0].id: required\n$CONFIG:5:9: providers.scripts.catalog[0].description: key \"description\" already defined at line 4\n", 1},
+	"missing description":              {"", "$CONFIG:4:9: providers.scripts.catalog[0].description: required\n", 1},
+	"missing path":                     {"", "$CONFIG:4:9: providers.scripts.catalog[0].path: required\n", 1},
+	"missing runAs":                    {"", "$CONFIG:4:9: providers.scripts.catalog[0].runAs: required\n", 1},
+	"missing workingDirectory":         {"", "$CONFIG:4:9: providers.scripts.catalog[0].workingDirectory: required\n", 1},
+	"relative path":                    {"", "$CONFIG:6:15: providers.scripts.catalog[0].path: must be an absolute path, got \"deploy.sh\"\n", 1},
+	"relative workingDirectory":        {"", "$CONFIG:8:27: providers.scripts.catalog[0].workingDirectory: must be an absolute path, got \"opt\"\n", 1},
+	"bad id":                           {"", "$CONFIG:4:13: providers.scripts.catalog[0].id: must match ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$, got \"../x\"\n", 1},
+	"duplicate id":                     {"", "$CONFIG:11:13: providers.scripts.catalog[1].id: duplicate script id \"deploy\"\n", 1},
+	"string parameter without pattern": {"", "$CONFIG:10:13: providers.scripts.catalog[0].parameters[0].pattern: required for a string parameter without an enum\n", 1},
+	"sensitive without env":            {"", "$CONFIG:10:13: providers.scripts.catalog[0].parameters[0].env: required because the parameter is sensitive\n", 1},
+	"sensitive with arg":               {"", "$CONFIG:10:83: providers.scripts.catalog[0].parameters[0].arg: not allowed because the parameter is sensitive\n", 1},
+	"invalid regex":                    {"", "$CONFIG:10:46: providers.scripts.catalog[0].parameters[0].pattern: not a valid regular expression: error parsing regexp: missing closing ): `(`\n", 1},
+	"bad parameter name":               {"", "$CONFIG:10:20: providers.scripts.catalog[0].parameters[0].name: must match ^[A-Za-z][A-Za-z0-9_]{0,63}$, got \"-rf\"\n", 1},
+	"bad env name":                     {"", "$CONFIG:10:58: providers.scripts.catalog[0].parameters[0].env: must match ^[A-Za-z_][A-Za-z0-9_]*$, got \"A=B\"\n", 1},
+	"bad catalog env name":             {"", "$CONFIG:11:14: providers.scripts.catalog[0].env: variable name \"A B\" must match ^[A-Za-z_][A-Za-z0-9_]*$\n", 1},
+	"unknown key in entry":             {"", "$CONFIG:11:9: providers.scripts.catalog[0].timeoutz: unknown key \"timeoutz\"\n", 1},
+}
+
+// TC-SM-44: on every fixture of the tests above, validate-config's stdout,
+// stderr and exit code are byte-identical to base d04583a's.
+func TestTCSM44_ExistingValidateConfigOutputStaysByte(t *testing.T) {
+	for _, f := range tcsm44Fixtures() {
+		t.Run(f.name, func(t *testing.T) {
+			golden, ok := tcsm44Golden[f.name]
+			if !ok {
+				t.Fatalf("no golden for %q", f.name)
+			}
+			path := f.path(t, t.TempDir())
+			stdout, stderr, code := runBounded(t, "validate-config", "--config", path)
+			expand := func(s string) string { return strings.ReplaceAll(s, "$CONFIG", path) }
+			if stdout != expand(golden.stdout) || stderr != expand(golden.stderr) || code != golden.code {
+				t.Fatalf("got exit %d\nstdout %q\nstderr %q\nwant exit %d\nstdout %q\nstderr %q",
+					code, stdout, stderr, golden.code, expand(golden.stdout), expand(golden.stderr))
+			}
+		})
+	}
+}
+
+// TC-SM-44, CR-9 fixtures: a provider's error is the one line WI 3.2
+// changes. It is now an entry at providers.docker like every other, so the
+// base d04583a line gains that path and still names docker.
+func TestTCSM44ProviderErrorAtItsPath(t *testing.T) {
+	long := "/" + strings.Repeat("a", 200) + ".sock"
+	for _, tc := range []struct {
+		name, socket, base string // base: d04583a's stderr
+	}{
+		{"path longer than sun_path", long,
+			fmt.Sprintf("$CONFIG: provider \"docker\": providers.docker.socket: unix socket path %q is too long\n", long)},
+		{"url inside an absolute path", "/run/docker.sock://x",
+			"$CONFIG: provider \"docker\": providers.docker.socket: must be the absolute path of the Docker Engine's Unix socket, not a URL; got \"/run/docker.sock://x\"\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeConfig(t, "docker.yaml", fmt.Sprintf("providers:\n  docker:\n    enabled: false\n    socket: %q\n", tc.socket))
+			stdout, stderr, code := runBounded(t, "validate-config", "--config", path)
+			want := strings.ReplaceAll(strings.Replace(tc.base, "$CONFIG: ", "$CONFIG: providers.docker: ", 1), "$CONFIG", path)
+			if code != 1 || stdout != "" || stderr != want {
+				t.Fatalf("exit %d\nstdout %q\nstderr %q\nwant exit 1 and stderr %q", code, stdout, stderr, want)
+			}
+		})
+	}
+}
+
+// checkconfigFixture is a fixture shared with internal/daemon's CheckConfig
+// tests.
+func checkconfigFixture(name string) string {
+	return filepath.Join("..", "..", "internal", "daemon", "testdata", "checkconfig", name)
+}
+
+// TC-SM-43 (CLI half): validate-config prints exactly the e.Error() of each
+// entry CheckConfig returns, one per line on stderr, and exits 1; for a
+// valid file, the unchanged success line and exit 0. The CheckConfig half
+// is in internal/daemon/validate_test.go.
+func TestTCSM43_ValidateConfigPrintsCheckConfigEntries(t *testing.T) {
+	for _, name := range []string{"valid.yaml", "unknown-key.yaml", "bad-listen.yaml", "provider-error.yaml"} {
+		t.Run(name, func(t *testing.T) {
+			path := checkconfigFixture(name)
+			_, errs := daemon.CheckConfig(path)
+			var stdout, stderr bytes.Buffer
+			code := run([]string{"validate-config", "--config", path}, &stdout, &stderr)
+			if len(errs) == 0 {
+				if name != "valid.yaml" {
+					t.Fatalf("CheckConfig found no problem in %s", name)
+				}
+				if code != 0 || stdout.String() != path+": configuration is valid\n" || stderr.Len() != 0 {
+					t.Fatalf("exit %d\nstdout %q\nstderr %q", code, stdout.String(), stderr.String())
+				}
+				return
+			}
+			want := make([]string, len(errs))
+			for i, e := range errs {
+				if e.File != path {
+					t.Errorf("entry %+v: File is not %q", *e, path)
+				}
+				want[i] = e.Error()
+			}
+			got := strings.Split(strings.TrimSuffix(stderr.String(), "\n"), "\n")
+			slices.Sort(want)
+			slices.Sort(got)
+			if code != 1 || stdout.Len() != 0 || !slices.Equal(got, want) {
+				t.Fatalf("exit %d\nstdout %q\nstderr lines %q\nwant exit 1 and lines %q", code, stdout.String(), got, want)
+			}
+			switch name {
+			case "unknown-key.yaml", "bad-listen.yaml":
+				if errs[0].Line == 0 || errs[0].Column == 0 {
+					t.Errorf("entry %+v has no line and column although the parser knows them", *errs[0])
+				}
+			case "provider-error.yaml":
+				if errs[0].Path != "providers.docker" {
+					t.Errorf("entry %+v: Path is not providers.docker", *errs[0])
+				}
+			}
+		})
+	}
+}
+
+// TC-SM-ERR24 (CLI half): validate-config reports a provider error at
+// providers.docker and never prints a catalog env value, whether the file
+// fails config.Load or only the providers' checks.
+func TestTCSMERR24_ValidateConfigNeverEchoesCatalogEnv(t *testing.T) {
+	const sentinel = "SENTINEL-7f3a9c-DO-NOT-ECHO"
+	for _, tc := range []struct{ name, want string }{
+		{"secret-sentinel.yaml", `listen[0]: "nope" is not a host:port address`},
+		{"secret-sentinel-provider.yaml", `: providers.docker: provider "docker": `},
+		// SEC-1: a malformed env block, in both shapes.
+		{"secret-sentinel-env-scalar.yaml", `providers.scripts.catalog[0].env`},
+		{"secret-sentinel-env-kv.yaml", `providers.scripts.catalog[0].env`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := checkconfigFixture(tc.name)
+			if data, err := os.ReadFile(path); err != nil || !strings.Contains(string(data), sentinel) {
+				t.Fatalf("fixture lacks the sentinel (err %v)", err)
+			}
+			var stdout, stderr bytes.Buffer
+			code := run([]string{"validate-config", "--config", path}, &stdout, &stderr)
+			out := stdout.String() + stderr.String()
+			if code != 1 || !strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("exit %d, want 1 and %q in:\n%s", code, tc.want, out)
+			}
+			for _, leak := range []string{sentinel, "SENTINEL", "7f3a9c", "TOKEN="} {
+				if strings.Contains(out, leak) {
+					t.Fatalf("the catalog env content %q is echoed:\n%s", leak, out)
+				}
 			}
 		})
 	}

@@ -1,0 +1,9 @@
+# A file nexusd would start with.
+listen: ["127.0.0.1:7443"]
+tls:
+  mode: auto
+providers:
+  docker:
+    enabled: false
+  nexusd:
+    enabled: true

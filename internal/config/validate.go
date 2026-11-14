@@ -18,7 +18,9 @@ import (
 	"strings"
 	"time"
 
+	nexusdspec "github.com/mauktik/nexus/internal/providers/nexusd/spec"
 	"github.com/mauktik/nexus/internal/providers/scripts/spec"
+	"github.com/mauktik/nexus/internal/release"
 )
 
 // validate checks values after decoding. Each problem is located at the
@@ -99,7 +101,38 @@ func (c *Config) validate(errs *collector) {
 
 	v.catalog(c.Providers.Scripts.Settings.Catalog)
 
+	v.nexusd(c.Providers.Nexusd.Settings)
 	v.piholeDNSFile("providers.pihole.dnsFile", c.Providers.Pihole.Settings.DNSFile)
+}
+
+// nexusd checks the nexusd section. A trusted key is never quoted: the
+// message names only its index, so validate-config output and logs carry no
+// key material.
+func (v validator) nexusd(n NexusdConfig) {
+	const p = "providers.nexusd"
+	if n.HealthTimeout < MinNexusdHealthTimeout || n.HealthTimeout > MaxNexusdHealthTimeout {
+		v.failf(p+".healthTimeout", "must be between %s and %s, got %s",
+			MinNexusdHealthTimeout, MaxNexusdHealthTimeout, n.HealthTimeout)
+	}
+	if b := n.Update.MaxUploadBytes; b < MinNexusdMaxUploadBytes || b > nexusdspec.MaxUploadBytesCeiling {
+		v.failf(p+".update.maxUploadBytes", "must be between %d (1 MiB) and %d (256 MiB), got %d",
+			MinNexusdMaxUploadBytes, nexusdspec.MaxUploadBytesCeiling, b)
+	}
+	first := map[string]int{}
+	for i, k := range n.Update.TrustedKeys {
+		path := fmt.Sprintf("%s.update.trustedKeys[%d]", p, i)
+		if _, err := release.ParsePublicKey(k); err != nil {
+			v.failf(path, "trustedKeys[%d] is not a valid key: want the standard base64 of a raw 32-byte "+
+				"Ed25519 public key, as make release-key prints", i)
+			continue
+		}
+		// The encoding is strict, so equal keys are equal strings.
+		if j, dup := first[k]; dup {
+			v.failf(path, "trustedKeys[%d] is the same key as trustedKeys[%d]", i, j)
+			continue
+		}
+		first[k] = i
+	}
 }
 
 // PiholeDNSDir is the directory dnsmasq, run by Pi-hole FTL, loads extra
@@ -212,9 +245,9 @@ func CheckCatalog(entries []Script, fail func(path, msg string)) {
 			names = append(names, name)
 		}
 		sort.Strings(names)
-		for _, name := range names {
+		for i, name := range names {
 			if !envNameRE.MatchString(name) {
-				failf(p+".env", "variable name %q must match %s", name, EnvNamePattern)
+				failf(p+".env", "%s must match %s", envNameRef(name, i), EnvNamePattern)
 			}
 		}
 
@@ -284,6 +317,23 @@ func CheckCatalog(entries []Script, fail func(path, msg string)) {
 			}
 		}
 	}
+}
+
+// envNameRef refers to an invalid script environment variable name in a
+// message. A name is a key, so it is quoted, except when it holds "=": a
+// NAME=value pair written as a flow-mapping key puts the value, a secret, in
+// the name, and a report any nexusd:read caller can fetch would echo it. Such
+// a name is cut at the "=" (the part before it is the name the author meant),
+// or, if that part is not a short valid name, identified by its position
+// among the sorted names.
+func envNameRef(name string, index int) string {
+	if !strings.Contains(name, "=") {
+		return fmt.Sprintf("variable name %q", name)
+	}
+	if k, _, _ := strings.Cut(name, "="); len(k) <= 64 && envNameRE.MatchString(k) {
+		return fmt.Sprintf("variable name %q is followed by a value (write NAME: value, not a NAME=value pair), and the name", k)
+	}
+	return fmt.Sprintf("variable name #%d in name order", index+1)
 }
 
 // Parameter types a script catalog may declare.

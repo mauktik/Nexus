@@ -23,8 +23,10 @@ type row struct {
 	cli, tool        string
 }
 
-// golden is the Operation catalog table, row for row (51 rows). Any added
-// op must update it on purpose.
+// golden is the Operation catalog table, row for row (58 rows: the 25 of
+// the base table, the 7 nexusd rows of the self-management table and the 26
+// pihole rows of the pihole-dns-zones table). Any added op must update it on
+// purpose.
 var golden = []row{
 	{"system.capabilities.get", "GET /capabilities", "", def.RiskReadOnly, def.ModeSync, "capability get", "get_capabilities"},
 	{"system.operations.list", "GET /operations", "", def.RiskReadOnly, def.ModeSync, "operation get", "list_operations"},
@@ -53,6 +55,15 @@ var golden = []row{
 	{"scripts.scripts.list", "GET /providers/scripts/scripts", "scripts:read", def.RiskReadOnly, def.ModeSync, "script get", "list_scripts"},
 	{"scripts.scripts.get", "GET /providers/scripts/scripts/{name}", "scripts:read", def.RiskReadOnly, def.ModeSync, "script get name", "get_script"},
 	{"scripts.scripts.invoke", "POST /providers/scripts/scripts/{name}/invoke", "scripts:run | scripts:run:{name}", def.RiskDestructive, def.ModeLongRunning, "script invoke name", "run_script"},
+	{"nexusd.daemons.list", "GET /providers/nexusd/daemons", "nexusd:read", def.RiskReadOnly, def.ModeSync, "nexusd get", "get_nexusd"},
+	{"nexusd.actions.validate-config", "POST /providers/nexusd/actions/validate-config", "nexusd:read", def.RiskReadOnly, def.ModeSync, "nexusd validate-config", "validate_nexusd_config"},
+	{"nexusd.actions.reload", "POST /providers/nexusd/actions/reload", "nexusd:admin", def.RiskMutating, def.ModeLongRunning, "nexusd reload", ""},
+	{"nexusd.actions.restart", "POST /providers/nexusd/actions/restart", "nexusd:admin", def.RiskMutating, def.ModeLongRunning, "nexusd restart", ""},
+	{"nexusd.actions.update", "POST /providers/nexusd/actions/update", "nexusd:admin", def.RiskMutating, def.ModeLongRunning, "nexusd update", ""},
+	{"nexusd.actions.rollback", "POST /providers/nexusd/actions/rollback", "nexusd:admin", def.RiskDestructive, def.ModeLongRunning, "nexusd rollback", ""},
+	// The upload has no command of its own (empty noun and verb) and no
+	// tool: the CLI reaches it only through update's CLI.Upload.
+	{"nexusd.uploads.add", "POST /providers/nexusd/uploads", "nexusd:admin", def.RiskMutating, def.ModeSync, " ", ""},
 	{"pihole.status.get", "GET /providers/pihole/status", "pihole:read", def.RiskReadOnly, def.ModeSync, "pihole get", "get_pihole_status"},
 	{"pihole.summary.get", "GET /providers/pihole/summary", "pihole:read", def.RiskReadOnly, def.ModeSync, "piholesummary get", "get_pihole_summary"},
 	{"pihole.blocking.get", "GET /providers/pihole/blocking", "pihole:read", def.RiskReadOnly, def.ModeSync, "piholeblocking get", "get_pihole_blocking"},
@@ -109,8 +120,8 @@ func rowOf(t *testing.T, op def.Op) row {
 // TC-146: the catalog matches the Operation catalog table exactly.
 func TestCatalogMatchesGoldenTable(t *testing.T) {
 	ops := catalog.Ops()
-	if len(golden) != 51 {
-		t.Fatalf("golden table has %d rows, the architecture's has 51", len(golden))
+	if len(golden) != 58 {
+		t.Fatalf("golden table has %d rows, the architectures' have 58", len(golden))
 	}
 	if len(ops) != len(golden) {
 		t.Errorf("catalog has %d ops, the table %d", len(ops), len(golden))

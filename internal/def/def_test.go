@@ -2,10 +2,17 @@ package def
 
 import (
 	"fmt"
+	"go/parser"
+	"go/token"
+	"maps"
+	"os/exec"
+	"path"
 	"reflect"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/mauktik/nexus/internal/apitypes"
 )
@@ -227,5 +234,265 @@ func TestDefineWaitedResultItems(t *testing.T) {
 				t.Errorf("panicked=%v msg=%q, want the op ID and %q", panicked, msg, tc.rule)
 			}
 		})
+	}
+}
+
+type uploadIn struct {
+	Signature string `json:"signature"`
+}
+
+type updateIn struct {
+	UploadID       string `json:"uploadId"`
+	AllowDowngrade bool   `json:"allowDowngrade"`
+}
+
+// uploadOp is the TC-SM-2 KindUpload declaration.
+func uploadOp(id string) Op {
+	return Op{
+		ID:           id,
+		Provider:     "tp",
+		Kind:         KindUpload,
+		ResourceType: "uploads",
+		Summary:      "Upload a file",
+		Description:  "Stages an uploaded file for a later operation. Synchronous.",
+		Scope:        Scope{Name: "tp:admin"},
+		Risk:         RiskMutating,
+		Mode:         ModeSync,
+		Upload:       &Upload{ContentTypes: []string{"application/octet-stream"}, MaxBytes: 1 << 20},
+	}
+}
+
+// cliUploadOp is the TC-SM-3 long-running op that uploads through tp.uploads.add.
+func cliUploadOp(id string) Op {
+	op := mutatingOp(id)
+	op.Kind, op.Action, op.CLI = KindProviderAction, "update", CLIBinding{Noun: "widget", Verb: "update"}
+	op.ResourceType = ""
+	op.CLI.Upload = &CLIUpload{
+		Op:       "tp.uploads.add",
+		Field:    "uploadId",
+		FileFlag: "file",
+		Sidecars: []CLISidecar{{Param: "signature", Flag: "signature", Suffix: ".sig", MaxBytes: 4096}},
+	}
+	return op
+}
+
+// TC-SM-2 (FR-6, CON-3): a valid KindUpload op is accepted as the second
+// exception to "mutating means long-running"; a generic sync mutating op is not.
+func TestTCSM2_AValidKindUploadDeclarationIsAccepted(t *testing.T) {
+	op := uploadOp(uniqueID("tp.uploads.add"))
+	var typed Typed[uploadIn, struct{}]
+	if msg, panicked := recoverMessage(func() { typed = Define[uploadIn, struct{}](op) }); panicked {
+		t.Fatalf("valid KindUpload op panicked: %s", msg)
+	}
+	got := typed.Op()
+	if got.Kind != KindUpload || got.Upload != op.Upload || !reflect.DeepEqual(*got.Upload, *op.Upload) {
+		t.Errorf("Op() = kind %q upload %+v, want kind %q upload %+v unchanged", got.Kind, got.Upload, KindUpload, op.Upload)
+	}
+
+	sync := mutatingOp(uniqueID("test.bad"))
+	sync.Mode = ModeSync
+	if msg, panicked := recoverMessage(define(sync)); !panicked || !strings.Contains(msg, "ModeLongRunning") {
+		t.Errorf("sync mutating KindResourceAction: panicked=%v msg=%q, want the ModeLongRunning rule", panicked, msg)
+	}
+}
+
+// TC-SM-3 (FR-13, FR-14): CLI.Upload and ReconnectWindow are accepted on a
+// long-running op, at the 10m and 65536-byte boundaries, and round-trip.
+func TestTCSM3_CLIUploadAndReconnectWindowDeclarationsAre(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		mod  func(*Op)
+	}{
+		{"CLI.Upload", func(*Op) {}},
+		{"ReconnectWindow 60s", func(op *Op) { op.CLI.ReconnectWindow = 60 * time.Second }},
+		{"ReconnectWindow 10m", func(op *Op) { op.CLI.ReconnectWindow = 10 * time.Minute }},
+		{"sidecar MaxBytes 65536", func(op *Op) { op.CLI.Upload.Sidecars[0].MaxBytes = 65536 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			op := cliUploadOp(uniqueID("tp.update"))
+			tc.mod(&op)
+			var typed Typed[updateIn, struct{}]
+			if msg, panicked := recoverMessage(func() { typed = Define[updateIn, struct{}](op) }); panicked {
+				t.Fatalf("Define panicked: %s", msg)
+			}
+			got := typed.Op().CLI
+			if !reflect.DeepEqual(got.Upload, op.CLI.Upload) || got.ReconnectWindow != op.CLI.ReconnectWindow {
+				t.Errorf("CLI = upload %+v window %v, want upload %+v window %v",
+					got.Upload, got.ReconnectWindow, op.CLI.Upload, op.CLI.ReconnectWindow)
+			}
+		})
+	}
+}
+
+// TC-SM-ERR1 (FR-6, CON-3): every KindUpload rule panics naming the op and the rule.
+func TestTCSMERR1_InvalidKindUploadDeclarationsPanicWithA(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		mod  func(*Op)
+		rule string
+	}{
+		{"ModeLongRunning", func(op *Op) { op.Mode = ModeLongRunning }, "KindUpload requires ModeSync"},
+		{"ModeStream", func(op *Op) { op.Mode = ModeStream }, "KindUpload requires ModeSync"},
+		{"RiskReadOnly", func(op *Op) { op.Risk = RiskReadOnly }, "KindUpload requires RiskMutating"},
+		{"RiskDestructive", func(op *Op) { op.Risk = RiskDestructive }, "KindUpload requires RiskMutating"},
+		{"empty Scope.Name", func(op *Op) { op.Scope.Name = "" }, "KindUpload requires Scope.Name"},
+		{"MCP set", func(op *Op) { op.MCP = &MCPBinding{Tool: "upload"} }, "KindUpload must not set MCP"},
+		{"Upload nil", func(op *Op) { op.Upload = nil }, "KindUpload requires Upload"},
+		{"empty ContentTypes", func(op *Op) { op.Upload.ContentTypes = nil }, "Upload.ContentTypes"},
+		{"MaxBytes 0", func(op *Op) { op.Upload.MaxBytes = 0 }, "Upload.MaxBytes"},
+		{"MaxBytes -1", func(op *Op) { op.Upload.MaxBytes = -1 }, "Upload.MaxBytes"},
+		{"CLI.Noun", func(op *Op) { op.CLI.Noun = "x" }, "KindUpload requires an empty CLI binding"},
+		{"CLI.Verb", func(op *Op) { op.CLI.Verb = "add" }, "KindUpload requires an empty CLI binding"},
+		{"provider system", func(op *Op) { op.Provider = SystemProvider }, "KindUpload is not allowed for provider"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			op := uploadOp(uniqueID("tp.uploads.bad"))
+			tc.mod(&op)
+			msg, panicked := recoverMessage(func() { Define[uploadIn, struct{}](op) })
+			if !panicked || !strings.Contains(msg, tc.rule) || !strings.Contains(msg, op.ID) {
+				t.Errorf("panicked=%v msg=%q, want the op ID and %q", panicked, msg, tc.rule)
+			}
+		})
+	}
+}
+
+// TC-SM-ERR2 (FR-6): Upload on any kind but KindUpload panics naming Upload and the kind.
+func TestTCSMERR2_UploadSetOnAnyOtherKind(t *testing.T) {
+	list := readOp("")
+	list.Kind, list.CLI.Positional = KindList, ""
+	sub := readOp("")
+	sub.Kind, sub.Action = KindSubresource, "config"
+	pa := mutatingOp("")
+	pa.Kind, pa.ResourceType = KindProviderAction, ""
+	for _, base := range []Op{list, readOp(""), sub, pa, mutatingOp("")} {
+		t.Run(string(base.Kind), func(t *testing.T) {
+			op := base
+			op.ID = uniqueID("test.bad")
+			if msg, panicked := recoverMessage(define(op)); panicked {
+				t.Fatalf("valid %s op panicked without Upload: %s", op.Kind, msg)
+			}
+			op.ID = uniqueID("test.bad")
+			op.Upload = &Upload{ContentTypes: []string{"application/octet-stream"}, MaxBytes: 1 << 20}
+			msg, panicked := recoverMessage(define(op))
+			if !panicked || !strings.Contains(msg, "Upload") || !strings.Contains(msg, fmt.Sprintf("%q", op.Kind)) || !strings.Contains(msg, op.ID) {
+				t.Errorf("panicked=%v msg=%q, want the op ID, Upload and kind %q", panicked, msg, op.Kind)
+			}
+		})
+	}
+}
+
+// TC-SM-ERR3 (FR-13, FR-14): invalid CLI.Upload and ReconnectWindow panic naming the field.
+func TestTCSMERR3_InvalidCLIUploadAndReconnectWindowDeclarations(t *testing.T) {
+	sync := func(op *Op) { op.Risk, op.Mode = RiskReadOnly, ModeSync }
+	for _, tc := range []struct {
+		name string
+		mod  func(*Op)
+		rule string
+	}{
+		{"CLI.Upload on a sync op", sync, "CLI.Upload requires ModeLongRunning"},
+		{"empty Op", func(op *Op) { op.CLI.Upload.Op = "" }, "CLI.Upload.Op"},
+		{"unknown Field", func(op *Op) { op.CLI.Upload.Field = "nope" }, "CLI.Upload.Field"},
+		{"empty Field", func(op *Op) { op.CLI.Upload.Field = "" }, "CLI.Upload.Field"},
+		{"bool Field", func(op *Op) { op.CLI.Upload.Field = "allowDowngrade" }, "CLI.Upload.Field"},
+		{"Go name, not JSON name, as Field", func(op *Op) { op.CLI.Upload.Field = "UploadID" }, "CLI.Upload.Field"},
+		{"FileFlag not kebab", func(op *Op) { op.CLI.Upload.FileFlag = "File_Path" }, "CLI.Upload.FileFlag"},
+		{"empty FileFlag", func(op *Op) { op.CLI.Upload.FileFlag = "" }, "CLI.Upload.FileFlag"},
+		{"FileFlag with a leading hyphen", func(op *Op) { op.CLI.Upload.FileFlag = "-file" }, "CLI.Upload.FileFlag"},
+		{"FileFlag with a double hyphen", func(op *Op) { op.CLI.Upload.FileFlag = "file--path" }, "CLI.Upload.FileFlag"},
+		{"sidecar empty Param", func(op *Op) { op.CLI.Upload.Sidecars[0].Param = "" }, "CLI.Upload.Sidecars[0].Param"},
+		{"sidecar empty Flag", func(op *Op) { op.CLI.Upload.Sidecars[0].Flag = "" }, "CLI.Upload.Sidecars[0].Flag"},
+		{"sidecar empty Suffix", func(op *Op) { op.CLI.Upload.Sidecars[0].Suffix = "" }, "CLI.Upload.Sidecars[0].Suffix"},
+		{"sidecar MaxBytes 0", func(op *Op) { op.CLI.Upload.Sidecars[0].MaxBytes = 0 }, "CLI.Upload.Sidecars[0].MaxBytes"},
+		{"sidecar MaxBytes 65537", func(op *Op) { op.CLI.Upload.Sidecars[0].MaxBytes = 65537 }, "CLI.Upload.Sidecars[0].MaxBytes"},
+		{"ReconnectWindow -1s", func(op *Op) { op.CLI.ReconnectWindow = -time.Second }, "CLI.ReconnectWindow"},
+		{"ReconnectWindow 10m+1ns", func(op *Op) { op.CLI.ReconnectWindow = 10*time.Minute + 1 }, "CLI.ReconnectWindow"},
+		{"ReconnectWindow on a sync op", func(op *Op) {
+			sync(op)
+			op.CLI.Upload = nil
+			op.CLI.ReconnectWindow = time.Minute
+		}, "CLI.ReconnectWindow requires ModeLongRunning"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			op := cliUploadOp(uniqueID("tp.update.bad"))
+			tc.mod(&op)
+			msg, panicked := recoverMessage(func() { Define[updateIn, struct{}](op) })
+			if !panicked || !strings.Contains(msg, tc.rule) || !strings.Contains(msg, op.ID) {
+				t.Errorf("panicked=%v msg=%q, want the op ID and %q", panicked, msg, tc.rule)
+			}
+		})
+	}
+}
+
+// TC-SM-4 (CON-3): against base d04583a, def gains no non-stdlib dependency
+// and no direct import but time.
+func TestTCSM4_DefImportsNothingNewBeyondTime(t *testing.T) {
+	const base = "d04583a"
+	const pkg = "github.com/mauktik/nexus/internal/def"
+	run := func(name string, args ...string) string {
+		t.Helper()
+		out, err := exec.Command(name, args...).Output()
+		if err != nil {
+			t.Fatalf("%s %v: %v", name, args, err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found")
+	}
+	if err := exec.Command("git", "cat-file", "-e", base+"^{commit}").Run(); err != nil {
+		t.Skipf("base commit %s not available: %v", base, err)
+	}
+
+	baseImports := map[string]bool{}
+	for _, f := range strings.Fields(run("git", "ls-tree", "--name-only", "--full-name", base, "./")) {
+		if path.Ext(f) != ".go" || strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), f, run("git", "show", base+":"+f), parser.ImportsOnly)
+		if err != nil {
+			t.Fatalf("parse %s at %s: %v", f, base, err)
+		}
+		for _, imp := range file.Imports {
+			baseImports[strings.Trim(imp.Path.Value, `"`)] = true
+		}
+	}
+	if len(baseImports) == 0 {
+		t.Fatalf("no imports found for internal/def at %s", base)
+	}
+
+	for _, imp := range strings.Fields(run("go", "list", "-f", `{{join .Imports "\n"}}`, pkg)) {
+		if !baseImports[imp] && imp != "time" {
+			t.Errorf("internal/def imports %q, absent at %s and not time", imp, base)
+		}
+	}
+
+	// deps maps each package of the -deps closure to whether it is stdlib.
+	deps := func(pkgs ...string) map[string]bool {
+		args := append([]string{"list", "-deps", "-f", "{{.ImportPath}} {{.Standard}}"}, pkgs...)
+		m := map[string]bool{}
+		for _, line := range strings.Split(run("go", args...), "\n") {
+			p, std, _ := strings.Cut(line, " ")
+			m[p] = std == "true"
+		}
+		return m
+	}
+	now := deps(pkg)
+	was := deps(slices.Sorted(maps.Keys(baseImports))...)
+	was[pkg] = false
+	viaTime := deps("time")
+	for p, std := range now {
+		if _, ok := was[p]; ok {
+			continue
+		}
+		if !std {
+			t.Errorf("new non-stdlib dependency %q", p)
+		} else if _, ok := viaTime[p]; !ok {
+			t.Errorf("new stdlib dependency %q not brought in by time", p)
+		}
+	}
+	for p, std := range was {
+		if _, ok := now[p]; !ok && !std {
+			t.Errorf("non-stdlib dependency %q at %s is gone; the set must be unchanged", p, base)
+		}
 	}
 }

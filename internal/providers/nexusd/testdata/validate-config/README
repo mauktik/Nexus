@@ -1,0 +1,13 @@
+Captured `nexusd validate-config` stderr, replayed by the shell stand-in for
+the rollback binary in TestTCSMERR36 (WI 4.3).
+
+unknown-key.stderr is the real stderr of the real binary, captured at
+fd1c443 with:
+
+    go build -o /tmp/nexusd ./cmd/nexusd
+    cd internal/providers/nexusd/testdata/validate-config
+    /tmp/nexusd validate-config --config unknown-key.yaml 2>unknown-key.stderr
+
+It exits 1 and prints one problem per line (cmd/nexusd validateConfig), here
+two: the unknown top-level key and the misspelled providers.nexusd key.
+Recapture it the same way if the message format changes.

@@ -1,0 +1,50 @@
+systemctl show fixtures for parseShow (internal/providers/nexusd/system.go)
+
+Each file is the output, byte for byte, of
+
+    systemctl show <unit> -p ActiveState -p SubState -p Result -p MainPID -p NRestarts
+
+captured from real systemd in the T1 harness container by TC-SM-129
+(test/integration/nexusd_selfmgmt_test.go, TestTCSM129_*), which logs each
+capture between "CAPTURE <file> BEGIN" and "CAPTURE <file> END" lines.
+
+systemd version: systemd 259 (259.9-0ubuntu0.1), Ubuntu 26.04.1 LTS
+(BASE=ubuntu:latest), arm64. Captured by `make test-harness` (WI 7.2) in
+the run whose logs are build/harness/logs/20261113T210341Z (2026-11-13).
+
+The unit is nexusd-fidelity.service: a copy of deploy/nexusd.service whose
+ExecStart names /usr/local/bin/nexusd-fidelity instead of
+/usr/local/bin/nexusd, so nexusd.service itself is not touched. Type,
+Restart (on-failure, default RestartSec 100 ms), the default start limit
+(StartLimitBurst=5 in StartLimitIntervalSec=10s) and the sandbox are the
+shipped unit's.
+
+    active.txt              the real nexusd v9.9.1, after READY=1
+                            (Type=notify)
+    activating.txt          a binary that never sends READY=1
+                            (`exec sleep 600`), before the start timeout
+    auto-restart.txt        the v9.9.4 stub (serve exits 1), between its
+                            first failed start and the Restart=on-failure
+                            re-spawn; caught by a tight poll
+    failed-start-limit.txt  the same stub once its re-spawns met the start
+                            limit, read right after a further blocking
+                            `systemctl restart` was refused
+
+Property order is systemd's own (ActiveState, SubState, MainPID, Result,
+NRestarts), not the order of the -p flags; parseShow does not depend on it.
+
+What these captures show about systemd 259 (TC-SM-129 logs the full
+journal):
+
+  - At the start limit the unit is failed with Result=exit-code, not
+    start-limit-hit: the journal says "Start request repeated too quickly"
+    and then "Failed with result 'exit-code'". A blocking restart refused
+    by the limit leaves Result=exit-code too.
+  - NRestarts is 5 there: 1 explicit start and 4 re-spawns ran, and the
+    5th scheduled re-spawn ("restart counter is at 5") was the start the
+    limit refused.
+  - In auto-restart, NRestarts is still 0: it counts when the re-spawn
+    runs, not when it is scheduled.
+
+The previous, hand-written files (WI 4.1) encoded Result=start-limit-hit
+with NRestarts 4; the real values replace them.

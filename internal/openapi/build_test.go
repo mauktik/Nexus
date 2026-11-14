@@ -75,6 +75,22 @@ type restartOut struct {
 	Name string `json:"name"`
 }
 
+// uploadIn and uploadOut are a KindUpload op's input, read from the query,
+// and its 201 body (TC-SM-2's shape).
+type uploadIn struct {
+	Signature string `json:"signature" jsonschema:"Detached signature of the body."`
+}
+
+type uploadOut struct {
+	UploadID  string    `json:"uploadId"`
+	SHA256    string    `json:"sha256"`
+	SizeBytes int64     `json:"sizeBytes"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+// tpUploadMaxBytes is the test upload op's ceiling.
+const tpUploadMaxBytes = 1 << 20
+
 func refineName(s *jsonschema.Schema) {
 	if p := s.Properties["name"]; p != nil {
 		p.Pattern = `^[a-z0-9-]+$`
@@ -123,6 +139,20 @@ var (
 		op.Refine = nil
 		return def.Define[checkIn, restartOut](op)
 	}()
+	// A KindUpload op has no CLI binding of its own.
+	tpUpload = def.Define[uploadIn, uploadOut](def.Op{
+		ID: "tp.uploads.add", Provider: "tp", Kind: def.KindUpload, ResourceType: "uploads",
+		Summary: "Stage an upload", Description: "Stages the request body for a later operation and answers 201. " +
+			"Side effects: the body is stored on the host.",
+		Scope: def.Scope{Name: "tp:admin"}, Risk: def.RiskMutating, Mode: def.ModeSync,
+		Upload: &def.Upload{ContentTypes: []string{"application/octet-stream", "application/gzip"}, MaxBytes: tpUploadMaxBytes},
+		Refine: func(s *jsonschema.Schema) {
+			if p := s.Properties["signature"]; p != nil {
+				n := 4096
+				p.MaxLength = &n
+			}
+		},
+	})
 	tqGet = def.Define[nameIn, thing](def.Op{
 		ID: "tq.items.get", Provider: "tq", Kind: def.KindGet, ResourceType: "items",
 		Summary: "Get an item", Description: "Returns one item. Read-only.",
@@ -135,7 +165,7 @@ type tp struct{}
 
 func (tp) Spec() def.ProviderSpec {
 	return def.ProviderSpec{Name: "tp", ReadScope: "tp:read", Ops: []def.Op{
-		tpList.Op(), tpGet.Op(), tpLogs.Op(), tpStatus.Op(), tpRestart.Op(), tpInvoke.Op(), tpCheck.Op(),
+		tpList.Op(), tpGet.Op(), tpLogs.Op(), tpStatus.Op(), tpRestart.Op(), tpInvoke.Op(), tpCheck.Op(), tpUpload.Op(),
 	}}
 }
 func (tp) Configure(func(any) error) error { return nil }
@@ -166,6 +196,9 @@ func (tp) Bindings() []provider.Binding {
 			Run: func(context.Context, nameIn, *provider.Run) (restartOut, error) { return restartOut{}, nil }}),
 		provider.InProcess(tpCheck, provider.InProcessSpec[checkIn, restartOut]{
 			Run: func(context.Context, checkIn, *provider.Run) (restartOut, error) { return restartOut{}, nil }}),
+		// The server requires an upload binding for a KindUpload op.
+		provider.Upload(tpUpload, provider.UploadSpec[uploadIn, uploadOut]{
+			Receive: func(context.Context, uploadIn, provider.UploadBody) (uploadOut, error) { return uploadOut{}, nil }}),
 	}
 }
 
@@ -266,7 +299,7 @@ func newStack(t *testing.T) *stack {
 		t.Fatal(err)
 	}
 	full, _, err := auth.Create(stateDir, auth.CreateRequest{Name: "full",
-		Scopes: []string{"tp:read", "tp:write", "tp:run", "tq:read", "audit:read", "scripts:read", "scripts:run",
+		Scopes: []string{"tp:read", "tp:write", "tp:run", "tp:admin", "tq:read", "audit:read", "scripts:read", "scripts:run",
 			dockerspec.ReadScope, aptspec.ReadScope, aptspec.WriteScope}})
 	if err != nil {
 		t.Fatal(err)
@@ -419,6 +452,7 @@ func TestDocumentMatchesRoutes(t *testing.T) {
 		"POST /v1/operations/{id}/cancel", "GET /v1/audit",
 		"GET /v1/providers/tp/things", "GET /v1/providers/tp/things/{name}", "GET /v1/providers/tp/things/{name}/logs",
 		"POST /v1/providers/tp/things/{name}/restart", "POST /v1/providers/tp/actions/check",
+		"POST /v1/providers/tp/uploads",
 		"GET /v1/providers/tq/items/{name}",
 		"GET /v1/providers/scripts/scripts", "GET /v1/providers/scripts/scripts/{name}",
 		"POST /v1/providers/scripts/scripts/{name}/invoke",
@@ -681,8 +715,12 @@ func TestEveryOperationIsFullyDescribed(t *testing.T) {
 			}
 
 			responses := obj(o["responses"])
-			switch op.Mode {
-			case def.ModeLongRunning:
+			switch {
+			case op.Kind == def.KindUpload:
+				if obj(obj(obj(responses["201"])["content"])["application/json"]) == nil || responses["200"] != nil {
+					t.Errorf("%s: upload op lacks a 201 application/json response, or declares 200", where)
+				}
+			case op.Mode == def.ModeLongRunning:
 				r := obj(responses["202"])
 				hs := obj(r["headers"])
 				if r == nil || hs["Location"] == nil || hs["Retry-After"] == nil {
@@ -694,7 +732,7 @@ func TestEveryOperationIsFullyDescribed(t *testing.T) {
 				if op.Mutating() && params["header:Idempotency-Key"] == nil {
 					t.Errorf("%s: no Idempotency-Key header parameter", where)
 				}
-			case def.ModeStream:
+			case op.Mode == def.ModeStream:
 				ct := obj(obj(responses["200"])["content"])
 				nd := obj(ct["application/x-ndjson"])
 				if nd == nil || obj(nd["schema"])["$ref"] != "#/components/schemas/Frame" {
@@ -739,6 +777,9 @@ func TestEveryOperationIsFullyDescribed(t *testing.T) {
 			}
 			if op.OperationControl {
 				need = append(need, problem.NotCancelable)
+			}
+			if op.Kind == def.KindUpload {
+				need = append(need, problem.UploadTooLarge, problem.Conflict, problem.StorageLimitReached)
 			}
 			if op.Mode == def.ModeLongRunning {
 				need = append(need, problem.Conflict)

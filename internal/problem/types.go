@@ -30,20 +30,42 @@ const (
 	DependencyUnavailable Slug = "dependency-unavailable"
 	AuditUnavailable      Slug = "audit-unavailable"
 	StorageLimitReached   Slug = "storage-limit-reached"
-	DNSFileConflict       Slug = "dns-file-conflict"
-	DNSNameUnzoned        Slug = "dns-name-unzoned"
-	DNSBatchRejected      Slug = "dns-batch-rejected"
+
+	// nexusd self-management (nexusd-self-management architecture.md,
+	// Problem types).
+	ConfigInvalid          Slug = "config-invalid"
+	UploadTooLarge         Slug = "upload-too-large"
+	UploadNotFound         Slug = "upload-not-found"
+	UpdateNotConfigured    Slug = "update-not-configured"
+	UpdateSignatureInvalid Slug = "update-signature-invalid"
+	UpdatePackageInvalid   Slug = "update-package-invalid"
+	VersionDowngrade       Slug = "version-downgrade"
+	RollbackUnavailable    Slug = "rollback-unavailable"
+
+	// pihole-dns-zones (pihole-dns-zones architecture.md, Problem types).
+	DNSFileConflict  Slug = "dns-file-conflict"
+	DNSNameUnzoned   Slug = "dns-name-unzoned"
+	DNSBatchRejected Slug = "dns-batch-rejected"
 )
 
 // Operation-level problem types: they appear only inside operation.error.
 const (
-	OutcomeUnknown        Slug = "outcome-unknown"
-	PackageManagerBusy    Slug = "package-manager-busy"
-	PackageManagerBroken  Slug = "package-manager-broken"
-	AptFailed             Slug = "apt-failed"
-	ScriptFailed          Slug = "script-failed"
-	ScriptTimeout         Slug = "script-timeout"
-	UpdateHealthFailed    Slug = "update-health-failed"
+	OutcomeUnknown       Slug = "outcome-unknown"
+	PackageManagerBusy   Slug = "package-manager-busy"
+	PackageManagerBroken Slug = "package-manager-broken"
+	AptFailed            Slug = "apt-failed"
+	ScriptFailed         Slug = "script-failed"
+	ScriptTimeout        Slug = "script-timeout"
+	UpdateHealthFailed   Slug = "update-health-failed"
+
+	// nexusd self-management.
+	ConfigApplyFailed    Slug = "config-apply-failed"
+	RestartUnhealthy     Slug = "restart-unhealthy"
+	UpdateFailed         Slug = "update-failed"
+	UpdateRollbackFailed Slug = "update-rollback-failed"
+	RollbackFailed       Slug = "rollback-failed"
+
+	// pihole-dns-zones.
 	DNSConfigTestFailed   Slug = "dns-config-test-failed"
 	DNSVerificationFailed Slug = "dns-verification-failed"
 	DNSRollbackFailed     Slug = "dns-rollback-failed"
@@ -96,6 +118,17 @@ var registry = []Type{
 		Extensions: []string{"provider", "rolledBack", "previousDigest", "newDigest"}},
 	{Slug: AuditUnavailable, Title: "Audit unavailable", Status: 503, Exit: 1},
 	{Slug: StorageLimitReached, Title: "Storage limit reached", Status: 507, Exit: 1},
+	// nexusd self-management. config-invalid's errors[] holds ConfigError
+	// objects rather than validation-failed's FieldErrors.
+	{Slug: ConfigInvalid, Title: "Configuration invalid", Status: 422, Exit: 1, Extensions: []string{"configPath", "errors"}},
+	{Slug: UploadTooLarge, Title: "Upload too large", Status: 413, Exit: 2, Extensions: []string{"maxBytes"}},
+	{Slug: UploadNotFound, Title: "Upload not found", Status: 422, Exit: 1, Extensions: []string{"uploadId"}},
+	{Slug: UpdateNotConfigured, Title: "Update not configured", Status: 409, Exit: 1},
+	{Slug: UpdateSignatureInvalid, Title: "Update signature invalid", Status: 422, Exit: 1},
+	{Slug: UpdatePackageInvalid, Title: "Update package invalid", Status: 422, Exit: 1, Extensions: []string{"check"}},
+	{Slug: VersionDowngrade, Title: "Version downgrade", Status: 409, Exit: 1, Extensions: []string{"runningVersion", "packageVersion"}},
+	{Slug: RollbackUnavailable, Title: "Rollback unavailable", Status: 409, Exit: 1, Extensions: []string{"path"}},
+	// pihole-dns-zones.
 	// Like dependency-unavailable, dns-file-conflict and dns-batch-rejected
 	// may also appear in operation.error: the DNS write pipeline re-checks
 	// them after admission, inside the operation.
@@ -117,6 +150,17 @@ var registry = []Type{
 	{Slug: ScriptTimeout, Title: "Script timed out", Exit: 1, OperationLevel: true, Extensions: []string{"exitCode", "signal", "durationSeconds"}},
 	{Slug: UpdateHealthFailed, Title: "Update health check failed", Exit: 1, OperationLevel: true,
 		Extensions: []string{"rolledBack", "previousDigest", "newDigest"}},
+	// nexusd self-management: the outcomes of reload, restart, update and
+	// rollback operations.
+	{Slug: ConfigApplyFailed, Title: "Configuration apply failed", Exit: 1, OperationLevel: true},
+	{Slug: RestartUnhealthy, Title: "Restart unhealthy", Exit: 1, OperationLevel: true, Extensions: []string{"condition", "version"}},
+	{Slug: UpdateFailed, Title: "Update failed", Exit: 1, OperationLevel: true,
+		Extensions: []string{"rolledBack", "step", "previousVersion", "newVersion"}},
+	{Slug: UpdateRollbackFailed, Title: "Update rollback failed", Exit: 1, OperationLevel: true,
+		Extensions: []string{"rolledBack", "step", "previousVersion", "newVersion"}},
+	{Slug: RollbackFailed, Title: "Rollback failed", Exit: 1, OperationLevel: true,
+		Extensions: []string{"rolledBack", "condition", "fromVersion", "toVersion"}},
+	// pihole-dns-zones: the outcomes of DNS writes, gravity and pihole commands.
 	{Slug: DNSConfigTestFailed, Title: "DNS configuration test failed", Exit: 1, OperationLevel: true,
 		Extensions: []string{"exitCode", "rolledBack", "preExisting"}},
 	{Slug: DNSVerificationFailed, Title: "DNS verification failed", Exit: 1, OperationLevel: true,

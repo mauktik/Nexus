@@ -1,0 +1,5 @@
+listen: ["127.0.0.1:7443"]
+providers:
+  docker:
+    enabled: true
+    socket: "/run/docker.sock://x"

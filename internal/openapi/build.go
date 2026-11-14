@@ -96,7 +96,7 @@ func Route(op def.Op) (method, path string, err error) {
 		return "", "", err
 	}
 	path = base + "/" + op.ResourceType
-	if op.Kind != def.KindList {
+	if op.Kind != def.KindList && op.Kind != def.KindUpload {
 		path += "/{name}"
 	}
 	if op.Kind == def.KindSubresource || op.Kind == def.KindResourceAction {
@@ -112,7 +112,7 @@ func methodFor(k def.Kind) (string, error) {
 	switch k {
 	case def.KindList, def.KindGet, def.KindSubresource:
 		return http.MethodGet, nil
-	case def.KindResourceAction, def.KindProviderAction:
+	case def.KindResourceAction, def.KindProviderAction, def.KindUpload:
 		return http.MethodPost, nil
 	}
 	return "", fmt.Errorf("unknown Kind %q", k)
@@ -250,8 +250,9 @@ type parameter struct {
 }
 
 type requestBody struct {
-	Required bool                 `json:"required"`
-	Content  map[string]mediaType `json:"content"`
+	Description string               `json:"description,omitempty"`
+	Required    bool                 `json:"required"`
+	Content     map[string]mediaType `json:"content"`
 }
 
 type mediaType struct {
@@ -308,7 +309,9 @@ func buildOperation(op def.Op, method, path string, readScopes map[string]string
 		o.Parameters = append(o.Parameters, parameter{Name: n, In: "path", Required: true,
 			Description: paramDescription(op, n, prop), Schema: scalarSchema(prop)})
 	}
-	if method == http.MethodGet {
+	// An upload's body is the raw bytes, so its input comes from the query
+	// as a GET's does.
+	if method == http.MethodGet || op.Kind == def.KindUpload {
 		for _, n := range slices.Sorted(maps.Keys(in.Properties)) {
 			if slices.Contains(names, n) {
 				continue
@@ -317,9 +320,14 @@ func buildOperation(op def.Op, method, path string, readScopes map[string]string
 			o.Parameters = append(o.Parameters, parameter{Name: n, In: "query", Required: slices.Contains(in.Required, n),
 				Description: paramDescription(op, n, prop), Schema: scalarSchema(prop)})
 		}
-	} else if body := bodySchema(in, names); body != nil {
-		o.RequestBody = &requestBody{Required: len(body.Required) > 0,
-			Content: map[string]mediaType{mediaJSON: {Schema: body}}}
+	}
+	if op.Kind == def.KindUpload {
+		o.RequestBody = uploadBody(op)
+	} else if method != http.MethodGet {
+		if body := bodySchema(in, names); body != nil {
+			o.RequestBody = &requestBody{Required: len(body.Required) > 0,
+				Content: map[string]mediaType{mediaJSON: {Schema: body}}}
+		}
 	}
 	if op.Mode == def.ModeLongRunning && op.Mutating() {
 		n := IdempotencyKeyMaxLength
@@ -385,6 +393,19 @@ func bodySchema(in *jsonschema.Schema, wildcards []string) *jsonschema.Schema {
 	return s
 }
 
+// uploadBody is a KindUpload op's raw request body: one media type per
+// accepted Content-Type, each an opaque byte string (OAS 3.1 contentMediaType).
+func uploadBody(op def.Op) *requestBody {
+	rb := &requestBody{Required: true, Content: map[string]mediaType{},
+		Description: fmt.Sprintf("The raw bytes, at most %d bytes; the host's configured limit may be lower. "+
+			"A larger body is refused with %s, and any other Content-Type with %s.",
+			op.Upload.MaxBytes, problem.UploadTooLarge, problem.ValidationFailed)}
+	for _, ct := range op.Upload.ContentTypes {
+		rb.Content[ct] = mediaType{Schema: &jsonschema.Schema{Type: "string", ContentMediaType: ct}}
+	}
+	return rb
+}
+
 // scopeOf states the authorization rule the Dispatcher applies to op.
 func scopeOf(op def.Op, readScopes map[string]string) requiredScope {
 	switch {
@@ -439,6 +460,10 @@ func applicableProblems(op def.Op, hasTarget bool) []problem.Slug {
 	}
 	if op.OperationControl {
 		slugs = append(slugs, problem.NotCancelable)
+	}
+	if op.Kind == def.KindUpload {
+		// Over the ceiling, a staged upload limit, and the storage budget.
+		slugs = append(slugs, problem.UploadTooLarge, problem.Conflict, problem.StorageLimitReached)
 	}
 	if op.Mode == def.ModeLongRunning {
 		slugs = append(slugs, problem.Conflict)
@@ -495,7 +520,12 @@ func responses(op def.Op, hasTarget bool) (map[string]response, error) {
 		if err != nil {
 			return nil, fmt.Errorf("op %q: %w", op.ID, err)
 		}
-		out["200"] = response{Description: "The result.", Content: map[string]mediaType{mediaJSON: {Schema: s}}}
+		if op.Kind == def.KindUpload {
+			out["201"] = response{Description: "Created: the upload is stored.",
+				Content: map[string]mediaType{mediaJSON: {Schema: s}}}
+		} else {
+			out["200"] = response{Description: "The result.", Content: map[string]mediaType{mediaJSON: {Schema: s}}}
+		}
 	}
 
 	byStatus := map[int][]problem.Type{}
@@ -560,6 +590,23 @@ func problemSchema() *jsonschema.Schema {
 }
 
 func extensionSchema(slug problem.Slug, name string) *jsonschema.Schema {
+	if name == "errors" && slug == problem.ConfigInvalid {
+		return &jsonschema.Schema{
+			Type:        "array",
+			Description: "The configuration errors, located where known.",
+			Items: &jsonschema.Schema{
+				Type: "object",
+				Properties: map[string]*jsonschema.Schema{
+					"file":    {Type: "string", Description: "The file the error is in; absent when unknown."},
+					"line":    {Type: "integer", Description: "1-based line; absent when unknown."},
+					"column":  {Type: "integer", Description: "1-based column; absent when unknown."},
+					"path":    {Type: "string", Description: "The configuration key, such as providers.nexusd.trustedKeys; absent when unknown."},
+					"message": {Type: "string", Description: "What is wrong. It never echoes a key's value."},
+				},
+				Required: []string{"message"},
+			},
+		}
+	}
 	if name == "errors" {
 		return &jsonschema.Schema{
 			Type:        "array",
@@ -611,7 +658,33 @@ func extensionSchema(slug problem.Slug, name string) *jsonschema.Schema {
 	case "durationSeconds":
 		return &jsonschema.Schema{Type: "number", Description: "How long the script ran."}
 	case "rolledBack":
+		switch slug {
+		case problem.UpdateFailed, problem.UpdateRollbackFailed, problem.RollbackFailed:
+			return &jsonschema.Schema{Type: "boolean", Description: "Whether the previous nexusd was restored and passed the health check."}
+		}
 		return &jsonschema.Schema{Type: "boolean", Description: "Whether the previous container was restored."}
+	case "step":
+		return &jsonschema.Schema{Type: "string", Description: "The update step that failed, such as precheck."}
+	case "condition":
+		return &jsonschema.Schema{Type: "integer", Minimum: ptr(1.0), Maximum: ptr(4.0),
+			Description: "The health condition that failed: 1 the service is active, 2 it runs the expected version, " +
+				"3 /healthz answers, 4 all three held for 5 s."}
+	case "maxBytes":
+		return &jsonschema.Schema{Type: "integer", Minimum: ptr(0.0), Description: "The largest body the route accepts, in bytes."}
+	case "version":
+		return &jsonschema.Schema{Type: "string", Description: "The nexusd version running after the restart."}
+	case "previousVersion":
+		return &jsonschema.Schema{Type: "string", Description: "The nexusd version before the update."}
+	case "newVersion":
+		return &jsonschema.Schema{Type: "string", Description: "The nexusd version the update installed."}
+	case "fromVersion":
+		return &jsonschema.Schema{Type: "string", Description: "The nexusd version the rollback replaced."}
+	case "toVersion":
+		return &jsonschema.Schema{Type: "string", Description: "The nexusd version the rollback restored."}
+	case "runningVersion":
+		return &jsonschema.Schema{Type: "string", Description: "The nexusd version running now."}
+	case "packageVersion":
+		return &jsonschema.Schema{Type: "string", Description: "The version the uploaded package carries."}
 	}
 	return &jsonschema.Schema{Type: "string"}
 }

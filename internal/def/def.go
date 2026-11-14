@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
 
@@ -42,6 +43,7 @@ const (
 	KindSubresource    Kind = "subresource"     // GET /providers/{p}/{type}/{name}/{action}
 	KindResourceAction Kind = "resource-action" // POST /providers/{p}/{type}/{name}/{action}
 	KindProviderAction Kind = "provider-action" // POST /providers/{p}/actions/{action}
+	KindUpload         Kind = "upload"          // POST /providers/{p}/{type}; raw body; input from the query
 )
 
 // Cancel is what POST /operations/{id}/cancel may do to an operation.
@@ -78,6 +80,7 @@ type Op struct {
 	Untrusted        bool        // Output carries host-originated text (FR-28)
 	CLI              CLIBinding  // Noun, Verb (must be approved), Positional
 	MCP              *MCPBinding // Nil means not exposed as a tool
+	Upload           *Upload     // KindUpload only: accepted content types and size ceiling
 	// Refine adds what jsonschema.For cannot derive from Go types: enum,
 	// pattern, maxLength. It runs once, on the input schema only.
 	Refine func(*jsonschema.Schema)
@@ -97,6 +100,12 @@ type Scope struct {
 	FromTarget bool   // Scope comes from the operation named by the target
 }
 
+// Upload is what a KindUpload operation accepts as its raw request body.
+type Upload struct {
+	ContentTypes []string // e.g. application/octet-stream, application/gzip
+	MaxBytes     int64    // Ceiling; the binding may lower it at run time
+}
+
 // Filter documents one server-side filter key of a list operation.
 type Filter struct {
 	Key         string
@@ -114,6 +123,36 @@ type CLIBinding struct {
 	// print the operation. The output must have an Items field listing
 	// resources, which carry host and id. It changes the CLI only.
 	WaitedResultItems bool
+	// Upload makes the command upload a file through a KindUpload op first,
+	// then set Field from the upload's result before running this op.
+	Upload *CLIUpload
+	// ReconnectWindow is how long a waited command keeps retrying the
+	// connection to the daemon while it waits, e.g. across a daemon restart.
+	// Zero means no retrying. At most 10 minutes; long-running ops only.
+	ReconnectWindow time.Duration
+}
+
+// CLIUpload binds a long-running command to a KindUpload op of the same
+// provider, which uploads a file before the command runs.
+type CLIUpload struct {
+	// Op is the ID of a KindUpload op of the same provider. core.New checks it
+	// for bound ops only (the referenced op must also be bound); the catalog
+	// test checks every spec op.
+	Op        string
+	Field     string // String input field set from the upload result's field of the same JSON name
+	FileFlag  string // "file": required flag naming the file to upload
+	FileUsage string
+	Sidecars  []CLISidecar
+}
+
+// CLISidecar is a small file uploaded with the main one as an input field of
+// the upload op, e.g. a detached signature.
+type CLISidecar struct {
+	Param    string // Upload op input field receiving the trimmed file content ("signature")
+	Flag     string // "signature"
+	Suffix   string // ".sig": the default path is <file><suffix>
+	MaxBytes int    // 4096
+	Usage    string
 }
 
 // MCPBinding exposes an operation as an MCP tool.
@@ -209,7 +248,9 @@ func validate(op Op) error {
 	if op.ID == "" {
 		return fmt.Errorf("empty ID")
 	}
-	if !IsApprovedVerb(op.CLI.Verb) {
+	// A KindUpload op has no command of its own: the CLI reaches it only
+	// through another op's CLI.Upload, so it is the one kind without a verb.
+	if op.Kind != KindUpload && !IsApprovedVerb(op.CLI.Verb) {
 		return fmt.Errorf("unapproved CLI verb %q: use one of %v", op.CLI.Verb, approvedVerbs)
 	}
 	if strings.TrimSpace(op.Description) == "" {
@@ -237,8 +278,30 @@ func validate(op Op) error {
 		return fmt.Errorf("Scope.FromTarget is allowed only for provider %q", SystemProvider)
 	}
 
+	if op.Kind == KindUpload {
+		if err := validateUpload(op); err != nil {
+			return err
+		}
+	} else if op.Upload != nil {
+		return fmt.Errorf("Upload is allowed only for KindUpload, got Kind %q", op.Kind)
+	}
+
 	if op.Mode == ModeStream && op.outputType != frameType {
 		return fmt.Errorf("ModeStream requires output type apitypes.Frame, got %v", op.outputType)
+	}
+
+	if op.CLI.Upload != nil {
+		if err := validateCLIUpload(op); err != nil {
+			return err
+		}
+	}
+	if w := op.CLI.ReconnectWindow; w != 0 {
+		if op.Mode != ModeLongRunning {
+			return fmt.Errorf("CLI.ReconnectWindow requires ModeLongRunning, got %q", op.Mode)
+		}
+		if w < 0 || w > maxReconnectWindow {
+			return fmt.Errorf("CLI.ReconnectWindow %v out of range: want 0 < w <= %v", w, maxReconnectWindow)
+		}
 	}
 
 	if op.CLI.WaitedResultItems {
@@ -252,12 +315,14 @@ func validate(op Op) error {
 
 	if op.Mutating() {
 		if op.OperationControl {
-			// The single exception (D-2): an op acting on an existing record
+			// The first exception (D-2): an op acting on an existing record
 			// may answer synchronously, and may take its scope from the target.
 			if op.Scope.Name == "" && !op.Scope.FromTarget {
 				return fmt.Errorf("OperationControl op with empty Scope.Name must set Scope.FromTarget")
 			}
-		} else {
+		} else if op.Kind != KindUpload {
+			// KindUpload is the second exception: it stages bytes for a later
+			// long-running op and is checked by validateUpload.
 			if op.Mode != ModeLongRunning {
 				return fmt.Errorf("mutating op must be ModeLongRunning, got %q", op.Mode)
 			}
@@ -267,4 +332,116 @@ func validate(op Op) error {
 		}
 	}
 	return nil
+}
+
+const (
+	maxReconnectWindow = 10 * time.Minute
+	maxSidecarBytes    = 64 << 10
+)
+
+// validateUpload checks the KindUpload rules: a sync, mutating, scoped op
+// with an upload declaration, no MCP tool and no command, outside system.
+func validateUpload(op Op) error {
+	if op.Mode != ModeSync {
+		return fmt.Errorf("KindUpload requires ModeSync, got %q", op.Mode)
+	}
+	if op.Risk != RiskMutating {
+		return fmt.Errorf("KindUpload requires RiskMutating, got %q", op.Risk)
+	}
+	if op.Scope.Name == "" {
+		return fmt.Errorf("KindUpload requires Scope.Name")
+	}
+	if op.MCP != nil {
+		return fmt.Errorf("KindUpload must not set MCP")
+	}
+	if op.Upload == nil {
+		return fmt.Errorf("KindUpload requires Upload")
+	}
+	if len(op.Upload.ContentTypes) == 0 {
+		return fmt.Errorf("KindUpload requires non-empty Upload.ContentTypes")
+	}
+	if op.Upload.MaxBytes <= 0 {
+		return fmt.Errorf("KindUpload requires Upload.MaxBytes > 0, got %d", op.Upload.MaxBytes)
+	}
+	if op.CLI != (CLIBinding{}) {
+		return fmt.Errorf("KindUpload requires an empty CLI binding, got %+v", op.CLI)
+	}
+	if op.Provider == SystemProvider {
+		return fmt.Errorf("KindUpload is not allowed for provider %q", SystemProvider)
+	}
+	return nil
+}
+
+// validateCLIUpload checks a CLI.Upload binding against op's own declaration.
+// That Op names a KindUpload op of the same provider is checked where every
+// op is known (core.New and the catalog test), not here.
+func validateCLIUpload(op Op) error {
+	u := op.CLI.Upload
+	if op.Mode != ModeLongRunning {
+		return fmt.Errorf("CLI.Upload requires ModeLongRunning, got %q", op.Mode)
+	}
+	if u.Op == "" {
+		return fmt.Errorf("CLI.Upload.Op is empty")
+	}
+	if !isStringField(op.inputType, u.Field) {
+		return fmt.Errorf("CLI.Upload.Field %q is not a string field of input %v", u.Field, op.inputType)
+	}
+	if !isKebab(u.FileFlag) {
+		return fmt.Errorf("CLI.Upload.FileFlag %q is not a kebab-case flag name", u.FileFlag)
+	}
+	for i, s := range u.Sidecars {
+		switch {
+		case s.Param == "":
+			return fmt.Errorf("CLI.Upload.Sidecars[%d].Param is empty", i)
+		case s.Flag == "":
+			return fmt.Errorf("CLI.Upload.Sidecars[%d].Flag is empty", i)
+		case s.Suffix == "":
+			return fmt.Errorf("CLI.Upload.Sidecars[%d].Suffix is empty", i)
+		case s.MaxBytes <= 0 || s.MaxBytes > maxSidecarBytes:
+			return fmt.Errorf("CLI.Upload.Sidecars[%d].MaxBytes %d out of range: want 0 < n <= %d", i, s.MaxBytes, maxSidecarBytes)
+		}
+	}
+	return nil
+}
+
+// isStringField reports whether struct type t has a string field whose JSON
+// name is name.
+func isStringField(t reflect.Type, name string) bool {
+	if t == nil || t.Kind() != reflect.Struct || name == "" {
+		return false
+	}
+	for _, f := range reflect.VisibleFields(t) {
+		if !f.IsExported() || f.Anonymous {
+			continue
+		}
+		json := jsonName(f)
+		if json == "-" {
+			continue
+		}
+		if json == "" {
+			json = f.Name
+		}
+		if json == name {
+			return f.Type.Kind() == reflect.String
+		}
+	}
+	return false
+}
+
+// isKebab reports whether s is a kebab-case flag name: lowercase words of
+// letters and digits, starting with a letter, joined by single hyphens.
+func isKebab(s string) bool {
+	if s == "" || s[0] < 'a' || s[0] > 'z' || s[len(s)-1] == '-' {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+		case c == '-' && s[i-1] != '-':
+		default:
+			return false
+		}
+	}
+	return true
 }

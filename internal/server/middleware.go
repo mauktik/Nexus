@@ -2,9 +2,11 @@ package server
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"sync/atomic"
 
 	"github.com/mauktik/nexus/internal/problem"
 )
@@ -64,24 +66,88 @@ func (t *trackingWriter) Write(b []byte) (int, error) {
 
 func (t *trackingWriter) Unwrap() http.ResponseWriter { return t.ResponseWriter }
 
-// limitBody caps every body with http.MaxBytesReader, so a body that turns
-// out to be too long fails its read with *http.MaxBytesError, which the
-// route reports as payload-too-large through the Dispatcher (rest.go). A
-// declared oversize body is never read: the body's first read fails at
-// once. GET and HEAD routes read no body and are not audited, so they are
-// refused here.
-func limitBody(log *slog.Logger, max int64, next http.Handler) http.Handler {
+// closeUnread sends Connection: close on an HTTP/1 response to a request
+// whose body the handler never read. Without it net/http, before it sends
+// the headers, reads up to 256 KiB of the unread body to keep the connection
+// open, so a refusal such as the authentication middleware's 401 would wait
+// on a client that holds back its body (NFR-7). HTTP/2 needs nothing: an
+// unread stream is reset, not drained.
+func closeUnread(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.ContentLength > max {
-			if r.Method == http.MethodGet || r.Method == http.MethodHead {
-				writeProblem(log, w, r, payloadTooLarge(max))
-				return
-			}
-			r.Body = oversizeBody{limit: max}
+		if r.ProtoMajor != 1 || r.ContentLength == 0 || r.Body == nil || r.Body == http.NoBody {
 			next.ServeHTTP(w, r)
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, max)
+		body := &readTracker{ReadCloser: r.Body}
+		r.Body = body
+		next.ServeHTTP(&unreadWriter{ResponseWriter: w, body: body}, r)
+	})
+}
+
+// readTracker records whether a body was ever read.
+type readTracker struct {
+	io.ReadCloser
+	read atomic.Bool
+}
+
+func (t *readTracker) Read(p []byte) (int, error) {
+	t.read.Store(true)
+	return t.ReadCloser.Read(p)
+}
+
+// unreadWriter adds Connection: close to the headers when they go out
+// before the body was read. Unwrap keeps http.ResponseController working.
+type unreadWriter struct {
+	http.ResponseWriter
+	body  *readTracker
+	wrote bool
+}
+
+func (u *unreadWriter) WriteHeader(code int) {
+	if !u.wrote {
+		u.wrote = true
+		if !u.body.read.Load() {
+			u.ResponseWriter.Header().Set("Connection", "close")
+		}
+	}
+	u.ResponseWriter.WriteHeader(code)
+}
+
+func (u *unreadWriter) Write(b []byte) (int, error) {
+	if !u.wrote {
+		u.WriteHeader(http.StatusOK)
+	}
+	return u.ResponseWriter.Write(b)
+}
+
+func (u *unreadWriter) Unwrap() http.ResponseWriter { return u.ResponseWriter }
+
+// limitBody caps every body with http.MaxBytesReader, so a body that turns
+// out to be too long fails its read with *http.MaxBytesError, which the
+// route reports as payload-too-large through the Dispatcher (rest.go), or
+// upload-too-large on an upload route. A declared oversize body is never
+// read: the body's first read fails at once. GET and HEAD routes read no
+// body and are not audited, so they are refused here. The limit is max,
+// except for a POST to an upload route, where it is that route's cap in
+// uploads instead (FR-6).
+func limitBody(log *slog.Logger, max int64, uploads map[string]func() int64, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		limit := max
+		if r.Method == http.MethodPost {
+			if c, ok := uploads[r.URL.Path]; ok {
+				limit = c()
+			}
+		}
+		if r.ContentLength > limit {
+			if r.Method == http.MethodGet || r.Method == http.MethodHead {
+				writeProblem(log, w, r, payloadTooLarge(limit))
+				return
+			}
+			r.Body = oversizeBody{limit: limit}
+			next.ServeHTTP(w, r)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		next.ServeHTTP(w, r)
 	})
 }

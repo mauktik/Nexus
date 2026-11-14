@@ -3,8 +3,10 @@ package def
 import "slices"
 
 // approvedVerbs is the CLI verb list from FR-29, modeled on PowerShell's
-// approved verbs. There are deliberately no synonyms: listing is "get", not
-// "list"; deletion is "remove", not "delete"; running a script is "invoke".
+// approved verbs, plus reload, rollback and validate-config for daemon
+// self-management (nexusd-self-management FR-13). There are deliberately no
+// synonyms: listing is "get", not "list"; deletion is "remove", not "delete";
+// running a script is "invoke".
 var approvedVerbs = []string{
 	"get",
 	"start",
@@ -17,6 +19,9 @@ var approvedVerbs = []string{
 	"test",
 	"add",
 	"cancel",
+	"reload",
+	"rollback",
+	"validate-config",
 }
 
 // ApprovedVerbs returns a copy of the approved CLI verbs.

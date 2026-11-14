@@ -19,6 +19,7 @@ import (
 	"github.com/mauktik/nexus/internal/daemon"
 	"github.com/mauktik/nexus/internal/detach"
 	"github.com/mauktik/nexus/internal/providers/docker"
+	"github.com/mauktik/nexus/internal/providers/nexusd"
 	"github.com/mauktik/nexus/internal/providers/pihole"
 	"github.com/mauktik/nexus/internal/tlsutil"
 	"github.com/mauktik/nexus/internal/version"
@@ -49,6 +50,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 			// operation's unit (D-8). Its progress goes to stdout, which
 			// the supervisor frames into the operation's output.
 			return docker.UpdateHelper(args[1:], stdout, stderr)
+		case nexusd.HelperCommand:
+			// Hidden: a restart, update or rollback of nexusd itself, run by
+			// op-supervise in the operation's unit, outside nexusd.service.
+			return nexusd.Helper(args[1:], stdout, stderr)
 		case pihole.HelperCommand:
 			// Hidden: a pihole mutation, run by op-supervise as root in the
 			// operation's unit. Pi-hole command output goes to stdout.
@@ -79,8 +84,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return 2
 }
 
-// validateConfig loads the file exactly as startup does, runs the checks the
-// providers make on their sections, prints every problem, and exits. It never opens a listener or starts anything.
+// validateConfig checks the file with daemon.CheckConfig: it loads it
+// exactly as startup does, runs the checks the providers make on their
+// sections, prints every problem, one per line, and exits. It never opens a
+// listener or starts anything.
 func validateConfig(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet(name+" validate-config", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -95,15 +102,10 @@ func validateConfig(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "%s validate-config: unexpected argument %q\n", name, fs.Arg(0))
 		return 2
 	}
-	cfg, err := config.Load(*path)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	// The providers make checks of their own on their sections (the docker
-	// socket path, for one); nexusd refuses to start on any of them.
-	if err := daemon.ValidateProviders(cfg); err != nil {
-		fmt.Fprintf(stderr, "%s: %v\n", *path, err)
+	if _, errs := daemon.CheckConfig(*path); len(errs) > 0 {
+		for _, e := range errs {
+			fmt.Fprintln(stderr, e.Error())
+		}
 		return 1
 	}
 	if _, err := fmt.Fprintf(stdout, "%s: configuration is valid\n", *path); err != nil {
