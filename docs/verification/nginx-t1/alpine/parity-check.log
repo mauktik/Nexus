@@ -1,0 +1,13 @@
+=== RUN   TestParitySuitesRanAsRoot
+    platform_test.go:239: ops.log: 138 results, 40 process-backend subtests
+    platform_test.go:239: detach.log: 49 results, 1 process-backend subtests
+    platform_test.go:265: ops-nonroot.log: 138 results; skips:
+    platform_test.go:265: detach-nonroot.log: 49 results; skips:
+        TestOperationCgroupContainment: cgroup_linux_test.go:227: needs root
+        TestCancelKillsSetsidGrandchild: cgroup_linux_test.go:272: needs root
+        TestLeftoverSweepOnlyForControlGroup: cgroup_linux_test.go:301: needs root
+        TestCgroupFallbacks: cgroup_linux_test.go:381: needs root
+        TestLaunchFallsBackWhenClonedSupervisorIsKilled: cgroup_linux_test.go:432: needs root
+    platform_test.go:301: test.log: 166 results; 51 gated to systemd or to apt: TestAptMutationsSerializeFIFO, TestAptQueueSurvivesRestart, TestAptInstallPinAndPlusNames, TestAptRemovePurgeAndAutoremove, TestAptInstallAndUpgradeScopes, TestAptCancellationRules, TestAptInstallRejectsInjections, TestAptInstallNeverRemoves, TestAptInstallUnknownNamesAndVersions, TestAptPlusNamesRemoveAndSubsetUpgrade, TestAptRefreshSkipsTheLockPath, TestAptMutationLockAndAuditAgainstRealDpkg, TestAptSecurityDegradesOnThisBase, TestAptSuiteHasNoReleaseDependency, TestAptReadsMatchIndependentReadback, TestAptUpgradableCacheMeetsTargetAndInvalidates, TestAptRebootRequiredState, TestAptPreflightAndAbsentPackages, TestAptUpgradeSurvivesNexusdKill9DuringDpkg, TestAptSupervisorDeathMidDpkg, TestAptNeedrestartRestartsNexusdNotScriptUnit, TestAptUpgradePreviewEqualsOutcome, TestAptUpgradeSubset, TestAptUpgradeResultAndNoReboot, TestAptUpgradeWaitsForTheLock, TestAptUpgradeExternalHolderIsBusy, TestAptUpgradeBrokenStateIsReported, TestAptUpgradeFailureModes, TestAptUpgradeFinalizeAcrossRestartAndRotation, TestAptUpgradeRejectsHostileNames, TestProductionWiringCreatesRealUnit, TestShippedUnitRunsNexusdAndLaunchesOpUnit, TestSystemdInstallUnderDashUnchanged, TestInstallCleanIsLoopbackOnly, TestInstallNeverOverwritesConfig, TestUninstallRetentionAndPurge, TestEveryProviderOpUnderExactUnit, TestReloadUnderExactUnitKeepsOperations, TestConfigOwnershipEnforcedAsRoot, TestDiskFullRefusesMutations, TestNFRLatency, TestNFRProvidersDoNotBlock, TestNFRDependencyFailureMatrix, TestNginxUnderExactUnit, TestRequireInitGating, TestSetsidChildInDaemonCgroupDies, TestKill9LeavesOpRunningAndReportsTruthfully, TestLostSupervisorWithDaemonDownIsOutcomeUnknown, TestSupervisorDeathWithDaemonUp, TestCancelReachesProcessGroup, TestNeedrestartSkipsOpUnitsWithControl
+--- PASS: TestParitySuitesRanAsRoot (0.00s)
+PASS

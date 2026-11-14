@@ -1,0 +1,17 @@
+
+   OpenRC 0.63.2 is starting up Linux 6.8.0-100-generic (aarch64) [DOCKER]
+
+ * /proc is already mounted
+ * /run/openrc: creating directory
+ * /run/lock: correcting mode
+ * /run/lock: correcting owner
+Service 'acpid' needs non existent service 'dev'
+Service 'hwdrivers' needs non existent service 'dev'
+Service 'machine-id' needs non existent service 'dev'
+Service 'watchdog' needs non existent service 'dev'
+ * Caching service dependencies ... [ ok ]
+ * Moving root cgroup processes to /init and enabling controllers ... [ ok ]
+ * Starting busybox syslog ... [ ok ]
+ * /var/log/docker.log: creating file
+ * /var/log/docker.log: correcting owner
+ * Starting Docker Daemon ... [ ok ]

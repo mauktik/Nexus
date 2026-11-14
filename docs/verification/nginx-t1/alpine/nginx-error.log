@@ -1,0 +1,18 @@
+2026/11/14 06:50:20 [emerg] 65040#65040: host not found in upstream "nexus_t1_up" in /etc/nginx/http.d/t1use.conf:5
+2026/11/14 06:50:24 [emerg] 66175#66175: unknown directive "nexus_t1_unknown_directive" in /etc/nginx/http.d/t3.conf:4
+2026/11/14 06:50:24 [emerg] 64384#64384: bind() to 0.0.0.0:18090 failed (98: Address in use)
+2026/11/14 06:50:24 [emerg] 64384#64384: bind() to 0.0.0.0:18090 failed (98: Address in use)
+2026/11/14 06:50:24 [emerg] 64384#64384: bind() to 0.0.0.0:18090 failed (98: Address in use)
+2026/11/14 06:50:24 [emerg] 64384#64384: bind() to 0.0.0.0:18090 failed (98: Address in use)
+2026/11/14 06:50:24 [emerg] 64384#64384: bind() to 0.0.0.0:18090 failed (98: Address in use)
+2026/11/14 06:50:24 [emerg] 64384#64384: still could not bind()
+2026/11/14 06:51:20 [emerg] 67860#67860: unknown directive "nexus_t1_unknown_directive" in /etc/nginx/http.d/t5.conf:4
+2026/11/14 06:51:20 [emerg] 67866#67866: unknown directive "nexus_t1_unknown_directive" in /etc/nginx/http.d/t5.conf:4
+2026/11/14 06:51:21 [emerg] 68044#68044: unknown directive "bogus_directive" in /etc/nginx/http.d/zz-t1-bad.conf:1
+2026/11/14 06:51:24 [emerg] 67276#67276: bind() to 0.0.0.0:18090 failed (98: Address in use)
+2026/11/14 06:51:24 [emerg] 67276#67276: bind() to 0.0.0.0:18090 failed (98: Address in use)
+2026/11/14 06:51:24 [emerg] 67276#67276: bind() to 0.0.0.0:18090 failed (98: Address in use)
+2026/11/14 06:51:24 [emerg] 67276#67276: bind() to 0.0.0.0:18090 failed (98: Address in use)
+2026/11/14 06:51:24 [emerg] 67276#67276: bind() to 0.0.0.0:18090 failed (98: Address in use)
+2026/11/14 06:51:24 [emerg] 67276#67276: still could not bind()
+2026/11/14 06:53:34 [emerg] 73537#73537: unknown directive "nexus_t1_unknown_directive" in /etc/nginx/http.d/zz-t1-broken.conf:4

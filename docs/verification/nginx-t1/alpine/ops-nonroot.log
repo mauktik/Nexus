@@ -1,0 +1,281 @@
+=== RUN   TestAuditFailureRefusesTheMutation
+--- PASS: TestAuditFailureRefusesTheMutation (0.00s)
+=== RUN   TestStateChangeAuditFailureBlocksMutationsUntilHealthy
+--- PASS: TestStateChangeAuditFailureBlocksMutationsUntilHealthy (0.01s)
+=== RUN   TestBehavioralSuitesRunPerBackend
+--- PASS: TestBehavioralSuitesRunPerBackend (0.00s)
+=== RUN   TestCancelAQueuedOperation
+=== RUN   TestCancelAQueuedOperation/local
+=== RUN   TestCancelAQueuedOperation/process
+--- PASS: TestCancelAQueuedOperation (0.03s)
+    --- PASS: TestCancelAQueuedOperation/local (0.01s)
+    --- PASS: TestCancelAQueuedOperation/process (0.01s)
+=== RUN   TestRepeatCancelReturnsTheSameResultAndIgnoresKeys
+=== RUN   TestRepeatCancelReturnsTheSameResultAndIgnoresKeys/local
+=== RUN   TestRepeatCancelReturnsTheSameResultAndIgnoresKeys/process
+--- PASS: TestRepeatCancelReturnsTheSameResultAndIgnoresKeys (0.00s)
+    --- PASS: TestRepeatCancelReturnsTheSameResultAndIgnoresKeys/local (0.00s)
+    --- PASS: TestRepeatCancelReturnsTheSameResultAndIgnoresKeys/process (0.00s)
+=== RUN   TestCancelRefusalsAndAuthorization
+=== RUN   TestCancelRefusalsAndAuthorization/local
+=== RUN   TestCancelRefusalsAndAuthorization/process
+--- PASS: TestCancelRefusalsAndAuthorization (0.12s)
+    --- PASS: TestCancelRefusalsAndAuthorization/local (0.06s)
+    --- PASS: TestCancelRefusalsAndAuthorization/process (0.06s)
+=== RUN   TestCancelIsRefusedWhenAuditFails
+=== RUN   TestCancelIsRefusedWhenAuditFails/local
+=== RUN   TestCancelIsRefusedWhenAuditFails/process
+--- PASS: TestCancelIsRefusedWhenAuditFails (1.51s)
+    --- PASS: TestCancelIsRefusedWhenAuditFails/local (0.50s)
+    --- PASS: TestCancelIsRefusedWhenAuditFails/process (1.01s)
+=== RUN   TestRunningIsCommittedBeforeLaunch
+=== RUN   TestRunningIsCommittedBeforeLaunch/local
+=== RUN   TestRunningIsCommittedBeforeLaunch/process
+--- PASS: TestRunningIsCommittedBeforeLaunch (1.02s)
+    --- PASS: TestRunningIsCommittedBeforeLaunch/local (0.51s)
+    --- PASS: TestRunningIsCommittedBeforeLaunch/process (0.51s)
+=== RUN   TestWatcherFinalizesAndStopsWhenIdle
+=== RUN   TestWatcherFinalizesAndStopsWhenIdle/local
+=== RUN   TestWatcherFinalizesAndStopsWhenIdle/process
+--- PASS: TestWatcherFinalizesAndStopsWhenIdle (2.05s)
+    --- PASS: TestWatcherFinalizesAndStopsWhenIdle/local (1.02s)
+    --- PASS: TestWatcherFinalizesAndStopsWhenIdle/process (1.03s)
+=== RUN   TestMaximumRuntimeReportsWithoutSignaling
+=== RUN   TestMaximumRuntimeReportsWithoutSignaling/local
+=== RUN   TestMaximumRuntimeReportsWithoutSignaling/process
+--- PASS: TestMaximumRuntimeReportsWithoutSignaling (2.06s)
+    --- PASS: TestMaximumRuntimeReportsWithoutSignaling/local (1.03s)
+    --- PASS: TestMaximumRuntimeReportsWithoutSignaling/process (1.04s)
+=== RUN   TestLaunchFailureFailsTheOperation
+=== RUN   TestLaunchFailureFailsTheOperation/local
+=== RUN   TestLaunchFailureFailsTheOperation/process
+--- PASS: TestLaunchFailureFailsTheOperation (1.03s)
+    --- PASS: TestLaunchFailureFailsTheOperation/local (0.51s)
+    --- PASS: TestLaunchFailureFailsTheOperation/process (0.51s)
+=== RUN   TestCancelCannotLoseARaceWithADequeuedOperation
+=== RUN   TestCancelCannotLoseARaceWithADequeuedOperation/local
+    detached_test.go:634: 200 cancels won while queued, 0 after the launch
+=== RUN   TestCancelCannotLoseARaceWithADequeuedOperation/process
+    detached_test.go:634: 199 cancels won while queued, 1 after the launch
+--- PASS: TestCancelCannotLoseARaceWithADequeuedOperation (7.61s)
+    --- PASS: TestCancelCannotLoseARaceWithADequeuedOperation/local (3.99s)
+    --- PASS: TestCancelCannotLoseARaceWithADequeuedOperation/process (3.62s)
+=== RUN   TestCancelARunningDetachedOperationThroughItsUnit
+=== RUN   TestCancelARunningDetachedOperationThroughItsUnit/local
+=== RUN   TestCancelARunningDetachedOperationThroughItsUnit/process
+--- PASS: TestCancelARunningDetachedOperationThroughItsUnit (1.51s)
+    --- PASS: TestCancelARunningDetachedOperationThroughItsUnit/local (0.51s)
+    --- PASS: TestCancelARunningDetachedOperationThroughItsUnit/process (1.01s)
+=== RUN   TestDetachedSensitiveInputStaysOutOfFinalize
+=== RUN   TestDetachedSensitiveInputStaysOutOfFinalize/local
+=== RUN   TestDetachedSensitiveInputStaysOutOfFinalize/process
+--- PASS: TestDetachedSensitiveInputStaysOutOfFinalize (1.01s)
+    --- PASS: TestDetachedSensitiveInputStaysOutOfFinalize/local (0.51s)
+    --- PASS: TestDetachedSensitiveInputStaysOutOfFinalize/process (0.51s)
+=== RUN   TestOperationListAndGetEnforceProviderReadScope
+--- PASS: TestOperationListAndGetEnforceProviderReadScope (0.00s)
+=== RUN   TestListParameters
+--- PASS: TestListParameters (0.03s)
+=== RUN   TestOperationLogEndpoint
+--- PASS: TestOperationLogEndpoint (0.05s)
+=== RUN   TestFollowOutlastsWriteTimeoutAndEndsOnShutdown
+--- PASS: TestFollowOutlastsWriteTimeoutAndEndsOnShutdown (13.03s)
+=== RUN   TestProviderStreamPassesThroughTheDispatcher
+--- PASS: TestProviderStreamPassesThroughTheDispatcher (0.03s)
+=== RUN   TestIdempotencyKeyReturnsTheOriginalOperation
+=== RUN   TestIdempotencyKeyReturnsTheOriginalOperation/local
+=== RUN   TestIdempotencyKeyReturnsTheOriginalOperation/process
+--- PASS: TestIdempotencyKeyReturnsTheOriginalOperation (0.02s)
+    --- PASS: TestIdempotencyKeyReturnsTheOriginalOperation/local (0.01s)
+    --- PASS: TestIdempotencyKeyReturnsTheOriginalOperation/process (0.01s)
+=== RUN   TestReplaysAreAuditedReplayed
+=== RUN   TestReplaysAreAuditedReplayed/local
+=== RUN   TestReplaysAreAuditedReplayed/process
+--- PASS: TestReplaysAreAuditedReplayed (0.02s)
+    --- PASS: TestReplaysAreAuditedReplayed/local (0.01s)
+    --- PASS: TestReplaysAreAuditedReplayed/process (0.01s)
+=== RUN   TestConcurrentSameKeyOnDifferentLanesCreatesOneOperation
+=== RUN   TestConcurrentSameKeyOnDifferentLanesCreatesOneOperation/local
+    idempotency_test.go:212: 38 of 50 rounds were decided by CreateWithIdempotency after both requests wrote requested
+=== RUN   TestConcurrentSameKeyOnDifferentLanesCreatesOneOperation/process
+    idempotency_test.go:212: 36 of 50 rounds were decided by CreateWithIdempotency after both requests wrote requested
+--- PASS: TestConcurrentSameKeyOnDifferentLanesCreatesOneOperation (0.09s)
+    --- PASS: TestConcurrentSameKeyOnDifferentLanesCreatesOneOperation/local (0.05s)
+    --- PASS: TestConcurrentSameKeyOnDifferentLanesCreatesOneOperation/process (0.04s)
+=== RUN   TestIdempotencyBeforeAdmissionAndValidation
+=== RUN   TestIdempotencyBeforeAdmissionAndValidation/local
+=== RUN   TestIdempotencyBeforeAdmissionAndValidation/process
+--- PASS: TestIdempotencyBeforeAdmissionAndValidation (0.03s)
+    --- PASS: TestIdempotencyBeforeAdmissionAndValidation/local (0.01s)
+    --- PASS: TestIdempotencyBeforeAdmissionAndValidation/process (0.01s)
+=== RUN   TestKeyReuseWithADifferentRequest
+=== RUN   TestKeyReuseWithADifferentRequest/local
+=== RUN   TestKeyReuseWithADifferentRequest/process
+--- PASS: TestKeyReuseWithADifferentRequest (0.02s)
+    --- PASS: TestKeyReuseWithADifferentRequest/local (0.01s)
+    --- PASS: TestKeyReuseWithADifferentRequest/process (0.01s)
+=== RUN   TestLaneFreeWhenRecordReadsTerminal
+=== RUN   TestLaneFreeWhenRecordReadsTerminal/local
+=== RUN   TestLaneFreeWhenRecordReadsTerminal/local/http-limit1-submit-on-visible
+=== RUN   TestLaneFreeWhenRecordReadsTerminal/local/limit2-no-409-while-holder-terminal
+=== RUN   TestLaneFreeWhenRecordReadsTerminal/local/queued-cancel-prepare-ignores-ctx
+=== RUN   TestLaneFreeWhenRecordReadsTerminal/local/recovery-terminal-path
+=== RUN   TestLaneFreeWhenRecordReadsTerminal/local/queue-lane-starts-on-terminal
+=== RUN   TestLaneFreeWhenRecordReadsTerminal/process
+=== RUN   TestLaneFreeWhenRecordReadsTerminal/process/http-limit1-submit-on-visible
+=== RUN   TestLaneFreeWhenRecordReadsTerminal/process/limit2-no-409-while-holder-terminal
+=== RUN   TestLaneFreeWhenRecordReadsTerminal/process/queued-cancel-prepare-ignores-ctx
+=== RUN   TestLaneFreeWhenRecordReadsTerminal/process/recovery-terminal-path
+=== RUN   TestLaneFreeWhenRecordReadsTerminal/process/queue-lane-starts-on-terminal
+--- PASS: TestLaneFreeWhenRecordReadsTerminal (0.22s)
+    --- PASS: TestLaneFreeWhenRecordReadsTerminal/local (0.10s)
+        --- PASS: TestLaneFreeWhenRecordReadsTerminal/local/http-limit1-submit-on-visible (0.04s)
+        --- PASS: TestLaneFreeWhenRecordReadsTerminal/local/limit2-no-409-while-holder-terminal (0.03s)
+        --- PASS: TestLaneFreeWhenRecordReadsTerminal/local/queued-cancel-prepare-ignores-ctx (0.00s)
+        --- PASS: TestLaneFreeWhenRecordReadsTerminal/local/recovery-terminal-path (0.01s)
+        --- PASS: TestLaneFreeWhenRecordReadsTerminal/local/queue-lane-starts-on-terminal (0.02s)
+    --- PASS: TestLaneFreeWhenRecordReadsTerminal/process (0.12s)
+        --- PASS: TestLaneFreeWhenRecordReadsTerminal/process/http-limit1-submit-on-visible (0.04s)
+        --- PASS: TestLaneFreeWhenRecordReadsTerminal/process/limit2-no-409-while-holder-terminal (0.03s)
+        --- PASS: TestLaneFreeWhenRecordReadsTerminal/process/queued-cancel-prepare-ignores-ctx (0.02s)
+        --- PASS: TestLaneFreeWhenRecordReadsTerminal/process/recovery-terminal-path (0.01s)
+        --- PASS: TestLaneFreeWhenRecordReadsTerminal/process/queue-lane-starts-on-terminal (0.02s)
+=== RUN   TestLaneReapCrashSafety
+=== RUN   TestLaneReapCrashSafety/local
+=== RUN   TestLaneReapCrashSafety/local/crash-after-commit-before-release
+=== RUN   TestLaneReapCrashSafety/local/commit-failure-keeps-holder
+=== RUN   TestLaneReapCrashSafety/process
+=== RUN   TestLaneReapCrashSafety/process/crash-after-commit-before-release
+=== RUN   TestLaneReapCrashSafety/process/commit-failure-keeps-holder
+--- PASS: TestLaneReapCrashSafety (0.03s)
+    --- PASS: TestLaneReapCrashSafety/local (0.02s)
+        --- PASS: TestLaneReapCrashSafety/local/crash-after-commit-before-release (0.01s)
+        --- PASS: TestLaneReapCrashSafety/local/commit-failure-keeps-holder (0.01s)
+    --- PASS: TestLaneReapCrashSafety/process (0.01s)
+        --- PASS: TestLaneReapCrashSafety/process/crash-after-commit-before-release (0.01s)
+        --- PASS: TestLaneReapCrashSafety/process/commit-failure-keeps-holder (0.01s)
+=== RUN   TestLanePolicies
+--- PASS: TestLanePolicies (0.15s)
+=== RUN   TestConcurrentStartsOnARejectLaneAdmitTheLimit
+--- PASS: TestConcurrentStartsOnARejectLaneAdmitTheLimit (0.40s)
+=== RUN   TestLongRunningAcknowledgementAndTerminalRecord
+=== RUN   TestLongRunningAcknowledgementAndTerminalRecord/local
+=== RUN   TestLongRunningAcknowledgementAndTerminalRecord/process
+--- PASS: TestLongRunningAcknowledgementAndTerminalRecord (0.02s)
+    --- PASS: TestLongRunningAcknowledgementAndTerminalRecord/local (0.01s)
+    --- PASS: TestLongRunningAcknowledgementAndTerminalRecord/process (0.01s)
+=== RUN   TestStateChangesAuditThenCommit
+=== RUN   TestStateChangesAuditThenCommit/local
+=== RUN   TestStateChangesAuditThenCommit/process
+--- PASS: TestStateChangesAuditThenCommit (0.01s)
+    --- PASS: TestStateChangesAuditThenCommit/local (0.01s)
+    --- PASS: TestStateChangesAuditThenCommit/process (0.01s)
+=== RUN   TestOperationFailureAndPanicContainment
+=== RUN   TestOperationFailureAndPanicContainment/local
+=== RUN   TestOperationFailureAndPanicContainment/process
+--- PASS: TestOperationFailureAndPanicContainment (0.05s)
+    --- PASS: TestOperationFailureAndPanicContainment/local (0.02s)
+    --- PASS: TestOperationFailureAndPanicContainment/process (0.02s)
+=== RUN   TestOperationStatusSetHasNoApprovalState
+=== RUN   TestOperationStatusSetHasNoApprovalState/local
+=== RUN   TestOperationStatusSetHasNoApprovalState/process
+--- PASS: TestOperationStatusSetHasNoApprovalState (0.01s)
+    --- PASS: TestOperationStatusSetHasNoApprovalState/local (0.01s)
+    --- PASS: TestOperationStatusSetHasNoApprovalState/process (0.01s)
+=== RUN   TestAuditRecordIsDurableBeforeExecution
+=== RUN   TestAuditRecordIsDurableBeforeExecution/local
+=== RUN   TestAuditRecordIsDurableBeforeExecution/process
+--- PASS: TestAuditRecordIsDurableBeforeExecution (0.00s)
+    --- PASS: TestAuditRecordIsDurableBeforeExecution/local (0.00s)
+    --- PASS: TestAuditRecordIsDurableBeforeExecution/process (0.00s)
+=== RUN   TestSensitiveValuesAndTokensNeverEnterAudit
+=== RUN   TestSensitiveValuesAndTokensNeverEnterAudit/local
+=== RUN   TestSensitiveValuesAndTokensNeverEnterAudit/process
+--- PASS: TestSensitiveValuesAndTokensNeverEnterAudit (0.03s)
+    --- PASS: TestSensitiveValuesAndTokensNeverEnterAudit/local (0.02s)
+    --- PASS: TestSensitiveValuesAndTokensNeverEnterAudit/process (0.01s)
+=== RUN   TestAPIResponsesContainNoInternalFields
+=== RUN   TestAPIResponsesContainNoInternalFields/local
+=== RUN   TestAPIResponsesContainNoInternalFields/process
+--- PASS: TestAPIResponsesContainNoInternalFields (0.02s)
+    --- PASS: TestAPIResponsesContainNoInternalFields/local (0.01s)
+    --- PASS: TestAPIResponsesContainNoInternalFields/process (0.01s)
+=== RUN   TestReadRiskRequests
+=== RUN   TestReadRiskRequests/local
+=== RUN   TestReadRiskRequests/process
+--- PASS: TestReadRiskRequests (0.02s)
+    --- PASS: TestReadRiskRequests/local (0.01s)
+    --- PASS: TestReadRiskRequests/process (0.01s)
+=== RUN   TestStorageLimitRefusesNewMutationsButNotReplays
+=== RUN   TestStorageLimitRefusesNewMutationsButNotReplays/local
+=== RUN   TestStorageLimitRefusesNewMutationsButNotReplays/process
+--- PASS: TestStorageLimitRefusesNewMutationsButNotReplays (0.01s)
+    --- PASS: TestStorageLimitRefusesNewMutationsButNotReplays/local (0.01s)
+    --- PASS: TestStorageLimitRefusesNewMutationsButNotReplays/process (0.01s)
+=== RUN   TestWatcherLivenessPollingWhileTheDaemonIsUp
+=== RUN   TestWatcherLivenessPollingWhileTheDaemonIsUp/local
+=== RUN   TestWatcherLivenessPollingWhileTheDaemonIsUp/process
+--- PASS: TestWatcherLivenessPollingWhileTheDaemonIsUp (0.29s)
+    --- PASS: TestWatcherLivenessPollingWhileTheDaemonIsUp/local (0.28s)
+    --- PASS: TestWatcherLivenessPollingWhileTheDaemonIsUp/process (0.01s)
+=== RUN   TestRecoveryClassifiesEveryTableRow
+=== RUN   TestRecoveryClassifiesEveryTableRow/local
+=== RUN   TestRecoveryClassifiesEveryTableRow/process
+--- PASS: TestRecoveryClassifiesEveryTableRow (5.06s)
+    --- PASS: TestRecoveryClassifiesEveryTableRow/local (2.52s)
+    --- PASS: TestRecoveryClassifiesEveryTableRow/process (2.54s)
+=== RUN   TestRecoveryExitDuringRecheck
+=== RUN   TestRecoveryExitDuringRecheck/local
+=== RUN   TestRecoveryExitDuringRecheck/process
+--- PASS: TestRecoveryExitDuringRecheck (4.01s)
+    --- PASS: TestRecoveryExitDuringRecheck/local (2.00s)
+    --- PASS: TestRecoveryExitDuringRecheck/process (2.00s)
+=== RUN   TestRecoveryFinalizeTwiceIsHarmless
+=== RUN   TestRecoveryFinalizeTwiceIsHarmless/local
+=== RUN   TestRecoveryFinalizeTwiceIsHarmless/process
+--- PASS: TestRecoveryFinalizeTwiceIsHarmless (0.01s)
+    --- PASS: TestRecoveryFinalizeTwiceIsHarmless/local (0.00s)
+    --- PASS: TestRecoveryFinalizeTwiceIsHarmless/process (0.00s)
+=== RUN   TestRecoveryOrphanUnitsAreOnlyLogged
+=== RUN   TestRecoveryOrphanUnitsAreOnlyLogged/local
+=== RUN   TestRecoveryOrphanUnitsAreOnlyLogged/process
+--- PASS: TestRecoveryOrphanUnitsAreOnlyLogged (0.00s)
+    --- PASS: TestRecoveryOrphanUnitsAreOnlyLogged/local (0.00s)
+    --- PASS: TestRecoveryOrphanUnitsAreOnlyLogged/process (0.00s)
+=== RUN   TestRecoveryBlockedClassificationHitsDeadline
+=== RUN   TestRecoveryBlockedClassificationHitsDeadline/local
+=== RUN   TestRecoveryBlockedClassificationHitsDeadline/process
+--- PASS: TestRecoveryBlockedClassificationHitsDeadline (3.01s)
+    --- PASS: TestRecoveryBlockedClassificationHitsDeadline/local (1.50s)
+    --- PASS: TestRecoveryBlockedClassificationHitsDeadline/process (1.51s)
+=== RUN   TestRetentionPruneRemovesPrunedDirectories
+--- PASS: TestRetentionPruneRemovesPrunedDirectories (0.00s)
+=== RUN   TestRetentionEvictOutput
+--- PASS: TestRetentionEvictOutput (0.00s)
+=== RUN   TestOnTerminalNotifiesAfterTerminalCommits
+--- PASS: TestOnTerminalNotifiesAfterTerminalCommits (0.00s)
+=== RUN   TestRetentionPruneSweepsDirectoriesNoRecordOwns
+--- PASS: TestRetentionPruneSweepsDirectoriesNoRecordOwns (0.00s)
+=== RUN   TestDetachedOperationCarriesConfiguredOutputCap
+--- PASS: TestDetachedOperationCarriesConfiguredOutputCap (0.51s)
+=== RUN   TestDetachedLaunchRefusedWhenMaxRuntimeCannotBeRecorded
+--- PASS: TestDetachedLaunchRefusedWhenMaxRuntimeCannotBeRecorded (0.01s)
+=== RUN   TestReattachedWithoutMaxRuntimeFileStillHasABackstop
+--- PASS: TestReattachedWithoutMaxRuntimeFileStillHasABackstop (0.50s)
+=== RUN   TestRecoveryUnitStateErrorIsUnknownNotAbsent
+--- PASS: TestRecoveryUnitStateErrorIsUnknownNotAbsent (2.51s)
+=== RUN   TestSpecJSONIsRemovedWhenTheOperationEnds
+--- PASS: TestSpecJSONIsRemovedWhenTheOperationEnds (0.51s)
+=== RUN   TestOverBudgetEvictionOrderAndLimitFlag
+--- PASS: TestOverBudgetEvictionOrderAndLimitFlag (0.04s)
+=== RUN   TestReplayAtTheStorageLimitReturnsTheOriginal
+--- PASS: TestReplayAtTheStorageLimitReturnsTheOriginal (0.01s)
+=== RUN   TestCancelSucceedsAtTheStorageLimit
+--- PASS: TestCancelSucceedsAtTheStorageLimit (0.51s)
+=== RUN   TestIdempotencyWindowBoundary
+--- PASS: TestIdempotencyWindowBoundary (0.01s)
+=== RUN   TestLimitDoesNotBlockReadRiskRequests
+--- PASS: TestLimitDoesNotBlockReadRiskRequests (0.01s)
+=== RUN   TestRefusedMutatingRequestsAreAudited
+--- PASS: TestRefusedMutatingRequestsAreAudited (0.59s)
+PASS

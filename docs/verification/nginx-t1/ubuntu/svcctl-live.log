@@ -1,0 +1,8 @@
+=== RUN   TestLiveMatrix
+    svcctl_test.go:846: systemd stop: exit 0, output ""; Status {Known:true State:stopped Since:2026-11-14 06:32:10 +0000 UTC MainPID:0 Raw:ActiveState=inactive SubState=dead}
+    svcctl_test.go:847: systemd start: exit 0, output ""; Status {Known:true State:running Since:2026-11-14 06:32:10 +0000 UTC MainPID:108959 Raw:ActiveState=active SubState=running}
+    svcctl_test.go:848: systemd reload: exit 0, output ""; Status {Known:true State:running Since:2026-11-14 06:32:10 +0000 UTC MainPID:108959 Raw:ActiveState=active SubState=running}
+    svcctl_test.go:849: systemd restart: exit 0, output ""; Status {Known:true State:running Since:2026-11-14 06:32:10 +0000 UTC MainPID:108980 Raw:ActiveState=active SubState=running}
+    svcctl_test.go:850: systemd stop: exit 0, output ""; Status {Known:true State:stopped Since:2026-11-14 06:32:10 +0000 UTC MainPID:0 Raw:ActiveState=inactive SubState=dead}
+--- PASS: TestLiveMatrix (0.29s)
+PASS
