@@ -28,7 +28,8 @@
 # bind-conflict cases; and its state in /var/lib/nexus-nginx-check. It
 # reloads nginx only for that site. It never edits nginx.conf or another
 # site, and it records a sha256 of every other file under /etc/nginx and the
-# include directory before and after, and fails loudly if any differs. Stop,
+# include directory, and of every file `nginx -T` names (symlinks followed),
+# before and after, and fails loudly if any differs. Stop,
 # start and restart of nginx interrupt production traffic, so they run only
 # with --with-lifecycle.
 
@@ -363,7 +364,7 @@ init_state() {
 # /proc: the master's children titled exactly "nginx: worker process".
 procs() {
 	# shellcheck disable=SC2016 # Expanded on the host.
-	hx 'm=$(cat '"$PIDFILE"' 2>/dev/null); c=$(tr "\0" " " </proc/$m/cmdline 2>/dev/null); case $c in "nginx: master process"*) ;; *) m= ;; esac; w=; if [ -n "$m" ]; then for d in /proc/[0-9]*; do s=$(cat $d/stat 2>/dev/null) || continue; s=${s##*") "}; set -- $s; [ "$2" = "$m" ] || continue; case $(tr "\0" " " <$d/cmdline 2>/dev/null | sed "s/ *\$//") in "nginx: worker process") w="$w ${d#/proc/}" ;; esac; done; fi; echo "${m:-none}|$(echo $w | tr " " "\n" | sort -n | tr "\n" " ")"'
+	hx 'm=$(cat '"$PIDFILE"' 2>/dev/null); c=$(tr "\0" " " 2>/dev/null </proc/$m/cmdline); case $c in "nginx: master process"*) ;; *) m= ;; esac; w=; if [ -n "$m" ]; then for d in /proc/[0-9]*; do s=$(cat $d/stat 2>/dev/null) || continue; s=${s##*") "}; set -- $s; [ "$2" = "$m" ] || continue; case $(tr "\0" " " 2>/dev/null <$d/cmdline | sed "s/ *\$//") in "nginx: worker process") w="$w ${d#/proc/}" ;; esac; done; fi; echo "${m:-none}|$(echo $w | tr " " "\n" | sort -n | tr "\n" " ")"'
 	MASTER=${HX_OUT%%|*} WORKERS=${HX_OUT#*|}
 	WORKERS=${WORKERS% }
 }
@@ -674,7 +675,7 @@ holder_stop() {
 	# Only a process this run started: the recorded PID naming the port or,
 	# when an interrupt cut the recording short, a holder command line on it.
 	# shellcheck disable=SC2016 # Expanded on the host.
-	hrun 'P='"$CPORT"' H='"${HOLDER_PID:-none}"'; n=0; for d in /proc/[0-9]*; do p=${d#/proc/}; c=$(tr "\0" " " <$d/cmdline 2>/dev/null) || continue; h=; case $c in "busybox nc -l -s 127.0.0.1 -p $P "* | "timeout 600 busybox nc -l -s 127.0.0.1 -p $P "* | "perl -MSocket -e "*" $P " | "python3 -c import socket"*" $P ") h=1 ;; *"$P"*) [ "$p" != "$H" ] || h=1 ;; esac; [ -z "$h" ] || { kill $p && echo "killed holder $p: $c" && n=$((n + 1)); }; done; echo "holders of port $P killed: $n"'
+	hrun 'P='"$CPORT"' H='"${HOLDER_PID:-none}"'; n=0; for d in /proc/[0-9]*; do p=${d#/proc/}; c=$(tr "\0" " " 2>/dev/null <$d/cmdline) || continue; h=; case $c in "busybox nc -l -s 127.0.0.1 -p $P "* | "timeout 600 busybox nc -l -s 127.0.0.1 -p $P "* | "perl -MSocket -e "*" $P " | "python3 -c import socket"*" $P ") h=1 ;; *"$P"*) [ "$p" != "$H" ] || h=1 ;; esac; [ -z "$h" ] || { kill $p && echo "killed holder $p: $c" && n=$((n + 1)); }; done; echo "holders of port $P killed: $n"'
 	HOLDER_PID=
 	save_state
 }
@@ -836,7 +837,7 @@ facts() {
 	MASTER0=$MASTER
 	# ASM-1: nexusd runs as root on this host and manages this host's nginx.
 	# shellcheck disable=SC2016 # Expanded on the host.
-	hrun 'for d in /proc/[0-9]*; do case $(tr "\0" " " <$d/cmdline 2>/dev/null) in "/usr/local/bin/nexusd serve "*) echo "nexusd pid ${d#/proc/} uid $(sed -n "s/^Uid:[[:space:]]*\([0-9]*\).*/\1/p" $d/status)" ;; esac; done'
+	hrun 'for d in /proc/[0-9]*; do case $(tr "\0" " " 2>/dev/null <$d/cmdline) in "/usr/local/bin/nexusd serve "*) echo "nexusd pid ${d#/proc/} uid $(sed -n "s/^Uid:[[:space:]]*\([0-9]*\).*/\1/p" $d/status)" ;; esac; done'
 	_nu=$(printf '%s\n' "$HX_OUT" | sed -n 's/.* uid //p' | sort -u)
 	if [ -z "$NXHOST" ]; then
 		result 1-asm1 NOT-RUN "the provider was not asked (no NEXUS_TOKEN and no --nexus-host); nexusd uid: ${_nu:-not found}"
@@ -882,7 +883,8 @@ plan() {
 	fi
 	log "  - remove $SITE's file (rm, as root on the host: the provider cannot delete, OOS-4),"
 	log "    run nginx -t, reload, and check that every other file under /etc/nginx and"
-	log "    $INCDIR is byte-identical to the snapshot taken first."
+	log "    $INCDIR, and every file nginx -T names (symlinks followed), is"
+	log "    byte-identical to the snapshot taken first."
 	log "  It never edits nginx.conf or any other site. If it is interrupted (Ctrl-C once, or"
 	log "  SIGTERM), its EXIT trap waits for a running operation, removes the site, runs nginx -t,"
 	log "  reloads only if the site was ever enabled, and starts nginx if it had stopped it."
@@ -1383,9 +1385,9 @@ step6() {
 
 final_checks() {
 	if [ "${SNAP_HAD:-}" = yes ] && [ "${SNAP_RC:-1}" -eq 0 ]; then
-		result untouched PASS "every other file under /etc/nginx and $INCDIR is byte-identical to the snapshot (type, mode, owner, size, sha256)"
+		result untouched PASS "every other file under /etc/nginx and $INCDIR, and every file nginx -T names, is byte-identical to the snapshot (type, mode, owner, size, sha256; symlinks followed)"
 	else
-		result untouched FAIL "files under /etc/nginx or $INCDIR DIFFER from the snapshot (the diff is above) - check them now"
+		result untouched FAIL "files under /etc/nginx or $INCDIR, or files nginx -T names, DIFFER from the snapshot (the diff is above) - check them now"
 	fi
 	_c1=$(printf '%s\n' "$CONF_LINES" | sed -n 1p) _c2=$(printf '%s\n' "$CONF_LINES" | sed -n 2p)
 	if [ -n "$_c1" ] && [ "$_c1" = "$_c2" ]; then
