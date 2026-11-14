@@ -369,12 +369,12 @@ func TestTCSM89_WhenInstallShDoesNotRestart(t *testing.T) {
 // TC-SM-90 (WI 5.4; FR-7, ASM-6): The noChange path makes no system calls
 func TestTCSM90_TheNoChangePathMakesNoSystem(t *testing.T) {
 	r := newUpdateHelperRig(t, updateHelperSetup{expected: "v9.9.1"})
-	r.in = helperInput{Mode: modeUpdate, NoChange: true}
+	r.in = helperInput{Mode: modeUpdate, NoChange: true, RunningVersion: "v9.9.1", ExpectedVersion: "v9.9.1"}
 	before := hostFiles(t, r.f.paths)
 
 	res, _ := r.runOK(t)
-	if !reflect.DeepEqual(res, helperResult{}) {
-		t.Errorf("result %+v, want only changed false", res)
+	if want := (helperResult{PreviousVersion: "v9.9.1", NewVersion: "v9.9.1"}); !reflect.DeepEqual(res, want) {
+		t.Errorf("result %+v, want changed false with both versions v9.9.1", res)
 	}
 	var raw map[string]any
 	b, err := os.ReadFile(filepath.Join(r.dir, resultFileName))
@@ -384,8 +384,9 @@ func TestTCSM90_TheNoChangePathMakesNoSystem(t *testing.T) {
 	if err := json.Unmarshal(b, &raw); err != nil {
 		t.Fatal(err)
 	}
-	if raw["changed"] != false || len(raw) > 2 || (len(raw) == 2 && raw["rolledBack"] != false) {
-		t.Errorf("result.json %s, want {changed: false}", b)
+	if raw["changed"] != false || raw["previousVersion"] != "v9.9.1" || raw["newVersion"] != "v9.9.1" ||
+		len(raw) > 4 || (len(raw) == 4 && raw["rolledBack"] != false) {
+		t.Errorf("result.json %s, want {changed: false, previousVersion: v9.9.1, newVersion: v9.9.1}", b)
 	}
 	if len(r.f.calls) != 0 {
 		t.Errorf("F-SYS calls %+v, want none", r.f.calls)
@@ -444,8 +445,9 @@ func TestTCSM91_T0FullDetachedLoopASame(t *testing.T) {
 		t.Fatalf("op %s %v, want Succeeded; output:\n%s", op.Status, op.Error, opOutput(t, dir))
 	}
 	var out spec.UpdateResult
-	if err := json.Unmarshal(op.Result, &out); err != nil || out.Changed {
-		t.Errorf("result %s (%v), want changed false", op.Result, err)
+	if err := json.Unmarshal(op.Result, &out); err != nil || out.Changed || out.PreviousVersion != "v9.9.1" ||
+		out.NewVersion != "v9.9.1" {
+		t.Errorf("result %s (%v), want changed false with both versions v9.9.1", op.Result, err)
 	}
 	x, ok, err := detach.ReadExit(dir)
 	if err != nil || !ok || x.ExitCode != 0 {
@@ -456,8 +458,9 @@ func TestTCSM91_T0FullDetachedLoopASame(t *testing.T) {
 		t.Fatal(err)
 	}
 	var res helperResult
-	if err := json.Unmarshal(b, &res); err != nil || !reflect.DeepEqual(res, helperResult{}) {
-		t.Errorf("result.json %s (%v), want {changed: false}", b, err)
+	if err := json.Unmarshal(b, &res); err != nil ||
+		!reflect.DeepEqual(res, helperResult{PreviousVersion: "v9.9.1", NewVersion: "v9.9.1"}) {
+		t.Errorf("result.json %s (%v), want {changed: false} with both versions v9.9.1", b, err)
 	}
 	if u.staged(uploadID) {
 		t.Errorf("staging/%s survives", uploadID)

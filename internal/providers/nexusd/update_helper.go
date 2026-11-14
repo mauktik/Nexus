@@ -60,7 +60,8 @@ type updater struct {
 func helperUpdateMode(ctx context.Context, h *helperRun, in helperInput) helperResult {
 	if in.NoChange {
 		step(h.out, fmt.Sprintf("nexusd %s is already running; nothing to install", in.RunningVersion))
-		return helperResult{}
+		// Both versions are the running one, so the result tells what ran.
+		return helperResult{PreviousVersion: in.RunningVersion, NewVersion: in.RunningVersion}
 	}
 	u := &updater{h: h, in: in, paths: in.Paths.withDefaults()}
 	return u.run(ctx)
