@@ -172,3 +172,27 @@ This is FR-11 as specified: removing an entry that does not exist answers `404`,
   - `reloaded its lists in N ms` is the time from the start of the wait to the poll that saw the completion line, and the log is polled every 100 ms (A-67). So 105 ms means "seen at the first poll after completion". FTL's own markers put the reload at about 103 ms (step 0).
   - Likewise, `FTL answered after 401 ms` (step 2) is quantized by the 200 ms readiness poll (A-1).
 - **Still to check:** the count of `database is locked` lines in FTL's log, compared with step 0's 0. This needs the host console.
+
+## WI 6.2 step 5: adlist add with gravity, remove without gravity, then gravity (approved 2026-11-14)
+
+- **Test list (user-approved):** `https://v.firebog.net/hosts/static/w3kbl.txt`, 352 domains.
+- **Probe domain:** `admanager.uptodown.com`, which is on the test list but not on StevenBlack and resolves to 151.101.x.52.
+- **DNS watcher:** a separate watcher polled `www.debian.org` and `nexus-probe-x.invalid` every ~250 ms through each part.
+
+| Part | Op (server-side start → end) | Result | Probe after |
+| --- | --- | --- | --- |
+| `piholeadlist add --url …w3kbl.txt --update-gravity` | `01a1d879-16a8-…d566`, 05:12:56.750 → 05:13:02.774 (6.0 s) | `pihole -a adlist add` → adlist 2; `pihole -g` downloaded both lists (StevenBlack parsed 77310, w3kbl 352) → `Number of gravity domains: 77662 (77573 unique)`; `failedAdlists` 0; `gravityUpdated` 05:13:02Z | `admanager.uptodown.com` → `0.0.0.0`; `doubleclick.net` → `0.0.0.0`; upstream and `.invalid` answered |
+| `piholeadlist remove --url …w3kbl.txt` (no gravity) | `01a1d879-2f1d-…65fb`, 05:13:03.008 → 05:13:03.773 (**0.77 s**) | `removed adlist 2 and its 352 gravity rows from gravity.db`; `restartdns reload-lists`; `FTL reloaded its lists in 105 ms`; `gravity: null` | `admanager.uptodown.com` → `151.101.195.52` straight away (unblocked); `doubleclick.net` still `0.0.0.0` |
+| `piholegravity update` | `01a1d879-7a33-…5205`, 05:13:22.233 → 05:13:22.761 (0.5 s; StevenBlack `unchanged`, served from the cache) | `gravityDomains` 77310, `gravityUpdated` advanced from 05:13:02Z to **05:13:22Z**; `failedAdlists` 0 | upstream and `.invalid` answered; blocking enabled |
+
+- **Watcher:** no upstream timeouts and no `.invalid` failures in any part.
+- **Final state:**
+  - adlists: only id 1 (StevenBlack, 77310 domains);
+  - domains: the 4 original entries;
+  - blocking enabled.
+- **Gravity count:** the drop from 78216 to 77310 comes from StevenBlack's upstream list shrinking since the last gravity run on 2026-11-08, not from Nexus. The first gravity run already parsed 77310 from StevenBlack.
+- **A-59:** removing a list's gravity rows took 0.77 s for 352 rows, with FTL answering throughout. The largest list on this host, 77310 rows, was not removed; that is a production list.
+- **Status after the remove:** `pihole get` still showed `gravityDomains: 77573` until the next gravity run. That is Pi-hole's own count, which only `pihole -g` updates.
+- **Still to check on the host console:**
+  - `PRAGMA foreign_key_check` on `gravity.db` should be empty;
+  - the `database is locked` count should still be 0.
