@@ -139,6 +139,13 @@ for _p in "$PORT" "$CPORT"; do
 	esac
 done
 
+# The token stays in this shell, unexported: no child (nexus, ssh, sh -c,
+# curl, the holder) inherits it. It reaches only `nexus host add` and the
+# transcript check, both on stdin.
+unset CHECK_TOKEN
+CHECK_TOKEN=${NEXUS_TOKEN:-}
+unset NEXUS_TOKEN
+
 if [ -z "$TRANSCRIPT" ]; then
 	_h=$(hostname)
 	[ -z "$SSH_TARGET" ] || _h=${SSH_TARGET#*@}
@@ -222,7 +229,7 @@ rand_port() { echo $((18100 + $(od -An -N2 -tu2 /dev/urandom | tr -d ' \n') % 90
 
 ssh_() {
 	# shellcheck disable=SC2086 # NEXUS_CHECK_SSH_OPTS is word-split on purpose.
-	ssh -o BatchMode=yes ${NEXUS_CHECK_SSH_OPTS:-} "$SSH_TARGET" "$@"
+	ssh -o BatchMode=yes ${NEXUS_CHECK_SSH_OPTS:-} -o ConnectTimeout=15 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 "$SSH_TARGET" "$@"
 }
 
 # hx CMD: run the shell command CMD as root on the host, unlogged. HX_OUT
@@ -277,8 +284,8 @@ host_in_container() {
 # --- host state (/var/lib/nexus-nginx-check/state) -----------------------
 
 save_state() {
-	printf 'site=%s\nport=%s\ncport=%s\nincdir=%s\ninit=%s\nsvc=%s\nenabled_ever=%s\nstopped_by_us=%s\nholder_pid=%s\ninflight=%s\nnxhost=%s\n' \
-		"$SITE" "$PORT" "$CPORT" "$INCDIR" "$INIT" "$SVC" "$ENABLED_EVER" "$STOPPED_BY_US" "$HOLDER_PID" "$INFLIGHT" "$NXHOST" >"$TMPD/state"
+	printf 'site=%s\nport=%s\ncport=%s\nincdir=%s\ninit=%s\nsvc=%s\nenabled_ever=%s\nstopped_by_us=%s\nlifecycle=%s\nholder_pid=%s\ninflight=%s\nnxhost=%s\n' \
+		"$SITE" "$PORT" "$CPORT" "$INCDIR" "$INIT" "$SVC" "$ENABLED_EVER" "$STOPPED_BY_US" "$LIFECYCLE" "$HOLDER_PID" "$INFLIGHT" "$NXHOST" >"$TMPD/state"
 	hx_in "umask 077 && mkdir -p $H_STATE && cat >$H_STATE/state.new && mv -f $H_STATE/state.new $H_STATE/state" <"$TMPD/state"
 	[ "$HX_RC" -eq 0 ] || log "WARNING: could not write $H_STATE/state: $HX_OUT"
 }
@@ -292,6 +299,7 @@ load_state() {
 	SITE=$(state_value site) PORT=$(state_value port) CPORT=$(state_value cport)
 	INCDIR=$(state_value incdir) INIT=$(state_value init) SVC=$(state_value svc)
 	ENABLED_EVER=$(state_value enabled_ever) STOPPED_BY_US=$(state_value stopped_by_us)
+	[ "$(state_value lifecycle)" != 1 ] || LIFECYCLE=1
 	HOLDER_PID=$(state_value holder_pid) INFLIGHT=$(state_value inflight)
 	[ -n "$NXHOST_GIVEN" ] || NXHOST_GIVEN=$(state_value nxhost)
 	case $SITE in nexus-check-[0-9a-f]*) ;; *) return 1 ;; esac
@@ -399,12 +407,22 @@ site_files() {
 
 nginx_t() { hrun "$NGINX_BIN -t"; }
 
-# snap_cmd: one line per entry under /etc/nginx and the include directory
-# (type, mode, uid, gid, size and sha256 for files, the target for symlinks),
-# leaving out only this run's site and the provider's temporary files of it.
+# snap_cmd: one line per entry of the configuration nginx reads, leaving
+# out only this run's site and its staged and temporary files. Covered:
+# every file nginx -T names ("# configuration file PATH:", the path only: its
+# content is never kept), the list of them saved before the run, and
+# everything under /etc/nginx and the include directory, symlinks followed
+# (find -L), so a target outside /etc/nginx (modules-available, a symlinked
+# site, a certificate directory) is hashed too. A symlink also gets an L line
+# with its target. Files: type, mode, uid, gid, size and sha256.
 snap_cmd() {
 	# shellcheck disable=SC2016 # Expanded on the host.
-	printf '%s' 'S='"$SITE"'; for r in /etc/nginx '"$(shown "$INCDIR")"'; do [ -e "$r" ] && find "$r" -print; done | sort -u | while IFS= read -r f; do b=${f##*/}; case $b in "$S".* | ."$S".*) continue ;; esac; if [ -L "$f" ]; then echo "L $(stat -c "%a %u %g" "$f") $f -> $(readlink "$f")"; elif [ -f "$f" ]; then echo "F $(stat -c "%a %u %g %s" "$f") $(sha256sum <"$f" | cut -d" " -f1) $f"; elif [ -d "$f" ]; then echo "D $(stat -c "%a %u %g" "$f") $f"; else echo "O $(stat -c "%a %u %g" "$f") $f"; fi; done'
+	printf '%s' 'S='"$SITE"'; { for r in /etc/nginx '"$(shown "$INCDIR")"'; do [ -e "$r" ] && find -L "$r" -print 2>/dev/null; done; '"$NGINX_BIN"' -T 2>/dev/null | sed -n "s/^# configuration file \(.*\):\$/\1/p"; cat '"$H_STATE"'/conffiles 2>/dev/null; } | sort -u | while IFS= read -r f; do b=${f##*/}; case $b in "$S".* | ."$S".*) continue ;; esac; if [ -L "$f" ]; then echo "L $(stat -c "%a %u %g" "$f") $f -> $(readlink "$f")"; fi; if [ -f "$f" ]; then echo "F $(stat -L -c "%a %u %g %s" "$f") $(sha256sum <"$f" | cut -d" " -f1) $f"; elif [ -d "$f" ]; then echo "D $(stat -L -c "%a %u %g" "$f") $f"; elif [ ! -e "$f" ]; then echo "X missing-or-dangling $f"; else echo "O $(stat -L -c "%a %u %g" "$f") $f"; fi; done'
+}
+
+# conffiles_cmd: the paths of the files nginx -T names, nothing else.
+conffiles_cmd() {
+	printf '%s' "$NGINX_BIN"' -T 2>/dev/null | sed -n "s/^# configuration file \(.*\):\$/\1/p"'
 }
 
 # include_lines FILE: "LINE|CONTEXT|ARGUMENT" for every include statement in
@@ -446,11 +464,30 @@ pid_path() {
 
 # --- the nexus CLI -------------------------------------------------------
 
-# nx ARG...: the nexus CLI against the host, logged. NX_OUT is stdout, NX_ERR
-# stderr, NX_RC the status.
+# with_timeout SECONDS CMD...: CMD, killed with SIGTERM after SECONDS.
+with_timeout() {
+	_wt=$1
+	shift
+	"$@" &
+	_wp=$!
+	(
+		_i=0
+		while [ "$_i" -lt "$_wt" ]; do
+			sleep 1
+			kill -0 "$_wp" 2>/dev/null || exit 0
+			_i=$((_i + 1))
+		done
+		kill "$_wp"
+	) >/dev/null 2>&1 &
+	wait "$_wp"
+}
+
+# nx ARG...: the nexus CLI against the host, logged, bounded by NX_TIMEOUT
+# seconds. NX_OUT is stdout, NX_ERR stderr, NX_RC the status.
+NX_TIMEOUT=60
 nx() {
 	log "\$ $(shown nexus --host "$NXHOST" "$@")"
-	NX_OUT=$("$NEXUS_CLI" --host "$NXHOST" "$@" 2>"$TMPD/nxerr")
+	NX_OUT=$(with_timeout "$NX_TIMEOUT" "$NEXUS_CLI" --host "$NXHOST" "$@" 2>"$TMPD/nxerr")
 	NX_RC=$?
 	NX_ERR=$(cat "$TMPD/nxerr")
 	[ -z "$NX_OUT" ] || printf '%s\n' "$NX_OUT" | tee -a "$TRANSCRIPT"
@@ -477,7 +514,7 @@ setup_client() {
 		note "nexus CLI: the configured host $NXHOST (your client config)"
 		return
 	fi
-	[ -n "${NEXUS_TOKEN:-}" ] || return 1
+	[ -n "$CHECK_TOKEN" ] || return 1
 	_url=${NEXUS_URL:-}
 	if [ -z "$_url" ]; then
 		[ -z "$SSH_TARGET" ] || refuse "with --ssh, set NEXUS_URL (such as https://vm.lan:7443) or pass --nexus-host"
@@ -498,12 +535,12 @@ setup_client() {
 	https://*)
 		hrun "/usr/local/bin/nexusd tls fingerprint" || refuse "could not read nexusd's certificate fingerprint on the host"
 		_fp=$HX_OUT
-		log "\$ printf '%s\\n' \"\$NEXUS_TOKEN\" | $(shown nexus host add "$NXHOST" --url "$_url" --fingerprint "$_fp" --token-stdin)"
-		printf '%s\n' "$NEXUS_TOKEN" | "$NEXUS_CLI" host add "$NXHOST" --url "$_url" --fingerprint "$_fp" --token-stdin >"$TMPD/hostadd" 2>&1
+		log "\$ (the token, on stdin) | $(shown nexus host add "$NXHOST" --url "$_url" --fingerprint "$_fp" --token-stdin)"
+		printf '%s\n' "$CHECK_TOKEN" | "$NEXUS_CLI" host add "$NXHOST" --url "$_url" --fingerprint "$_fp" --token-stdin >"$TMPD/hostadd" 2>&1
 		;;
 	*)
-		log "\$ printf '%s\\n' \"\$NEXUS_TOKEN\" | $(shown nexus host add "$NXHOST" --url "$_url" --token-stdin)"
-		printf '%s\n' "$NEXUS_TOKEN" | "$NEXUS_CLI" host add "$NXHOST" --url "$_url" --token-stdin >"$TMPD/hostadd" 2>&1
+		log "\$ (the token, on stdin) | $(shown nexus host add "$NXHOST" --url "$_url" --token-stdin)"
+		printf '%s\n' "$CHECK_TOKEN" | "$NEXUS_CLI" host add "$NXHOST" --url "$_url" --token-stdin >"$TMPD/hostadd" 2>&1
 		;;
 	esac
 	_rc=$?
@@ -534,7 +571,7 @@ op() {
 op_wait() {
 	_owend=$(($(date +%s) + $2))
 	while :; do
-		OPJ=$("$NEXUS_CLI" --host "$NXHOST" operation get "$1" -o jsonl 2>/dev/null | head -n 1)
+		OPJ=$(with_timeout 20 "$NEXUS_CLI" --host "$NXHOST" operation get "$1" -o jsonl 2>/dev/null | head -n 1)
 		OPS=$(json_str status "$OPJ")
 		case $OPS in Succeeded | Failed | Canceled) break ;; esac
 		if [ "$(date +%s)" -ge "$_owend" ]; then
@@ -562,12 +599,12 @@ marker() { echo "nexus-check $RAND $1"; }
 BAD_CONTENT='nexus_check_unknown_directive on;
 '
 
-# write_site TEXT: write TEXT as the enabled file directly on the host
-# (root:root 0644, by rename), for the init-system reloads of step 5.
-write_site() {
-	printf '%s' "$1" >"$TMPD/site"
-	hx_in "cd $(shown "$INCDIR") && cat >.$SITE.check-tmp && chown root:root .$SITE.check-tmp && chmod 0644 .$SITE.check-tmp && mv -f .$SITE.check-tmp $SITE$SUFFIX && sha256sum $SITE$SUFFIX" <"$TMPD/site"
-	log "\$ [host] (write $(printf '%s' "$1" | wc -c | tr -d ' ') bytes, sha256 $(sha_text "$1"), to $INCDIR/$SITE$SUFFIX by a rename)"
+# stage_file NAME TEXT: TEXT as .SITE.check-NAME in the include directory
+# (root:root 0644). A hidden name: the include glob never matches it.
+stage_file() {
+	printf '%s' "$2" >"$TMPD/site"
+	hx_in "cd $(shown "$INCDIR") && cat >.$SITE.check-$1.new && chown root:root .$SITE.check-$1.new && chmod 0644 .$SITE.check-$1.new && mv -f .$SITE.check-$1.new .$SITE.check-$1 && sha256sum .$SITE.check-$1" <"$TMPD/site"
+	log "\$ [host] (stage $(printf '%s' "$2" | wc -c | tr -d ' ') bytes, sha256 $(sha_text "$2"), as $INCDIR/.$SITE.check-$1)"
 	log "$HX_OUT"
 	return "$HX_RC"
 }
@@ -602,8 +639,12 @@ holder_start() {
 		sleep 0.2
 		_i=$((_i + 1))
 	done
-	hrun "tr '\\0' ' ' </proc/$HOLDER_PID/cmdline; echo; (ss -Htln 2>/dev/null || netstat -tln 2>/dev/null) | grep ':$CPORT '"
-	port_listening "$CPORT"
+	hrun "tr '\\0' ' ' </proc/$HOLDER_PID/cmdline; echo"
+	if port_listening "$CPORT"; then
+		log "  127.0.0.1:$CPORT is held ($LISTEN_TOOL)"
+		return 0
+	fi
+	return 1
 }
 
 holder_stop() {
@@ -616,15 +657,36 @@ holder_stop() {
 	save_state
 }
 
+# listeners: LISTENERS, the local address:port of every listening TCP socket
+# on the host, from ss or (BusyBox) netstat, and LISTEN_TOOL. 1 when neither
+# ran successfully, or when it shows no listener at all although nginx runs:
+# the port checks then fail closed.
+listeners() {
+	# shellcheck disable=SC2016 # Expanded on the host.
+	hx 'if command -v ss >/dev/null 2>&1 && o=$(ss -Htln 2>&1); then echo ss; printf "%s\n" "$o" | awk "{ print \$4 }"; elif command -v netstat >/dev/null 2>&1 && o=$(netstat -tln 2>&1); then echo netstat; printf "%s\n" "$o" | awk "\$1 ~ /^tcp/ { print \$4 }"; else echo "neither ss nor netstat ran successfully"; exit 99; fi'
+	LISTEN_TOOL=$(printf '%s\n' "$HX_OUT" | head -n 1)
+	LISTENERS=$(printf '%s\n' "$HX_OUT" | sed 1d | grep .)
+	[ "$HX_RC" -eq 0 ] && [ -n "$LISTENERS" ]
+}
+
+# port_listening P: 0 when something listens on P; 1 when nothing does; 2
+# when the host's listeners cannot be read.
 port_listening() {
-	hx "(ss -Htln 2>/dev/null || netstat -tln 2>/dev/null) | awk '{ print \$4 }' | grep -q ':$1\$'"
-	[ "$HX_RC" -eq 0 ]
+	listeners || return 2
+	printf '%s\n' "$LISTENERS" | grep -q ":$1\$"
 }
 
 # port_free P: nothing listens on P, and no file under /etc/nginx or the
 # include directory has a listen directive naming it.
 port_free() {
-	port_listening "$1" && return 1
+	port_listening "$1"
+	case $? in
+	0) return 1 ;;
+	2)
+		log "$HX_OUT"
+		refuse "cannot list the host's listening TCP sockets (ss -Htln or netstat -tln: $LISTEN_TOOL; or no listener at all): no port is known to be free, so nothing is changed (install iproute2 for ss, or use BusyBox netstat)"
+		;;
+	esac
 	hx "grep -rsEn 'listen[[:space:]]([^;]*[^0-9])?$1([^0-9]|\$)' /etc/nginx $(shown "$INCDIR")"
 	[ "$HX_RC" -ne 0 ]
 }
@@ -653,7 +715,11 @@ pick_ports() {
 			[ "$_i" -lt 30 ] || refuse "found no second free port in 18100-18999; pass --conflict-port"
 		done
 	fi
-	hrun "(ss -Htln 2>/dev/null || netstat -tln 2>/dev/null) | awk '{ print \$4 }' | grep -E ':($PORT|$CPORT)\$'; grep -rsEn 'listen[[:space:]]([^;]*[^0-9])?($PORT|$CPORT)([^0-9]|\$)' /etc/nginx $(shown "$INCDIR"); echo 'no listener and no listen directive on either port'"
+	listeners
+	log "  listening TCP sockets on the host ($LISTEN_TOOL):"
+	printf '%s\n' "$LISTENERS" | sed 's/^/    /' | tee -a "$TRANSCRIPT"
+	hrun "grep -rsEn 'listen[[:space:]]([^;]*[^0-9])?($PORT|$CPORT)([^0-9]|\$)' /etc/nginx $(shown "$INCDIR"); echo 'no listen directive names either port'"
+	log "  neither $PORT nor $CPORT is among the listeners"
 }
 
 # --- preconditions, facts and the plan ------------------------------------
@@ -803,60 +869,91 @@ plan() {
 
 # --- cleanup (the EXIT trap, the end of a run, and --cleanup) -------------
 
+# loud MESSAGE: a failure the operator must act on, on stderr as well.
+loud() {
+	log "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+	log "!!! $*"
+	log "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+	printf '%s: %s\n' "$PROG" "$*" >&2
+}
+
+# remove_site: rm the disposable site's files, and the files staged for
+# step 5, as root on the host (OOS-4: the provider cannot delete).
+remove_site() {
+	[ -n "$SITE" ] || return 0
+	hrun "cd $(shown "$INCDIR") && { ls -ln $SITE$SUFFIX $SITE$SUFFIX$DSUFFIX .$SITE.check-* 2>/dev/null; rm -f -- $SITE$SUFFIX $SITE$SUFFIX$DSUFFIX .$SITE.check-*; ls -a | grep -F $SITE || echo '$SITE: no file left'; }"
+}
+
 cleanup() {
 	trap '' INT TERM HUP
 	note "== Cleanup"
 	CLEANED=1
-	# A submitted operation must end before the file is removed, or its
-	# rollback could put it back.
-	if [ -n "$INFLIGHT" ] && [ -n "$NXHOST" ]; then
-		note "operation $INFLIGHT was submitted: waiting for it to end"
-		_cj=$("$NEXUS_CLI" --host "$NXHOST" operation get "$INFLIGHT" -o jsonl 2>/dev/null | head -n 1)
-		if [ "$(json_str status "$_cj")" = Queued ]; then
-			nx operation cancel "$INFLIGHT" --yes -o jsonl
-		fi
-		op_wait "$INFLIGHT" 300
-		case $OPS in
-		Succeeded | Failed | Canceled) INFLIGHT= ;;
-		*)
-			result cleanup FAIL "operation $INFLIGHT has not ended: the site was NOT removed; run --yes --cleanup once it has"
-			return 1
-			;;
-		esac
-	elif [ -n "$INFLIGHT" ]; then
-		log "operation $INFLIGHT may still run, and there is no nexus client to ask: waiting 240 s, the longest an nginx operation runs with the default timeouts"
-		sleep 240
-		INFLIGHT=
-	fi
-	# An interrupt can land after the CLI created an operation and before
-	# its ID was recorded: wait for every nginx operation still open.
+	KEEP_STATE=0
+	NX_TIMEOUT=20
+	# The site goes first, before any call to nexus (each of which is bounded).
+	holder_stop
+	remove_site
+	# Every nginx operation this run may have left open must end: one that
+	# rolled back after the rm could have put a file back, so the site is
+	# removed again afterwards. A queued one this run submitted is canceled.
+	_waited=0
 	if [ -n "$NXHOST" ]; then
-		nx operation get --filter provider=nginx --filter status=Queued --filter status=Running -o jsonl
-		for _o in $(printf '%s\n' "$NX_OUT" | grep -o '"id":"[^"]*"' | cut -d'"' -f4); do
+		_open=$INFLIGHT
+		if [ -n "$INFLIGHT" ]; then
+			_cj=$(with_timeout 20 "$NEXUS_CLI" --host "$NXHOST" operation get "$INFLIGHT" -o jsonl 2>/dev/null | head -n 1)
+			[ "$(json_str status "$_cj")" != Queued ] || nx operation cancel "$INFLIGHT" --yes -o jsonl
+		fi
+		if nx operation get --filter provider=nginx --filter status=Queued --filter status=Running -o jsonl; then
+			_open="$_open $(printf '%s\n' "$NX_OUT" | grep -o '"id":"[^"]*"' | cut -d'"' -f4)"
+		fi
+		# shellcheck disable=SC2086 # One ID per word.
+		for _o in $(printf '%s\n' $_open | sort -u); do
+			_waited=1
+			note "nginx operation $_o may still run: waiting for it to end"
 			op_wait "$_o" 300
 			case $OPS in
 			Succeeded | Failed | Canceled) ;;
 			*)
-				result cleanup FAIL "nginx operation $_o has not ended: the site was NOT removed; run --yes --cleanup once it has"
-				return 1
+				KEEP_STATE=1
+				result cleanup FAIL "nginx operation $_o has not ended after 300 s; run --yes --cleanup again once it has"
 				;;
 			esac
 		done
+	elif [ -n "$INFLIGHT" ]; then
+		log "operation $INFLIGHT may still run, and there is no nexus client to ask: waiting 240 s, the longest an nginx operation runs with the default timeouts"
+		sleep 240
+		_waited=1
 	fi
-	holder_stop
-	if [ -n "$SITE" ]; then
-		hrun "cd $(shown "$INCDIR") && ls -ln $SITE$SUFFIX $SITE$SUFFIX$DSUFFIX .$SITE.check-tmp 2>/dev/null; rm -f -- $SITE$SUFFIX $SITE$SUFFIX$DSUFFIX .$SITE.check-tmp; ls -la | grep -F $SITE || echo '$SITE: no file left'"
-	fi
+	INFLIGHT=
+	[ "$_waited" = 0 ] || remove_site
+
 	nginx_t
-	_trc=$HX_RC
+	if [ "$HX_RC" -ne 0 ]; then
+		note "nginx -t fails: removing the disposable site again and testing again"
+		remove_site
+		nginx_t
+	fi
+	_trc=$HX_RC _tout=$HX_OUT
+	# Only the pid directory missing (Alpine, nginx stopped): the init
+	# script's start creates it, so a start may go ahead.
+	_piddir=0
+	case $_tout in *'syntax is ok'*'nginx.pid" failed (2:'*) _piddir=1 ;; esac
 	init_state
-	if [ "$_trc" -ne 0 ]; then
-		result cleanup FAIL "nginx -t fails after removing the site: nginx was NOT reloaded or started; look at the output above"
-	elif [ "$STOPPED_BY_US" = 1 ] && [ "$INIT_STATE" != started ]; then
-		note "this run stopped nginx: starting it"
+	if [ "$_trc" -ne 0 ] && [ "$_piddir" = 0 ]; then
+		KEEP_STATE=1
+		loud "nginx -t FAILS on this host after the disposable site was removed: $(printf '%s\n' "$_tout" | grep -v 'syntax is ok' | head -n 2 | tr '\n' ' ')- nginx is $INIT_STATE, and this script did NOT reload or start it. Fix the configuration, then run: $(init_cmd start) (or reload, if it runs)"
+		result cleanup FAIL "nginx -t fails after the site was removed; nginx is $INIT_STATE and was neither reloaded nor started"
+	elif { [ "$STOPPED_BY_US" = 1 ] || [ "$LIFECYCLE" = 1 ]; } && [ "$INIT_STATE" != started ]; then
+		note "nginx is $INIT_STATE at the end of a run that stopped or restarted it: starting it"
 		hrun "$(init_cmd start)"
 		init_state
-		STOPPED_BY_US=0
+		if [ "$INIT_STATE" = started ]; then
+			STOPPED_BY_US=0
+		else
+			KEEP_STATE=1
+			loud "nginx did NOT start ($INIT: $INIT_STATE): every site on this host is DOWN. Look at the output above, then run: $(init_cmd start)"
+			result cleanup FAIL "nginx did not start; it is $INIT_STATE"
+		fi
 	elif [ "$ENABLED_EVER" = 1 ] && [ "$INIT_STATE" = started ]; then
 		procs
 		_cw=$WORKERS
@@ -867,6 +964,8 @@ cleanup() {
 		else
 			log "  (/proc) master $MASTER, workers $_cw -> $WORKERS: the reload was NOT applied within 15 s"
 		fi
+	elif [ "$INIT_STATE" != started ]; then
+		loud "nginx is $INIT_STATE, and this run did not stop it (no --with-lifecycle): it was not started"
 	fi
 	if [ -n "$PORT" ] && [ "$INIT_STATE" = started ]; then
 		fetch
@@ -879,7 +978,11 @@ cleanup() {
 	SNAP_HAD=$HX_OUT
 	hx "[ ! -f $H_STATE/snap.before ] || { grep ' $NGINX_CONF\$' $H_STATE/snap.before; grep ' $NGINX_CONF\$' $H_STATE/snap.after; }"
 	CONF_LINES=$HX_OUT
-	hrun "rm -rf $H_STATE"
+	if [ "$KEEP_STATE" = 0 ]; then
+		hrun "rm -rf $H_STATE"
+	else
+		log "the state stays in $H_STATE, so that --yes --cleanup can finish the job"
+	fi
 	return 0
 }
 
@@ -1091,6 +1194,10 @@ step2() {
 	[ "$INIT_STATE" != started ] || { STOPPED_BY_US=0; save_state; }
 
 	_m=$MASTER
+	# A restart stops nginx before it starts it: if it fails midway, nginx
+	# stays stopped, and the cleanup must start it.
+	STOPPED_BY_US=1
+	save_state
 	op nginx restart
 	init_state
 	show_procs
@@ -1102,6 +1209,7 @@ step2() {
 	else
 		result 2f-restart FAIL "restart: $OPS${OPP:+ $OPP} mainPid $_mp; $INIT $INIT_STATE; master $_m -> $MASTER; $PORT $FETCH_STATE"
 	fi
+	[ "$INIT_STATE" != started ] || { STOPPED_BY_US=0; save_state; }
 	MASTER0=$MASTER
 }
 
@@ -1151,42 +1259,39 @@ errlog_size() {
 	ERRLOG_SIZE=$(echo "$HX_OUT" | tr -d ' ')
 }
 
-# wait_emerg SINCE PATTERN: wait up to 5 s for a new error-log line holding
-# PATTERN after byte SINCE (the master has acted on the reload). Logs it.
-wait_emerg() {
-	_we=$(($(date +%s) + 5))
-	EMERG_SEEN=no
-	while :; do
-		hx "tail -c +$(($1 + 1)) $ERRLOG 2>/dev/null | grep -F -- $(shown "$2")"
-		[ "$HX_RC" -ne 0 ] || { EMERG_SEEN=yes; break; }
-		[ "$(date +%s)" -lt "$_we" ] || break
-		sleep 0.2
-	done
-	hrun "tail -c +$(($1 + 1)) $ERRLOG 2>/dev/null | tail -n 5"
-}
-
-# direct_reload KIND TEXT PATTERN: ASM-7 on the disposable site only: write
-# TEXT, reload through the init system, record its exit code, put M3 back as
-# soon as nginx has acted on it, and check nginx kept its configuration.
+# direct_reload KIND TEXT PATTERN: ASM-7 on the disposable site only.
+# Whether TEXT is valid comes from a whatIf (a shadow test: the include
+# directory is not touched). Then one command on the host, which ignores
+# hangups so that it always finishes: rename the staged TEXT over the site,
+# reload through the init system, and rename the staged M3 back, at once
+# when the reload failed (nothing was signalled), or as soon as the master
+# has acted on it (its error-log line holding PATTERN, polled every 0.05 s,
+# at most 5 s). BAD_SECONDS is how long TEXT was in the include directory.
 direct_reload() {
+	op nginxsite update "$SITE" --content "$2" --what-if
+	BAD_VALID=$(json_bool valid "$OPJ")
 	procs
 	_w=$WORKERS _m=$MASTER
 	errlog_size
 	_es=$ERRLOG_SIZE
-	if ! write_site "$2"; then
-		write_site "$M3"
+	if ! stage_file good "$M3" || ! stage_file bad "$2"; then
 		return 1
 	fi
-	nginx_t
-	BAD_T=$HX_RC
-	hrun "$(init_cmd reload)"
-	RELOAD_RC=$HX_RC
-	wait_emerg "$_es" "$3"
-	write_site "$M3"
-	if [ "$INIT" = systemd ] && [ "$RELOAD_RC" -ne 0 ]; then
+	# shellcheck disable=SC2016 # Expanded on the host.
+	hrun 'trap "" HUP INT TERM; cd '"$(shown "$INCDIR")"' || exit 98; read t0 _ </proc/uptime; mv -f .'"$SITE"'.check-bad '"$SITE$SUFFIX"' || exit 97; out=$('"$(init_cmd reload)"' 2>&1); rc=$?; if [ "$rc" -eq 0 ]; then i=0; while [ "$i" -lt 100 ] && ! tail -c +'"$((_es + 1))"' '"$ERRLOG"' 2>/dev/null | grep -qF -- '"$(shown "$3")"'; do sleep 0.05; i=$((i + 1)); done; fi; mv -f .'"$SITE"'.check-good '"$SITE$SUFFIX"' || echo RESTORE_FAILED; read t1 _ </proc/uptime; printf "%s\n" "$out"; echo "RELOAD_RC=$rc"; awk -v a="$t0" -v b="$t1" "BEGIN { printf \"BAD_SECONDS=%.2f\\n\", b - a }"'
+	RELOAD_RC=$(printf '%s\n' "$HX_OUT" | sed -n 's/^RELOAD_RC=//p')
+	BAD_SECONDS=$(printf '%s\n' "$HX_OUT" | sed -n 's/^BAD_SECONDS=//p')
+	[ -n "$RELOAD_RC" ] || RELOAD_RC="none(exit $HX_RC)"
+	hrun "tail -c +$((_es + 1)) $ERRLOG 2>/dev/null | tail -n 5"
+	EMERG_SEEN=no
+	printf '%s\n' "$HX_OUT" | grep -qF -- "$3" && EMERG_SEEN=yes
+	if [ "$INIT" = systemd ] && [ "$RELOAD_RC" != 0 ]; then
 		hrun "journalctl -u $SVC.service -n 6 --no-pager -o cat"
 	fi
-	note "the valid text M3 is back in $SITE$SUFFIX"
+	hrun "cd $(shown "$INCDIR") && sha256sum $SITE$SUFFIX"
+	RESTORED=no
+	[ "${HX_OUT%% *}" != "$S3" ] || RESTORED=yes
+	note "M3 back in $SITE$SUFFIX: $RESTORED; the $1 text was in the include directory for ${BAD_SECONDS:-?} s"
 	sleep 1
 	procs
 	log "  (/proc) master $_m -> $MASTER, workers $_w -> $WORKERS"
@@ -1200,20 +1305,21 @@ direct_reload() {
 step5() {
 	log ""
 	note "== Step 5: ASM-7, the init system's reload exit codes (TC-118 step 5 / TC-119)"
-	log "  The disposable site only. Each bad text stays in place until nginx has acted on the"
-	log "  reload (its error-log line, at most 5 s), then the valid M3 is written back."
+	log "  The disposable site only. Each bad text is first checked with a whatIf (a shadow"
+	log "  test). One host command then renames it over the site, reloads, and renames M3"
+	log "  back: at once when the reload fails, else when nginx has logged its reaction."
 
 	if ! direct_reload invalid "$BAD_CONTENT" 'nexus_check_unknown_directive'; then
-		result 5a-invalid-exit FAIL "could not write the invalid text to $SITE$SUFFIX"
+		result 5a-invalid-exit FAIL "could not stage the texts in $INCDIR"
 		return
 	fi
-	_note="$(init_cmd reload) exit $RELOAD_RC with an invalid configuration (nginx -t exit $BAD_T); svcctltest has $FAKE_RELOAD_INVALID"
-	if [ "$RELOAD_RC" = "$FAKE_RELOAD_INVALID" ] && [ "$BAD_T" -ne 0 ] && [ "$KEPT" = yes ] && [ "$DIRECT_T" -eq 0 ] && [ "$FETCH_BODY" = "$(marker M3)" ]; then
+	_note="$(init_cmd reload) exit $RELOAD_RC with an invalid configuration (whatIf valid: $BAD_VALID; in place ${BAD_SECONDS:-?} s); svcctltest has $FAKE_RELOAD_INVALID"
+	if [ "$RELOAD_RC" = "$FAKE_RELOAD_INVALID" ] && [ "$BAD_VALID" = false ] && [ "$RESTORED" = yes ] && [ "$KEPT" = yes ] && [ "$DIRECT_T" -eq 0 ] && [ "$FETCH_BODY" = "$(marker M3)" ]; then
 		result 5a-invalid-exit PASS "$_note; nginx kept its workers; M3 restored, nginx -t passes, $PORT serves M3"
 	elif [ "$RELOAD_RC" != "$FAKE_RELOAD_INVALID" ]; then
 		result 5a-invalid-exit FAIL "$_note: a defect in the fake (TC-11)"
 	else
-		result 5a-invalid-exit FAIL "$_note; nginx -t on it exit $BAD_T, workers kept $KEPT, nginx -t exit $DIRECT_T, $PORT $FETCH_STATE '$FETCH_BODY'"
+		result 5a-invalid-exit FAIL "$_note; M3 restored $RESTORED, workers kept $KEPT, nginx -t exit $DIRECT_T, $PORT $FETCH_STATE '$FETCH_BODY'"
 	fi
 
 	if ! holder_start; then
@@ -1224,17 +1330,17 @@ step5() {
 	M4=$(content M4 "$CPORT")
 	if ! direct_reload bind "$M4" "127.0.0.1:$CPORT failed"; then
 		holder_stop
-		result 5b-bind-exit FAIL "could not write the bind-conflict text to $SITE$SUFFIX"
+		result 5b-bind-exit FAIL "could not stage the texts in $INCDIR"
 		return
 	fi
 	holder_stop
-	_note="$(init_cmd reload) exit $RELOAD_RC with a bind conflict on 127.0.0.1:$CPORT (nginx -t exit $BAD_T: only the bind fails); svcctltest has $FAKE_RELOAD_BIND"
-	if [ "$RELOAD_RC" = "$FAKE_RELOAD_BIND" ] && [ "$BAD_T" -eq 0 ] && [ "$KEPT" = yes ] && [ "$DIRECT_T" -eq 0 ] && [ "$FETCH_BODY" = "$(marker M3)" ]; then
+	_note="$(init_cmd reload) exit $RELOAD_RC with a bind conflict on 127.0.0.1:$CPORT (whatIf valid: $BAD_VALID, only the bind fails; in place ${BAD_SECONDS:-?} s); svcctltest has $FAKE_RELOAD_BIND"
+	if [ "$RELOAD_RC" = "$FAKE_RELOAD_BIND" ] && [ "$BAD_VALID" = true ] && [ "$RESTORED" = yes ] && [ "$KEPT" = yes ] && [ "$DIRECT_T" -eq 0 ] && [ "$FETCH_BODY" = "$(marker M3)" ]; then
 		result 5b-bind-exit PASS "$_note; the master kept its workers (bind() failure in $ERRLOG: $EMERG_SEEN), which the exit code does not show; M3 restored, $PORT serves M3"
 	elif [ "$RELOAD_RC" != "$FAKE_RELOAD_BIND" ]; then
 		result 5b-bind-exit FAIL "$_note: a defect in the fake (TC-11)"
 	else
-		result 5b-bind-exit FAIL "$_note; workers kept $KEPT (nginx -t on it exit $BAD_T), nginx -t exit $DIRECT_T, $PORT $FETCH_STATE '$FETCH_BODY'"
+		result 5b-bind-exit FAIL "$_note; M3 restored $RESTORED, workers kept $KEPT, nginx -t exit $DIRECT_T, $PORT $FETCH_STATE '$FETCH_BODY'"
 	fi
 	if [ -n "${PROVIDER_BIND_EXIT:-}" ] && [ "$PROVIDER_BIND_EXIT" != "$RELOAD_RC" ]; then
 		result 5b-agrees FAIL "the provider observed initExitCode $PROVIDER_BIND_EXIT for the same case, the direct reload $RELOAD_RC"
@@ -1275,12 +1381,33 @@ final_checks() {
 	fi
 }
 
+# token_in [FILE...]: 0 when the token appears in the files (or stdin).
+# awk gets the token as its first input line, never through argv or its
+# environment.
+token_in() {
+	{
+		printf '%s\n' "$CHECK_TOKEN"
+		cat "$@"
+	} | awk 'NR == 1 { t = $0; next } index($0, t) { f = 1 } END { exit !f }'
+}
+
 token_check() {
-	[ -n "${NEXUS_TOKEN:-}" ] || return 0
-	if awk 'index($0, ENVIRON["NEXUS_TOKEN"]) { f = 1 } END { exit !f }' "$TRANSCRIPT"; then
-		result token-absent FAIL "NEXUS_TOKEN appears in the transcript: delete it and revoke the token"
+	[ -n "$CHECK_TOKEN" ] || return 0
+	if token_in "$TRANSCRIPT"; then
+		result token-absent FAIL "the token appears in the transcript: delete it and revoke the token"
 	else
-		result token-absent PASS "NEXUS_TOKEN does not appear in the transcript"
+		result token-absent PASS "the token does not appear in the transcript"
+	fi
+}
+
+# token_env_check: the environment every child gets (env is one) holds no
+# copy of the token.
+token_env_check() {
+	[ -n "$CHECK_TOKEN" ] || return 0
+	if env | token_in; then
+		result token-env FAIL "a child process's environment holds the token: every command this script runs could see it"
+	else
+		result token-env PASS "no child process's environment holds the token (env, run as a child, does not show it)"
 	fi
 }
 
@@ -1294,6 +1421,7 @@ header
 detect_init
 if [ "$MODE" = cleanup ]; then
 	fetch_tool
+	token_env_check
 	if load_state; then
 		log "state of the interrupted run ($H_STATE/state):"
 		printf '%s\n' "$STATE_TEXT" | sed 's/^/  /' | tee -a "$TRANSCRIPT"
@@ -1330,7 +1458,10 @@ if [ "$HX_RC" -eq 0 ]; then
 	hrun "ls -la $H_STATE; cat $H_STATE/state"
 	refuse "an earlier run did not finish ($H_STATE exists): run with --yes --cleanup first"
 fi
-if ! setup_client; then
+setup_client_rc=0
+setup_client || setup_client_rc=1
+token_env_check
+if [ "$setup_client_rc" = 1 ]; then
 	[ "$YES" = 0 ] || refuse "NEXUS_TOKEN is not set (or pass --nexus-host). Create one on the host: nexusd token create --name nginx-check --scope nginx:read --scope nginx:write --scope nginx:config --expires 1d"
 fi
 facts
@@ -1353,7 +1484,7 @@ fi
 
 CHANGED=1
 save_state
-hrun "{ $(snap_cmd); } >$H_STATE/snap.before && wc -l <$H_STATE/snap.before"
+hrun "$(conffiles_cmd) >$H_STATE/conffiles && echo \"nginx -T names \$(wc -l <$H_STATE/conffiles) files:\" && cat $H_STATE/conffiles && { $(snap_cmd); } >$H_STATE/snap.before && wc -l <$H_STATE/snap.before"
 step3_first
 step2
 step3_second
