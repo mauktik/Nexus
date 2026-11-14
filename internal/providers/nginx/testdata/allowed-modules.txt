@@ -1,0 +1,21 @@
+# The modules the nginx provider and svcctl packages, and their tests, may
+# depend on (CON-7: no new dependency). The list is every module `go list
+# -deps -test` reaches from them, standard library excluded. Adding a line is
+# a deliberate act that a reviewer sees: this file replaces a diff against
+# the feature branch's base commit, which fails after the merge and checks
+# nothing in a checkout without that commit (code review B, CR-B8).
+github.com/google/jsonschema-go
+github.com/mauktik/nexus
+github.com/modelcontextprotocol/go-sdk
+github.com/segmentio/asm
+github.com/segmentio/encoding
+github.com/spf13/cobra
+github.com/spf13/pflag
+github.com/yosida95/uritemplate/v3
+go.etcd.io/bbolt
+go.yaml.in/yaml/v3
+golang.org/x/oauth2
+golang.org/x/sync
+golang.org/x/sys
+golang.org/x/term
+golang.org/x/time

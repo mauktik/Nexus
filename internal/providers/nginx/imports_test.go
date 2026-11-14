@@ -1,14 +1,12 @@
-// Stub-style: SKIP-only (nginx-provider)
-//
-// Stub of planning/nginx-provider/test-cases.md TC-103. The body is
-// complete: the developer of WI 6.3 deletes the t.Skip line. The review of
-// each exec.Command call's first argument (never read from input) stays a
-// reviewer check. An un-skipped passing test is the GREEN signal.
+// TC-103 of planning/nginx-provider/test-cases.md. The review of each
+// exec.Command call's first argument (never read from input) stays a
+// reviewer check.
 
 package nginx
 
 import (
 	"encoding/json"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -47,18 +45,38 @@ func TestNoNetworkClientOrNewDeps(t *testing.T) {
 			}
 		}
 	}
-	// CON-7: the only go.mod change since the base SHA is x/sys going direct.
-	diff := exec.Command("git", "diff", "d04583a2d7b29f7b28f603cdb7a88812d8f1ecb3", "--", "go.mod")
-	diff.Dir = root
-	d, err := diff.Output()
+	// CON-7: no module beyond the checked-in allowlist (testdata/allowed-modules.txt).
+	// The test fails, never skips, when it cannot list them.
+	deps := exec.Command("go", "list", "-deps", "-test", "-f", "{{if and .Module (not .Standard)}}{{.Module.Path}}{{end}}",
+		"./internal/providers/nginx/...", "./internal/svcctl/...")
+	deps.Dir = root
+	d, err := deps.Output()
 	if err != nil {
-		t.Skipf("git diff against the base SHA: %v", err)
+		t.Fatalf("go list -deps: %v", err)
 	}
-	for _, l := range strings.Split(string(d), "\n") {
-		if (strings.HasPrefix(l, "+") || strings.HasPrefix(l, "-")) && !strings.HasPrefix(l, "+++") && !strings.HasPrefix(l, "---") {
-			if !strings.Contains(l, "golang.org/x/sys") && strings.TrimSpace(l[1:]) != "" && strings.TrimSpace(l[1:]) != ")" && strings.TrimSpace(l[1:]) != "require (" {
-				t.Errorf("unexpected go.mod change: %s", l)
-			}
+	allowed := map[string]bool{}
+	b, err := os.ReadFile(filepath.Join("testdata", "allowed-modules.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for line := range strings.Lines(string(b)) {
+		if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "#") {
+			allowed[line] = true
 		}
+	}
+	if len(allowed) == 0 {
+		t.Fatal("testdata/allowed-modules.txt lists no module")
+	}
+	for mod := range strings.Lines(string(d)) {
+		if mod = strings.TrimSpace(mod); mod != "" && !allowed[mod] {
+			t.Errorf("the nginx and svcctl packages depend on %s, which is not in testdata/allowed-modules.txt "+
+				"(CON-7: no new dependency): add it there only if the dependency is intended", mod)
+		}
+	}
+	// And golang.org/x/sys, the one requirement the feature added, is a direct one.
+	mods := exec.Command("go", "list", "-m", "-f", "{{.Indirect}}", "golang.org/x/sys")
+	mods.Dir = root
+	if out, err := mods.Output(); err != nil || strings.TrimSpace(string(out)) != "false" {
+		t.Errorf("go list -m golang.org/x/sys: Indirect %q, %v; want false (a direct requirement)", out, err)
 	}
 }
