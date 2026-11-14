@@ -612,3 +612,56 @@ func testRecoveryDistrustsSignalDeathFromAnEarlierBoot(t *testing.T, backend det
 		t.Fatalf("Finalize ran for %q, want only this boot's", names)
 	}
 }
+
+// Follow-up to the reboot-race fix: SIGINT to an operation's supervisor is
+// the operator's explicit host-side cancel (docs/security.md), sent with
+// `systemctl kill --kill-whom=main --signal=SIGINT` on systemd and
+// `kill -INT` on OpenRC, with no cancel request from nexusd. The operation
+// ends Canceled with its child stopped, whether nexusd sees the end while it
+// runs or recovers it after a restart, and Finalize never runs.
+func TestOperatorSIGINTIsACancel(t *testing.T) {
+	perBackend(t, testOperatorSIGINTIsACancel)
+}
+
+func testOperatorSIGINTIsACancel(t *testing.T, backend detachtest.Backend) {
+	for _, restart := range []bool{false, true} {
+		name := "nexusd running"
+		if restart {
+			name = "nexusd restarted"
+		}
+		t.Run(name, func(t *testing.T) {
+			var seams detach.Options
+			w := newWorld(t, withBackend(t, backend, &seams))
+			w.td.onPrepare("long", func(context.Context, thingIn) (detach.Spec, error) {
+				return shJob("echo pid=$$; while :; do sleep 0.1; done"), nil
+			})
+			op := w.start(who("ops", "td:write"), tdOps.job.Op(), `{"name":"long"}`, "")
+			pid := w.childPID(op.ID)
+			t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) }) // After a failure; the group may be gone
+
+			unit := detach.Unit(op.ID)
+			if restart {
+				w.closeState()
+			}
+			if err := seams.Signal(context.Background(), unit, syscall.SIGINT); err != nil {
+				t.Fatal(err)
+			}
+			if restart {
+				waitUnitGone(t, seams, unit)
+				w.open()
+				waitClosed(t, w.recoverNow(), 15*time.Second, "classification")
+			}
+
+			rec := w.waitTerminal(op.ID)
+			if rec.Status != apitypes.StatusCanceled || rec.Error != nil {
+				t.Fatalf("after SIGINT: %s %+v, want Canceled; exit.json %s", rec.Status, rec.Error, w.exitJSON(op.ID))
+			}
+			if err := syscall.Kill(-pid, 0); !errors.Is(err, syscall.ESRCH) {
+				t.Errorf("the child's process group %d outlived the cancel: %v", pid, err)
+			}
+			if n := len(w.td.finalCalls()); n != 0 {
+				t.Errorf("Finalize ran %d times on a canceled operation", n)
+			}
+		})
+	}
+}

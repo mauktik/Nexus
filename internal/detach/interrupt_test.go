@@ -99,3 +99,37 @@ func TestShutdownSIGTERMToEveryProcessIsNotAnOutcome(t *testing.T) {
 		}
 	}
 }
+
+// Follow-up to the reboot-race fix: SIGINT is the operator's explicit
+// host-side cancel (docs/security.md), `systemctl kill --kill-whom=main
+// --signal=SIGINT` on systemd and `kill -INT` on OpenRC, since a SIGTERM
+// without nexusd's request is now an interruption. Neither init sends
+// SIGINT to services or processes at shutdown. The supervisor records the
+// request itself and stops the child as a cancel does: the child gets
+// SIGTERM, its group is gone, and exit.json says canceled.
+func TestSIGINTIsTheOperatorsCancel(t *testing.T) {
+	dir := t.TempDir()
+	spec := shSpec(dir, `trap 'echo child-term >> "$DIR/child"; exit 143' TERM
+echo pid=$$
+while :; do sleep 0.1; done`)
+	s := startSupervisor(t, dir, &spec)
+	pid := childPID(t, dir)
+	t.Cleanup(func() { killGroup(pid) })
+
+	if err := s.cmd.Process.Signal(syscall.SIGINT); err != nil {
+		t.Fatal(err)
+	}
+	if code := s.wait(t, 20*time.Second); code != 0 {
+		t.Fatalf("supervisor exit %d:\n%s", code, s.diag.String())
+	}
+	if f := exitFields(t, dir); f["canceled"] != true || f["interrupted"] != nil || f["timedOut"] != false {
+		t.Fatalf("exit.json %v: want canceled true, no interrupted, timedOut false", f)
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "child")); err != nil || !strings.Contains(string(b), "child-term") {
+		t.Fatalf("the child was not sent SIGTERM: %q %v", b, err)
+	}
+	groupGone(t, pid)
+	if ok, err := detach.CancelRequested(dir); !ok || err != nil {
+		t.Errorf("no cancel request recorded after SIGINT: %v %v", ok, err)
+	}
+}
