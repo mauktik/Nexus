@@ -196,3 +196,38 @@ This is FR-11 as specified: removing an entry that does not exist answers `404`,
 - **Still to check on the host console:**
   - `PRAGMA foreign_key_check` on `gravity.db` should be empty;
   - the `database is locked` count should still be 0.
+
+## WI 6.2 steps 6–8: flush, restart, and NFR-2's 10 restarts (approved 2026-11-14)
+
+**Step 6, flush:** `piholecache remove`, op `01a1d87b-5034-…021d`, 05:15:22.555 → 05:15:23.081.
+- It ran `pihole restartdns reload`, a SIGHUP.
+- The FTL pid was **924 → 924, unchanged**, and `readyAfterMs` was 0.
+- `dig photon.app.lan` → 192.168.7.5.
+
+**Step 7, restart:** `piholeresolver restart`, op `01a1d87b-5321-…0f61`, 05:15:23.303 → 05:15:24.082.
+- The FTL pid went **924 → 1689**, and `readyAfterMs` was 401.
+- `pihole get` showed `ftlRunning`, `dnsAnswering` and blocking enabled, and `dig photon.app.lan` → 192.168.7.5.
+
+**Step 8, NFR-2:** 10 × `piholeresolver restart`, spaced 2 s apart.
+- `readyAfterMs` is measured on the host, from the start of the restart to FTL's first answer on 127.0.0.1. The readiness poll runs every 200 ms (A-1), so 401 means it answered within (200, 401] ms.
+
+| Run | op | FTL pid | `readyAfterMs` | Op start → end (server) | CLI end to end (Mac) |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `01a1d87b-5ee9-…e91f` | 1689 → 1755 | 401 | 26.318 → 26.840 | 589 ms |
+| 2 | `01a1d87b-69ae-…1198` | 1755 → 1821 | 401 | 29.076 → 29.602 | 623 ms |
+| 3 | `01a1d87b-74dc-…f671` | 1821 → 1886 | 401 | 31.936 → 32.460 | 650 ms |
+| 4 | `01a1d87b-7fd4-…01cf` | 1886 → 1952 | 401 | 34.743 → 35.266 | 675 ms |
+| 5 | `01a1d87b-8b12-…3b04` | 1952 → 2018 | 401 | 37.623 → 38.154 | 670 ms |
+| 6 | `01a1d87b-9631-…a908` | 2018 → 2084 | 401 | 40.470 → 40.991 | 667 ms |
+| 7 | `01a1d87b-a12b-…32f8` | 2084 → 2150 | 401 | 43.279 → 43.801 | 624 ms |
+| 8 | `01a1d87b-abf3-…bae5` | 2150 → 2215 | 401 | 46.038 → 46.563 | 627 ms |
+| 9 | `01a1d87b-b6a1-…8ff6` | 2215 → 2281 | 401 | 48.775 → 49.301 | 623 ms |
+| 10 | `01a1d87b-c187-…635e` | 2281 → 2348 | 401 | 51.564 → 52.090 | 648 ms |
+
+- **NFR-2: met.** The p95 time to the first loopback answer is ≤ 401 ms, against a target under 5 s. The p95 op duration was 531 ms on the server and 675 ms on the Mac.
+- **A-60 / A-61:**
+  - Steps 7 and 8 made 11 FTL restarts in 29 s, 05:15:23 → 05:15:52.
+  - That is more than twice the unit's `StartLimitBurst=5` per 60 s, and every restart succeeded.
+  - This is consistent with Nexus's `systemctl reset-failed pihole-FTL.service` before each restart (WI 5.5).
+- **After every run:** FTL answered `dig photon.app.lan` → 192.168.7.5, and `pihole get` showed `ftlRunning: true`, `dnsAnswering: true` and blocking enabled.
+- **Still to check:** `systemctl show -p Result pihole-FTL` is not visible from the Mac and is pending on the host console.
