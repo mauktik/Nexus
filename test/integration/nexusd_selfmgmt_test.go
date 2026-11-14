@@ -362,8 +362,12 @@ const smRecoveryBound = 60 * time.Second
 // recovered detached operation after it is ready, so a single read right
 // after the restart may still see Running (FR-6, W-10). Every read that
 // returned the operation is appended to polls as status:problem-slug, so the
-// caller's never-outcome-unknown check covers all of them. It returns the
-// terminal operation and the run that read it.
+// caller's never-outcome-unknown check covers all of them. Callers poll only
+// once nexusd.service is active, which systemd reports after READY=1, and
+// nexusd sends READY=1 once its listener serves: a read that exits non-zero
+// or does not return the operation is a failure, not a transient, so it
+// fails at once instead of being retried. It returns the terminal operation
+// and the run that read it.
 func (h *smHost) pollCLIOp(id string, polls *[]string) (apitypes.Operation, smRun) {
 	h.t.Helper()
 	var op apitypes.Operation
@@ -372,7 +376,8 @@ func (h *smHost) pollCLIOp(id string, polls *[]string) (apitypes.Operation, smRu
 		run = h.cli("operation", "get", id, "-o", "json")
 		ops := run.ops()
 		if run.code != 0 || len(ops) != 1 {
-			return false, fmt.Sprintf("exit %d %s", run.code, strings.TrimSpace(run.stdout))
+			h.t.Fatalf("operation get %s after %d polls %q: exit %d, %d operations, want exit 0 with the operation\nstdout: %s\nstderr: %s",
+				id, len(*polls), *polls, run.code, len(ops), strings.TrimSpace(run.stdout), strings.TrimSpace(run.stderr))
 		}
 		op = ops[0]
 		*polls = append(*polls, string(op.Status)+":"+problemSlug(op))
@@ -1405,10 +1410,7 @@ func TestTCSM123_T1UpdateRollbackFailedIsRecorded(t *testing.T) {
 
 	// Step 4: the op as the new nexusd recorded it. It classifies the
 	// recovered op after it is ready (FR-6), so poll until terminal.
-	op, g := h.pollCLIOp(id, &polls)
-	if g.code != 0 {
-		t.Fatalf("operation get %s: exit %d %s", id, g.code, g.stdout)
-	}
+	op, _ := h.pollCLIOp(id, &polls)
 	t.Logf("polls between steps 2 and 4: %q", polls)
 	requireNoUnknownPolls(t, polls)
 	if op.Status != apitypes.StatusFailed || op.Error == nil || !strings.HasSuffix(op.Error.Type,
