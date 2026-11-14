@@ -353,6 +353,44 @@ func (h *smHost) awaitOp(id string, timeout time.Duration) apitypes.Operation {
 	return op
 }
 
+// smRecoveryBound is FR-6's bound: after a restart an operation reaches a
+// terminal state within 60 seconds.
+const smRecoveryBound = 60 * time.Second
+
+// pollCLIOp runs `nexus operation get <id> -o json` every 100 ms until the
+// operation is terminal, at most smRecoveryBound. nexusd classifies a
+// recovered detached operation after it is ready, so a single read right
+// after the restart may still see Running (FR-6, W-10). Every read that
+// returned the operation is appended to polls as status:problem-slug, so the
+// caller's never-outcome-unknown check covers all of them. It returns the
+// terminal operation and the run that read it.
+func (h *smHost) pollCLIOp(id string, polls *[]string) (apitypes.Operation, smRun) {
+	h.t.Helper()
+	var op apitypes.Operation
+	var run smRun
+	waitUntil(h.t, smRecoveryBound, "operation "+id+" to be terminal", func() (bool, string) {
+		run = h.cli("operation", "get", id, "-o", "json")
+		ops := run.ops()
+		if run.code != 0 || len(ops) != 1 {
+			return false, fmt.Sprintf("exit %d %s", run.code, strings.TrimSpace(run.stdout))
+		}
+		op = ops[0]
+		*polls = append(*polls, string(op.Status)+":"+problemSlug(op))
+		return terminal(op.Status), string(op.Status)
+	})
+	return op, run
+}
+
+// requireNoUnknownPolls fails when any poll saw outcome-unknown (FR-9).
+func requireNoUnknownPolls(t *testing.T, polls []string) {
+	t.Helper()
+	for _, p := range polls {
+		if strings.Contains(p, string(problem.OutcomeUnknown)) {
+			t.Errorf("a poll saw %s (FR-9)", p)
+		}
+	}
+}
+
 // nexusdOps lists the nexusd provider's operations.
 func (h *smHost) nexusdOps() []apitypes.Operation {
 	h.t.Helper()
@@ -939,8 +977,11 @@ func TestTCSM114_T1FRestartProducesANew(t *testing.T) {
 	} else {
 		t.Errorf("A-19 not shown: %s", how)
 	}
-	g := h.cli("operation", "get", op.ID, "-o", "json")
-	if ops := g.ops(); g.code != 0 || len(ops) != 1 || ops[0].Status != apitypes.StatusSucceeded {
+	var polls []string
+	got, g := h.pollCLIOp(op.ID, &polls)
+	t.Logf("operation get polls after the restart: %q", polls)
+	requireNoUnknownPolls(t, polls)
+	if got.Status != apitypes.StatusSucceeded {
 		t.Errorf("operation get after the restart: exit %d %s", g.code, g.stdout)
 	}
 	t.Logf("restart op log:\n%s", h.opLog(op.ID))
@@ -1362,20 +1403,14 @@ func TestTCSM123_T1UpdateRollbackFailedIsRecorded(t *testing.T) {
 	}
 	requireActive(t, "after the manual recovery")
 
-	// Step 4: the op as the new nexusd recorded it.
-	g := h.cli("operation", "get", id, "-o", "json")
-	ops := g.ops()
-	if g.code != 0 || len(ops) != 1 {
+	// Step 4: the op as the new nexusd recorded it. It classifies the
+	// recovered op after it is ready (FR-6), so poll until terminal.
+	op, g := h.pollCLIOp(id, &polls)
+	if g.code != 0 {
 		t.Fatalf("operation get %s: exit %d %s", id, g.code, g.stdout)
 	}
-	op := ops[0]
-	polls = append(polls, string(op.Status)+":"+problemSlug(op))
 	t.Logf("polls between steps 2 and 4: %q", polls)
-	for _, p := range polls {
-		if strings.Contains(p, string(problem.OutcomeUnknown)) {
-			t.Errorf("a poll saw %s (FR-9)", p)
-		}
-	}
+	requireNoUnknownPolls(t, polls)
 	if op.Status != apitypes.StatusFailed || op.Error == nil || !strings.HasSuffix(op.Error.Type,
 		string(problem.UpdateRollbackFailed)) || errExt(op, "rolledBack") != "false" {
 		t.Fatalf("operation %s %v, want Failed update-rollback-failed rolledBack false", op.Status, op.Error)
