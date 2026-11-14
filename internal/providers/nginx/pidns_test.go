@@ -3,6 +3,8 @@ package nginx
 import (
 	"errors"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -12,6 +14,31 @@ const (
 	hostPIDNS      = "pid:[4026531836]"
 	containerPIDNS = "pid:[4026532811]"
 )
+
+// writeProcNS writes the ns/pid link of a fake /proc/<pid> directory.
+func writeProcNS(t *testing.T, dir, ns string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, "ns"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(ns, filepath.Join(dir, "ns", "pid")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// nginx-provider CR-B28: the real reader reads the ns/pid link
+func TestProcDirPIDNamespace(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "100")
+	writeProcNS(t, dir, containerPIDNS)
+	ns, err := procDir(root).PIDNamespace(100)
+	if err != nil || ns != containerPIDNS {
+		t.Errorf("PIDNamespace(100) = %q, %v, want %q", ns, err, containerPIDNS)
+	}
+	if _, err := procDir(root).PIDNamespace(101); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("PIDNamespace of a process that is not there: %v, want not-exist", err)
+	}
+}
 
 // nsProc is a ProcReader whose PID-namespace links are set per process. A
 // process with no entry in ns reads as hostPIDNS; one in errs fails.

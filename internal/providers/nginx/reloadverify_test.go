@@ -110,6 +110,14 @@ func procTree(t *testing.T, s captureScan, exe map[int]string) string {
 			t.Fatal(err)
 		}
 		writeProcStatus(t, dir, managedUID)
+		writeProcNS(t, dir, hostPIDNS)
+	}
+	if _, err := os.Stat(filepath.Join(root, "1")); err != nil {
+		init := filepath.Join(root, "1")
+		if err := os.Mkdir(init, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeProcNS(t, init, hostPIDNS)
 	}
 	for pid, target := range exe {
 		if err := os.Symlink(target, filepath.Join(root, strconv.Itoa(pid), "exe")); err != nil {
@@ -168,6 +176,10 @@ func (r *replayReader) RealUID(pid int) (uint32, error) {
 	}
 	return 0, os.ErrNotExist
 }
+
+// PIDNamespace is the host's of every process, as the captures were taken
+// on the host.
+func (r *replayReader) PIDNamespace(int) (string, error) { return hostPIDNS, nil }
 
 func (r *replayReader) count() int {
 	r.mu.Lock()
@@ -734,6 +746,10 @@ func TestValidateMasterRefuses(t *testing.T) {
 	const masterTitle = "nginx: master process /usr/sbin/nginx"
 	pad := strings.Repeat("\x00", 40)
 	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeProcNS(t, filepath.Join(root, "1"), hostPIDNS)
 	type row struct {
 		name    string
 		pid     int
@@ -768,6 +784,7 @@ func TestValidateMasterRefuses(t *testing.T) {
 			t.Fatal(err)
 		}
 		writeProcStatus(t, dir, managedUID)
+		writeProcNS(t, dir, hostPIDNS)
 		if err := os.Symlink(rw.exe, filepath.Join(dir, "exe")); err != nil {
 			t.Fatal(err)
 		}

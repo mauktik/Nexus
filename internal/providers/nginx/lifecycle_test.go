@@ -330,6 +330,11 @@ func (r unreadProc) RealUID(pid int) (uint32, error) {
 	return 0, errors.New("unexpected /proc read")
 }
 
+func (r unreadProc) PIDNamespace(pid int) (string, error) {
+	r.t.Errorf("the helper read the PID namespace of %d", pid)
+	return "", errors.New("unexpected /proc read")
+}
+
 // lcOutcome is one operation run through its binding.
 type lcOutcome struct {
 	res     spec.ServiceResult
@@ -550,6 +555,10 @@ func (p *lockstepProc) RealUID(pid int) (uint32, error) {
 	}
 	return 0, fs.ErrNotExist
 }
+
+// PIDNamespace is the host's of every process, as the captures were taken
+// on the host.
+func (p *lockstepProc) PIDNamespace(int) (string, error) { return hostPIDNS, nil }
 
 // generation is the master's (pid, startTicks) and its children's, as the
 // next Snapshot would show them; reading it does not advance the replay.

@@ -253,10 +253,11 @@ func (s *procSeq) next() {
 	s.i++
 }
 
-func (s *procSeq) Snapshot() (map[int]Proc, error) { return s.cur().Snapshot() }
-func (s *procSeq) Exe(pid int) (string, error)     { return s.cur().Exe(pid) }
-func (s *procSeq) RealUID(pid int) (uint32, error) { return s.cur().RealUID(pid) }
-func (s *procSeq) reload(accepted bool)            { s.cur().reload(accepted) }
+func (s *procSeq) Snapshot() (map[int]Proc, error)      { return s.cur().Snapshot() }
+func (s *procSeq) Exe(pid int) (string, error)          { return s.cur().Exe(pid) }
+func (s *procSeq) RealUID(pid int) (uint32, error)      { return s.cur().RealUID(pid) }
+func (s *procSeq) PIDNamespace(pid int) (string, error) { return s.cur().PIDNamespace(pid) }
+func (s *procSeq) reload(accepted bool)                 { s.cur().reload(accepted) }
 
 // useSequence makes steps the helper's /proc, the first one's master
 // nginx's main PID.

@@ -78,6 +78,11 @@ func TestValidateMasterIgnoresProcDirOwner(t *testing.T) {
 	if err := os.Symlink(testNginxPath, filepath.Join(dir, "exe")); err != nil {
 		t.Fatal(err)
 	}
+	writeProcNS(t, dir, hostPIDNS)
+	if err := os.Mkdir(filepath.Join(root, "1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeProcNS(t, filepath.Join(root, "1"), hostPIDNS)
 	r := procDir(root)
 	fi, err := os.Stat(dir)
 	if err != nil {

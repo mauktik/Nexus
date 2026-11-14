@@ -77,6 +77,10 @@ type ProcReader interface {
 	// process can make itself. The error wraps fs.ErrNotExist when there
 	// is no such process.
 	RealUID(pid int) (uint32, error)
+	// PIDNamespace returns the target of /proc/<pid>/ns/pid, which names
+	// the PID namespace of process pid (pid_namespaces(7)). The error
+	// wraps fs.ErrNotExist when there is no such process.
+	PIDNamespace(pid int) (string, error)
 }
 
 // Master is an identified nginx master process.
@@ -104,7 +108,12 @@ type Generation struct {
 // title must start "nginx: master process", and its real uid must be root's
 // (managedUID): on OpenRC the pid comes from a pidfile in a directory the
 // nginx user owns, and a master that user started itself must not be taken
-// for the one the init system reloads. The error's text is the reason,
+// for the one the init system reloads. Its PID namespace must also be PID
+// 1's (CR-B28): every container has its own, and a root nginx master of
+// another container passes the exe, title and uid checks under that
+// container's view of the paths. The mount namespace is not compared:
+// systemd's sandboxing options put nexusd, and may put an nginx unit, in a
+// private one. The error's text is the reason,
 // which the caller puts in the dependency-unavailable detail.
 func ValidateMaster(r ProcReader, pid int, nginxPath string) (Master, error) {
 	if pid <= 0 {
@@ -141,6 +150,21 @@ func ValidateMaster(r ProcReader, pid int, nginxPath string) (Master, error) {
 	if uid != managedUID {
 		return Master{}, fmt.Errorf("main pid %d runs as uid %d, not uid %d (root): it is not the master the "+
 			"init system started", pid, uid, managedUID)
+	}
+	ns, err := r.PIDNamespace(pid)
+	if errors.Is(err, fs.ErrNotExist) {
+		return Master{}, fmt.Errorf("main pid %d is gone", pid)
+	}
+	if err != nil {
+		return Master{}, fmt.Errorf("cannot read the PID namespace of main pid %d: %w", pid, err)
+	}
+	initNS, err := r.PIDNamespace(1)
+	if err != nil {
+		return Master{}, fmt.Errorf("cannot read the PID namespace of pid 1: %w", err)
+	}
+	if ns != initNS {
+		return Master{}, fmt.Errorf("main pid %d is in PID namespace %s, not pid 1's %s: it is not the master "+
+			"the init system started", pid, ns, initNS)
 	}
 	return Master{PID: pid, StartTicks: p.StartTicks}, nil
 }
@@ -398,6 +422,16 @@ func (d procDir) RealUID(pid int) (uint32, error) {
 		return uint32(real), nil
 	}
 	return 0, fmt.Errorf("status of %d has no Uid line", pid)
+}
+
+// PIDNamespace is the target of <dir>/<pid>/ns/pid, as the kernel reports it
+// (for example "pid:[4026531836]").
+func (d procDir) PIDNamespace(pid int) (string, error) {
+	ns, err := os.Readlink(filepath.Join(string(d), strconv.Itoa(pid), "ns", "pid"))
+	if errors.Is(err, syscall.ESRCH) { // exited between open and read
+		return "", fmt.Errorf("ns/pid of %d: %w", pid, fs.ErrNotExist)
+	}
+	return ns, err
 }
 
 // parseProcStat parses a /proc/<pid>/stat line (proc_pid_stat(5)). The comm
