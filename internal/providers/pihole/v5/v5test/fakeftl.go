@@ -731,7 +731,11 @@ func (f *FakeFTL) readAfterCompile(failed bool) {
 		if f.gen != gen {
 			return
 		}
-		if !failed && f.changeCounter() != counter && f.lastCommit().Compare(end) <= 0 {
+		// The latest commit's time is all the fake keeps, so two or more
+		// commits since the read began count as a failure even when the
+		// latest landed after the window: stricter than the device, never
+		// more permissive (code review CR-25).
+		if n := f.changeCounter() - counter; !failed && n != 0 && (n >= 2 || f.lastCommit().Compare(end) <= 0) {
 			f.logLine(false, LogInaccessibleAdlists)
 		}
 		f.reading = false

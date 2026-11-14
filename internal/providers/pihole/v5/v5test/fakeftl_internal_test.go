@@ -19,10 +19,12 @@ func TestFakeFTLPostCompileReadIsJudgedByTheCommitTimeNotTheTimer(t *testing.T) 
 	for _, tc := range []struct {
 		name   string
 		commit time.Duration // after the completion line
+		second bool          // a second commit after the window, before the late timer (CR-25)
 		want   bool
 	}{
-		{"a commit during the window, the timer late", 0, true},
-		{"a commit after the window, the timer late", window + 100*time.Millisecond, false},
+		{"a commit during the window, the timer late", 0, false, true},
+		{"a commit after the window, the timer late", window + 100*time.Millisecond, false, false},
+		{"a commit during the window and another after it, the timer late", 0, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := NewFakeHost(t)
@@ -43,9 +45,25 @@ func TestFakeFTLPostCompileReadIsJudgedByTheCommitTimeNotTheTimer(t *testing.T) 
 			f.mu.Lock()
 			time.Sleep(time.Until(seen.Add(tc.commit)))
 			h.SeedDomain(1, "commit.example.com", "")
+			if tc.second {
+				time.Sleep(time.Until(seen.Add(window + 100*time.Millisecond)))
+				h.SeedDomain(1, "second.example.com", "")
+			}
 			time.Sleep(time.Until(seen.Add(window + 150*time.Millisecond)))
 			f.mu.Unlock()
-			time.Sleep(100 * time.Millisecond) // the late timer runs
+			// Wait until the late timer has run (it clears reading), so the
+			// "nothing logged" case cannot pass before the judgement (CR-26).
+			for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+				f.mu.Lock()
+				reading := f.reading
+				f.mu.Unlock()
+				if !reading {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("the post-completion read did not end")
+				}
+			}
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			b, err := os.ReadFile(f.LogPath())

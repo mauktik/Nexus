@@ -42,8 +42,8 @@ func TestGravityRunningNeedsARootProcessWithTheScriptAsArgv1(t *testing.T) {
 		{"root, the script is argv[0]", 0, []string{script}, false},
 		{"root, sh", 0, []string{"/bin/sh", script}, true},
 		{"root, dash", 0, []string{"dash", script}, true},
-		{"root, sudo waiting at its password prompt", 0, []string{"sudo", script}, false},
-		{"root, sudo with the script's arguments", 0, []string{"/usr/bin/sudo", script, "-g"}, false},
+		{"sudo-shaped argv with uid 0 (comm sudo)", 0, []string{"sudo", script}, false},
+		{"sudo-shaped argv with the script's arguments, uid 0 (comm sudo)", 0, []string{"/usr/bin/sudo", script, "-g"}, false},
 		{"root, su", 0, []string{"su", script}, false},
 		{"root, pkexec", 0, []string{"pkexec", script}, false},
 	}

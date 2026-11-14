@@ -965,9 +965,10 @@ GRAVITY PROCESS SHAPE (security review SEC-3; measured 2026-11-13T23:15Z, aarch6
     comm     sudo
     Uid      65534 0 0 0   (real still nobody while it waits for stdin)
   So with -S the existing uid check already refuses it, and its argv[1] is
-  -S. The reviewer's case, a pty prompt for `sudo /opt/pihole/gravity.sh`
-  with real, effective and saved uid 0 under PERM_ROOT, was not reproduced
-  (no pty); its comm is "sudo" all the same, which is what the check uses.
+  -S. The pty case was later reproduced by security review SEC-4 (sudo
+  1.9.5p2, at a real pty password prompt, also through a symlink named bash):
+  "Uid: 65534 0 0 0" with comm "bash" for the symlink. The real-uid check is
+  the guard; comm is defence in depth only (see the corrected header above).
 
 TC-158 RED AGAIN ON THE PRE-FIX CODE, WITH THE FINAL phDig (code review CR-14)
   PROVENANCE "REGRESSION TESTS, RED ON THE PRE-FIX CODE" recorded TC-158's
