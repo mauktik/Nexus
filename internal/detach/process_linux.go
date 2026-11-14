@@ -32,10 +32,12 @@ func init() { signalReady = linuxSignalReady }
 // without systemd. Launch starts `nexusd op-supervise --dir D --process` in
 // its own session and records its identity in supervisor.json; UnitState,
 // Signal and ListUnits answer from that identity in the systemd vocabulary
-// the launcher and recovery already use, so nothing else changes.
+// the launcher and recovery already use, so nothing else changes. Subject
+// names the supervisor process, not a unit, in outcome details.
 func ProcessBackend(cfg ProcessConfig) Options {
 	b := &processBackend{cfg: cfg}
-	return Options{Launch: b.launch, UnitState: b.unitState, Signal: b.signal, ListUnits: b.listUnits}
+	return Options{Launch: b.launch, UnitState: b.unitState, Signal: b.signal, ListUnits: b.listUnits,
+		Subject: processSubject}
 }
 
 type processBackend struct {

@@ -480,8 +480,13 @@ func testMaximumRuntimeReportsWithoutSignaling(t *testing.T, backend detachtest.
 	}
 	offset.Store(int64(2 * time.Hour))
 	rec := w.waitStatus(op.ID, apitypes.StatusFailed)
-	if rec.Error == nil || rec.Error.Slug() != problem.OutcomeUnknown || !strings.Contains(rec.Error.Detail, "nexus-op-"+op.ID) {
-		t.Fatalf("error %+v, want outcome-unknown naming nexus-op-%s", rec.Error, op.ID)
+	// The process backend has no unit: the detail names its supervisor.
+	name := "nexus-op-" + op.ID
+	if backend.Name == "process" {
+		name = "the supervisor process of operation " + op.ID
+	}
+	if rec.Error == nil || rec.Error.Slug() != problem.OutcomeUnknown || !strings.Contains(rec.Error.Detail, name) {
+		t.Fatalf("error %+v, want outcome-unknown naming %s", rec.Error, name)
 	}
 	if !alive(pid) {
 		t.Fatal("the child died: max runtime must not signal")

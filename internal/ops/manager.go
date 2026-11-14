@@ -91,6 +91,7 @@ type Manager struct {
 	log      *slog.Logger
 	now      func() time.Time
 	detach   *detach.Launcher
+	boot     string // This boot's ID; empty when unknown
 
 	// base is the context of in-process operations. Shutdown cancels it
 	// only when its grace period ends.
@@ -133,6 +134,10 @@ func New(opts Options) (*Manager, error) {
 	}
 	if m.log == nil {
 		m.log = slog.Default()
+	}
+	if boot, err := detach.BootID(); err == nil {
+		// Without it, exit.json from an earlier boot is taken at its word.
+		m.boot = boot
 	}
 	if m.now == nil {
 		m.now = time.Now
@@ -502,20 +507,52 @@ func (m *Manager) commitEnd(e *entry, to apitypes.OperationStatus, result json.R
 	}
 }
 
+// interruption is why exit.json x of operation id is not the outcome of
+// the operation's process, or "" when it is. Either the supervisor stopped
+// it on a SIGTERM nexusd did not ask for (Interrupted), as at a host
+// shutdown; or x was written in an earlier boot, and the process died of a
+// signal its supervisor did not send (not canceled, not timed out), which
+// is what a shutdown's SIGTERM to every process leaves when the supervisor
+// wrote exit.json before it handled its own SIGTERM.
+func (m *Manager) interruption(id string, x detach.Exit) string {
+	subject := m.detach.Subject(id)
+	switch {
+	case x.Canceled:
+		return ""
+	case x.Interrupted:
+		return fmt.Sprintf("%s was stopped by a SIGTERM that nexusd did not send, such as a host shutdown's, before the operation reported an outcome", subject)
+	case !x.TimedOut && x.BootID != "" && m.boot != "" && x.BootID != m.boot && (x.Signal != "" || x.ExitCode > 128):
+		how := "a signal"
+		if x.Signal != "" {
+			how = x.Signal
+		}
+		return fmt.Sprintf("%s ended in an earlier boot with the operation's process killed by %s, as a host shutdown does, before the operation reported an outcome", subject, how)
+	}
+	return ""
+}
+
 // detachedEnd maps the watcher's outcome to the terminal status: exit.json
-// with canceled set is Canceled; any other exit.json goes through
-// Finalize; a lost unit or a passed MaxRuntime is outcome-unknown naming
-// the unit.
+// with canceled set is Canceled; an interrupted one (interruption), a lost
+// unit or a passed MaxRuntime is outcome-unknown naming the unit, or on the
+// process backend the supervisor process; any other exit.json goes through
+// Finalize.
 func (m *Manager) detachedEnd(e *entry, d *DetachedWork, r *provider.Run, o detach.Outcome) (
 	to apitypes.OperationStatus, result json.RawMessage, perr *problem.Error) {
 	m.dropSpec(e.id)
-	unit := detach.Unit(e.id)
+	subject := m.detach.Subject(e.id)
 	switch {
 	case o.Exit != nil && o.Exit.Canceled:
 		return apitypes.StatusCanceled, nil, nil
 	case o.Overran:
 		return apitypes.StatusFailed, nil, problem.New(problem.OutcomeUnknown,
-			fmt.Sprintf("the operation passed its maximum runtime; unit %s was not stopped and may still be running", unit))
+			fmt.Sprintf("the operation passed its maximum runtime; %s was not stopped and may still be running", subject))
+	}
+	unknown := ""
+	switch {
+	case o.Lost:
+		unknown = fmt.Sprintf("%s ended without reporting an outcome", subject)
+	case o.Exit != nil:
+		unknown = m.interruption(e.id, *o.Exit)
 	}
 	defer func() {
 		if v := recover(); v != nil {
@@ -529,8 +566,8 @@ func (m *Manager) detachedEnd(e *entry, d *DetachedWork, r *provider.Run, o deta
 		m.log.Error("cannot decode the operation's input", "operationId", e.id, "error", err.Error())
 		in = nil
 	}
-	if o.Lost {
-		detail := fmt.Sprintf("unit %s ended without reporting an outcome", unit)
+	if unknown != "" {
+		detail := unknown
 		if in != nil {
 			if extra := d.Funcs.LostDetail(r, in); extra != "" {
 				detail += "; " + extra

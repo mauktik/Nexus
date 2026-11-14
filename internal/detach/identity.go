@@ -76,6 +76,13 @@ func ReadIdentity(dir string) (Identity, error) {
 	return id, nil
 }
 
+// BootID is the current boot's ID, read from /proc. It fails off Linux.
+func BootID() (string, error) { return bootID("/proc") }
+
+// processSubject is how outcome-unknown details name the runner of
+// operation id on the process backend, which has no unit.
+func processSubject(id string) string { return "the supervisor process of operation " + id }
+
 // bootID is the current boot's ID, which changes on every boot.
 func bootID(procRoot string) (string, error) {
 	b, err := os.ReadFile(filepath.Join(procRoot, "sys", "kernel", "random", "boot_id"))

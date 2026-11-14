@@ -278,6 +278,9 @@ func TestCancelKillsSetsidGrandchild(t *testing.T) {
 	}
 	gc := pidIn(t, filepath.Join(dir, "gc"))
 	killAtCleanup(t, gc)
+	if err := RequestCancel(dir); err != nil { // As Launcher.Cancel does before it signals
+		t.Fatal(err)
+	}
 	if err := opts.Signal(context.Background(), Unit(id), syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}
@@ -350,6 +353,9 @@ exec sleep 1000`, KillControlGroup)
 	gc, bg := pidIn(t, filepath.Join(dir, "gc")), pidIn(t, filepath.Join(dir, "bg"))
 	killAtCleanup(t, gc)
 	killAtCleanup(t, bg)
+	if err := RequestCancel(dir); err != nil { // As Launcher.Cancel does before it signals
+		t.Fatal(err)
+	}
 	if err := opts.Signal(context.Background(), Unit(id), syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}
@@ -405,6 +411,9 @@ func TestCgroupFallbacks(t *testing.T) {
 	}
 	gc := pidIn(t, filepath.Join(dir, "gc"))
 	killAtCleanup(t, gc)
+	if err := RequestCancel(dir); err != nil { // As Launcher.Cancel does before it signals
+		t.Fatal(err)
+	}
 	if err := opts.Signal(context.Background(), Unit(id), syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}

@@ -122,6 +122,9 @@ type Options struct {
 	ListUnits func(ctx context.Context) ([]string, error)
 	// Now is the clock of MaxRuntime. Nil means time.Now.
 	Now func() time.Time
+	// Subject is how an outcome-unknown detail names operation id's runner.
+	// Nil names its unit, nexus-op-<id>.service.
+	Subject func(id string) string
 }
 
 // Launcher starts operation units, signals them and watches them to their
@@ -135,6 +138,7 @@ type Launcher struct {
 	signal    func(context.Context, string, syscall.Signal) error
 	listUnits func(context.Context) ([]string, error)
 	now       func() time.Time
+	subject   func(string) string
 	real      bool
 
 	mu       sync.Mutex
@@ -151,7 +155,7 @@ func New(cfg Config, opts Options) (*Launcher, error) {
 	l := &Launcher{
 		opsDir: cfg.OpsDir, exe: cfg.Executable, log: cfg.Logger,
 		launch: opts.Launch, unitState: opts.UnitState, signal: opts.Signal, listUnits: opts.ListUnits, now: opts.Now,
-		watched: map[string]*watched{},
+		subject: opts.Subject, watched: map[string]*watched{},
 	}
 	if l.exe == "" {
 		exe, err := os.Executable()
@@ -187,6 +191,16 @@ func (l *Launcher) RealLauncher() bool { return l.real }
 
 // Dir is operation id's directory.
 func (l *Launcher) Dir(id string) string { return filepath.Join(l.opsDir, id) }
+
+// Subject is how an outcome-unknown detail names operation id's runner:
+// "unit nexus-op-<id>.service" on systemd, and the supervisor process on
+// the process backend, which has no unit. A nil Launcher names the unit.
+func (l *Launcher) Subject(id string) string {
+	if l == nil || l.subject == nil {
+		return "unit " + Unit(id)
+	}
+	return l.subject(id)
+}
 
 var validID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*$`)
 
@@ -245,11 +259,21 @@ func (l *Launcher) mayHaveStarted(ctx context.Context, id string) bool {
 	return err != nil || lv != Absent
 }
 
-// Cancel sends SIGTERM, the supervisor's cancel signal, to operation id's
-// unit. The supervisor forwards it to the child's process group and
-// escalates to SIGKILL after the grace period, even if nexusd restarts
-// meanwhile.
+// Cancel records the cancel request in operation id's directory
+// (RequestCancel), then sends SIGTERM to its unit's supervisor. The
+// supervisor forwards it to the child's process group and escalates to
+// SIGKILL after the grace period, even if nexusd restarts meanwhile, and
+// reports canceled because the request is there. A SIGTERM without it, such
+// as init's or systemd's at a host shutdown, stops the child the same way
+// but is reported interrupted, which ends the operation outcome-unknown.
+// Without a recorded request no signal is sent.
 func (l *Launcher) Cancel(ctx context.Context, id string) error {
+	if !validID.MatchString(id) {
+		return fmt.Errorf("detach: invalid operation id %q", id)
+	}
+	if err := RequestCancel(l.Dir(id)); err != nil {
+		return err
+	}
 	return l.signal(ctx, Unit(id), syscall.SIGTERM)
 }
 

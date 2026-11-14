@@ -27,6 +27,14 @@ const PipeWaitDelay = 3 * time.Second
 // child's process group is gone before the grace period ends.
 const groupPoll = 50 * time.Millisecond
 
+// lateTermSettle bounds how long a supervisor whose child died of a signal,
+// or exited past 128 as a shell does on one, that the supervisor did not
+// send waits for a SIGTERM of its own. At a host shutdown init sends SIGTERM
+// to every process at once, and the child may die of its copy before the
+// supervisor has handled its own; without the wait the stop would read as
+// the child's own failure.
+const lateTermSettle = 500 * time.Millisecond
+
 // SuperviseMode is how a supervisor was started.
 type SuperviseMode int
 
@@ -86,10 +94,14 @@ var ownCgroup = func(dir string) processCgroup { return nil }
 // operation's unit. It reads and unlinks dir/spec.json, runs the child in
 // its own session with stdin on /dev/null and stdout and stderr framed into
 // dir/output in arrival order, and writes dir/exit.json. On the spec's
-// timeout or a SIGTERM (the cancel signal) it sends SIGTERM to the child's
-// process group, then SIGKILL after the grace period. It returns the
-// process exit status: non-zero, with no child started and no exit.json,
-// when there is no spec.
+// timeout or a SIGTERM it sends SIGTERM to the child's process group, then
+// SIGKILL after the grace period. A SIGTERM is the cancel when nexusd
+// recorded its request in dir/cancel first (Launcher.Cancel), and exit.json
+// says canceled. Any other SIGTERM, such as init's or systemd's at a host
+// shutdown, stops the child the same way, and exit.json says interrupted:
+// the operation's outcome is unknown, never a cancel nor the child's own
+// result. It returns the process exit status: non-zero, with no child
+// started and no exit.json, when there is no spec.
 //
 // Diagnostics go to diag, the unit's journal.
 //
@@ -172,6 +184,9 @@ func Supervise(dir string, diag io.Writer, mode SuperviseMode) int {
 		}
 	}
 	x := runChild(dir, spec, sigs, logf, work, con10)
+	if boot, err := bootID("/proc"); err == nil {
+		x.BootID = boot
+	}
 	status := 0
 	if err := WriteExit(dir, x); err != nil {
 		logf("%v", err)
@@ -185,18 +200,37 @@ func Supervise(dir string, diag io.Writer, mode SuperviseMode) int {
 	return status
 }
 
+// stopReason sets x.Canceled when nexusd recorded its cancel request in
+// dir, which it does before it sends the SIGTERM the supervisor received,
+// and x.Interrupted otherwise. A request that cannot be checked counts as
+// absent: interrupted is outcome-unknown, never a wrong definite answer.
+func stopReason(dir string, x *Exit, logf func(string, ...any)) {
+	requested, err := CancelRequested(dir)
+	if err != nil {
+		logf("%v; the SIGTERM is taken as an interruption", err)
+	}
+	if requested {
+		x.Canceled = true
+		return
+	}
+	x.Interrupted = true
+	logf("SIGTERM without a cancel request from nexusd (a host shutdown, or a signal sent by hand): the operation is reported interrupted")
+}
+
 // runChild runs spec's child to its end and reports how it ended. With a
 // work group the child runs in it, and it is killed and swept with the
 // child's process group. con10 writes the CON-10 note to the output first.
 func runChild(dir string, spec Spec, sigs <-chan os.Signal, logf func(string, ...any), work processCgroup, con10 bool) Exit {
-	// A SIGTERM that arrived before the child exists cancels the operation
-	// without starting it.
+	// A SIGTERM that arrived before the child exists stops the operation
+	// without starting it: canceled or interrupted, as below.
 	for pending := true; pending; {
 		select {
 		case s := <-sigs:
 			if s == syscall.SIGTERM {
 				now := time.Now()
-				return Exit{ExitCode: -1, Started: now, Ended: now, Canceled: true}
+				x := Exit{ExitCode: -1, Started: now, Ended: now}
+				stopReason(dir, &x, logf)
+				return x
 			}
 		default:
 			pending = false
@@ -274,7 +308,9 @@ func runChild(dir string, spec Spec, sigs <-chan os.Signal, logf func(string, ..
 		timeout = t.C
 	}
 	var killTimer *time.Timer
-	terminating, killed := false, false
+	// termed is a SIGTERM to the supervisor: the cancel or an interruption,
+	// decided once the child is gone (stopReason).
+	terminating, killed, termed := false, false, false
 	terminate := func() {
 		if terminating {
 			return
@@ -295,7 +331,7 @@ loop:
 			terminate()
 		case s := <-sigs:
 			if s == syscall.SIGTERM {
-				x.Canceled = true
+				termed = true
 				terminate()
 			}
 		case <-kill:
@@ -305,6 +341,22 @@ loop:
 		}
 	}
 	x.Started, x.Ended = started, time.Now()
+
+	// A SIGTERM may have come with the child's exit, or just after it: the
+	// select above takes either when both are ready, and init's SIGTERM to
+	// every process can kill the child before the supervisor handles its
+	// own. One that is pending is taken; when the child died of a signal
+	// the supervisor did not send, one is waited for, briefly.
+	if !termed {
+		settle := time.Duration(0)
+		if !terminating && diedOfSignal(cmd.ProcessState) {
+			settle = lateTermSettle
+		}
+		if lateTerm(sigs, settle) {
+			termed = true
+			terminate()
+		}
+	}
 
 	// The child is gone, but a termination in progress still reaches the
 	// rest of its group: SIGKILL at the end of the grace period unless the
@@ -330,6 +382,9 @@ loop:
 	}
 	closeLog()
 
+	if termed {
+		stopReason(dir, &x, logf)
+	}
 	x.ExitCode = -1
 	if ps := cmd.ProcessState; ps != nil {
 		x.ExitCode = ps.ExitCode()
@@ -342,6 +397,44 @@ loop:
 		logf("waiting for the child: %v", waitErr)
 	}
 	return x
+}
+
+// diedOfSignal reports whether ps, a child's end, looks like a signal's
+// doing: killed by one, or an exit status past 128, which a shell gives for
+// a child killed by one or on a trapped one.
+func diedOfSignal(ps *os.ProcessState) bool {
+	if ps == nil {
+		return false
+	}
+	if ws, ok := ps.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		return true
+	}
+	return ps.ExitCode() > 128
+}
+
+// lateTerm reports whether a SIGTERM is on sigs now or arrives within
+// settle. Other signals there are dropped, as the supervisor drops them.
+func lateTerm(sigs <-chan os.Signal, settle time.Duration) bool {
+	t := time.NewTimer(settle)
+	defer t.Stop()
+	for {
+		select {
+		case s := <-sigs:
+			if s == syscall.SIGTERM {
+				return true
+			}
+			continue
+		default:
+		}
+		select {
+		case s := <-sigs:
+			if s == syscall.SIGTERM {
+				return true
+			}
+		case <-t.C:
+			return false
+		}
+	}
 }
 
 // signalGroup sends sig to every process of group pgid. An empty group is

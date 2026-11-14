@@ -387,10 +387,12 @@ while :; do sleep 0.1; done`)
 	})
 }
 
-// TC-61: SIGTERM to the supervisor alone is the cancel: the child and its
-// grandchild in the same group both receive SIGTERM, then SIGKILL after
+// TC-61: SIGTERM to the supervisor alone, after nexusd recorded its
+// cancel request (as Launcher.Cancel does), is the cancel: the child and
+// its grandchild in the same group both receive SIGTERM, then SIGKILL after
 // the grace period, exit.json says canceled, and the supervisor exits after
-// writing it.
+// writing it. Without the request it is an interruption
+// (TestUnrequestedSIGTERMIsNotACancel).
 func TestCancelThroughSupervisorSIGTERM(t *testing.T) {
 	dir := t.TempDir()
 	spec := shSpec(dir, `sh -c 'trap "echo gc-term >> \"$DIR/gc\"; exit 0" TERM; echo gc=$$; while :; do sleep 0.1; done' &
@@ -403,6 +405,9 @@ while :; do sleep 0.1; done`)
 	waitOutput(t, dir, regexp.MustCompile(`gc=\d+`))
 	t.Cleanup(func() { killGroup(pid) })
 
+	if err := detach.RequestCancel(dir); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}

@@ -19,5 +19,6 @@ func ProcessBackend(ProcessConfig) Options {
 		UnitState: func(context.Context, string) (UnitState, error) { return UnitState{}, errNeedLinux },
 		Signal:    func(context.Context, string, syscall.Signal) error { return errNeedLinux },
 		ListUnits: func(context.Context) ([]string, error) { return nil, errNeedLinux },
+		Subject:   processSubject,
 	}
 }

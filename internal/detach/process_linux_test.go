@@ -362,6 +362,10 @@ while :; do sleep 0.1; done`)
 			t.Fatalf("%s: %v", name, err)
 		}
 		waitFile(t, filepath.Join(dir, "ready"), 10*time.Second)
+		// The cancel request Launcher.Cancel records before it signals.
+		if err := detach.RequestCancel(dir); err != nil {
+			t.Fatal(err)
+		}
 		if err := opts.Signal(context.Background(), detach.Unit(id), syscall.SIGTERM); err != nil {
 			t.Fatalf("%s: Signal: %v", name, err)
 		}
