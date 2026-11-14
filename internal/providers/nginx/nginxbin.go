@@ -89,10 +89,13 @@ func (n nginxBin) run(ctx context.Context, timeout time.Duration, w io.Writer, a
 	}
 	var exitErr *exec.ExitError
 	switch {
-	case err == nil || errors.Is(err, exec.ErrWaitDelay):
+	case (err == nil || errors.Is(err, exec.ErrWaitDelay)) && cmd.ProcessState != nil:
 		return cmd.ProcessState.ExitCode(), nil
 	case errors.As(err, &exitErr) && exitErr.ExitCode() >= 0:
 		return exitErr.ExitCode(), nil
+	}
+	if err == nil {
+		err = errors.New("nginx ended without a process state")
 	}
 	return 0, err
 }

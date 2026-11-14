@@ -71,6 +71,10 @@ type ProcReader interface {
 	// reports it, including a " (deleted)" suffix. The error wraps
 	// fs.ErrNotExist when there is no such process.
 	Exe(pid int) (string, error)
+	// Owner returns the UID that owns process pid: the owner of
+	// /proc/<pid>. The error wraps fs.ErrNotExist when there is no such
+	// process.
+	Owner(pid int) (uint32, error)
 }
 
 // Master is an identified nginx master process.
@@ -94,9 +98,12 @@ type Generation struct {
 // ValidateMaster identifies pid, the init system's main PID, as the nginx
 // master (Data Flow 3 step 2). Its exe must be nginxPath, or nginxPath with
 // the kernel's " (deleted)" suffix, which is what the link shows after a
-// package upgrade replaced the binary without restarting nginx (L-53), and
-// its title must start "nginx: master process". The error's text is the
-// reason, which the caller puts in the dependency-unavailable detail.
+// package upgrade replaced the binary without restarting nginx (L-53), its
+// title must start "nginx: master process", and it must be owned by root
+// (managedUID): on OpenRC the pid comes from a pidfile in a directory the
+// nginx user owns, and a master that user started itself must not be taken
+// for the one the init system reloads. The error's text is the reason,
+// which the caller puts in the dependency-unavailable detail.
 func ValidateMaster(r ProcReader, pid int, nginxPath string) (Master, error) {
 	if pid <= 0 {
 		return Master{}, fmt.Errorf("the init system reports no main pid (%d)", pid)
@@ -121,6 +128,17 @@ func ValidateMaster(r ProcReader, pid int, nginxPath string) (Master, error) {
 	}
 	if !strings.HasPrefix(p.Title, masterTitlePrefix) {
 		return Master{}, fmt.Errorf("the title of main pid %d is %q, not an nginx master process", pid, p.Title)
+	}
+	uid, err := r.Owner(pid)
+	if errors.Is(err, fs.ErrNotExist) {
+		return Master{}, fmt.Errorf("main pid %d is gone", pid)
+	}
+	if err != nil {
+		return Master{}, fmt.Errorf("cannot read the owner of main pid %d: %w", pid, err)
+	}
+	if uid != managedUID {
+		return Master{}, fmt.Errorf("main pid %d is owned by uid %d, not uid %d (root): it is not the master the "+
+			"init system started", pid, uid, managedUID)
 	}
 	return Master{PID: pid, StartTicks: p.StartTicks}, nil
 }
@@ -345,6 +363,20 @@ func (d procDir) proc(pid int) (Proc, error) {
 
 func (d procDir) Exe(pid int) (string, error) {
 	return os.Readlink(filepath.Join(string(d), strconv.Itoa(pid), "exe"))
+}
+
+// Owner is the owner of <dir>/<pid>, which /proc sets to the process's
+// effective UID.
+func (d procDir) Owner(pid int) (uint32, error) {
+	fi, err := os.Stat(filepath.Join(string(d), strconv.Itoa(pid)))
+	if err != nil {
+		return 0, err
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, fmt.Errorf("no owner in the stat of process %d", pid)
+	}
+	return st.Uid, nil
 }
 
 // parseProcStat parses a /proc/<pid>/stat line (proc_pid_stat(5)). The comm

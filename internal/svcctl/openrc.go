@@ -3,6 +3,7 @@ package svcctl
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/mauktik/nexus/internal/platform"
 )
@@ -125,10 +127,30 @@ func (o *openrc) mainPID(service string) int {
 	return 0
 }
 
+// openRegular opens path for reading without following a symlink at its
+// last element and without blocking on a FIFO or a device, and requires the
+// opened file itself to be a regular file. Checking the descriptor, not the
+// path, leaves no window between the check and the open for the entry to be
+// swapped.
+func openRegular(path string) (*os.File, os.FileInfo, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, nil, errors.Join(err, f.Close())
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, nil, errors.Join(fmt.Errorf("%s is not a regular file", path), f.Close())
+	}
+	return f, fi, nil
+}
+
 // recordPIDFile is the absolute path on the pidfile= line of a
 // start-stop-daemon record, or "".
 func recordPIDFile(path string) string {
-	f, err := os.Open(path)
+	f, _, err := openRegular(path)
 	if err != nil {
 		return ""
 	}
@@ -142,15 +164,14 @@ func recordPIDFile(path string) string {
 	return ""
 }
 
-// readPIDFile is the positive PID on the first line of a regular pidfile,
-// or 0.
+// readPIDFile is the positive PID on the first line of a pidfile, or 0. The
+// pidfile is in nginx's own directory, so it is untrusted: it is opened
+// without following a symlink or blocking on a FIFO, must be a regular file
+// of at most maxPIDFileBytes (a pid and a newline), and anything else is no
+// pid. The caller checks the pid names a live process.
 func readPIDFile(path string) int {
-	fi, err := os.Stat(path)
-	if err != nil || !fi.Mode().IsRegular() {
-		return 0
-	}
-	f, err := os.Open(path)
-	if err != nil {
+	f, fi, err := openRegular(path)
+	if err != nil || fi.Size() > maxPIDFileBytes {
 		return 0
 	}
 	defer f.Close()

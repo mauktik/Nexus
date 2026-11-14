@@ -159,6 +159,15 @@ func (r *replayReader) Exe(pid int) (string, error) {
 	return "", os.ErrNotExist
 }
 
+// Owner is the managed owner (root, in production) of every process that
+// has an exe, as the captures were taken under root.
+func (r *replayReader) Owner(pid int) (uint32, error) {
+	if _, ok := r.exe[pid]; ok {
+		return managedUID, nil
+	}
+	return 0, os.ErrNotExist
+}
+
 func (r *replayReader) count() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -170,6 +179,7 @@ func (r *replayReader) count() int {
 // over the scans from the reload on.
 func replay(t *testing.T, fx reloadCapture) (Generation, *replayReader) {
 	t.Helper()
+	ownedByTester(t) // The master's /proc entry is a temp directory the test owns
 	exe := map[int]string{fx.header.MasterPID: fx.header.MasterExe}
 	last := fx.pre[len(fx.pre)-1]
 	r0 := procDir(procTree(t, last, exe))
@@ -693,6 +703,7 @@ func TestNonZeroExitRejectedImmediately(t *testing.T) {
 // nginx master, and accepts an upgraded master. Owner WI 5.2.
 // Requirements: FR-6, L-24, L-53.
 func TestValidateMasterRefuses(t *testing.T) {
+	ownedByTester(t) // The fake /proc entries are temp directories the test owns
 	// The (deleted) form of row 4 is what the kernel showed after the
 	// binary was replaced on both captured hosts.
 	for _, plat := range []string{"ubuntu", "alpine"} {

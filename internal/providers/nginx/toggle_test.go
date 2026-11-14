@@ -255,6 +255,7 @@ func (s *procSeq) next() {
 
 func (s *procSeq) Snapshot() (map[int]Proc, error) { return s.cur().Snapshot() }
 func (s *procSeq) Exe(pid int) (string, error)     { return s.cur().Exe(pid) }
+func (s *procSeq) Owner(pid int) (uint32, error)   { return s.cur().Owner(pid) }
 func (s *procSeq) reload(accepted bool)            { s.cur().reload(accepted) }
 
 // useSequence makes steps the helper's /proc, the first one's master

@@ -94,15 +94,33 @@ func (p *Provider) prepare(action string, in helperInput, r *provider.Run) (deta
 	}, nil
 }
 
+// dropContent removes a write's staged content from the operation's
+// directory. It runs once the operation's unit has ended, when no helper is
+// left to remove the content itself (it normally does, as soon as its action
+// is done): a helper that was never started, that was killed, or whose
+// unit was lost. A helper still running after its supervisor was lost reads
+// the content first and removes it itself, and one that cannot read it
+// fails with nothing changed, so removing it here is safe at any moment. A
+// failure is logged, not returned: it must not change the operation's
+// outcome.
+func (p *Provider) dropContent(dir string, r *provider.Run) {
+	if err := removeContent(dir); err != nil {
+		p.log.Warn("nginx staged content not removed", "operationId", r.ID(), "error", err.Error())
+	}
+}
+
 // finalize turns the helper's result.json into action's result, or its
 // error into the problem with its extensions. Without a result.json the
-// outcome is unknown, unless the helper never started. It reads files only.
+// outcome is unknown, unless the helper never started. It reads files only,
+// and removes a write's staged content, which the unit's end makes
+// garbage whatever the outcome (CR-B4).
 func finalize[Out any](p *Provider, action string, x detach.Exit, r *provider.Run) (Out, error) {
 	var none Out
 	dir, err := p.opDir(r.ID())
 	if err != nil {
 		return none, err
 	}
+	p.dropContent(dir, r)
 	var res helperResult
 	ok, err := readJSON(dir, resultFile, &res)
 	if err != nil {
@@ -139,6 +157,7 @@ func finalize[Out any](p *Provider, action string, x detach.Exit, r *provider.Ru
 func (p *Provider) lostDetail(action string, r *provider.Run) string {
 	detail := fmt.Sprintf("the nginx helper for action %s stopped without reporting a result", action)
 	if dir, err := p.opDir(r.ID()); err == nil {
+		p.dropContent(dir, r)
 		detail += previousClause(dir)
 	}
 	return detail

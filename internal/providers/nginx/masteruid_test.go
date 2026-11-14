@@ -4,6 +4,8 @@
 package nginx
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -30,5 +32,20 @@ func TestValidateMasterRequiresRoot(t *testing.T) {
 	_, err := ValidateMaster(ownedProc{base, managedUID + 33}, fx.header.MasterPID, testNginxPath)
 	if err == nil || !strings.Contains(err.Error(), "owned by") {
 		t.Errorf("a master owned by another user: %v, want a refusal naming its owner", err)
+	}
+}
+
+// nginx-provider SEC-2 C: the real reader reports the owner of /proc/<pid>
+func TestProcDirOwner(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "100"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	uid, err := procDir(root).Owner(100)
+	if err != nil || uid != uint32(os.Getuid()) {
+		t.Errorf("Owner(100) = %d, %v, want the test's own uid %d", uid, err, os.Getuid())
+	}
+	if _, err := procDir(root).Owner(101); err == nil {
+		t.Error("Owner of a process that is not there succeeded")
 	}
 }

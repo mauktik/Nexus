@@ -325,6 +325,11 @@ func (r unreadProc) Exe(pid int) (string, error) {
 	return "", errors.New("unexpected /proc read")
 }
 
+func (r unreadProc) Owner(pid int) (uint32, error) {
+	r.t.Errorf("the helper read the owner of %d", pid)
+	return 0, errors.New("unexpected /proc read")
+}
+
 // lcOutcome is one operation run through its binding.
 type lcOutcome struct {
 	res     spec.ServiceResult
@@ -535,6 +540,15 @@ func (p *lockstepProc) Exe(pid int) (string, error) {
 		return e, nil
 	}
 	return "", fs.ErrNotExist
+}
+
+// Owner is the managed owner (root, in production) of every captured
+// process, as the captures were taken under root.
+func (p *lockstepProc) Owner(pid int) (uint32, error) {
+	if _, ok := p.exe[pid]; ok {
+		return managedUID, nil
+	}
+	return 0, fs.ErrNotExist
 }
 
 // generation is the master's (pid, startTicks) and its children's, as the

@@ -216,9 +216,12 @@ func (s shadowBin) run(ctx context.Context) (TestOutput, error) {
 	}
 	var exitErr *exec.ExitError
 	switch {
-	case werr == nil || errors.Is(werr, exec.ErrWaitDelay):
+	case (werr == nil || errors.Is(werr, exec.ErrWaitDelay)) && cmd.ProcessState != nil:
 	case errors.As(werr, &exitErr) && exitErr.ExitCode() >= 0:
 	default:
+		if werr == nil {
+			werr = errors.New("it ended without a process state")
+		}
 		return TestOutput{}, fmt.Errorf("the shadow nginx -t did not finish: %v", werr)
 	}
 	return TestOutput{Valid: cmd.ProcessState.ExitCode() == 0, Output: string(validUTF8Prefix(out.buf)),

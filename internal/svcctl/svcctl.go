@@ -211,15 +211,19 @@ func realRun(ctx context.Context, argv []string) (Result, error) {
 	res := Result{Output: out.buf}
 	var exitErr *exec.ExitError
 	switch {
-	case err == nil || errors.Is(err, exec.ErrWaitDelay):
+	case (err == nil || errors.Is(err, exec.ErrWaitDelay)) && cmd.ProcessState != nil:
 		res.ExitCode = cmd.ProcessState.ExitCode()
 	case errors.As(err, &exitErr) && exitErr.ExitCode() >= 0:
 		res.ExitCode = exitErr.ExitCode()
 	default:
+		// Wait leaves ProcessState nil when it fails without an exit status.
+		if err == nil {
+			err = errors.New("the tool ended without a process state")
+		}
 		return Result{}, err
 	}
 	if res.ExitCode < 0 {
-		return Result{}, fmt.Errorf("%s was terminated: %s", argv[0], cmd.ProcessState)
+		return Result{}, fmt.Errorf("%s was terminated: %v", argv[0], cmd.ProcessState)
 	}
 	return res, nil
 }
