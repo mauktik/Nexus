@@ -76,8 +76,11 @@ ensure_image() {
 wait_port() {
 	local port=$1 i
 	for i in $(seq 1 100); do
-		# 200 open, 401 authenticating: both mean the registry answers.
-		if bash -c "exec 3<>/dev/tcp/127.0.0.1/$port" 2>/dev/null; then
+		# 200 open, 401 authenticating: both mean the registry answers. An
+		# open port alone does not: docker-proxy accepts before the
+		# registry in the container serves.
+		if bash -c "exec 3<>/dev/tcp/127.0.0.1/$port && printf 'GET /v2/ HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n' >&3 &&
+			read -r -t 2 proto code _ <&3 && case \$code in 200|401) exit 0 ;; *) exit 1 ;; esac" 2>/dev/null; then
 			return 0
 		fi
 		sleep 0.1
