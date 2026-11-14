@@ -237,7 +237,13 @@ func ReadExit(dir string) (x Exit, ok bool, err error) {
 	return x, true, nil
 }
 
-// writeAtomic replaces dir/name with b, mode 0600.
+// errRenamedNotSynced is what writeAtomic wraps around the error of the
+// directory sync that follows a successful rename: the file is in place and
+// readable by anyone, and only its durability is in doubt.
+var errRenamedNotSynced = errors.New("renamed into place, not synced to disk")
+
+// writeAtomic replaces dir/name with b, mode 0600. An error that wraps
+// errRenamedNotSynced means the new file is in place.
 func writeAtomic(dir, name string, b []byte) (err error) {
 	f, err := os.CreateTemp(dir, "."+name+".*.tmp")
 	if err != nil {
@@ -267,10 +273,16 @@ func writeAtomic(dir, name string, b []byte) (err error) {
 	if err := os.Rename(tmp, filepath.Join(dir, name)); err != nil {
 		return fmt.Errorf("detach: rename %s: %w", name, err)
 	}
-	return syncDir(dir)
+	if err := syncDir(dir); err != nil {
+		return fmt.Errorf("%w: %w", errRenamedNotSynced, err)
+	}
+	return nil
 }
 
-func syncDir(dir string) error {
+// syncDir is syncDirOS; a test makes it fail.
+var syncDir = syncDirOS
+
+func syncDirOS(dir string) error {
 	d, err := os.Open(dir)
 	if err != nil {
 		return fmt.Errorf("detach: open %s: %w", dir, err)

@@ -615,6 +615,45 @@ func TestIdentityRenamedButNotSyncedLaunchSucceeds(t *testing.T) {
 	}
 }
 
+// CR-A13: under fd exhaustion the directory sync after the rename fails with
+// EMFILE, and so does any read of the record that follows. The record is in
+// place all the same, so the launch is not failed: the supervisor has read
+// it and started the child, which a kill of the supervisor would orphan.
+func TestIdentityRenamedEMFILEOnSyncAndReadBackLaunchSucceeds(t *testing.T) {
+	l, _, _ := processLauncher(t, "")
+	savedSync, savedRead := *detach.SyncDirHook, *detach.ReadIdentityHook
+	t.Cleanup(func() { *detach.SyncDirHook, *detach.ReadIdentityHook = savedSync, savedRead })
+	var syncs, reads int
+	*detach.SyncDirHook = func(dir string) error {
+		if _, err := os.Stat(filepath.Join(dir, detach.IdentityFile)); err != nil {
+			return savedSync(dir) // spec.json and the other files before the identity
+		}
+		syncs++
+		return &os.PathError{Op: "open", Path: dir, Err: syscall.EMFILE}
+	}
+	*detach.ReadIdentityHook = func(string) (detach.Identity, error) {
+		reads++
+		return detach.Identity{}, &os.PathError{Op: "open", Path: detach.IdentityFile, Err: syscall.EMFILE}
+	}
+
+	const id = "01JTCRA13"
+	dir := l.Dir(id)
+	endSupervisorAtCleanup(t, dir)
+	if err := l.Start(context.Background(), id, shSpec(dir, `: > "$DIR/marker"`)); err != nil {
+		t.Fatalf("Start: %v, want success: the identity was renamed into place (syncs %d, read-backs %d)", err, syncs, reads)
+	}
+	if syncs == 0 {
+		t.Fatal("the directory sync after the identity rename was never made to fail")
+	}
+	x := waitExit(t, dir, 10*time.Second)
+	if x.Canceled || x.Interrupted || x.ExitCode != 0 {
+		t.Errorf("exit = %+v, want a normal exit 0", x)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "marker")); err != nil {
+		t.Errorf("the child did not run: %v", err)
+	}
+}
+
 // startupWindowDir makes operation id's directory with a delay-notify file:
 // its supervisor (this test binary) starts Supervise only after delay.
 func startupWindowDir(t *testing.T, l *detach.Launcher, id string, delay time.Duration) string {

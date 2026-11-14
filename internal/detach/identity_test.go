@@ -19,6 +19,8 @@ import (
 // detach_test, which use detachtest and so cannot be in this package.
 var (
 	WriteIdentityHook = &writeIdentity
+	ReadIdentityHook  = &readIdentity
+	SyncDirHook       = &syncDir
 	HandshakeTimeout  = &handshakeTimeout
 	DiagHook          = &diagHook
 )

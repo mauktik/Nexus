@@ -22,6 +22,9 @@ import (
 // writeIdentity is WriteIdentity; a test makes it fail.
 var writeIdentity = WriteIdentity
 
+// readIdentity is ReadIdentity; a test makes it fail.
+var readIdentity = ReadIdentity
+
 // readyFD is the descriptor of a process-backend supervisor that holds the
 // write end of its readiness pipe, the launcher's ExtraFiles[0].
 const readyFD = 3
@@ -172,9 +175,15 @@ func (b *processBackend) launch(ctx context.Context, inv Invocation) (err error)
 		// directory, so the error may be from the sync, with the record in
 		// place and read by the supervisor, which has then started the
 		// child. Failing the launch would kill only the supervisor and
-		// orphan that child.
-		if got, rerr := ReadIdentity(dir); rerr != nil || got != id {
-			return fail(err)
+		// orphan that child. It says so (errRenamedNotSynced), and then
+		// nothing is opened again: under the descriptor exhaustion that
+		// makes a sync fail, a read-back would fail too. Only an error that
+		// does not say so, whose origin is unknown, is checked by reading
+		// the record back, and one that cannot be confirmed fails the launch.
+		if !errors.Is(err, errRenamedNotSynced) {
+			if got, rerr := readIdentity(dir); rerr != nil || got != id {
+				return fail(err)
+			}
 		}
 		b.log().Warn("the supervisor's identity is recorded but could not be synced to disk",
 			"operationId", inv.ID, "pid", pid, "error", err.Error())
