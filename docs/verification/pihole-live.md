@@ -110,3 +110,20 @@ The test IPs are 192.0.2.10 and 192.0.2.11, from TEST-NET-1. After each op, the 
 Each op logged the full pipeline: temp file, rollback copy, atomic replace, `pihole-FTL --test` (`syntax check OK`), `pihole restartdns`, the readiness wait and the per-name verify. Commanded matched observed both in Nexus's own verify and in an independent `dig` from the Mac.
 
 After the remove, the file's etag was back to `sha256:097da9de…`, byte-for-byte the file step 1 left. `piholerecord get` lists 53 records, and `app.lan` holds 24 records.
+
+## WI 6.2 step 3: blocking stop, start and a 60 s timed stop (approved 2026-11-14)
+
+The probe was `doubleclick.net`, which is on the StevenBlack list. Each probe was `dig @192.168.7.4` from the Mac, together with `piholeblocking get`.
+
+| Time (UTC) | Action | op | `doubleclick.net` | `piholeblocking get` |
+| --- | --- | --- | --- | --- |
+| 05:04:54 | before | — | `0.0.0.0` | enabled, reenableAt null |
+| 05:04:54 | `piholeblocking stop` (565 ms) | `01a1d871-ba22-…c5aa` | `142.250.73.110` | disabled, reenableAt null |
+| 05:04:55 | `piholeblocking start` (372 ms) | `01a1d871-bcd2-…ff31` | `0.0.0.0` | enabled |
+| 05:04:55 | `piholeblocking stop --duration-seconds 60` (414 ms) | `01a1d871-bea5-…c7a8` | `142.250.73.110` | disabled, reenableAt `2026-11-14T05:05:55.507Z` |
+| +5 s … +56 s | (no Nexus action) | — | `142.250.73.110` on every 5 s probe | — |
+| +61 s, 05:05:56 | systemd timer `nexus-pihole-reenable.timer` | — | `0.0.0.0` | enabled, reenableAt null |
+
+- **Timed stop:** blocking came back on schedule, run by the systemd timer, between the +56 s and +61 s probes. reenableAt was 60 s after the op, with no nexusd involvement (A-5).
+- **Commanded matched observed** in all four transitions.
+- **Cosmetic:** each op's log carries `Failed to stop nexus-pihole-reenable.timer: Unit … not loaded` and `reset-failed … exited 1; continuing`. These come from clearing a timer that does not exist. They are harmless, and the op logs that it continues.
