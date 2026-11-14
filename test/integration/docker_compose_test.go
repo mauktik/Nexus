@@ -22,6 +22,7 @@ import (
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/cli"
 	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/problem"
 )
 
@@ -723,8 +724,14 @@ func TestDockerUpdateMaxRuntime(t *testing.T) {
 		})
 		unit := "nexus-op-" + h.op.ID + ".service"
 		wantFailed(t, got, problem.OutcomeUnknown)
-		if !strings.Contains(got.Error.Detail, unit) && !strings.Contains(got.Error.Detail, "nexus-op-"+h.op.ID) {
-			t.Fatalf("detail %q does not name %s", got.Error.Detail, unit)
+		// The detail names the operation's runner: its unit on systemd, its
+		// supervisor process on OpenRC's process backend.
+		runner := "nexus-op-" + h.op.ID
+		if detectedInit() == platform.OpenRC {
+			runner = "the supervisor process of operation " + h.op.ID
+		}
+		if !strings.Contains(got.Error.Detail, runner) {
+			t.Fatalf("detail %q does not name %s", got.Error.Detail, runner)
 		}
 		if st := activeState(t, unit); st != "active" {
 			t.Fatalf("%s is %s, want still active", unit, st)

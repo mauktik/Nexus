@@ -568,8 +568,12 @@ say "running tests"
 # it reached 1,714 s of finished tests before nginx_test.go ran.
 args=(-test.v -test.count=1 -test.timeout=60m)
 [ -z "$RUN" ] || args+=(-test.run "$RUN")
-# TC-46 reads the whole test.log, so it runs after this, on its own.
-args+=(-test.skip '^TestParitySuitesRanAsRoot$')
+# TC-46 reads the whole test.log, so it runs after this, on its own. The
+# Pi-hole tests need the Pi-hole image (make test-harness-pihole), so every
+# other image skips them; -test.skip takes one pattern.
+skip='^TestParitySuitesRanAsRoot$'
+[ -n "$PIHOLE" ] || skip="$skip|^TestPihole"
+args+=(-test.skip "$skip")
 # shellcheck disable=SC2206 # TESTFLAGS is word-split on purpose.
 [ -z "$TESTFLAGS" ] || args+=($TESTFLAGS)
 set +e

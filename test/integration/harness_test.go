@@ -876,6 +876,16 @@ func TestProductionWiringCreatesRealUnit(t *testing.T) {
 			if p["Environment"] != "" {
 				t.Fatalf("unit carries Environment=%q", p["Environment"])
 			}
+			// Cancel only once the supervisor runs its child, so it has its
+			// SIGTERM handler: the systemd backend has no readiness handshake,
+			// and a SIGTERM within milliseconds of the start kills the
+			// supervisor before it can record a cancel (the accepted residual
+			// launch race; seen live at 9 ms in the merged harness run).
+			waitUntil(t, 30*time.Second, unit+" supervisor running its child", func() (bool, string) {
+				pid := showUnit(t, unit, "MainPID")["MainPID"]
+				b, err := os.ReadFile("/proc/" + pid + "/task/" + pid + "/children")
+				return err == nil && strings.TrimSpace(string(b)) != "", fmt.Sprint(pid, err)
+			})
 			if err := l.Cancel(ctx, id); err != nil {
 				t.Fatal(err)
 			}

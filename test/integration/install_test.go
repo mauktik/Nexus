@@ -367,9 +367,9 @@ func TestInstallCleanIsLoopbackOnly(t *testing.T) {
 		}
 	}
 	t.Logf("providers: %q", states)
-	// apt, docker, scripts and, since nginx-provider WI 4.4, nginx.
-	if len(caps.Providers) != 4 {
-		t.Fatalf("want the 4 compiled-in providers, got %q", states)
+	// apt, docker, scripts, nginx (nginx-provider WI 4.4) and pihole.
+	if len(caps.Providers) != 5 {
+		t.Fatalf("want the 5 compiled-in providers, got %q", states)
 	}
 
 	// Mode of every file nexusd keeps. Each exists by now: the store and
@@ -827,9 +827,13 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 
 	var caps apitypes.Capabilities
 	n.mustGet("/v1/capabilities?refresh=true", &caps)
-	// Every provider this config enables is enabled: all four.
+	// Every provider this config enables is enabled: all but pihole, which
+	// this image does not install (the Pi-hole harness covers it).
 	enabled := 0
 	for _, pc := range caps.Providers {
+		if pc.Name == "pihole" {
+			continue
+		}
 		if pc.Status != apitypes.ProviderEnabled {
 			t.Fatalf("provider %s %s, want %s: %s", pc.Name, pc.Status, apitypes.ProviderEnabled, pc.Reason)
 		}
