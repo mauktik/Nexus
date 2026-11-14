@@ -168,7 +168,16 @@ func (b *processBackend) launch(ctx context.Context, inv Invocation) (err error)
 		return fail(err)
 	}
 	if err := writeIdentity(dir, id); err != nil {
-		return fail(err)
+		// writeAtomic renames the record into place before it syncs the
+		// directory, so the error may be from the sync, with the record in
+		// place and read by the supervisor, which has then started the
+		// child. Failing the launch would kill only the supervisor and
+		// orphan that child.
+		if got, rerr := ReadIdentity(dir); rerr != nil || got != id {
+			return fail(err)
+		}
+		b.log().Warn("the supervisor's identity is recorded but could not be synced to disk",
+			"operationId", inv.ID, "pid", pid, "error", err.Error())
 	}
 	go func() {
 		// Reaps the supervisor while this nexusd lives. After a restart the
@@ -266,6 +275,10 @@ var errExitedBeforeReady = errors.New("exited before it could handle a cancel")
 // SIGKILL ended it.
 func killedBySIGKILL(cmd *exec.Cmd) bool {
 	_ = cmd.Wait() // Its status is read below
+	if cmd.ProcessState == nil {
+		// Wait failed other than by an ExitError (ECHILD, say): nothing is known.
+		return false
+	}
 	ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus)
 	return ok && ws.Signaled() && ws.Signal() == syscall.SIGKILL
 }

@@ -266,16 +266,24 @@ func (l *Launcher) mayHaveStarted(ctx context.Context, id string) bool {
 // reports canceled because the request is there. A SIGTERM without it, such
 // as init's or systemd's at a host shutdown, stops the child the same way
 // but is reported interrupted, which ends the operation outcome-unknown.
-// Without a recorded request no signal is sent. An operator on the host
-// cancels with SIGINT instead, which the supervisor records itself.
+// The request is best effort: when it cannot be recorded the signal is sent
+// anyway, and the operation ends interrupted, which says the request was
+// lost, instead of running on. The record's error is returned only when the
+// signal fails too. An operator on the host cancels with SIGINT instead,
+// which the supervisor records itself.
 func (l *Launcher) Cancel(ctx context.Context, id string) error {
 	if !validID.MatchString(id) {
 		return fmt.Errorf("detach: invalid operation id %q", id)
 	}
-	if err := RequestCancel(l.Dir(id)); err != nil {
-		return err
+	rerr := RequestCancel(l.Dir(id))
+	if serr := l.signal(ctx, Unit(id), syscall.SIGTERM); serr != nil {
+		return errors.Join(serr, rerr)
 	}
-	return l.signal(ctx, Unit(id), syscall.SIGTERM)
+	if rerr != nil {
+		l.log.Warn("the cancel request could not be recorded; the signal was sent, so the operation ends interrupted",
+			"operationId", id, "error", rerr.Error())
+	}
+	return nil
 }
 
 // State reports operation id's unit state with the StateTimeout bound. An
