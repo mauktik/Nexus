@@ -61,6 +61,14 @@ every run here.
 
 ## The reboot step gives a different answer each time (product finding)
 
+**Fixed** in `ba56e70` ("a SIGTERM nexusd did not request is an
+interruption, not a cancel"). The section below is the "before" evidence.
+After the fix the same step ended `Failed outcome-unknown` in 8 of 8 Alpine
+and 3 of 3 Ubuntu container restarts: see
+[reboot-race/after-fix/](reboot-race/after-fix/README.md). An operator's
+host-side cancel is now `SIGINT`, not `SIGTERM` (see
+[security.md](../../security.md#operation-units)).
+
 TC-51 Expected 5, and architecture.md ("a reboot changes `boot_id`, so
 every Running record ends `outcome-unknown`"; Error Handling, "Helper
 lost"), expect `outcome-unknown` after a reboot. Three phase-2 runs of the

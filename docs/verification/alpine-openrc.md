@@ -129,7 +129,9 @@ On the VM, as root, in `/root`:
    ```
 
    Phase 2 refuses, and keeps its state, if `boot_id` is unchanged and the
-   supervisor is still running. After the checks it cleans up as step 2
+   supervisor is still running. Expect `5a` PASS, `Failed outcome-unknown`:
+   the reboot race the dry runs found is fixed (see
+   [Known before the real run](#known-before-the-real-run)). After the checks it cleans up as step 2
    does. While phase 2 is pending, a full run refuses to start.
 
 5. Revoke the token (`nexusd token revoke alpine-check`). Copy the
@@ -271,22 +273,25 @@ in the real transcript.
   cgroup2 and prints `UNKNOWN`. The script records `stat -fc '%t %T'` and
   the `/proc/mounts` line, and accepts the magic number `63677270`
   (`CGROUP2_SUPER_MAGIC`). TC-51's wording needs an erratum to match.
-- **Step 5 may not end `outcome-unknown` (product finding).** At shutdown,
-  BusyBox init sends SIGTERM to every process, then SIGKILL. The supervisor
-  handles SIGTERM as the cancel signal, and if it writes `exit.json` before
-  the SIGKILL, nexusd finalizes the operation from it at the next start.
-  Three container runs of the same step ended `outcome-unknown`, `Canceled`
-  and `Failed script-failed`. The evidence is in
-  [alpine-openrc-dryrun/README.md](alpine-openrc-dryrun/README.md#the-reboot-step-gives-a-different-answer-each-time-product-finding).
-  A real `reboot` goes through the same init sequence, so `5a` may fail on
-  the VM for this reason. It is reported to the coordinator and not fixed
-  in this work item. Phase 2 prints the operation's `exit.json` so that the
-  real transcript shows which case happened.
-- **The `outcome-unknown` detail names a systemd unit on OpenRC.** It reads
-  "unit nexus-op-<id>.service ended without reporting an outcome"
-  (`internal/ops/recovery.go:378`, `internal/ops/manager.go:533`, both
-  through `detach.Unit`). On OpenRC there is no such unit. This is cosmetic
-  and reported, not fixed.
+- **Step 5 ended differently each time before the fix (product finding,
+  fixed).** At shutdown, BusyBox init sends SIGTERM to every process, then
+  SIGKILL. The supervisor used to take any SIGTERM as the cancel signal, so
+  three container runs of the same step ended `outcome-unknown`, `Canceled`
+  and `Failed script-failed`
+  ([before](alpine-openrc-dryrun/README.md#the-reboot-step-gives-a-different-answer-each-time-product-finding)).
+  Fixed in `ba56e70`: a SIGTERM is a cancel only when nexusd recorded the
+  request (`<op dir>/cancel`); otherwise `exit.json` says `interrupted` and
+  the operation ends `Failed outcome-unknown`. After the fix, 8 of 8 Alpine
+  and 3 of 3 Ubuntu container restarts ended `outcome-unknown`
+  ([alpine-openrc-dryrun/reboot-race/after-fix/](alpine-openrc-dryrun/reboot-race/after-fix/README.md)).
+  `5a` is expected to pass on the VM. Phase 2 still prints the operation's
+  `exit.json`, so the real transcript shows which way the race went: none,
+  or `"interrupted":true`. An operator's host-side cancel is now `SIGINT`
+  (`kill -INT <pid>`), see [OpenRC hosts](../security.md#openrc-hosts-alpine).
+- **The `outcome-unknown` detail named a systemd unit on OpenRC (fixed).**
+  It read "unit nexus-op-<id>.service ended without reporting an outcome".
+  Since `ba56e70` it names "the supervisor process of operation <id>" on
+  OpenRC (`Options.Subject`), as the after-fix rounds show.
 - **A container cannot show the reboot.** A container restart keeps the
   host kernel, so `boot_id` does not change (L-16). In the dry run, `5b`
   fails for that reason.
