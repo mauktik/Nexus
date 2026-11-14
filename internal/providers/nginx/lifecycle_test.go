@@ -86,7 +86,18 @@ type lcHarness struct {
 	nextPIDs    []int               // The main PID of each start or restart that ends running
 	proc        ProcReader          // The helper's /proc
 	reloaded    func(accepted bool) // After each reload the fake answered
+	reloadFault reloadFault         // Makes the next reloads' tool fail
 	ops         int
+}
+
+// reloadFault makes the init tool fail the next n reloads with err. When
+// before is set the tool never started, so the fake does not see the
+// reload; otherwise it delivered the reload and then died (a signal, a
+// wait error), so the fake applied it and the caller still got err.
+type reloadFault struct {
+	n      int
+	err    error
+	before bool
 }
 
 func newLC(t *testing.T, plat platform.Info, m svcctltest.Model) *lcHarness {
@@ -149,7 +160,16 @@ func (h *lcHarness) run(ctx context.Context, argv []string) (svcctl.Result, erro
 		}
 	}
 	afterDo, reloaded := h.afterDo, h.reloaded
+	var fault *reloadFault
+	if what == "reload" && h.reloadFault.n > 0 {
+		h.reloadFault.n--
+		f := h.reloadFault
+		fault = &f
+	}
 	h.mu.Unlock()
+	if fault != nil && fault.before {
+		return svcctl.Result{}, fault.err
+	}
 	if block {
 		<-ctx.Done()
 		return svcctl.Result{}, ctx.Err()
@@ -176,6 +196,9 @@ func (h *lcHarness) run(ctx context.Context, argv []string) (svcctl.Result, erro
 	case "reload":
 		if reloaded != nil {
 			reloaded(after.Generation > before)
+		}
+		if fault != nil {
+			return svcctl.Result{}, fault.err
 		}
 	}
 	if afterDo != nil && what != "status" && what != "exists" {
