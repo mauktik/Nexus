@@ -94,14 +94,19 @@ var ownCgroup = func(dir string) processCgroup { return nil }
 // operation's unit. It reads and unlinks dir/spec.json, runs the child in
 // its own session with stdin on /dev/null and stdout and stderr framed into
 // dir/output in arrival order, and writes dir/exit.json. On the spec's
-// timeout or a SIGTERM it sends SIGTERM to the child's process group, then
-// SIGKILL after the grace period. A SIGTERM is the cancel when nexusd
-// recorded its request in dir/cancel first (Launcher.Cancel), and exit.json
-// says canceled. Any other SIGTERM, such as init's or systemd's at a host
-// shutdown, stops the child the same way, and exit.json says interrupted:
-// the operation's outcome is unknown, never a cancel nor the child's own
-// result. It returns the process exit status: non-zero, with no child
-// started and no exit.json, when there is no spec.
+// timeout, a SIGTERM or a SIGINT it sends SIGTERM to the child's process
+// group, then SIGKILL after the grace period. A SIGTERM is the cancel when
+// nexusd recorded its request in dir/cancel first (Launcher.Cancel), and
+// exit.json says canceled. Any other SIGTERM, such as init's or systemd's at
+// a host shutdown, stops the child the same way, and exit.json says
+// interrupted: the operation's outcome is unknown, never a cancel nor the
+// child's own result. A SIGINT is an operator's cancel on the host
+// (`systemctl kill --kill-whom=main --signal=SIGINT`, or `kill -INT`): the
+// supervisor records the request in dir/cancel itself, and exit.json says
+// canceled. Neither systemd nor BusyBox init nor OpenRC sends SIGINT to a
+// service or to every process at shutdown. It returns the process exit
+// status: non-zero, with no child started and no exit.json, when there is
+// no spec.
 //
 // Diagnostics go to diag, the unit's journal.
 //
@@ -136,7 +141,7 @@ func Supervise(dir string, diag io.Writer, mode SuperviseMode) int {
 	// closed stdout or stderr fail with EPIPE instead of killing the
 	// supervisor.
 	sigs := make(chan os.Signal, 4)
-	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGPIPE)
+	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP, syscall.SIGPIPE)
 	defer signal.Stop(sigs)
 	logf := func(format string, args ...any) {
 		// The journal may be gone; there is nowhere else to report that.
@@ -200,11 +205,16 @@ func Supervise(dir string, diag io.Writer, mode SuperviseMode) int {
 	return status
 }
 
-// stopReason sets x.Canceled when nexusd recorded its cancel request in
-// dir, which it does before it sends the SIGTERM the supervisor received,
-// and x.Interrupted otherwise. A request that cannot be checked counts as
+// stopReason sets x.Canceled when the cancel was asked for: by an
+// operator's SIGINT (asked), or by nexusd, which records its request in dir
+// before it sends the SIGTERM the supervisor received. It sets
+// x.Interrupted otherwise. A request that cannot be checked counts as
 // absent: interrupted is outcome-unknown, never a wrong definite answer.
-func stopReason(dir string, x *Exit, logf func(string, ...any)) {
+func stopReason(dir string, asked bool, x *Exit, logf func(string, ...any)) {
+	if asked {
+		x.Canceled = true
+		return
+	}
 	requested, err := CancelRequested(dir)
 	if err != nil {
 		logf("%v; the SIGTERM is taken as an interruption", err)
@@ -214,22 +224,51 @@ func stopReason(dir string, x *Exit, logf func(string, ...any)) {
 		return
 	}
 	x.Interrupted = true
-	logf("SIGTERM without a cancel request from nexusd (a host shutdown, or a signal sent by hand): the operation is reported interrupted")
+	logf("SIGTERM without a cancel request from nexusd (a host shutdown, or a signal sent by hand): the operation is reported interrupted; an operator cancels with SIGINT")
+}
+
+// operatorCancel records the cancel an operator asked for with SIGINT in
+// dir, as Launcher.Cancel records nexusd's, so the request is on disk with
+// the stop. The caller reports canceled even when the record fails: the
+// SIGINT itself is the request.
+func operatorCancel(dir string, logf func(string, ...any)) {
+	logf("SIGINT: a cancel requested on the host; the operation is reported canceled")
+	if err := RequestCancel(dir); err != nil {
+		logf("cannot record the cancel request: %v", err)
+	}
+}
+
+// stopSignal reports whether s stops the operation: SIGTERM, or SIGINT, an
+// operator's cancel, which it records first and reports in asked.
+func stopSignal(s os.Signal, dir string, asked *bool, logf func(string, ...any)) bool {
+	switch s {
+	case syscall.SIGINT:
+		if !*asked {
+			*asked = true
+			operatorCancel(dir, logf)
+		}
+		return true
+	case syscall.SIGTERM:
+		return true
+	}
+	return false
 }
 
 // runChild runs spec's child to its end and reports how it ended. With a
 // work group the child runs in it, and it is killed and swept with the
 // child's process group. con10 writes the CON-10 note to the output first.
 func runChild(dir string, spec Spec, sigs <-chan os.Signal, logf func(string, ...any), work processCgroup, con10 bool) Exit {
-	// A SIGTERM that arrived before the child exists stops the operation
-	// without starting it: canceled or interrupted, as below.
+	// asked is an operator's cancel, a SIGINT (stopSignal).
+	asked := false
+	// A SIGTERM or SIGINT that arrived before the child exists stops the
+	// operation without starting it: canceled or interrupted, as below.
 	for pending := true; pending; {
 		select {
 		case s := <-sigs:
-			if s == syscall.SIGTERM {
+			if stopSignal(s, dir, &asked, logf) {
 				now := time.Now()
 				x := Exit{ExitCode: -1, Started: now, Ended: now}
-				stopReason(dir, &x, logf)
+				stopReason(dir, asked, &x, logf)
 				return x
 			}
 		default:
@@ -308,8 +347,8 @@ func runChild(dir string, spec Spec, sigs <-chan os.Signal, logf func(string, ..
 		timeout = t.C
 	}
 	var killTimer *time.Timer
-	// termed is a SIGTERM to the supervisor: the cancel or an interruption,
-	// decided once the child is gone (stopReason).
+	// termed is a SIGTERM or SIGINT to the supervisor: the cancel or an
+	// interruption, decided once the child is gone (stopReason).
 	terminating, killed, termed := false, false, false
 	terminate := func() {
 		if terminating {
@@ -330,7 +369,7 @@ loop:
 			x.TimedOut = true
 			terminate()
 		case s := <-sigs:
-			if s == syscall.SIGTERM {
+			if stopSignal(s, dir, &asked, logf) {
 				termed = true
 				terminate()
 			}
@@ -342,17 +381,17 @@ loop:
 	}
 	x.Started, x.Ended = started, time.Now()
 
-	// A SIGTERM may have come with the child's exit, or just after it: the
-	// select above takes either when both are ready, and init's SIGTERM to
-	// every process can kill the child before the supervisor handles its
-	// own. One that is pending is taken; when the child died of a signal
-	// the supervisor did not send, one is waited for, briefly.
+	// A SIGTERM or SIGINT may have come with the child's exit, or just after
+	// it: the select above takes either when both are ready, and init's
+	// SIGTERM to every process can kill the child before the supervisor
+	// handles its own. One that is pending is taken; when the child died of
+	// a signal the supervisor did not send, one is waited for, briefly.
 	if !termed {
 		settle := time.Duration(0)
 		if !terminating && diedOfSignal(cmd.ProcessState) {
 			settle = lateTermSettle
 		}
-		if lateTerm(sigs, settle) {
+		if lateTerm(sigs, settle, func(s os.Signal) bool { return stopSignal(s, dir, &asked, logf) }) {
 			termed = true
 			terminate()
 		}
@@ -383,7 +422,7 @@ loop:
 	closeLog()
 
 	if termed {
-		stopReason(dir, &x, logf)
+		stopReason(dir, asked, &x, logf)
 	}
 	x.ExitCode = -1
 	if ps := cmd.ProcessState; ps != nil {
@@ -412,15 +451,16 @@ func diedOfSignal(ps *os.ProcessState) bool {
 	return ps.ExitCode() > 128
 }
 
-// lateTerm reports whether a SIGTERM is on sigs now or arrives within
-// settle. Other signals there are dropped, as the supervisor drops them.
-func lateTerm(sigs <-chan os.Signal, settle time.Duration) bool {
+// lateTerm reports whether a signal that stop accepts, a SIGTERM or SIGINT
+// (stopSignal), is on sigs now or arrives within settle. Other signals
+// there are dropped, as the supervisor drops them.
+func lateTerm(sigs <-chan os.Signal, settle time.Duration, stop func(os.Signal) bool) bool {
 	t := time.NewTimer(settle)
 	defer t.Stop()
 	for {
 		select {
 		case s := <-sigs:
-			if s == syscall.SIGTERM {
+			if stop(s) {
 				return true
 			}
 			continue
@@ -428,7 +468,7 @@ func lateTerm(sigs <-chan os.Signal, settle time.Duration) bool {
 		}
 		select {
 		case s := <-sigs:
-			if s == syscall.SIGTERM {
+			if stop(s) {
 				return true
 			}
 		case <-t.C:

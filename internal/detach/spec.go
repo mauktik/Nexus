@@ -7,8 +7,8 @@
 //
 // The only state shared between nexusd and a supervisor is the operation's
 // directory: spec.json (0600, unlinked by the supervisor on start), output/,
-// exit.json (written by atomic rename) and cancel, nexusd's record that it
-// asked for the cancel.
+// exit.json (written by atomic rename) and cancel, the record that nexusd,
+// or an operator with SIGINT, asked for the cancel.
 package detach
 
 import (
@@ -26,9 +26,10 @@ const (
 	SpecFile  = "spec.json"
 	ExitFile  = "exit.json"
 	OutputDir = "output"
-	// CancelFile records that nexusd asked for the operation's cancel. It is
-	// written before the cancel signal, and a supervisor takes a SIGTERM as
-	// the cancel only when it exists.
+	// CancelFile records that the operation's cancel was asked for. nexusd
+	// writes it before the cancel signal, and a supervisor takes a SIGTERM as
+	// the cancel only when it exists. A supervisor writes it itself on an
+	// operator's SIGINT.
 	CancelFile = "cancel"
 )
 
@@ -171,9 +172,10 @@ func takeSpec(dir string) (Spec, error) {
 // killed by a signal, named in Signal, or never started, explained in Error.
 //
 // Canceled and Interrupted say why the supervisor stopped the child on a
-// SIGTERM: Canceled when nexusd asked for it (CancelFile exists),
-// Interrupted when nobody did, as at a host shutdown, when init or systemd
-// sends SIGTERM to every process or to the unit. An interrupted operation's
+// SIGTERM or SIGINT: Canceled when nexusd asked for it (CancelFile exists)
+// or an operator sent SIGINT, Interrupted when nobody asked, as at a host
+// shutdown, when init or systemd sends SIGTERM to every process or to the
+// unit. An interrupted operation's
 // outcome is unknown: the child's exit status says how the stop ended it,
 // not what it had done.
 type Exit struct {
@@ -195,8 +197,9 @@ func RequestCancel(dir string) error {
 	return writeAtomic(dir, CancelFile, []byte(time.Now().UTC().Format(time.RFC3339Nano)+"\n"))
 }
 
-// CancelRequested reports whether dir holds nexusd's cancel request. An
-// error means unknown.
+// CancelRequested reports whether dir holds a cancel request, nexusd's or
+// one a supervisor recorded for an operator's SIGINT. An error means
+// unknown.
 func CancelRequested(dir string) (bool, error) {
 	_, err := os.Lstat(filepath.Join(dir, CancelFile))
 	switch {

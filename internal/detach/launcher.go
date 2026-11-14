@@ -266,7 +266,8 @@ func (l *Launcher) mayHaveStarted(ctx context.Context, id string) bool {
 // reports canceled because the request is there. A SIGTERM without it, such
 // as init's or systemd's at a host shutdown, stops the child the same way
 // but is reported interrupted, which ends the operation outcome-unknown.
-// Without a recorded request no signal is sent.
+// Without a recorded request no signal is sent. An operator on the host
+// cancels with SIGINT instead, which the supervisor records itself.
 func (l *Launcher) Cancel(ctx context.Context, id string) error {
 	if !validID.MatchString(id) {
 		return fmt.Errorf("detach: invalid operation id %q", id)
