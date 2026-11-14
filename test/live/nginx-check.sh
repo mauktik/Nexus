@@ -117,10 +117,11 @@ Environment:
                  nexusd token create --name nginx-check --scope nginx:read --scope nginx:write --scope nginx:config --expires 1d
                  nexusd token revoke nginx-check
   NEXUS_URL    nexusd's URL, such as https://vm.lan:7443 (default on the
-               host: the first listen address in /etc/nexus/nexusd.yaml;
-               required with --ssh unless --nexus-host is given). The
-               certificate is pinned to `nexusd tls fingerprint`, read on the
-               host.
+               host: https:// and the first listen address in
+               /etc/nexus/nexusd.yaml; required with --ssh unless
+               --nexus-host is given). The certificate is pinned to
+               `nexusd tls fingerprint`, read on the host. The script never
+               falls back to http; http:// is used only when set here.
   NEXUS_CHECK_SSH_OPTS  extra ssh options, word-split, such as "-p 2222"
 
 Exit status: 0 every check passed; 1 a check failed; 2 refused (a
@@ -220,6 +221,42 @@ shown() {
 	printf '%s' "$_sh"
 }
 
+# Values that reach host shell commands come from nexusd's answer, the host
+# or the state file. None is trusted: each must match a strict allowlist, or
+# the script refuses, and each is also quoted (shown) where it is used.
+valid_svc() { case $1 in '' | [!a-z0-9]* | *[!a-z0-9_.@-]*) return 1 ;; esac; }
+valid_suffix() {
+	case $1 in .*) ;; *) return 1 ;; esac
+	case ${1#.} in '' | *[!a-z0-9.]*) return 1 ;; esac
+}
+valid_path() {
+	case $1 in /*) ;; *) return 1 ;; esac
+	case $1 in *[!A-Za-z0-9_./@+-]* | */../* | */..) return 1 ;; esac
+}
+valid_site() { case $1 in nexus-check-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;; *) return 1 ;; esac; }
+valid_num() { case $1 in '' | *[!0-9]*) return 1 ;; esac; }
+
+# check_values SOURCE: refuse unless the include directory, the suffixes and
+# the service name (from SOURCE) are what the allowlists permit.
+check_values() {
+	valid_path "$INCDIR" || refuse "$1 gave an include directory that is not an absolute path of letters, digits and _./@+- without '..': $(shown "$INCDIR")"
+	valid_suffix "$SUFFIX" || refuse "$1 gave an include suffix that is not a dot and then lowercase letters, digits or dots: $(shown "$SUFFIX")"
+	valid_suffix "$DSUFFIX" || refuse "$1 gave a disabled suffix that is not a dot and then lowercase letters, digits or dots: $(shown "$DSUFFIX")"
+	valid_svc "$SVC" || refuse "$1 gave a service name outside [a-z0-9][a-z0-9_.@-]*: $(shown "$SVC")"
+}
+
+# check_svc_on_host: the service name nexusd gave must be an init script
+# (OpenRC) or a loaded unit (systemd) on the host itself.
+check_svc_on_host() {
+	if [ "$INIT" = openrc ]; then
+		hx "[ -x /etc/init.d/$(shown "$SVC") ]"
+		[ "$HX_RC" -eq 0 ] || refuse "nexusd names the service $(shown "$SVC"), but the host has no init script /etc/init.d/$(shown "$SVC")"
+	else
+		hx "/usr/bin/systemctl show -p LoadState --value -- $(shown "$SVC.service")"
+		[ "$HX_OUT" = loaded ] || refuse "nexusd names the service $(shown "$SVC"), but systemd on the host has no such unit (LoadState: ${HX_OUT:-none})"
+	fi
+}
+
 # result ID STATUS DETAIL: STATUS is PASS, FAIL, NOT-RUN or INFO.
 result() {
 	RESULTS="$RESULTS
@@ -307,8 +344,8 @@ host_in_container() {
 # --- host state (/var/lib/nexus-nginx-check/state) -----------------------
 
 save_state() {
-	printf 'site=%s\nport=%s\ncport=%s\nincdir=%s\ninit=%s\nsvc=%s\nenabled_ever=%s\nstopped_by_us=%s\nlifecycle=%s\nholder_pid=%s\ninflight=%s\nnxhost=%s\n' \
-		"$SITE" "$PORT" "$CPORT" "$INCDIR" "$INIT" "$SVC" "$ENABLED_EVER" "$STOPPED_BY_US" "$LIFECYCLE" "$HOLDER_PID" "$INFLIGHT" "$NXHOST" >"$TMPD/state"
+	printf 'site=%s\nport=%s\ncport=%s\nincdir=%s\nsuffix=%s\ndsuffix=%s\ninit=%s\nsvc=%s\nenabled_ever=%s\nstopped_by_us=%s\nlifecycle=%s\nholder_pid=%s\ninflight=%s\nnxhost=%s\n' \
+		"$SITE" "$PORT" "$CPORT" "$INCDIR" "$SUFFIX" "$DSUFFIX" "$INIT" "$SVC" "$ENABLED_EVER" "$STOPPED_BY_US" "$LIFECYCLE" "$HOLDER_PID" "$INFLIGHT" "$NXHOST" >"$TMPD/state"
 	hx_in "umask 077 && mkdir -p $H_STATE && cat >$H_STATE/state.new && mv -f $H_STATE/state.new $H_STATE/state" <"$TMPD/state"
 	[ "$HX_RC" -eq 0 ] || log "WARNING: could not write $H_STATE/state: $HX_OUT"
 }
@@ -321,11 +358,22 @@ load_state() {
 	STATE_TEXT=$HX_OUT
 	SITE=$(state_value site) PORT=$(state_value port) CPORT=$(state_value cport)
 	INCDIR=$(state_value incdir) INIT=$(state_value init) SVC=$(state_value svc)
+	_v=$(state_value suffix)
+	[ -z "$_v" ] || SUFFIX=$_v
+	_v=$(state_value dsuffix)
+	[ -z "$_v" ] || DSUFFIX=$_v
 	ENABLED_EVER=$(state_value enabled_ever) STOPPED_BY_US=$(state_value stopped_by_us)
 	[ "$(state_value lifecycle)" != 1 ] || LIFECYCLE=1
 	HOLDER_PID=$(state_value holder_pid) INFLIGHT=$(state_value inflight)
 	[ -n "$NXHOST_GIVEN" ] || NXHOST_GIVEN=$(state_value nxhost)
-	case $SITE in nexus-check-[0-9a-f]*) ;; *) return 1 ;; esac
+	valid_site "$SITE" || refuse "$H_STATE/state names the site $(shown "$SITE"), not nexus-check- and 8 hex digits: look at it and remove what is left by hand"
+	check_values "$H_STATE/state"
+	case $(state_value init) in systemd | openrc) ;; *) refuse "$H_STATE/state has an unknown init system" ;; esac
+	for _v in "$PORT" "$CPORT" "$HOLDER_PID"; do
+		[ -z "$_v" ] || valid_num "$_v" || refuse "$H_STATE/state has a port or PID that is not a number: $(shown "$_v")"
+	done
+	case $INFLIGHT in '' | *[!0-9a-f-]*) [ -z "$INFLIGHT" ] || refuse "$H_STATE/state has an unexpected operation ID: $(shown "$INFLIGHT")" ;; esac
+	case $NXHOST_GIVEN in *[!A-Za-z0-9._-]*) refuse "$H_STATE/state has an unexpected nexus host name: $(shown "$NXHOST_GIVEN")" ;; esac
 }
 
 # --- nginx on the host ---------------------------------------------------
@@ -342,9 +390,9 @@ detect_init() {
 # init_reload: the init system's reload of nginx, with the argv svcctl uses.
 init_cmd() {
 	if [ "$INIT" = openrc ]; then
-		echo "env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /sbin/rc-service -C $SVC $1"
+		echo "env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /sbin/rc-service -C $(shown "$SVC") $1"
 	else
-		echo "env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/bin/systemctl $1 -- $SVC.service"
+		echo "env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/bin/systemctl $1 -- $(shown "$SVC.service")"
 	fi
 }
 
@@ -355,7 +403,7 @@ init_state() {
 		hrun "$(init_cmd status)"
 		case $HX_RC in 0) INIT_STATE=started ;; 3) INIT_STATE=stopped ;; *) INIT_STATE="unknown(exit $HX_RC)" ;; esac
 	else
-		hrun "/usr/bin/systemctl is-active -- $SVC.service"
+		hrun "/usr/bin/systemctl is-active -- $(shown "$SVC.service")"
 		case $HX_OUT in active) INIT_STATE=started ;; inactive) INIT_STATE=stopped ;; *) INIT_STATE="unknown($HX_OUT)" ;; esac
 	fi
 }
@@ -364,7 +412,7 @@ init_state() {
 # /proc: the master's children titled exactly "nginx: worker process".
 procs() {
 	# shellcheck disable=SC2016 # Expanded on the host.
-	hx 'm=$(cat '"$PIDFILE"' 2>/dev/null); c=$(tr "\0" " " 2>/dev/null </proc/$m/cmdline); case $c in "nginx: master process"*) ;; *) m= ;; esac; w=; if [ -n "$m" ]; then for d in /proc/[0-9]*; do s=$(cat $d/stat 2>/dev/null) || continue; s=${s##*") "}; set -- $s; [ "$2" = "$m" ] || continue; case $(tr "\0" " " 2>/dev/null <$d/cmdline | sed "s/ *\$//") in "nginx: worker process") w="$w ${d#/proc/}" ;; esac; done; fi; echo "${m:-none}|$(echo $w | tr " " "\n" | sort -n | tr "\n" " ")"'
+	hx 'm=$(cat '"$(shown "$PIDFILE")"' 2>/dev/null); c=$(tr "\0" " " 2>/dev/null </proc/$m/cmdline); case $c in "nginx: master process"*) ;; *) m= ;; esac; w=; if [ -n "$m" ]; then for d in /proc/[0-9]*; do s=$(cat $d/stat 2>/dev/null) || continue; s=${s##*") "}; set -- $s; [ "$2" = "$m" ] || continue; case $(tr "\0" " " 2>/dev/null <$d/cmdline | sed "s/ *\$//") in "nginx: worker process") w="$w ${d#/proc/}" ;; esac; done; fi; echo "${m:-none}|$(echo $w | tr " " "\n" | sort -n | tr "\n" " ")"'
 	MASTER=${HX_OUT%%|*} WORKERS=${HX_OUT#*|}
 	WORKERS=${WORKERS% }
 }
@@ -419,7 +467,7 @@ fetch() {
 # site_files: SITE_ON and SITE_OFF are the sha256 of the enabled and the
 # disabled file, or "absent"; logged with ls -ln and sha256sum.
 site_files() {
-	hrun "cd $(shown "$INCDIR") && ls -ln $SITE$SUFFIX $SITE$SUFFIX$DSUFFIX 2>&1; sha256sum $SITE$SUFFIX $SITE$SUFFIX$DSUFFIX 2>/dev/null; true"
+	hrun "cd $(shown "$INCDIR") && ls -ln $(shown "$SITE$SUFFIX" "$SITE$SUFFIX$DSUFFIX") 2>&1; sha256sum $(shown "$SITE$SUFFIX" "$SITE$SUFFIX$DSUFFIX") 2>/dev/null; true"
 	SITE_ON=absent SITE_OFF=absent SITE_MODE=
 	_l=$(printf '%s\n' "$HX_OUT" | grep "  $SITE$SUFFIX\$" | cut -d' ' -f1)
 	[ -z "$_l" ] || SITE_ON=$_l
@@ -483,6 +531,7 @@ pid_path() {
 		hx "$NGINX_BIN -V 2>&1 | tr ' ' '\n' | sed -n 's/^--pid-path=//p'"
 		PIDFILE=${HX_OUT:-/run/nginx.pid}
 	fi
+	valid_path "$PIDFILE" || refuse "nginx's pid file path is not an absolute path of letters, digits and _./@+-: $(shown "$PIDFILE")"
 }
 
 # --- the nexus CLI -------------------------------------------------------
@@ -545,12 +594,16 @@ setup_client() {
 		_addr=${HX_OUT:-127.0.0.1:7443}
 		_port=${_addr##*:} _host=${_addr%:*}
 		case $_host in 0.0.0.0 | '' | '[::]') _host=127.0.0.1 ;; esac
-		if [ "$(curl -s -m 5 -o /dev/null -w '%{http_code}' "http://$_host:$_port/healthz" 2>/dev/null)" = 200 ]; then
-			_url=http://$_host:$_port
-		else
-			_url=https://$_host:$_port
-		fi
+		# Always https, pinned to the host's certificate: whatever answers
+		# on that port without nexusd's key is refused. Plain http only
+		# when the operator sets NEXUS_URL=http://... explicitly.
+		_url=https://$_host:$_port
 	fi
+	case $_url in
+	https://*) ;;
+	http://*) log "WARNING: NEXUS_URL is plain http, as you set it: nexusd is not authenticated and the token crosses unencrypted. Every value nexusd returns is still checked against an allowlist." ;;
+	*) refuse "NEXUS_URL must start with https:// (or http://, set on purpose): $(shown "$_url")" ;;
+	esac
 	export XDG_CONFIG_HOME="$TMPD/xdg"
 	mkdir -p "$XDG_CONFIG_HOME" && chmod 0700 "$XDG_CONFIG_HOME"
 	NXHOST=nginx-check
@@ -781,6 +834,8 @@ facts() {
 		_pi=$(json_str initSystem "$NX_OUT")
 		PROVIDER_MAINPID=$(json_num mainPid "$NX_OUT")
 		{ [ "$NX_RC" -eq 0 ] && [ -n "$INCDIR" ]; } || refuse "nexus nginx get failed: is the nginx provider enabled in /etc/nexus/nexusd.yaml, and does the token have nginx:read?"
+		check_values "nexus nginx get"
+		check_svc_on_host
 		if [ "$_pi" = "$INIT" ] && [ "$_st" = running ]; then
 			result 1-provider PASS "nexus nginx get: running, initSystem $_pi, includeDir $INCDIR, service $SVC"
 			PROVIDER_OK=1
@@ -905,7 +960,10 @@ loud() {
 # step 5, as root on the host (OOS-4: the provider cannot delete).
 remove_site() {
 	[ -n "$SITE" ] || return 0
-	hrun "cd $(shown "$INCDIR") && { ls -ln $SITE$SUFFIX $SITE$SUFFIX$DSUFFIX .$SITE.check-* 2>/dev/null; rm -f -- $SITE$SUFFIX $SITE$SUFFIX$DSUFFIX .$SITE.check-*; ls -a | grep -F $SITE || echo '$SITE: no file left'; }"
+	# The suffixes the run used, and, whatever they were, every $SITE.* and
+	# .$SITE.* (the name is this run's own random one).
+	_q=$(shown "$SITE")
+	hrun "cd $(shown "$INCDIR") && { ls -ln -- $_q.* .$_q.* 2>/dev/null; rm -f -- $(shown "$SITE$SUFFIX" "$SITE$SUFFIX$DSUFFIX") $_q.* .$_q.*; ls -a | grep -F -- $_q || echo '$SITE: no file left'; }"
 }
 
 cleanup() {
@@ -995,6 +1053,19 @@ cleanup() {
 		fetch
 		log "  127.0.0.1:$PORT: $FETCH_STATE"
 		CLEAN_FETCH=$FETCH_STATE
+	fi
+	# No nexus-check-* entry may be left in the include directory, whatever
+	# its suffix and whichever run made it.
+	if [ -n "$INCDIR" ]; then
+		hrun "cd $(shown "$INCDIR") || exit 2; ls -a | grep -E '^\\.?nexus-check-'"
+		case $HX_RC in
+		1) result cleanup-removed PASS "no nexus-check-* entry is left in $INCDIR" ;;
+		*)
+			KEEP_STATE=1
+			loud "nexus-check-* entries are STILL in $INCDIR (or it could not be listed, exit $HX_RC): $(printf '%s\n' "$HX_OUT" | tr '\n' ' ')- remove them by hand (rm, as root), test with nginx -t and reload"
+			result cleanup-removed FAIL "left in $INCDIR: $(printf '%s\n' "$HX_OUT" | tr '\n' ' ')(exit $HX_RC)"
+			;;
+		esac
 	fi
 	hrun "[ ! -f $H_STATE/snap.before ] || { $(snap_cmd); } >$H_STATE/snap.after; [ ! -f $H_STATE/snap.before ] || diff $H_STATE/snap.before $H_STATE/snap.after"
 	SNAP_RC=$HX_RC
@@ -1302,7 +1373,7 @@ direct_reload() {
 		return 1
 	fi
 	# shellcheck disable=SC2016 # Expanded on the host.
-	hrun 'trap "" HUP INT TERM; cd '"$(shown "$INCDIR")"' || exit 98; read t0 _ </proc/uptime; mv -f .'"$SITE"'.check-bad '"$SITE$SUFFIX"' || exit 97; out=$('"$(init_cmd reload)"' 2>&1); rc=$?; if [ "$rc" -eq 0 ]; then i=0; while [ "$i" -lt 100 ] && ! tail -c +'"$((_es + 1))"' '"$ERRLOG"' 2>/dev/null | grep -qF -- '"$(shown "$3")"'; do sleep 0.05; i=$((i + 1)); done; fi; mv -f .'"$SITE"'.check-good '"$SITE$SUFFIX"' || echo RESTORE_FAILED; read t1 _ </proc/uptime; printf "%s\n" "$out"; echo "RELOAD_RC=$rc"; awk -v a="$t0" -v b="$t1" "BEGIN { printf \"BAD_SECONDS=%.2f\\n\", b - a }"'
+	hrun 'trap "" HUP INT TERM; cd '"$(shown "$INCDIR")"' || exit 98; read t0 _ </proc/uptime; mv -f .'"$SITE"'.check-bad '"$(shown "$SITE$SUFFIX")"' || exit 97; out=$('"$(init_cmd reload)"' 2>&1); rc=$?; if [ "$rc" -eq 0 ]; then i=0; while [ "$i" -lt 100 ] && ! tail -c +'"$((_es + 1))"' '"$ERRLOG"' 2>/dev/null | grep -qF -- '"$(shown "$3")"'; do sleep 0.05; i=$((i + 1)); done; fi; mv -f .'"$SITE"'.check-good '"$(shown "$SITE$SUFFIX")"' || echo RESTORE_FAILED; read t1 _ </proc/uptime; printf "%s\n" "$out"; echo "RELOAD_RC=$rc"; awk -v a="$t0" -v b="$t1" "BEGIN { printf \"BAD_SECONDS=%.2f\\n\", b - a }"'
 	RELOAD_RC=$(printf '%s\n' "$HX_OUT" | sed -n 's/^RELOAD_RC=//p')
 	BAD_SECONDS=$(printf '%s\n' "$HX_OUT" | sed -n 's/^BAD_SECONDS=//p')
 	[ -n "$RELOAD_RC" ] || RELOAD_RC="none(exit $HX_RC)"
@@ -1310,9 +1381,9 @@ direct_reload() {
 	EMERG_SEEN=no
 	printf '%s\n' "$HX_OUT" | grep -qF -- "$3" && EMERG_SEEN=yes
 	if [ "$INIT" = systemd ] && [ "$RELOAD_RC" != 0 ]; then
-		hrun "journalctl -u $SVC.service -n 6 --no-pager -o cat"
+		hrun "journalctl -u $(shown "$SVC.service") -n 6 --no-pager -o cat"
 	fi
-	hrun "cd $(shown "$INCDIR") && sha256sum $SITE$SUFFIX"
+	hrun "cd $(shown "$INCDIR") && sha256sum $(shown "$SITE$SUFFIX")"
 	RESTORED=no
 	[ "${HX_OUT%% *}" != "$S3" ] || RESTORED=yes
 	note "M3 back in $SITE$SUFFIX: $RESTORED; the $1 text was in the include directory for ${BAD_SECONDS:-?} s"
@@ -1455,8 +1526,10 @@ if [ "$MODE" = cleanup ]; then
 		[ -n "$NXHOST" ] && { nx nginx get -o jsonl; INCDIR=$(json_str includeDir "$NX_OUT"); SUFFIX=$(json_str includeSuffix "$NX_OUT"); DSUFFIX=$(json_str disabledSuffix "$NX_OUT"); SVC=$(json_str service "$NX_OUT"); }
 		if [ -z "$INCDIR" ]; then
 			hx '[ -r /etc/alpine-release ] && echo /etc/nginx/http.d || echo /etc/nginx/conf.d'
-			INCDIR=$HX_OUT
+			INCDIR=$HX_OUT SUFFIX=.conf DSUFFIX=.disabled SVC=nginx
 		fi
+		check_values "nexus nginx get"
+		check_svc_on_host
 		hx "cd $(shown "$INCDIR") && ls -a | grep -E '^\\.?nexus-check-[0-9a-f]{8}\\.' | sed -n 's/^\\.\\{0,1\\}\\(nexus-check-[0-9a-f]\\{8\\}\\)\\..*/\\1/p' | sort -u"
 		SITE=$(printf '%s\n' "$HX_OUT" | head -n 1)
 		log "no state in $H_STATE; a disposable site in $INCDIR: ${SITE:-none}"
@@ -1491,8 +1564,8 @@ fi
 facts
 RAND=$(rand_hex8)
 SITE=nexus-check-$RAND
-hx "cd $(shown "$INCDIR") && ls -a | grep -F $SITE"
-[ "$HX_RC" -ne 0 ] || refuse "$SITE already exists in $INCDIR"
+hx "cd $(shown "$INCDIR") || exit 2; ls -a | grep -E '^\\.?nexus-check-'"
+[ "$HX_RC" -eq 1 ] || refuse "$INCDIR already has nexus-check-* entries (${HX_OUT:-it could not be listed}): an earlier run left them; run with --yes --cleanup, or remove them by hand"
 pick_ports
 log "  disposable site $SITE, port $PORT, conflict port $CPORT"
 hx "{ $(snap_cmd); }"
