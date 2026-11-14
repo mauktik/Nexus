@@ -367,7 +367,9 @@ if [ "$PARITY" = 1 ]; then
 fi
 
 say "running tests"
-args=(-test.v -test.count=1 -test.timeout=30m)
+# The Ubuntu suite outgrew 30m with the nginx T1 suite (WI 7.1): at 56c8848
+# it reached 1,714 s of finished tests before nginx_test.go ran.
+args=(-test.v -test.count=1 -test.timeout=60m)
 [ -z "$RUN" ] || args+=(-test.run "$RUN")
 # TC-46 reads the whole test.log, so it runs after this, on its own.
 args+=(-test.skip '^TestParitySuitesRanAsRoot$')
