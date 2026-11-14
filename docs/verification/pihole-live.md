@@ -1,0 +1,56 @@
+# Pi-hole live verification
+
+Live checks of the Pi-hole provider on the real host (work items 6.1 and
+6.2). The host is a Debian VM on Proxmox, `pihole`, 192.168.7.4.
+
+Root SSH is disabled on the host. So step 0 and the deploy ran from one
+script, typed into the Proxmox console as root. It downloaded the release
+tree, ran the checks and posted its report back over the LAN. The script
+has three parts, in order:
+
+1. The read-only step 0 checks, written to `/tmp/nexus-step0.txt`.
+2. The stop gates of WI 6.1.
+3. `install.sh`, then two config edits, then `systemctl enable --now nexusd`.
+
+Every later step goes through `nexusd`'s API from the Mac.
+
+## Step 0: read-only host facts (2026-11-14 04:56 UTC)
+
+| Check | Live value | Result |
+| --- | --- | --- |
+| Architecture | `x86_64` | matches the shipped `nexusd-linux-amd64` |
+| Versions | core v5.18.4, web v5.21, FTL v5.25.2 (`8943e26`, 2024-05-08) | v5 backend |
+| `dnsFile` | `/etc/dnsmasq.d/03-custom-dns-names.conf`, 1947 bytes, mtime 2026-10-15 22:03:16 -0700, 53 `address=` lines | |
+| `dnsFile` sha256 | `35e3646ba1ca58c420b933d0b63df0dd3cba640d950a114dc3c9d03ed9f3bf2d` | **equals** the committed fixture `live-53-lines.conf`: no drift, fixture unchanged |
+| `/etc/dnsmasq.d` | `01-pihole.conf`, `03-custom-dns-names.conf`, `06-rfc6761.conf` | no 02/04/05 files |
+| `conf-dir` | `/etc/dnsmasq.conf:1:conf-dir=/etc/dnsmasq.d` | |
+| FTL unit (A-55) | `FragmentPath=/etc/systemd/system/pihole-FTL.service`, `Type=simple`, `ExecStart=/usr/bin/pihole-FTL -f`, `User=pihole`; no `/etc/init.d/pihole-FTL` | **native unit**: the T1 native harness covers it, and the sysv run is not required |
+| Start limit (A-60) | `StartLimitBurst=5`, `StartLimitIntervalUSec=1min`, `Restart=on-failure`, `RestartUSec=5s`, `Result=success` | 5 starts per 60 s, which confirms A-61's `reset-failed` is needed |
+| Merged `/usr` (A-62) | `/bin -> usr/bin`, `/sbin -> usr/sbin`; `/usr/bin/systemctl` and `/usr/bin/systemd-run` present | pass |
+| `pihole-FTL --test` | `dnsmasq: syntax check OK.` `EXIT=0` | pass |
+| `>version` | `version v5.25.2 … hash 8943e26` | |
+| `>stats` | `domains_being_blocked 78216`, `status enabled`, 111700 queries today, 30 clients | |
+| `gravity.db` (read-only open) | `journal_mode=delete`; `gravity` 78216 rows, all in `adlist_id` 1; 0 enabled regex entries; 0 rows in `client` | A-59: a single adlist owns all 78216 rows |
+| FTL log | `/etc/pihole/pihole-FTL.conf` sets no `LOGFILE`, `PIDFILE` or `FTLPORT`, so the defaults apply; `/var/log/pihole/FTL.log` is `-rw-r--r-- pihole:pihole` | readable: the WI 5.6 barrier can work |
+| `database is locked` / `Gravity database not available` | 0 in `FTL.log`, `.1`, `.2.gz` and `.3.gz` | A-64's race has not happened on this host so far |
+| Reload markers | `20:50:58.375 Reloading DNS cache` → `20:50:58.478 Compiled 0 whitelist and 0 blacklist regex filters for 30 clients in 0.4 msec` | the only reload in the current log took 103 ms (FTL started at 20:50:57 PST) |
+| `06-rfc6761.conf` | line 25 `server=/invalid/` | pass: the barrier's `.invalid` probe stays local |
+| Existing `nexusd` | none (no binary, no `/etc/nexus`, unit inactive) | first install |
+
+All the gates of WI 6.1 passed:
+- the architecture matches;
+- merged `/usr`;
+- `--test` exits 0;
+- the log is readable;
+- `server=/invalid/` is present.
+
+## Step 1: deploy (approved: the user deployed it)
+
+- **Build:** `nexusd d23f764`, built for linux/amd64 by `./deploy.sh --stage-only`. The tarball's sha256 is `e6ec70d90dca87b3768ffd4686fc7a6a0c3aba1b83d567097880ff6a2973e782`, checked on the host before unpacking.
+- **Install:** `install.sh` wrote the default config.
+- **Config edits:** the script made exactly two.
+  - `listen: ["127.0.0.1:7443", "192.168.7.4:7443"]` (line 14), so the Mac can reach it.
+  - `providers.pihole.enabled: true` (line 89).
+- **Start:** `validate-config` reported the configuration valid, and `systemctl enable --now nexusd` started it.
+- **TLS:** the fingerprint is `00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF`. The Mac's `openssl s_client` saw the same fingerprint, and an unauthenticated request returned `401`.
+- **Token:** `nexus-mac-test`, with scopes `pihole:read`, `pihole:write` and `pihole:dns`, expiring after 7 days. It is not recorded here.
