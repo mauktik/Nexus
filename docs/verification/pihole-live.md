@@ -95,4 +95,4 @@ nexus --host pihole piholezone add --zone app.lan --if-match sha256:35e3646ba1ca
 - **Backup:**
   - Plain `capability get` still showed `preNexusBackupExists: false`, the snapshot from nexusd's start, as documented.
   - `capability get --refresh` showed `true`.
-  - The backup's sha256 must equal step 0's `35e3646b…`; the console check is pending.
+  - On the host console, `sha256sum` of the backup printed `35e3646ba1ca58c420b933d0b63df0dd3cba640d950a114dc3c9d03ed9f3bf2d`, equal to step 0's. The pre-Nexus backup is the original file byte for byte.
