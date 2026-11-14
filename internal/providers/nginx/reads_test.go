@@ -65,6 +65,15 @@ func siteTree(t *testing.T, dir string, entries map[string]entry) {
 // the test creates count as managed (test-strategy.md: T0 is not root).
 func ownedByTester(t *testing.T) { setManagedUID(t, uint32(os.Getuid())) }
 
+// setIncludeDirUID makes uid the owner includeDir must have, whatever
+// managedUID is.
+func setIncludeDirUID(t *testing.T, uid uint32) {
+	t.Helper()
+	old := includeDirUID
+	includeDirUID = func() uint32 { return uid }
+	t.Cleanup(func() { includeDirUID = old })
+}
+
 func setManagedUID(t *testing.T, uid uint32) {
 	t.Helper()
 	old := managedUID
@@ -655,6 +664,7 @@ func TestContentRefusals(t *testing.T) {
 
 	// The real rule: only a root-owned file is managed. As root, the file
 	// is given away so it is not.
+	setIncludeDirUID(t, uint32(os.Getuid())) // the directory is the test's own, whoever the managed owner is
 	setManagedUID(t, 0)
 	if os.Getuid() == 0 {
 		if err := os.Lchown(filepath.Join(f.dir, "u.conf"), 65534, 65534); err != nil {

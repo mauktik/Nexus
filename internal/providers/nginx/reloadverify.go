@@ -71,10 +71,12 @@ type ProcReader interface {
 	// reports it, including a " (deleted)" suffix. The error wraps
 	// fs.ErrNotExist when there is no such process.
 	Exe(pid int) (string, error)
-	// Owner returns the UID that owns process pid: the owner of
-	// /proc/<pid>. The error wraps fs.ErrNotExist when there is no such
-	// process.
-	Owner(pid int) (uint32, error)
+	// RealUID returns the real UID of process pid, from the Uid: line of
+	// /proc/<pid>/status. It is not the owner of /proc/<pid>: the kernel
+	// resets that to root for a process that is not dumpable, which any
+	// process can make itself. The error wraps fs.ErrNotExist when there
+	// is no such process.
+	RealUID(pid int) (uint32, error)
 }
 
 // Master is an identified nginx master process.
@@ -99,7 +101,7 @@ type Generation struct {
 // master (Data Flow 3 step 2). Its exe must be nginxPath, or nginxPath with
 // the kernel's " (deleted)" suffix, which is what the link shows after a
 // package upgrade replaced the binary without restarting nginx (L-53), its
-// title must start "nginx: master process", and it must be owned by root
+// title must start "nginx: master process", and its real uid must be root's
 // (managedUID): on OpenRC the pid comes from a pidfile in a directory the
 // nginx user owns, and a master that user started itself must not be taken
 // for the one the init system reloads. The error's text is the reason,
@@ -129,15 +131,15 @@ func ValidateMaster(r ProcReader, pid int, nginxPath string) (Master, error) {
 	if !strings.HasPrefix(p.Title, masterTitlePrefix) {
 		return Master{}, fmt.Errorf("the title of main pid %d is %q, not an nginx master process", pid, p.Title)
 	}
-	uid, err := r.Owner(pid)
+	uid, err := r.RealUID(pid)
 	if errors.Is(err, fs.ErrNotExist) {
 		return Master{}, fmt.Errorf("main pid %d is gone", pid)
 	}
 	if err != nil {
-		return Master{}, fmt.Errorf("cannot read the owner of main pid %d: %w", pid, err)
+		return Master{}, fmt.Errorf("cannot read the uid of main pid %d: %w", pid, err)
 	}
 	if uid != managedUID {
-		return Master{}, fmt.Errorf("main pid %d is owned by uid %d, not uid %d (root): it is not the master the "+
+		return Master{}, fmt.Errorf("main pid %d runs as uid %d, not uid %d (root): it is not the master the "+
 			"init system started", pid, uid, managedUID)
 	}
 	return Master{PID: pid, StartTicks: p.StartTicks}, nil
@@ -365,18 +367,37 @@ func (d procDir) Exe(pid int) (string, error) {
 	return os.Readlink(filepath.Join(string(d), strconv.Itoa(pid), "exe"))
 }
 
-// Owner is the owner of <dir>/<pid>, which /proc sets to the process's
-// effective UID.
-func (d procDir) Owner(pid int) (uint32, error) {
-	fi, err := os.Stat(filepath.Join(string(d), strconv.Itoa(pid)))
+// RealUID is the real uid on the Uid: line of <dir>/<pid>/status
+// (proc_pid_status(5): real, effective, saved set, filesystem). The owner of
+// <dir>/<pid> is not used: /proc resets it to root for a process that is not
+// dumpable (SEC-7), which a process the nginx user started can arrange.
+func (d procDir) RealUID(pid int) (uint32, error) {
+	b, err := os.ReadFile(filepath.Join(string(d), strconv.Itoa(pid), "status"))
+	if errors.Is(err, syscall.ESRCH) { // exited between open and read
+		return 0, fmt.Errorf("status of %d: %w", pid, fs.ErrNotExist)
+	}
 	if err != nil {
 		return 0, err
 	}
-	st, ok := fi.Sys().(*syscall.Stat_t)
-	if !ok {
-		return 0, fmt.Errorf("no owner in the stat of process %d", pid)
+	for _, line := range bytes.Split(b, []byte{'\n'}) {
+		rest, ok := bytes.CutPrefix(line, []byte("Uid:"))
+		if !ok {
+			continue
+		}
+		f := bytes.Fields(rest)
+		if len(f) < 2 {
+			return 0, fmt.Errorf("status of %d: the Uid line %q has no real and effective uid", pid, line)
+		}
+		real, err := strconv.ParseUint(string(f[0]), 10, 32)
+		if err != nil {
+			return 0, fmt.Errorf("status of %d: bad real uid: %w", pid, err)
+		}
+		if _, err := strconv.ParseUint(string(f[1]), 10, 32); err != nil {
+			return 0, fmt.Errorf("status of %d: bad effective uid: %w", pid, err)
+		}
+		return uint32(real), nil
 	}
-	return st.Uid, nil
+	return 0, fmt.Errorf("status of %d has no Uid line", pid)
 }
 
 // parseProcStat parses a /proc/<pid>/stat line (proc_pid_stat(5)). The comm

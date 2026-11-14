@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/synctest"
 
 	"golang.org/x/sys/unix"
 
@@ -39,6 +40,24 @@ func replaceEntry(t *testing.T, dir, name, content string) {
 	}
 }
 
+// checkRefusedRestoreDetail (CR-B23): the detail of a restore that was
+// refused says what Nexus found and that it left the entry untouched, and
+// tells the operator to inspect it; it never tells them to remove it, and it
+// does not say the entry may hold this operation's content.
+func checkRefusedRestoreDetail(t *testing.T, d string) {
+	t.Helper()
+	for _, want := range []string{"left it untouched", "inspect it before changing it"} {
+		if !strings.Contains(d, want) {
+			t.Errorf("detail %q does not say %q", d, want)
+		}
+	}
+	for _, bad := range []string{"removing it", "remove it", "may hold the new content", "restores the state before"} {
+		if strings.Contains(d, bad) {
+			t.Errorf("detail %q contains %q: it directs the operator to act on an entry Nexus did not write", d, bad)
+		}
+	}
+}
+
 // nginx-provider CR-B3 A: the rollback of a created file leaves an entry that replaced it
 func TestCreateRollbackLeavesAReplacedEntry(t *testing.T) {
 	fakeNginxBinary(t)
@@ -52,6 +71,10 @@ func TestCreateRollbackLeavesAReplacedEntry(t *testing.T) {
 	d := o.failed(t, problem.OutcomeUnknown)
 	if !strings.Contains(d, "n.conf") {
 		t.Errorf("detail %q does not name n.conf", d)
+	}
+	checkRefusedRestoreDetail(t, d)
+	if strings.Contains(d, "did not exist before") {
+		t.Errorf("detail %q says n.conf did not exist before: that guidance is about a file this operation made", d)
 	}
 	if got := readString(t, filepath.Join(w.f.dir, "n.conf")); got != intruderSite {
 		t.Errorf("n.conf holds %q, want the entry that replaced it, %q: a rollback deleted a file it did not create",
@@ -75,6 +98,7 @@ func TestOverwriteRollbackLeavesAReplacedEntry(t *testing.T) {
 	if prev := filepath.Join(o.dir, "previous", "content"); !strings.Contains(d, prev) {
 		t.Errorf("detail %q does not name the previous content at %s", d, prev)
 	}
+	checkRefusedRestoreDetail(t, d)
 	if got := readString(t, filepath.Join(w.f.dir, "a.conf")); got != intruderSite {
 		t.Errorf("a.conf holds %q, want the entry that replaced it, %q: the restore overwrote a file it did not write",
 			got, intruderSite)
@@ -216,5 +240,24 @@ func TestRestoreActsOnlyOnTheWrittenInode(t *testing.T) {
 			t.Fatal("Restore overwrote an entry that is not the file this operation wrote")
 		}
 		checkFile(t, filepath.Join(dir, "a.conf"), "THEIRS\n", 0o644, uid, gid)
+	})
+}
+
+// nginx-provider CR-B23 C: the rollback after a rejected reload leaves an entry that replaced the written file, and says so
+func TestReloadRollbackLeavesAReplacedEntry(t *testing.T) {
+	fakeNginxBinary(t)
+	synctest.Test(t, func(t *testing.T) {
+		// The entry is replaced after the first nginx -t, before the reload that is rejected.
+		w := writeReloadRejected(t, false, func(w *writeRig) { replaceEntry(t, w.f.dir, "a.conf", intruderSite) })
+
+		o := w.write(spec.Update.Op(), spec.WriteInput{Name: "a", Content: "server {\n    listen 8207;\n}\n"})
+		d := o.failed(t, problem.OutcomeUnknown)
+		if prev := filepath.Join(o.dir, "previous", "content"); !strings.Contains(d, prev) {
+			t.Errorf("detail %q does not name the previous content at %s", d, prev)
+		}
+		checkRefusedRestoreDetail(t, d)
+		if got := readString(t, filepath.Join(w.f.dir, "a.conf")); got != intruderSite {
+			t.Errorf("a.conf holds %q, want the entry that replaced it, %q", got, intruderSite)
+		}
 	})
 }

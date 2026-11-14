@@ -117,6 +117,12 @@ func (i Identity) IsZero() bool { return i == Identity{} }
 // was changed: the entry is left as it is.
 var ErrAppeared = errors.New("an entry appeared at the name while the file was being created")
 
+// ErrNotWritten is what Restore wraps when it refuses because the entry at
+// the name is not the file the operation wrote, or the operation never
+// learned which file that is. Restore has changed nothing then: the entry
+// is not Nexus's to remove or overwrite.
+var ErrNotWritten = errors.New("not the file this operation wrote")
+
 // WriteAtomic writes fileName in dirfd with content, owned uid:gid with
 // permission bits mode, and returns the identity of the file it wrote. It
 // creates the hidden tmpName with O_CREAT|O_EXCL|O_NOFOLLOW, so an existing
@@ -237,8 +243,8 @@ func Restore(dirfd int, m Meta, wrote Identity, opDir, tmpName string) error {
 		return fmt.Errorf("restore %s: %w", m.FileName, err)
 	}
 	if here != nil && (wrote.IsZero() || here.Dev != wrote.Dev || here.Ino != wrote.Ino) {
-		return fmt.Errorf("restore %s: the %s there (inode %d) is not the file this operation wrote (inode %d): "+
-			"it is left as it is", m.FileName, here.Type, here.Ino, wrote.Ino)
+		return fmt.Errorf("restore %s: the %s there has inode %d and the operation wrote inode %d: %w",
+			m.FileName, here.Type, here.Ino, wrote.Ino, ErrNotWritten)
 	}
 	if !m.Exists {
 		if err := unlinkAt(dirfd, m.FileName); err != nil && !errors.Is(err, unix.ENOENT) {

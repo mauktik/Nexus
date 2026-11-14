@@ -18,6 +18,12 @@ import (
 // so no production caller can weaken the rule.
 var managedUID uint32
 
+// includeDirUID is the owner includeDir must have: managedUID. A test that
+// changes managedUID to make a file foreign, without making the directory
+// the file is in foreign too, pins it to its own UID. Like managedUID it is
+// not reachable from Options.
+var includeDirUID = func() uint32 { return managedUID }
+
 // maxNameLength is the longest site name NamePattern admits.
 const maxNameLength = 128
 

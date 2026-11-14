@@ -109,6 +109,7 @@ func procTree(t *testing.T, s captureScan, exe map[int]string) string {
 		if err := os.WriteFile(filepath.Join(dir, "cmdline"), []byte(p.Cmdline), 0o644); err != nil {
 			t.Fatal(err)
 		}
+		writeProcStatus(t, dir, managedUID)
 	}
 	for pid, target := range exe {
 		if err := os.Symlink(target, filepath.Join(root, strconv.Itoa(pid), "exe")); err != nil {
@@ -159,9 +160,9 @@ func (r *replayReader) Exe(pid int) (string, error) {
 	return "", os.ErrNotExist
 }
 
-// Owner is the managed owner (root, in production) of every process that
+// RealUID is the managed owner (root, in production) of every process that
 // has an exe, as the captures were taken under root.
-func (r *replayReader) Owner(pid int) (uint32, error) {
+func (r *replayReader) RealUID(pid int) (uint32, error) {
 	if _, ok := r.exe[pid]; ok {
 		return managedUID, nil
 	}
@@ -766,6 +767,7 @@ func TestValidateMasterRefuses(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "cmdline"), []byte(rw.cmdline), 0o644); err != nil {
 			t.Fatal(err)
 		}
+		writeProcStatus(t, dir, managedUID)
 		if err := os.Symlink(rw.exe, filepath.Join(dir, "exe")); err != nil {
 			t.Fatal(err)
 		}

@@ -13,7 +13,7 @@ type noProc struct{}
 
 func (noProc) Snapshot() (map[int]Proc, error) { return nil, errNoProc }
 func (noProc) Exe(int) (string, error)         { return "", errNoProc }
-func (noProc) Owner(int) (uint32, error)       { return 0, errNoProc }
+func (noProc) RealUID(int) (uint32, error)     { return 0, errNoProc }
 
 // HostProcReader reads the host's processes. On this platform every read
 // fails with "reload verification needs Linux /proc".

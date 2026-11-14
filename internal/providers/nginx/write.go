@@ -495,12 +495,31 @@ func (w *write) unknown(first string, format string, args ...any) *helperError {
 	return failure(problem.OutcomeUnknown, "%s; %s; %s", first, fmt.Sprintf(format, args...), w.previous())
 }
 
+// notWritten is outcome-unknown after first, the failure that started the
+// rollback, when Restore refused because the entry at the name is not the
+// file this operation wrote (err). It says what Nexus found and that the
+// entry was left untouched, and tells the operator to inspect it: that entry
+// may be somebody else's, so the guidance of previous() (remove it) does not
+// apply. An overwrite's previous content is still where Nexus kept it.
+func (w *write) notWritten(first string, err error, tail string) *helperError {
+	detail := fmt.Sprintf("%s; the restore was refused, because Nexus found at %s an entry that is not the file this "+
+		"operation wrote, and left it untouched (%v)%s; inspect it before changing it", first, w.target.file, err, tail)
+	if w.meta.Exists {
+		detail += fmt.Sprintf("; the content before the operation (sha256 %s) is kept at %s", w.meta.SHA256,
+			PreviousContentPath(w.e.dir))
+	}
+	return failure(problem.OutcomeUnknown, "%s", detail)
+}
+
 // rollBack restores the backup after herr, a failure before any reload,
 // and says so in herr's rolledBack. nginx was not reloaded, so it still
 // runs the configuration it had. A restore that fails leaves the file not
 // proven to be either, which is outcome-unknown.
 func (w *write) rollBack(herr *helperError) *helperError {
 	if err := Restore(w.dirfd, w.meta, w.wrote, w.e.dir, w.tmp); err != nil {
+		if errors.Is(err, ErrNotWritten) {
+			return w.notWritten(herr.Detail, err, " (nginx was not reloaded)")
+		}
 		return w.unknown(herr.Detail, "restoring %s failed (%v), so it may hold the new content (nginx was not "+
 			"reloaded)", w.target.file, err)
 	}
@@ -562,6 +581,13 @@ func (w *write) reloadFailed(ctx context.Context, testOutput string, obs spec.Re
 		return u
 	}
 	if err := Restore(w.dirfd, w.meta, w.wrote, e.dir, w.tmp); err != nil {
+		if errors.Is(err, ErrNotWritten) {
+			u := w.notWritten(first, err, ", and which configuration nginx runs is unknown")
+			if obs.Verdict != "" {
+				u = u.with("observed", obs)
+			}
+			return u
+		}
 		return unknown("restoring %s failed (%v), so it may hold the new content and which configuration nginx "+
 			"runs is unknown", file, err)
 	}

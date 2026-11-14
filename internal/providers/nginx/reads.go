@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"regexp"
 	"slices"
@@ -243,7 +244,10 @@ func readManaged(dirfd int, f *fileStat, max int64) ([]byte, string, error) {
 	return b, hex.EncodeToString(sum[:]), nil
 }
 
-// openIncludeDir opens includeDir itself, never through a symlink.
+// openIncludeDir opens includeDir itself, never through a symlink, and
+// refuses a directory that is no longer root's alone to change: Preflight
+// checks that only when it runs, and an operation must not trust a directory
+// that was chown-ed or made group-writable since (CR-B24).
 func openIncludeDir(s Settings) (*os.File, error) {
 	var fd int
 	err := ignoringEINTR(func() (err error) {
@@ -254,7 +258,17 @@ func openIncludeDir(s Settings) (*os.File, error) {
 		return nil, unavailable(fmt.Sprintf("includeDir %s cannot be opened as a directory (not through a symlink): %v",
 			s.IncludeDir, err))
 	}
-	return os.NewFile(uintptr(fd), s.IncludeDir), nil
+	dir := os.NewFile(uintptr(fd), s.IncludeDir)
+	var st unix.Stat_t
+	if err := ignoringEINTR(func() error { return unix.Fstat(fd, &st) }); err != nil {
+		dir.Close()
+		return nil, unavailable(fmt.Sprintf("includeDir %s cannot be checked: %v", s.IncludeDir, err))
+	}
+	if reason := includeDirTrust(s.IncludeDir, st.Uid, fs.FileMode(st.Mode&0o777)); reason != "" {
+		dir.Close()
+		return nil, unavailable(reason)
+	}
+	return dir, nil
 }
 
 // paginate returns the page of sorted names after the name after, of up to

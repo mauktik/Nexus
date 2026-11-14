@@ -27,7 +27,11 @@ potentially root-equivalent.
   by root and not writable by its group or by others. Whoever can change it
   can swap what the root helper checked for something else, so a directory
   such as a deploy user's is reported `unavailable` (reads included), naming
-  the path and the fix (`chown root`, `chmod go-w`).
+  the path and the fix (`chown root`, `chmod go-w`). The check is repeated
+  on the directory every read and every operation opens, so a directory
+  that was made group-writable or given to another user after nexusd
+  started is refused at once (`dependency-unavailable`, nothing changed)
+  and not only at the next capability check.
 - Detached operations available on the host, because every change runs
   as one.
 
@@ -368,8 +372,10 @@ conflict. So Nexus watches nginx's processes in `/proc` instead.
 Before the reload it identifies the master, from the init system's main
 PID, the `/proc/<pid>/exe` link (`/usr/sbin/nginx`, or
 `/usr/sbin/nginx (deleted)` after an upgrade replaced the binary without a
-restart), the title `nginx: master process` and an owner of root (the
-pid file on OpenRC is in a directory nginx's own user owns), and records the master's
+restart), the title `nginx: master process` and a real uid of root, read from the
+`Uid:` line of `/proc/<pid>/status` (the pid file on OpenRC is in a directory
+nginx's own user owns, and the owner of `/proc/<pid>` is not used: the kernel
+shows it as root for a process that is not dumpable), and records the master's
 workers. After the reload it reads `/proc` every 100 ms for up to
 `reloadVerifyTimeout`:
 
@@ -415,7 +421,11 @@ The `detail` says what was done, what may have changed, and where the
 previous content is, for example
 `the previous content of example.com.conf (sha256 …) is kept at
 /var/lib/nexus/ops/<id>/previous/content`, or that the file did not exist
-before and removing it restores the earlier state. The operation log has
+before and removing it restores the earlier state. When the rollback found
+at the file's name an entry that is not the file the operation wrote, for
+example one a package manager or an operator put there since, the detail says
+so, says that Nexus left that entry untouched, and tells you to inspect it
+before changing it; it does not tell you to remove it. The operation log has
 every step. To recover, look before acting: `nexus nginx get` for the
 state, `nexus nginxsitecontent get NAME` to compare the file's `sha256` with
 the result, and `nexus nginxconfig test`. Then, if needed, restore the file

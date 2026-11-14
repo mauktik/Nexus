@@ -26,8 +26,10 @@ const tc90Temp = ".a.nexus-01J.tmp"
 var testMaxConfigBytes = config.Default().Providers.Nginx.Settings.MaxConfigBytes
 
 // testIncludeDir opens dir as the helper opens includeDir and returns its fd.
+// The directory is the test's own, so that is the owner includeDir must have.
 func testIncludeDir(t *testing.T, dir string) int {
 	t.Helper()
+	setIncludeDirUID(t, uint32(os.Getuid()))
 	f, err := openIncludeDir(Settings{IncludeDir: dir})
 	if err != nil {
 		t.Fatal(err)

@@ -325,8 +325,8 @@ func (r unreadProc) Exe(pid int) (string, error) {
 	return "", errors.New("unexpected /proc read")
 }
 
-func (r unreadProc) Owner(pid int) (uint32, error) {
-	r.t.Errorf("the helper read the owner of %d", pid)
+func (r unreadProc) RealUID(pid int) (uint32, error) {
+	r.t.Errorf("the helper read the uid of %d", pid)
 	return 0, errors.New("unexpected /proc read")
 }
 
@@ -542,9 +542,9 @@ func (p *lockstepProc) Exe(pid int) (string, error) {
 	return "", fs.ErrNotExist
 }
 
-// Owner is the managed owner (root, in production) of every captured
+// RealUID is the managed owner (root, in production) of every captured
 // process, as the captures were taken under root.
-func (p *lockstepProc) Owner(pid int) (uint32, error) {
+func (p *lockstepProc) RealUID(pid int) (uint32, error) {
 	if _, ok := p.exe[pid]; ok {
 		return managedUID, nil
 	}

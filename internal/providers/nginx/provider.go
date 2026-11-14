@@ -142,6 +142,22 @@ func (p *Provider) controller(s Settings) (svcctl.Controller, error) {
 	return svcctl.New(p.plat.Init, svcctl.Options{Timeout: s.StateTimeout})
 }
 
+// includeDirTrust is why a directory with this owner and permission bits
+// cannot be includeDir, or "" when it can: only root may own it or change it.
+// Preflight checks the path with it, and openIncludeDir the directory every
+// read and operation actually opens (CR-B24, SEC-8).
+func includeDirTrust(path string, uid uint32, perm fs.FileMode) string {
+	if uid != includeDirUID() {
+		return fmt.Sprintf("includeDir %s is owned by uid %d, not by root: only root may own the directory nginx "+
+			"includes (chown root %s)", path, uid, path)
+	}
+	if perm&0o022 != 0 {
+		return fmt.Sprintf("includeDir %s (mode %#o) is writable by its group or by others: only root may change "+
+			"the directory nginx includes (chmod go-w %s)", path, perm, path)
+	}
+	return ""
+}
+
 // Preflight reports the provider available only when, in order: the nginx
 // binary is a regular executable file; detached operations can run, which
 // every change needs; the init system knows the service; and includeDir is a
@@ -201,13 +217,10 @@ func (p *Provider) Preflight(ctx context.Context) provider.Status {
 	// alone. The provider is unavailable otherwise (reads included), which
 	// names the directory and what to fix, rather than refusing each
 	// operation separately.
-	if st, ok := di.Sys().(*syscall.Stat_t); ok && st.Uid != managedUID {
-		return unavailable("includeDir %s is owned by uid %d, not by root: only root may own the directory nginx "+
-			"includes (chown root %s)", s.IncludeDir, st.Uid, s.IncludeDir)
-	}
-	if perm := di.Mode().Perm(); perm&0o022 != 0 {
-		return unavailable("includeDir %s (mode %#o) is writable by its group or by others: only root may change "+
-			"the directory nginx includes (chmod go-w %s)", s.IncludeDir, perm, s.IncludeDir)
+	if st, ok := di.Sys().(*syscall.Stat_t); ok {
+		if reason := includeDirTrust(s.IncludeDir, st.Uid, di.Mode().Perm()); reason != "" {
+			return unavailable("%s", reason)
+		}
 	}
 
 	return provider.Status{State: apitypes.ProviderEnabled, Details: map[string]any{

@@ -1521,6 +1521,7 @@ func TestWriteHelperRecheck(t *testing.T) {
 		}},
 		// T0 cannot chown to another user: the managed owner changes instead.
 		{"B not root-owned", spec.ReasonNotRootOwned, func(t *testing.T, _ *writeRig) {
+			setIncludeDirUID(t, uint32(os.Getuid())) // includeDir stays trusted: the file is the foreign one
 			setManagedUID(t, uint32(os.Getuid())+1)
 		}},
 	} {
