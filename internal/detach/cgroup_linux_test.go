@@ -423,6 +423,62 @@ func TestCgroupFallbacks(t *testing.T) {
 	}
 }
 
+// WI 3.4 finding: on Linux 6.8, once cgroup.kill has been written to the
+// group nexusd runs in (OpenRC's rc_cgroup_cleanup="YES" with upstream
+// 1cf3944), every child it clones with CLONE_INTO_CGROUP is SIGKILLed at
+// once. The launch then starts the supervisor outside its group and moves
+// it in, as it does when clone3 is refused.
+func TestLaunchFallsBackWhenClonedSupervisorIsKilled(t *testing.T) {
+	requireRoot(t)
+	requireCgroup2(t)
+	saved := cloneIntoCgroup
+	var clones atomic.Int32
+	cloneIntoCgroup = func(cmd *exec.Cmd, fd int) error {
+		clones.Add(1)
+		if err := saved(cmd, fd); err != nil {
+			return err
+		}
+		// What the kernel does, with clone3 itself reporting success.
+		return syscall.Kill(cmd.Process.Pid, syscall.SIGKILL)
+	}
+	t.Cleanup(func() { cloneIntoCgroup = saved })
+
+	l, _, id, dir := cgOp(t, "")
+	// The supervisor reports ready only well after the SIGKILL above.
+	if err := os.WriteFile(filepath.Join(dir, "delay-notify"), []byte("300ms"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	spec := cgSpec(dir, `cat /proc/self/cgroup > "$DIR/marker"`, KillControlGroup)
+	if err := l.Start(context.Background(), id, spec); err != nil {
+		t.Fatalf("Start: %v; supervisor.log:\n%s", err, readOrErr(filepath.Join(dir, SupervisorLog)))
+	}
+	if n := clones.Load(); n != 1 {
+		t.Errorf("%d clones into the cgroup, want 1 then a start outside it", n)
+	}
+	if got, want := cgroupOf(t, supervisorPID(t, dir)), "/"+opsCgroup+"/"+id; got != want {
+		t.Errorf("supervisor in cgroup %s, want %s (through cgroup.procs)", got, want)
+	}
+	child, err := parseCgroupFile(cgWaitFile(t, filepath.Join(dir, "marker"), 10*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "/" + opsCgroup + "/" + id + "/" + workCgroup; child != want {
+		t.Errorf("child in cgroup %s, want %s", child, want)
+	}
+	if x := cgWaitExit(t, dir, 10*time.Second); x.ExitCode != 0 {
+		t.Errorf("exit.json %+v, want exit code 0", x)
+	}
+}
+
+// readOrErr is path's content, or why it cannot be read, for a message.
+func readOrErr(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err.Error()
+	}
+	return string(b)
+}
+
 func TestParseCgroupFile(t *testing.T) {
 	for in, want := range map[string]string{
 		"0::/nexus-ops/a\n":                      "/nexus-ops/a",
