@@ -37,9 +37,15 @@ func (v tc118Verdict) String() string {
 }
 
 // tc118AdmittedAfterU reports whether a restart operation created at
-// created was admitted after U ended. Created and Ended are both stamped
-// inside the store's serialized write transactions on one clock, so a
-// record created while U was non-terminal has created < U.Ended.
+// created was created after U ended. Created and Ended are both stamped
+// inside the store's serialized write transactions on one clock. Created
+// is a proxy for admission: the lane check runs a few milliseconds before
+// the record is written, and U's end is committed by another goroutine
+// that does not take the lane lock, so it can land in between. On a
+// correct product that cannot misclassify (the lane frees only after U's
+// end is committed); on a broken one it hides only a defect that frees
+// the lane within milliseconds of U's commit. A lane left unrestored stays
+// wrong for seconds and is still caught here and by the new-MainPID check.
 func tc118AdmittedAfterU(uTerminal bool, uEnded *time.Time, created time.Time) bool {
 	return uTerminal && uEnded != nil && !created.Before(*uEnded)
 }
@@ -59,7 +65,7 @@ func tc118Classify(a tc118Attempt, u string, uTerminal bool, uEnded *time.Time) 
 		return tc118Unanswered, ""
 	case a.code == 0 && a.opID != "":
 		if !tc118AdmittedAfterU(uTerminal, uEnded, a.created) {
-			return tc118Violation, fmt.Sprintf("restart %s created %s while %s was not terminal (terminal %t, ended %s)",
+			return tc118Violation, fmt.Sprintf("restart %s created %s before %s ended (terminal %t, ended %s)",
 				a.opID, tc118Stamp(&a.created), u, uTerminal, tc118Stamp(uEnded))
 		}
 		return tc118AfterU, ""
