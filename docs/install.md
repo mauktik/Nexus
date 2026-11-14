@@ -171,8 +171,13 @@ default: `grep nexusd /var/log/messages`. The audit log is
 `rc-service nexusd restart` restarts `nexusd`. Operations run in detached
 supervisor processes, not `nexus-op-*` units, and keep running across a
 restart, a stop and an upgrade. A supervisor's diagnostics are in
-`/var/lib/nexus/ops/<id>/supervisor.log`; to stop one by hand, see
-[OpenRC hosts](security.md#openrc-hosts-alpine).
+`/var/lib/nexus/ops/<id>/supervisor.log`. Cancel an operation with
+`nexus operation cancel <id>`; to cancel one on the host without the API,
+send its supervisor `SIGINT`: `kill -INT <pid>`, with the `pid` from
+`/var/lib/nexus/ops/<id>/supervisor.json`, after checking that
+`/proc/<pid>/cmdline` contains `op-supervise`. The operation ends
+`Canceled`. A `SIGTERM` is not a cancel: it ends the operation
+`outcome-unknown` (see [OpenRC hosts](security.md#openrc-hosts-alpine)).
 
 **`/etc/conf.d/nexusd`.** OpenRC reads this file before the service script,
 and the installer does not create it. Do not set `rc_cgroup_cleanup="YES"`
@@ -307,8 +312,9 @@ back. Script runs survive it the same way.
 - Each long-running operation runs in `nexus-op-<id>.service`. Cancel it
   with `nexus operation cancel <id>`. `systemctl stop` on such a unit is
   refused; an operator on the host uses
-  `sudo systemctl kill --kill-whom=main --signal=SIGTERM nexus-op-<id>.service`
-  instead (see [security.md](security.md)).
+  `sudo systemctl kill --kill-whom=main --signal=SIGINT nexus-op-<id>.service`
+  instead, and the operation ends `Canceled` (see
+  [security.md](security.md#operation-units)).
 
 ## Uninstall
 

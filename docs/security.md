@@ -308,14 +308,27 @@ or upgrade when it restarts services after an upgrade (it may restart
 
 Cancel an operation through Nexus with `nexus operation cancel <id>`. An
 operator on the host who must stop one without the API uses `systemctl
-kill`, which sends the cancel signal to the unit's supervisor:
+kill` to send `SIGINT`, the operator's cancel signal, to the unit's
+supervisor:
 
 ```
-sudo systemctl kill --kill-whom=main --signal=SIGTERM nexus-op-<id>.service
+sudo systemctl kill --kill-whom=main --signal=SIGINT nexus-op-<id>.service
 ```
 
-The supervisor then stops the work as a cancel does, SIGTERM and after the
-grace period SIGKILL, and the operation ends `Canceled`.
+The supervisor records the cancel request in
+`/var/lib/nexus/ops/<id>/cancel`, then stops the work as a cancel does,
+SIGTERM to the work's process group and after the grace period SIGKILL, and
+the operation ends `Canceled`.
+
+Do not use `SIGTERM` for this. The supervisor takes a `SIGTERM` as a cancel
+only when Nexus asked for one: `nexus operation cancel` records the request
+before it sends the signal. A `SIGTERM` without that request is what a host
+shutdown sends, systemd to each unit and init to every process. The
+supervisor still stops the work, but reports it interrupted, and the
+operation ends `Failed` with `outcome-unknown`, as an operation running at a
+shutdown or reboot does: its work was cut short, and Nexus cannot know what
+it had done. Neither systemd nor BusyBox init nor OpenRC sends `SIGINT` at
+shutdown, so a `SIGINT` is always an operator's cancel.
 
 ## The nexusd systemd unit
 
@@ -511,8 +524,11 @@ operations survive `rc-service nexusd stop` and `rc-service nexusd restart`
 **Stopping an operation by hand.** Cancel through Nexus with
 `nexus operation cancel <id>`. On the host, the supervisor's PID is in
 `/var/lib/nexus/ops/<id>/supervisor.json`. Check that
-`/proc/<pid>/cmdline` contains `op-supervise`, then send it `SIGTERM`
-(`kill -TERM <pid>`): it stops the work as a cancel does, and the operation
-ends `Canceled`. A supervisor killed with `SIGKILL` leaves its operation
-`outcome-unknown`. Its diagnostics are in
+`/proc/<pid>/cmdline` contains `op-supervise`, then send it `SIGINT`
+(`kill -INT <pid>`): it records the cancel request, stops the work as a
+cancel does, and the operation ends `Canceled`. A `SIGTERM` (`kill <pid>`)
+also stops the work, but without a cancel request from Nexus it ends the
+operation `outcome-unknown`, as at a shutdown (see
+[Operation units](#operation-units)). A supervisor killed with `SIGKILL`
+leaves its operation `outcome-unknown`. Its diagnostics are in
 `/var/lib/nexus/ops/<id>/supervisor.log`, not the journal.

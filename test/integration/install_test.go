@@ -580,8 +580,10 @@ func TestUninstallRetentionAndPurge(t *testing.T) {
 		t.Fatalf("uninstall.sh did not warn about %s", unit)
 	}
 	// CR-82: operation units refuse a manual stop (RefuseManualStop), so the
-	// advice must be the signal command docs/install.md gives.
-	if strings.Contains(out, "systemctl stop UNIT") || !strings.Contains(out, "systemctl kill --kill-whom=main --signal=SIGTERM") {
+	// advice must be the signal command docs/install.md gives. It is SIGINT,
+	// the operator's cancel: a SIGTERM without nexusd's cancel request is an
+	// interruption and ends the operation outcome-unknown.
+	if strings.Contains(out, "systemctl stop UNIT") || !strings.Contains(out, "systemctl kill --kill-whom=main --signal=SIGINT") {
 		t.Fatalf("uninstall.sh advises a stop command systemd refuses for %s:\n%s", unit, out)
 	}
 	if exists(nexusdBin) || exists(installedUnit) {
