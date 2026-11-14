@@ -1,0 +1,58 @@
+# alpine-check.sh transcript: nginx-provider WI 3.5 (TC-51, TC-52)
+# started 2026-11-14T06:05:19Z on host 2e3cf89e8c92, mode main, arguments: --transcript /root/check/04-guard-reboot-pending.txt --yes
+# script sha256 b77bdb0e75d221bf16dfa7bc226821b3b600457b70f6cbfd5c8aa860db7ca8c3
+# CONTAINER DETECTED (/.dockerenv, /run/.containerenv or container= in PID 1's environment):
+# this transcript is a dry run, NOT real-host evidence.
+
+[06:05:19] == Step 1: host facts (TC-51 step 1)
+$ uname -m
+aarch64
+$ cat /etc/alpine-release
+3.24.4
+$ uname -r
+6.8.0-100-generic
+$ stat -fc '%t %T' /sys/fs/cgroup
+63677270 UNKNOWN
+$ grep ' /sys/fs/cgroup' /proc/mounts
+cgroup /sys/fs/cgroup cgroup2 rw,nosuid,nodev,noexec,relatime 0 0
+$ cat /proc/sys/kernel/random/boot_id
+a2e5b43d-6ecf-4b62-bbde-f26dfa9c7fcf
+$ openrc --version
+openrc (OpenRC [DOCKER]) 0.63.2
+$ /usr/local/bin/nexusd -version
+nexusd dev
+$ grep -n -E '^[[:space:]]*rc_cgroup_(mode|cleanup)=' /etc/rc.conf
+(exit 1)
+(no /etc/conf.d/nexusd)
+$ sh -c '[ ! -r /etc/rc.conf ] || . /etc/rc.conf; [ ! -r /etc/conf.d/nexusd ] || . /etc/conf.d/nexusd; echo "rc_cgroup_cleanup=${rc_cgroup_cleanup:-NO}"'
+rc_cgroup_cleanup=NO
+$ grep -n 'sys/fs/cgroup/.*RC_SVCNAME' /usr/libexec/rc/sh/rc-cgroup.sh
+40:		cgroup_procs="/sys/fs/cgroup/openrc/${RC_SVCNAME}/tasks"
+52:	[ -d "/sys/fs/cgroup/unified/${RC_SVCNAME}" ] ||
+53:			[ -d "/sys/fs/cgroup/${RC_SVCNAME}" ] ||
+54:			[ -d "/sys/fs/cgroup/openrc/${RC_SVCNAME}" ]
+64:	cgroup="/sys/fs/cgroup/${1}${h}openrc_${RC_SVCNAME}"
+RESULT 1-arch: FAIL - uname -m aarch64, want x86_64
+RESULT 1-release: PASS - Alpine 3.24.4 (3.21 or later)
+RESULT 1-cgroup: PASS - cgroup2 at /sys/fs/cgroup (stat -f: 63677270 UNKNOWN)
+RESULT 1-rc_cgroup_cleanup: INFO - effective rc_cgroup_cleanup for nexusd: NO
+RESULT 1-openrc-910: INFO - OpenRC issue #910 in /usr/libexec/rc/sh/rc-cgroup.sh: present
+RESULT 1-host: FAIL - running in a container: not a real host
+
+== Plan (main). With --yes the script will:
+  - create /var/lib/nexus-alpine-check (0700) and /usr/local/libexec/nexus-alpine-check/op.sh (root:root 0755), the test operation:
+    it only sleeps and writes under /var/lib/nexus-alpine-check/run;
+  - add the catalog entry nexus-alpine-check to /etc/nexus/nexusd.yaml (backup in /var/lib/nexus-alpine-check,
+    checked with nexusd validate-config), then rc-service nexusd reload;
+  - step 2: start a 20 s test operation, then rc-service nexusd restart;
+  - step 3: write rc_cgroup_cleanup="YES" to /etc/conf.d/nexusd (backup kept), rc-service nexusd
+    restart, put a canary sleep in nexusd's cgroup, start a 45 s test operation,
+    rc-service nexusd stop, check the canary then the supervisor, put /etc/conf.d/nexusd back,
+    rc-service nexusd start;
+  - step 4: start a 1 h test operation, rc-service nexusd stop, kill -9 that
+    operation's supervisor and its processes (only those), rc-service nexusd start;
+  - step 6: start a test operation that leaves a setsid grandchild, then cancel it;
+  - at the end: cancel any test operation still running, kill the canary, put
+    /etc/nexus/nexusd.yaml back byte for byte and reload nexusd, remove /usr/local/libexec/nexus-alpine-check/op.sh and /var/lib/nexus-alpine-check.
+  It never edits nginx's configuration or touches the nginx service, and never reboots.
+REFUSED: a reboot check is pending (/var/lib/nexus-alpine-check/reboot.state): run --yes --reboot-phase2 after the reboot, or --yes --cleanup to abandon it

@@ -1,0 +1,43 @@
+CONTAINER DRY RUN, NOT real-host evidence.
+
+Run B (container nx-wi35-alpine-20261114T055706Z, since removed): operation
+01a1d8a3-f21f-7232-b7bd-a2c74e0788bd's directory after the simulated reboot
+and phase 2 (run-b-phase2-canceled.txt). The script version that ran phase 2
+(sha256 72c10dbb...) did not yet print exit.json, so these lines were read by
+hand with docker exec. They are copied verbatim from the session's terminal
+output.
+
+$ ls -la /var/lib/nexus/ops/01a1d8a3-f21f-7232-b7bd-a2c74e0788bd
+total 24
+drwx------    3 root     root          4096 Nov 14 05:59 .
+drwx------    8 root     root          4096 Nov 14 05:59 ..
+-rw-------    1 root     root           151 Nov 14 05:59 exit.json
+-rw-------    1 root     root             6 Nov 14 05:59 max-runtime
+drwx------    2 root     root          4096 Nov 14 05:59 output
+-rw-------    1 root     root            83 Nov 14 05:59 supervisor.json
+-rw-------    1 root     root             0 Nov 14 05:59 supervisor.log
+== exit.json
+{"exitCode":-1,"signal":"SIGTERM","started":"2026-11-14T05:59:45.542769765Z","ended":"2026-11-14T05:59:59.446814587Z","timedOut":false,"canceled":true}
+== supervisor.log
+
+== supervisor.json
+{"pid":7078,"startTicks":239213612,"bootId":"a2e5b43d-6ecf-4b62-bbde-f26dfa9c7fcf"}
+
+$ docker logs nx-wi35-alpine-20261114T055706Z | grep -n -i 'going down\|Sent SIG\|shutdown\|Stopping nexusd\|Requesting'
+20: * Stopping nexusd ... [ ok ]
+22:The system is going down NOW!
+23:Sent SIGTERM to all processes
+24:Sent SIGKILL to all processes
+25:Requesting system poweroff
+
+$ grep -n 'rc shutdown\|nexusd' /var/log/rc.log | tail
+55:rc shutdown logging started at Sat Nov 14 05:59:57 2026
+59: * Stopping nexusd ... [ ok ]
+62:rc shutdown logging stopped at Sat Nov 14 05:59:59 2026
+112: * Starting nexusd ... [ ok ]
+
+Reading: OpenRC's shutdown runlevel stopped nexusd (05:59:57 to 05:59:59).
+BusyBox init then sent SIGTERM to all processes. The supervisor took that as
+the cancel signal, and at 05:59:59.446 it wrote exit.json with canceled true,
+before init's SIGKILL. At the next start, nexusd finalized the operation
+from exit.json as Canceled, although nobody had canceled it.

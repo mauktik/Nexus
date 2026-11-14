@@ -1,0 +1,214 @@
+# alpine-check.sh transcript: nginx-provider WI 3.5 (TC-51, TC-52)
+# started 2026-11-14T06:04:28Z on host 2e3cf89e8c92, mode main, arguments: --transcript /root/check/02-step3-with-910-fix.txt --yes --steps 3 --with-910-fix
+# script sha256 b77bdb0e75d221bf16dfa7bc226821b3b600457b70f6cbfd5c8aa860db7ca8c3
+# CONTAINER DETECTED (/.dockerenv, /run/.containerenv or container= in PID 1's environment):
+# this transcript is a dry run, NOT real-host evidence.
+
+[06:04:28] == Step 1: host facts (TC-51 step 1)
+$ uname -m
+aarch64
+$ cat /etc/alpine-release
+3.24.4
+$ uname -r
+6.8.0-100-generic
+$ stat -fc '%t %T' /sys/fs/cgroup
+63677270 UNKNOWN
+$ grep ' /sys/fs/cgroup' /proc/mounts
+cgroup /sys/fs/cgroup cgroup2 rw,nosuid,nodev,noexec,relatime 0 0
+$ cat /proc/sys/kernel/random/boot_id
+a2e5b43d-6ecf-4b62-bbde-f26dfa9c7fcf
+$ openrc --version
+openrc (OpenRC [DOCKER]) 0.63.2
+$ /usr/local/bin/nexusd -version
+nexusd dev
+$ grep -n -E '^[[:space:]]*rc_cgroup_(mode|cleanup)=' /etc/rc.conf
+(exit 1)
+(no /etc/conf.d/nexusd)
+$ sh -c '[ ! -r /etc/rc.conf ] || . /etc/rc.conf; [ ! -r /etc/conf.d/nexusd ] || . /etc/conf.d/nexusd; echo "rc_cgroup_cleanup=${rc_cgroup_cleanup:-NO}"'
+rc_cgroup_cleanup=NO
+$ grep -n 'sys/fs/cgroup/.*RC_SVCNAME' /usr/libexec/rc/sh/rc-cgroup.sh
+40:		cgroup_procs="/sys/fs/cgroup/openrc/${RC_SVCNAME}/tasks"
+52:	[ -d "/sys/fs/cgroup/unified/${RC_SVCNAME}" ] ||
+53:			[ -d "/sys/fs/cgroup/${RC_SVCNAME}" ] ||
+54:			[ -d "/sys/fs/cgroup/openrc/${RC_SVCNAME}" ]
+64:	cgroup="/sys/fs/cgroup/${1}${h}openrc_${RC_SVCNAME}"
+RESULT 1-arch: FAIL - uname -m aarch64, want x86_64
+RESULT 1-release: PASS - Alpine 3.24.4 (3.21 or later)
+RESULT 1-cgroup: PASS - cgroup2 at /sys/fs/cgroup (stat -f: 63677270 UNKNOWN)
+RESULT 1-rc_cgroup_cleanup: INFO - effective rc_cgroup_cleanup for nexusd: NO
+RESULT 1-openrc-910: INFO - OpenRC issue #910 in /usr/libexec/rc/sh/rc-cgroup.sh: present
+RESULT 1-host: FAIL - running in a container: not a real host
+
+== Plan (main). With --yes the script will:
+  - create /var/lib/nexus-alpine-check (0700) and /usr/local/libexec/nexus-alpine-check/op.sh (root:root 0755), the test operation:
+    it only sleeps and writes under /var/lib/nexus-alpine-check/run;
+  - add the catalog entry nexus-alpine-check to /etc/nexus/nexusd.yaml (backup in /var/lib/nexus-alpine-check,
+    checked with nexusd validate-config), then rc-service nexusd reload;
+  - step 3: write rc_cgroup_cleanup="YES" to /etc/conf.d/nexusd (backup kept), rc-service nexusd
+    restart, put a canary sleep in nexusd's cgroup, start a 45 s test operation,
+    rc-service nexusd stop, check the canary then the supervisor, put /etc/conf.d/nexusd back,
+    rc-service nexusd start;
+    --with-910-fix: patch cgroup_running() in /usr/libexec/rc/sh/rc-cgroup.sh for this step if it has
+    OpenRC issue #910, then put the original back;
+  - at the end: cancel any test operation still running, kill the canary, put
+    /etc/nexus/nexusd.yaml back byte for byte and reload nexusd, remove /usr/local/libexec/nexus-alpine-check/op.sh and /var/lib/nexus-alpine-check.
+  It never edits nginx's configuration or touches the nginx service, and never reboots.
+[06:04:28] API: https://localhost:7443 (curl -sS --connect-to localhost:7443:127.0.0.1:7443 --cacert /var/lib/nexus/tls/cert.pem)
+[06:04:28] nexusd pid 3721 answers https://localhost:7443/healthz
+$ curl -sS --connect-to localhost:7443:127.0.0.1:7443 --cacert /var/lib/nexus/tls/cert.pem -X GET -H 'Authorization: Bearer <NEXUS_TOKEN>' https://localhost:7443/v1/capabilities
+HTTP 200 {"id":"/capabilities","host":"2e3cf89e8c92","apiVersion":"v1","version":"dev","os":{"id":"alpine","versionId":"3.24.4","prettyName":"Alpine Linux v3.24"},"initSystem":"openrc","providers":[{"name":"apt","status":"disabled","reason":"disabled in configuration (providers.apt.enabled is false)","resourceTypes":["packages","upgradable"],"actions":["install","refresh","remove","upgrade"]},{"name":"docker","status":"disabled","reason":"disabled in configuration (providers.docker.enabled is false)","resourceTypes":["containers"],"actions":["check-updates","remove","restart","start","stop","update"]},{"name":"nginx","status":"enabled","details":{"disabledSuffix":".disabled","includeDir":"/etc/nginx/http.d","includeSuffix":".conf","initSystem":"openrc","service":"nginx","version":"1.30.6"},"resourceTypes":["service","sites"],"actions":["add","disable","enable","reload","restart","start","stop","test","update"]},{"name":"scripts","status":"disabled","reason":"disabled in configuration (providers.scripts.enabled is false)","resourceTypes":["scripts"],"actions":["invoke"]}]}
+[06:04:28] installing the test operation /usr/local/libexec/nexus-alpine-check/op.sh
+$ ls -l /usr/local/libexec/nexus-alpine-check/op.sh
+-rwxr-xr-x    1 root     root           745 Nov 14 06:04 /usr/local/libexec/nexus-alpine-check/op.sh
+[06:04:28] adding the catalog entry nexus-alpine-check to /etc/nexus/nexusd.yaml (backup: /var/lib/nexus-alpine-check/nexusd.yaml.orig)
+$ cp -p /etc/nexus/nexusd.yaml /var/lib/nexus-alpine-check/nexusd.yaml.orig
+$ diff -u /var/lib/nexus-alpine-check/nexusd.yaml.orig /etc/nexus/.nexusd.yaml.alpine-check
+--- /var/lib/nexus-alpine-check/nexusd.yaml.orig
++++ /etc/nexus/.nexusd.yaml.alpine-check
+@@ -93,8 +93,20 @@
+   # arg nor env is positional, in declared order. Scripts run only under
+   # systemd; without it the provider reports unavailable.
+   scripts:
+-    enabled: false
+-    catalog: []
++    enabled: true
++    catalog:
++      - id: nexus-alpine-check
++        description: Test op of alpine-check.sh, sleeps and writes only under /var/lib/nexus-alpine-check
++        path: /usr/local/libexec/nexus-alpine-check/op.sh
++        runAs: root
++        workingDirectory: /usr/local/libexec/nexus-alpine-check
++        timeout: 3h
++        concurrency: 4
++        terminationGrace: 5s
++        parameters:
++          - {name: mode, type: string, enum: [mark, escape]}
++          - {name: seconds, type: integer}
++          - {name: tag, type: string, pattern: '[a-z0-9][a-z0-9-]{0,40}'}
+     # Example entry:
+     # catalog:
+     #   - id: deploy-api
+(exit 1)
+$ /usr/local/bin/nexusd validate-config --config /etc/nexus/.nexusd.yaml.alpine-check
+/etc/nexus/.nexusd.yaml.alpine-check: configuration is valid
+$ rc-service nexusd reload
+ * Reloading nexusd ... [ ok ]
+$ curl -sS --connect-to localhost:7443:127.0.0.1:7443 --cacert /var/lib/nexus/tls/cert.pem -X GET -H 'Authorization: Bearer <NEXUS_TOKEN>' https://localhost:7443/v1/providers/scripts/scripts/nexus-alpine-check
+HTTP 200 {"id":"/providers/scripts/scripts/nexus-alpine-check","type":"scripts","name":"nexus-alpine-check","host":"2e3cf89e8c92","properties":{"description":"Test op of alpine-check.sh, sleeps and writes only under /var/lib/nexus-alpine-check","path":"/usr/local/libexec/nexus-alpine-check/op.sh","runAs":"root","workingDirectory":"/usr/local/libexec/nexus-alpine-check","timeoutSeconds":10800,"concurrency":4,"terminationGraceSeconds":5,"env":[],"parameters":[{"name":"mode","type":"string","enum":["mark","escape"],"sensitive":false,"position":1},{"name":"seconds","type":"integer","sensitive":false,"position":2},{"name":"tag","type":"string","pattern":"[a-z0-9][a-z0-9-]{0,40}","sensitive":false,"position":3}]}}
+
+[06:04:29] == Step 3: stop with rc_cgroup_cleanup="YES" (TC-51 step 3, ASM-14)
+$ grep -n 'sys/fs/cgroup/.*RC_SVCNAME' /usr/libexec/rc/sh/rc-cgroup.sh
+40:		cgroup_procs="/sys/fs/cgroup/openrc/${RC_SVCNAME}/tasks"
+52:	[ -d "/sys/fs/cgroup/unified/${RC_SVCNAME}" ] ||
+53:			[ -d "/sys/fs/cgroup/${RC_SVCNAME}" ] ||
+54:			[ -d "/sys/fs/cgroup/openrc/${RC_SVCNAME}" ]
+64:	cgroup="/sys/fs/cgroup/${1}${h}openrc_${RC_SVCNAME}"
+[06:04:29] applying upstream 1cf3944's cgroup_running() for this step (--with-910-fix)
+$ cp -p /usr/libexec/rc/sh/rc-cgroup.sh /var/lib/nexus-alpine-check/rc-cgroup.sh.orig
+$ diff -u /var/lib/nexus-alpine-check/rc-cgroup.sh.orig /usr/libexec/rc/sh/rc-cgroup.sh
+--- /var/lib/nexus-alpine-check/rc-cgroup.sh.orig
++++ /usr/libexec/rc/sh/rc-cgroup.sh
+@@ -49,8 +49,8 @@
+ 
+ cgroup_running()
+ {
+-	[ -d "/sys/fs/cgroup/unified/${RC_SVCNAME}" ] ||
+-			[ -d "/sys/fs/cgroup/${RC_SVCNAME}" ] ||
++	[ -d "/sys/fs/cgroup/unified/openrc.${RC_SVCNAME}" ] ||
++			[ -d "/sys/fs/cgroup/openrc.${RC_SVCNAME}" ] ||
+ 			[ -d "/sys/fs/cgroup/openrc/${RC_SVCNAME}" ]
+ }
+ 
+(exit 1)
+[06:04:29] /etc/conf.d/nexusd does not exist; it will be removed again afterwards
+$ cat /etc/conf.d/nexusd
+rc_cgroup_cleanup="YES"
+$ rc-service nexusd restart
+Service 'acpid' needs non existent service 'dev'
+Service 'hwdrivers' needs non existent service 'dev'
+Service 'machine-id' needs non existent service 'dev'
+Service 'watchdog' needs non existent service 'dev'
+ * Caching service dependencies ... [ ok ]
+ * Stopping nexusd ... [ ok ]
+ * Starting cgroups cleanup ... * Starting nexusd ... [ ok ]
+[06:04:31] nexusd pid 5045 answers https://localhost:7443/healthz
+$ cat /proc/5045/cgroup
+0::/openrc.nexusd
+$ sh -c 'sh -c '\''echo $$ > /sys/fs/cgroup/openrc.nexusd/cgroup.procs; echo $$ > /tmp/alpine-check.oKKBna/canary.pid; exec sleep 1000'\'' >/dev/null 2>&1 &'
+$ cat /proc/5184/cgroup
+0::/openrc.nexusd
+[06:04:31] canary 5184 in nexusd 5045's cgroup /openrc.nexusd
+$ curl -sS --connect-to localhost:7443:127.0.0.1:7443 --cacert /var/lib/nexus/tls/cert.pem -X POST -H 'Authorization: Bearer <NEXUS_TOKEN>' -H 'Content-Type: application/json' --data '{"parameters":{"mode":"mark","seconds":"45","tag":"s3-20261114060428"}}' https://localhost:7443/v1/providers/scripts/scripts/nexus-alpine-check/invoke
+HTTP 202 {"id":"01a1d8a8-513c-7508-9d22-7458dd85fff0","host":"2e3cf89e8c92","action":"scripts.scripts.invoke","provider":"scripts","target":"nexus-alpine-check","tokenName":"alpine-check","status":"Queued","created":"2026-11-14T06:04:31.93256448Z","started":null,"ended":null,"result":null,"error":null,"outputEvicted":false}
+[06:04:31] operation 01a1d8a8-513c-7508-9d22-7458dd85fff0: mark 45 s, tag s3-20261114060428
+[06:04:31] operation 01a1d8a8-513c-7508-9d22-7458dd85fff0: Running
+$ curl -sS --connect-to localhost:7443:127.0.0.1:7443 --cacert /var/lib/nexus/tls/cert.pem -X GET -H 'Authorization: Bearer <NEXUS_TOKEN>' https://localhost:7443/v1/operations/01a1d8a8-513c-7508-9d22-7458dd85fff0
+HTTP 200 {"id":"01a1d8a8-513c-7508-9d22-7458dd85fff0","host":"2e3cf89e8c92","action":"scripts.scripts.invoke","provider":"scripts","target":"nexus-alpine-check","tokenName":"alpine-check","status":"Running","created":"2026-11-14T06:04:31.93256448Z","started":"2026-11-14T06:04:31.93921723Z","ended":null,"result":null,"error":null,"outputEvicted":false}
+$ cat /var/lib/nexus/ops/01a1d8a8-513c-7508-9d22-7458dd85fff0/supervisor.json
+{"pid":5249,"startTicks":239242259,"bootId":"a2e5b43d-6ecf-4b62-bbde-f26dfa9c7fcf"}
+$ cat /proc/5249/cgroup
+0::/nexus-ops/01a1d8a8-513c-7508-9d22-7458dd85fff0
+[06:04:32] supervisor 5249 startTicks 239242259 cgroup /nexus-ops/01a1d8a8-513c-7508-9d22-7458dd85fff0; nexusd cgroup /openrc.nexusd
+$ rc-service nexusd stop
+ * Stopping nexusd ... [ ok ]
+ * Starting cgroups cleanup ...
+$ (read /proc/<pid>/stat, cgroup and cmdline of each process matching 'sleep 1000')
+  (none)
+RESULT 3a: PASS - canary 5184 gone within 0.0 s of the stop: cleanup was in effect
+$ cat /proc/5249/stat
+5249 (nexusd) S 1 5249 5249 0 -1 4194304 1035 0 0 0 0 0 0 0 20 0 7 0 239242259 1301798912 3104 18446744073709551615 65536 5556564 281474551825872 0 0 0 1002056192 0 2143420159 0 0 0 17 0 0 0 0 0 0 12386304 12794208 593915904 281474551828343 281474551828450 281474551828450 281474551828450 0
+$ cat /proc/5249/cgroup
+0::/nexus-ops/01a1d8a8-513c-7508-9d22-7458dd85fff0
+RESULT 3b: PASS - supervisor 5249 survived, startTicks 239242259 unchanged, cgroup /nexus-ops/01a1d8a8-513c-7508-9d22-7458dd85fff0
+$ cat /sys/fs/cgroup/openrc.nexusd/cgroup.events
+populated 0
+frozen 0
+$ rmdir /sys/fs/cgroup/openrc.nexusd
+[06:04:32] removing /etc/conf.d/nexusd, which did not exist before
+[06:04:32] restoring /usr/libexec/rc/sh/rc-cgroup.sh
+$ grep -n 'sys/fs/cgroup/.*RC_SVCNAME' /usr/libexec/rc/sh/rc-cgroup.sh
+40:		cgroup_procs="/sys/fs/cgroup/openrc/${RC_SVCNAME}/tasks"
+52:	[ -d "/sys/fs/cgroup/unified/${RC_SVCNAME}" ] ||
+53:			[ -d "/sys/fs/cgroup/${RC_SVCNAME}" ] ||
+54:			[ -d "/sys/fs/cgroup/openrc/${RC_SVCNAME}" ]
+64:	cgroup="/sys/fs/cgroup/${1}${h}openrc_${RC_SVCNAME}"
+$ rc-service nexusd start
+Service 'acpid' needs non existent service 'dev'
+Service 'hwdrivers' needs non existent service 'dev'
+Service 'machine-id' needs non existent service 'dev'
+Service 'watchdog' needs non existent service 'dev'
+ * Caching service dependencies ... [ ok ]
+ * Starting nexusd ... [ ok ]
+[06:04:33] nexusd pid 5570 answers https://localhost:7443/healthz
+[06:04:33] operation 01a1d8a8-513c-7508-9d22-7458dd85fff0: Running
+[06:05:18] operation 01a1d8a8-513c-7508-9d22-7458dd85fff0: Succeeded
+$ curl -sS --connect-to localhost:7443:127.0.0.1:7443 --cacert /var/lib/nexus/tls/cert.pem -X GET -H 'Authorization: Bearer <NEXUS_TOKEN>' https://localhost:7443/v1/operations/01a1d8a8-513c-7508-9d22-7458dd85fff0
+HTTP 200 {"id":"01a1d8a8-513c-7508-9d22-7458dd85fff0","host":"2e3cf89e8c92","action":"scripts.scripts.invoke","provider":"scripts","target":"nexus-alpine-check","tokenName":"alpine-check","status":"Succeeded","created":"2026-11-14T06:04:31.93256448Z","started":"2026-11-14T06:04:31.93921723Z","ended":"2026-11-14T06:05:17.126404409Z","result":{"changed":true,"exitCode":0,"signal":"","durationSeconds":45.005},"error":null,"outputEvicted":false}
+RESULT 3c: PASS - operation 01a1d8a8-513c-7508-9d22-7458dd85fff0 Succeeded after nexusd started again, marker written
+[06:05:18] == Cleanup
+[06:05:18] restoring /etc/nexus/nexusd.yaml from /var/lib/nexus-alpine-check/nexusd.yaml.orig
+$ sha256sum /var/lib/nexus-alpine-check/nexusd.yaml.orig /etc/nexus/nexusd.yaml
+158ac7d637fd1a9807080cc5a018ef8e5ff706a478cbc6db30d71dc6514833e2  /var/lib/nexus-alpine-check/nexusd.yaml.orig
+158ac7d637fd1a9807080cc5a018ef8e5ff706a478cbc6db30d71dc6514833e2  /etc/nexus/nexusd.yaml
+$ rc-service nexusd reload
+ * Reloading nexusd ... [ ok ]
+$ curl -sS --connect-to localhost:7443:127.0.0.1:7443 --cacert /var/lib/nexus/tls/cert.pem -X GET -H 'Authorization: Bearer <NEXUS_TOKEN>' https://localhost:7443/v1/providers/scripts/scripts/nexus-alpine-check
+HTTP 503 {"type":"urn:nexus:problem:capability-unavailable","title":"Capability unavailable","status":503,"detail":"provider scripts is disabled","provider":"scripts","reason":"disabled in configuration (providers.scripts.enabled is false)"}
+$ rm -rf /usr/local/libexec/nexus-alpine-check /var/lib/nexus-alpine-check
+RESULT config-restored: PASS - /etc/nexus/nexusd.yaml sha256 158ac7d637fd1a9807080cc5a018ef8e5ff706a478cbc6db30d71dc6514833e2, as before the run
+RESULT nginx-untouched: PASS - digest of every file under /etc/nginx unchanged (e9161a0dfd3aba938ba3fe81d0318fc5c2c029e900fc1d58d220d0f0f483acb6)
+
+== Summary (main)
+  1-arch  FAIL  uname -m aarch64, want x86_64
+  1-release  PASS  Alpine 3.24.4 (3.21 or later)
+  1-cgroup  PASS  cgroup2 at /sys/fs/cgroup (stat -f: 63677270 UNKNOWN)
+  1-rc_cgroup_cleanup  INFO  effective rc_cgroup_cleanup for nexusd: NO
+  1-openrc-910  INFO  OpenRC issue #910 in /usr/libexec/rc/sh/rc-cgroup.sh: present
+  1-host  FAIL  running in a container: not a real host
+  3a  PASS  canary 5184 gone within 0.0 s of the stop: cleanup was in effect
+  3b  PASS  supervisor 5249 survived, startTicks 239242259 unchanged, cgroup /nexus-ops/01a1d8a8-513c-7508-9d22-7458dd85fff0
+  3c  PASS  operation 01a1d8a8-513c-7508-9d22-7458dd85fff0 Succeeded after nexusd started again, marker written
+  config-restored  PASS  /etc/nexus/nexusd.yaml sha256 158ac7d637fd1a9807080cc5a018ef8e5ff706a478cbc6db30d71dc6514833e2, as before the run
+  nginx-untouched  PASS  digest of every file under /etc/nginx unchanged (e9161a0dfd3aba938ba3fe81d0318fc5c2c029e900fc1d58d220d0f0f483acb6)
+  (container: not real-host evidence)
+transcript: /root/check/02-step3-with-910-fix.txt

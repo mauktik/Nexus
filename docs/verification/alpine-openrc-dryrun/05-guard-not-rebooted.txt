@@ -1,0 +1,28 @@
+# alpine-check.sh transcript: nginx-provider WI 3.5 (TC-51, TC-52)
+# started 2026-11-14T06:05:19Z on host 2e3cf89e8c92, mode reboot2, arguments: --transcript /root/check/05-guard-not-rebooted.txt --yes --reboot-phase2
+# script sha256 b77bdb0e75d221bf16dfa7bc226821b3b600457b70f6cbfd5c8aa860db7ca8c3
+# CONTAINER DETECTED (/.dockerenv, /run/.containerenv or container= in PID 1's environment):
+# this transcript is a dry run, NOT real-host evidence.
+
+
+== Plan (reboot2). With --yes the script will:
+  - read boot_id, start nexusd if it did not start at boot, check the phase 1
+    operation ended outcome-unknown, then clean up as a full run does.
+  It never edits nginx's configuration or touches the nginx service, and never reboots.
+
+[06:05:19] == Step 5, phase 2: after the reboot (TC-51 step 5)
+$ cat /var/lib/nexus-alpine-check/reboot.state
+op=01a1d8a9-0a90-7233-8ecf-81681a39cf28
+boot=a2e5b43d-6ecf-4b62-bbde-f26dfa9c7fcf
+sup_pid=6951
+sup_ticks=239247002
+tag=s5-20261114060518
+run_id=20261114060518
+runlevel=yes
+config_sha=158ac7d637fd1a9807080cc5a018ef8e5ff706a478cbc6db30d71dc6514833e2
+nginx_digest=e9161a0dfd3aba938ba3fe81d0318fc5c2c029e900fc1d58d220d0f0f483acb6
+$ cat /proc/sys/kernel/random/boot_id
+a2e5b43d-6ecf-4b62-bbde-f26dfa9c7fcf
+$ cat /proc/uptime
+2392470.20 9514466.60
+REFUSED: the host has not rebooted since phase 1 (boot_id a2e5b43d-6ecf-4b62-bbde-f26dfa9c7fcf unchanged, supervisor 6951 still running): reboot it, then run --reboot-phase2 again

@@ -1,0 +1,14 @@
++ 06:05:19 docker restart -t 60 nx-wi35-alpine-20261114T060236Z   (simulated reboot: BusyBox init runs the shutdown runlevel, sends SIGTERM then SIGKILL to all processes, and exits; the container starts again with a fresh /run tmpfs; the host kernel, and so its boot_id, stay)
+before: boot_id a2e5b43d-6ecf-4b62-bbde-f26dfa9c7fcf, PID 1 start tick 239232600
+nx-wi35-alpine-20261114T060236Z
++ 06:05:24 back; rc-status default:
+Runlevel: default
+ nginx                                                             [  started  ]
+ nexusd                                                [  started 00:00:01 (0) ]
+ docker                                                [  started 00:00:01 (0) ]
+after: boot_id a2e5b43d-6ecf-4b62-bbde-f26dfa9c7fcf, PID 1 start tick 239247362
++ docker logs (BusyBox init's shutdown messages):
+The system is going down NOW!
+Sent SIGTERM to all processes
+Sent SIGKILL to all processes
+Requesting system poweroff

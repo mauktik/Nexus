@@ -1,0 +1,32 @@
++ git rev-parse HEAD: 286bfddb28ddddd5c6076a3d0eb4f3aff2d638d3
++ docker daemon architecture aarch64 -> GOARCH=arm64
++ docker build -f test/harness/Dockerfile.alpine -t nexus-harness:alpine-alpine-latest test/harness
+sha256:85eb3cff3155b38da60214e3a400e2a3b7ff2c2bdba21265e094421b7fdb6a07
++ docker run -d --name nx-wi35-alpine-20261114T060236Z --privileged --cgroupns=private --tmpfs /run --tmpfs /run/lock -v /var/lib/docker -v /var/lib/containerd nexus-harness:alpine-alpine-latest
+2e3cf89e8c92e81c4c2a50b7e38de753e66d8fed9dd07056a6d781601fd33d70
++ PID 1: /sbin/init 
++ 3.24.4 openrc (OpenRC [DOCKER]) 0.63.2 aarch64
+install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/init.d/nexusd
+install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+/etc/nexus/nexusd.yaml: configuration is valid
+install.sh: next steps:
+install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+install.sh:   start nexusd at boot: rc-update add nexusd default
+install.sh:   start nexusd now: rc-service nexusd start
+/etc/nexus/nexusd.yaml: configuration is valid
+ * service nginx added to runlevel default
+Service 'acpid' needs non existent service 'dev'
+Service 'hwdrivers' needs non existent service 'dev'
+Service 'machine-id' needs non existent service 'dev'
+Service 'watchdog' needs non existent service 'dev'
+ * Caching service dependencies ... [ ok ]
+ * /run/nginx: creating directory
+ * /run/nginx: correcting owner
+ * Starting nginx ... [ ok ]
+ * service nexusd added to runlevel default
+ * /var/lib/nexus: creating directory
+ * /var/log/nexus: creating directory
+ * Starting nexusd ... [ ok ]
+Created token "alpine-check" (id 6dcdcb30dbd4). It is shown only this once; store it now.
++ container nx-wi35-alpine-20261114T060236Z ready
