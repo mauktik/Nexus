@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -15,10 +16,17 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 )
 
 // writeIdentity is WriteIdentity; a test makes it fail.
 var writeIdentity = WriteIdentity
+
+// readyFD is the descriptor of a process-backend supervisor that holds the
+// write end of its readiness pipe, the launcher's ExtraFiles[0].
+const readyFD = 3
+
+func init() { signalReady = linuxSignalReady }
 
 // ProcessBackend returns the four process seams of Options for a host
 // without systemd. Launch starts `nexusd op-supervise --dir D --process` in
@@ -61,10 +69,19 @@ func (b *processBackend) dir(unit string) (string, error) {
 	return filepath.Join(b.cfg.OpsDir, id), nil
 }
 
-// launch starts inv's supervisor and records its identity. A supervisor
-// waits for that record before it takes spec.json, so one whose identity
-// was never written runs nothing and exits (L-51).
-func (b *processBackend) launch(_ context.Context, inv Invocation) (err error) {
+// launch starts inv's supervisor, waits until it handles SIGTERM, and
+// records its identity. A supervisor waits for that record before it takes
+// spec.json, so one whose identity was never written runs nothing and exits
+// (L-51).
+//
+// Until the supervisor has called signal.Notify, a SIGTERM kills it with
+// the default action and no exit.json, and the operation would end lost.
+// So launch returns only once the supervisor has written a byte to its
+// readiness pipe, which it does right after signal.Notify: a cancel sent
+// as soon as Start returns is then always handled. /proc/<pid>/status
+// SigCgt cannot stand in for this: the Go runtime catches SIGTERM from its
+// start, and only exits on it, until signal.Notify.
+func (b *processBackend) launch(ctx context.Context, inv Invocation) (err error) {
 	dir, err := b.dir(Unit(inv.ID))
 	if err != nil {
 		return err
@@ -91,6 +108,12 @@ func (b *processBackend) launch(_ context.Context, inv Invocation) (err error) {
 	if err := logFile.Chmod(0o600); err != nil {
 		return fmt.Errorf("detach: chmod %s: %w", SupervisorLog, err)
 	}
+	ready, readyW, err := os.Pipe()
+	if err != nil {
+		return fmt.Errorf("detach: readiness pipe: %w", err)
+	}
+	// Only the read end is left open; nothing is ever written to it.
+	defer func() { _ = ready.Close() }()
 
 	newCmd := func() *exec.Cmd {
 		// Not CommandContext: the supervisor must outlive this call and nexusd.
@@ -99,6 +122,7 @@ func (b *processBackend) launch(_ context.Context, inv Invocation) (err error) {
 		cmd.Dir = "/"
 		cmd.Stdin = nil // /dev/null
 		cmd.Stdout, cmd.Stderr = logFile, logFile
+		cmd.ExtraFiles = []*os.File{readyW} // readyFD
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 		return cmd
 	}
@@ -121,6 +145,10 @@ func (b *processBackend) launch(_ context.Context, inv Invocation) (err error) {
 			group = ""
 		}
 	}
+	// Once the supervisor holds the only write end, a read sees its exit.
+	if cerr := readyW.Close(); cerr != nil && err == nil {
+		err = cerr
+	}
 	if err != nil {
 		if group != "" {
 			b.removeCgroup(inv.ID, group)
@@ -139,6 +167,9 @@ func (b *processBackend) launch(_ context.Context, inv Invocation) (err error) {
 			b.removeCgroup(inv.ID, group)
 		}
 		return fmt.Errorf("detach: launch %s: %w", inv.Unit, err)
+	}
+	if err := awaitReady(ctx, ready, pid); err != nil {
+		return fail(err)
 	}
 	id, err := b.identityOf(pid)
 	if err != nil {
@@ -192,6 +223,54 @@ func (b *processBackend) removeCgroup(id, path string) {
 	if err := cleanup(path); err != nil {
 		b.log().Warn("cannot remove an operation cgroup", "operationId", id, "error", err.Error())
 	}
+}
+
+// awaitReady waits until supervisor pid writes to its readiness pipe r,
+// for as long as ctx allows and at most LaunchTimeout.
+func awaitReady(ctx context.Context, r *os.File, pid int) error {
+	ctx, cancel := context.WithTimeout(ctx, LaunchTimeout)
+	defer cancel()
+	stop := context.AfterFunc(ctx, func() {
+		// Ends the Read below; a pipe in the poller cannot fail this.
+		_ = r.SetReadDeadline(time.Now())
+	})
+	defer stop()
+	var b [1]byte
+	_, err := r.Read(b[:])
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, io.EOF):
+		return fmt.Errorf("supervisor %d exited before it could handle a cancel; see %s", pid, SupervisorLog)
+	case errors.Is(err, os.ErrDeadlineExceeded):
+		return fmt.Errorf("supervisor %d did not report that it handles a cancel: %w", pid, context.Cause(ctx))
+	}
+	return fmt.Errorf("supervisor %d readiness: %w", pid, err)
+}
+
+// linuxSignalReady is signalReady: it writes one byte to readyFD and closes
+// it, when readyFD is the write end of a pipe. A supervisor started any
+// other way has no such descriptor there and reports nothing.
+func linuxSignalReady() error {
+	var st syscall.Stat_t
+	if err := syscall.Fstat(readyFD, &st); err != nil || st.Mode&syscall.S_IFMT != syscall.S_IFIFO {
+		return nil
+	}
+	flags, _, errno := syscall.Syscall(syscall.SYS_FCNTL, readyFD, syscall.F_GETFL, 0)
+	if errno != 0 || flags&syscall.O_ACCMODE != syscall.O_WRONLY {
+		return nil
+	}
+	_, werr := syscall.Write(readyFD, []byte{'R'})
+	// Closed either way: it has no close-on-exec flag, so the child would
+	// inherit it.
+	cerr := syscall.Close(readyFD)
+	if werr != nil {
+		return fmt.Errorf("report readiness: %w", werr)
+	}
+	if cerr != nil {
+		return fmt.Errorf("close the readiness pipe: %w", cerr)
+	}
+	return nil
 }
 
 // identityOf reads the identity of the just-started supervisor pid.

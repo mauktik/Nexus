@@ -643,3 +643,75 @@ func readFileOrErr(path string) string {
 	}
 	return string(b)
 }
+
+// A supervisor that does not reach signal.Notify within the launch bound
+// fails the launch: it is killed, spec.json is removed and nothing runs.
+func TestLaunchFailsWhenSupervisorNeverReady(t *testing.T) {
+	l, opts, _ := processLauncher(t, testBinary(t))
+	const id = "01JSIGTERM2"
+	dir := startupWindowDir(t, l, id, time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	err := l.Start(ctx, id, shSpec(dir, `: > "$DIR/marker"`))
+	if err == nil || !strings.Contains(err.Error(), "did not report that it handles a cancel") {
+		t.Fatalf("Start: %v, want a launch that failed waiting for the supervisor", err)
+	}
+	if took := time.Since(started); took > 5*time.Second {
+		t.Errorf("Start took %s, past its 500ms bound", took)
+	}
+	if _, err := os.Stat(filepath.Join(dir, detach.SpecFile)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("spec.json not removed (%v)", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, detach.IdentityFile)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("%s written for a failed launch (%v)", detach.IdentityFile, err)
+	}
+	if lv := liveness(t, opts, id); lv != detach.Absent {
+		t.Errorf("liveness %v, want Absent", lv)
+	}
+}
+
+// A supervisor that exits before signal.Notify fails the launch at once,
+// not at the end of the bound.
+func TestLaunchFailsWhenSupervisorExitsBeforeReady(t *testing.T) {
+	l, _, _ := processLauncher(t, testBinary(t))
+	const id = "01JSIGTERM3"
+	dir := startupWindowDir(t, l, id, 0)
+	if err := os.WriteFile(filepath.Join(dir, "exit-before-notify"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	err := l.Start(context.Background(), id, shSpec(dir, `: > "$DIR/marker"`))
+	if err == nil || !strings.Contains(err.Error(), "exited before") {
+		t.Fatalf("Start: %v, want a launch that failed on the supervisor's exit", err)
+	}
+	if took := time.Since(started); took > 10*time.Second {
+		t.Errorf("Start took %s to see the supervisor exit", took)
+	}
+	if _, err := os.Stat(filepath.Join(dir, detach.SpecFile)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("spec.json not removed (%v)", err)
+	}
+}
+
+// The readiness pipe ends in the supervisor: the operation's child does not
+// inherit it.
+func TestReadinessPipeNotInheritedByChild(t *testing.T) {
+	l, _, _ := processLauncher(t, "")
+	const id = "01JSIGTERM4"
+	dir := l.Dir(id)
+	endSupervisorAtCleanup(t, dir)
+	// Descriptor 3 is where the supervisor received the pipe. The shell
+	// opens a redirection there and moves it to 1 before readlink runs.
+	spec := shSpec(dir, `readlink /proc/$$/fd/3 > "$DIR/fd3.tmp"; mv "$DIR/fd3.tmp" "$DIR/fd3"`)
+	if err := l.Start(context.Background(), id, spec); err != nil {
+		t.Fatal(err)
+	}
+	waitExit(t, dir, 10*time.Second)
+	b, err := os.ReadFile(filepath.Join(dir, "fd3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fd3 := strings.TrimSpace(string(b)); strings.HasPrefix(fd3, "pipe:") {
+		t.Errorf("the child inherited the readiness pipe as fd 3 (%s)", fd3)
+	}
+}

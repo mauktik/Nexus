@@ -74,6 +74,10 @@ type processCgroup interface {
 // operation run without a cgroup.
 const con10Note = "cgroup v2 unavailable: descendants that leave the process group are not covered (CON-10)"
 
+// signalReady tells the process backend's launcher that this ModeProcess
+// supervisor handles SIGTERM (process_linux.go). Off Linux it does nothing.
+var signalReady = func() error { return nil }
+
 // ownCgroup is the group of the ModeProcess supervisor of dir, nil when it
 // has none: not on Linux, or a launch that could not place it.
 var ownCgroup = func(dir string) processCgroup { return nil }
@@ -89,11 +93,14 @@ var ownCgroup = func(dir string) processCgroup { return nil }
 //
 // Diagnostics go to diag, the unit's journal.
 //
-// ModeProcess is the same after three steps (Data Flow 1, step 3). It sets
+// ModeProcess is the same after four steps (Data Flow 1, step 3). It sets
 // the umask to 0022 before anything else, the umask systemd gives a
 // transient unit, so the child and all it starts create files as they would
 // under systemd rather than with nexusd's OpenRC umask 077 (L-47). It caps
-// diag, which is supervisor.log, at oplog.DefaultCapBytes. And it waits for
+// diag, which is supervisor.log, at oplog.DefaultCapBytes. Once its signal
+// handlers are installed, it tells the launcher through its readiness pipe,
+// so a cancel sent after the launch never meets the default action of
+// SIGTERM, which would end it with no exit.json. And it waits for
 // supervisor.json to name its own process, exiting 1 without taking the
 // spec if that does not happen within LaunchTimeout: a launch that failed
 // before recording the identity leaves no work running (L-51).
@@ -127,6 +134,10 @@ func Supervise(dir string, diag io.Writer, mode SuperviseMode) int {
 	}
 
 	if mode == ModeProcess {
+		if err := signalReady(); err != nil {
+			// The launcher sees the pipe close and fails the launch.
+			logf("%v", err)
+		}
 		if err := awaitIdentity(dir); err != nil {
 			logf("%v; nothing was run", err)
 			return 1
