@@ -33,18 +33,27 @@ const (
 	NginxConfigInvalid    Slug = "nginx-config-invalid"
 	NginxConfigUnmanaged  Slug = "nginx-config-unmanaged"
 	NginxNotRunning       Slug = "nginx-not-running"
+	DNSFileConflict       Slug = "dns-file-conflict"
+	DNSNameUnzoned        Slug = "dns-name-unzoned"
+	DNSBatchRejected      Slug = "dns-batch-rejected"
 )
 
 // Operation-level problem types: they appear only inside operation.error.
 const (
-	OutcomeUnknown       Slug = "outcome-unknown"
-	PackageManagerBusy   Slug = "package-manager-busy"
-	PackageManagerBroken Slug = "package-manager-broken"
-	AptFailed            Slug = "apt-failed"
-	ScriptFailed         Slug = "script-failed"
-	ScriptTimeout        Slug = "script-timeout"
-	UpdateHealthFailed   Slug = "update-health-failed"
-	NginxReloadFailed    Slug = "nginx-reload-failed"
+	OutcomeUnknown        Slug = "outcome-unknown"
+	PackageManagerBusy    Slug = "package-manager-busy"
+	PackageManagerBroken  Slug = "package-manager-broken"
+	AptFailed             Slug = "apt-failed"
+	ScriptFailed          Slug = "script-failed"
+	ScriptTimeout         Slug = "script-timeout"
+	UpdateHealthFailed    Slug = "update-health-failed"
+	DNSConfigTestFailed   Slug = "dns-config-test-failed"
+	DNSVerificationFailed Slug = "dns-verification-failed"
+	DNSRollbackFailed     Slug = "dns-rollback-failed"
+	GravityFailed         Slug = "gravity-failed"
+	PiholeCommandFailed   Slug = "pihole-command-failed"
+	PiholeBusy            Slug = "pihole-busy"
+	NginxReloadFailed     Slug = "nginx-reload-failed"
 )
 
 // Type is one registered problem type. Problem types are part of the
@@ -96,6 +105,12 @@ var registry = []Type{
 		Extensions: []string{"provider", "rolledBack", "previousDigest", "newDigest"}},
 	{Slug: AuditUnavailable, Title: "Audit unavailable", Status: 503, Exit: 1},
 	{Slug: StorageLimitReached, Title: "Storage limit reached", Status: 507, Exit: 1},
+	// Like dependency-unavailable, dns-file-conflict and dns-batch-rejected
+	// may also appear in operation.error: the DNS write pipeline re-checks
+	// them after admission, inside the operation.
+	{Slug: DNSFileConflict, Title: "DNS file conflict", Status: 409, Exit: 1, Extensions: []string{"expectedEtag", "currentEtag"}},
+	{Slug: DNSNameUnzoned, Title: "DNS name not in a zone", Status: 422, Exit: 1, Extensions: []string{"name"}},
+	{Slug: DNSBatchRejected, Title: "DNS batch rejected", Status: 422, Exit: 1, Extensions: []string{"changeIndex", "cause"}},
 
 	// An operation that fails makes the CLI exit 1.
 	{Slug: OutcomeUnknown, Title: "Outcome unknown", Exit: 1, OperationLevel: true},
@@ -115,6 +130,16 @@ var registry = []Type{
 	// was no longer running to reload after the restore.
 	{Slug: NginxReloadFailed, Title: "nginx reload failed", Exit: 1, OperationLevel: true,
 		Extensions: []string{"observed", "rolledBack", "rollbackReload", "testOutput"}},
+	{Slug: DNSConfigTestFailed, Title: "DNS configuration test failed", Exit: 1, OperationLevel: true,
+		Extensions: []string{"exitCode", "rolledBack", "preExisting"}},
+	{Slug: DNSVerificationFailed, Title: "DNS verification failed", Exit: 1, OperationLevel: true,
+		Extensions: []string{"rolledBack", "name", "expected", "observed"}},
+	// The rollback restart itself failed, so DNS may be down.
+	{Slug: DNSRollbackFailed, Title: "DNS rollback failed", Exit: 1, OperationLevel: true, Extensions: []string{"rollbackCopy"}},
+	{Slug: GravityFailed, Title: "Gravity update failed", Exit: 1, OperationLevel: true, Extensions: []string{"exitCode"}},
+	{Slug: PiholeCommandFailed, Title: "Pi-hole command failed", Exit: 1, OperationLevel: true,
+		Extensions: []string{"command", "exitCode", "rolledBack"}},
+	{Slug: PiholeBusy, Title: "Pi-hole busy", Exit: 1, OperationLevel: true, Extensions: []string{"waitedSeconds"}},
 }
 
 var bySlug = func() map[Slug]Type {

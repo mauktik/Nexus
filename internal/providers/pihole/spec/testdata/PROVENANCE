@@ -1,0 +1,44 @@
+spec test fixtures (WI 1.3; TC-6 in planning/pihole-dns-zones/test-cases.md)
+
+upstream-validators.txt
+  Source: the Pi-hole core repository, tag v5.18.4, which resolves to commit
+  2cf046d559f2430253fde4e3bf1a89ef4d8f1587 (GitHub API
+  repos/pi-hole/pi-hole/git/ref/tags/v5.18.4: object type "commit").
+  Fetched 2026-11-13 (UTC) with curl from:
+    https://raw.githubusercontent.com/pi-hole/pi-hole/v5.18.4/advanced/Scripts/list.sh
+      309 lines, sha256 5188ceeab85c68894f99c9a59336a382edacab557fc2dd146b8641f8dfe486a2,
+      git blob 76558e5827e156a7f15bb94509ce852e56b49c32 (equal to the blob sha the
+      GitHub contents API reports for that path at the tag commit)
+    https://raw.githubusercontent.com/pi-hole/pi-hole/v5.18.4/advanced/Scripts/webpage.sh
+      890 lines, sha256 8ae5c39df821a6f2820e13cf4d644a890dd27ea3bc3fa92cef5f584e7946c3ab,
+      git blob 62ab4ea98c00b1099e30edfaf4a422ffec230976 (likewise equal)
+  Lines quoted verbatim (the "#| " lines; browse at
+  https://github.com/pi-hole/pi-hole/blob/v5.18.4/advanced/Scripts/<file>#L<n>):
+    list.sh:110     ValidateDomain, total length "-le 253"
+                    https://github.com/pi-hole/pi-hole/blob/v5.18.4/advanced/Scripts/list.sh#L110
+    list.sh:111     ValidateDomain, valid-characters grep -P
+                    https://github.com/pi-hole/pi-hole/blob/v5.18.4/advanced/Scripts/list.sh#L111
+    list.sh:112     ValidateDomain, label-length grep -P
+                    https://github.com/pi-hole/pi-hole/blob/v5.18.4/advanced/Scripts/list.sh#L112
+    list.sh:267     GetComment, refused-character test
+                    https://github.com/pi-hole/pi-hole/blob/v5.18.4/advanced/Scripts/list.sh#L267
+    webpage.sh:542  CheckUrl, refused-character class
+                    https://github.com/pi-hole/pi-hole/blob/v5.18.4/advanced/Scripts/webpage.sh#L542
+  Each NAME=<regex> line is derived mechanically from its quoted line, by the
+  rules in the file's header; TestUpstreamValidatorsDeriveFromSource re-derives
+  every one from the quoted text and compares.
+
+  Reading notes (each makes the Go regexp at least as strict as upstream, so a
+  value that passes it also passes Pi-hole):
+  - ValidateDomain lowercases its input first (list.sh:102, domain="${1,,}");
+    Nexus admits only lowercase values, so the regexes are used as written.
+  - list.sh:111/112 are PCRE (grep -P) in bash double quotes, so "\\d" and "\\."
+    reach grep as "\d" and "\."; RE2 reads both the same way.
+  - list.sh:267 is a bash [[ =~ ]] ERE. Go reads the escaped "\#", "\." and
+    "\ " in the bracket as "#", "." and " ". If bash also passes a literal "\"
+    into the bracket, upstream accepts "\" as well: the Go form is then
+    stricter, which is the safe direction for TC-6.
+  - webpage.sh:542's ")-;" is a range (0x29-0x3B) in both ERE and RE2, so
+    upstream CheckUrl accepts "*", "+", "," and ";" through it.
+  - webpage.sh:546 strips the first "<scheme>://<userinfo>@" before the
+    character check; URLPattern admits no "@", so that step never applies.

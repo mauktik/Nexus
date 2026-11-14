@@ -1,0 +1,76 @@
+# Check 1: the container boots to running or degraded, pihole-FTL is active and FTL answers
+# spike: test/harness/pihole/spike.sh (WI 0.1, TC-120a), route 1, INIT=native
+# image: nexus-pihole-spike:native built FROM pihole/pihole:2024.07.0@sha256:0def896a596e8d45780b6359dbf82fc8c75ef05b97e095452e67a0a4ccc95377
+# docker: context colima, server 29.2.1, daemon architecture aarch64
+# container: nexus-pihole-spike-native-20261113T090300Z-46625
+# Each command below runs as root in the container through
+# `docker exec <container> env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root LANG=C.UTF-8 bash -c '<command>'`
+# unless marked [host]. Format: $ command / # utc / output / # exit.
+
+$ [host] docker run -d --name nexus-pihole-spike-native-20261113T090300Z-46625 --privileged --cgroupns=host --tmpfs /run --tmpfs /run/lock nexus-pihole-spike:native
+# utc: 2026-11-13T09:03:04Z
+e806cb359af63c3b2b4ddaa4feb708c42eadf535f9f3e0b90e35ca55219b76d1
+# exit: 0
+
+$ systemctl is-system-running
+# utc: 2026-11-13T09:03:06Z
+running
+# exit: 0
+
+$ systemctl --failed --no-legend --plain
+# utc: 2026-11-13T09:03:06Z
+# exit: 0
+
+$ cat /etc/pihole-spike-init; systemctl show -p FragmentPath,SourcePath,Type,RemainAfterExit,MainPID pihole-FTL.service
+# utc: 2026-11-13T09:03:06Z
+native
+Type=simple
+RemainAfterExit=no
+MainPID=94
+FragmentPath=/etc/systemd/system/pihole-FTL.service
+SourcePath=
+# exit: 0
+
+$ systemctl is-active pihole-FTL
+# utc: 2026-11-13T09:03:06Z
+active
+# exit: 0
+
+$ for i in $(seq 1 40); do p=$(cat /run/pihole-FTL.pid 2>/dev/null); [ -n "$p" ] && [ -d "/proc/$p" ] && break; sleep 0.5; done; cat /run/pihole-FTL.pid; echo; ps -o pid,user,args -C pihole-FTL
+# utc: 2026-11-13T09:03:06Z
+94
+    PID USER     COMMAND
+     94 pihole   /usr/bin/pihole-FTL -f
+# exit: 0
+
+$ for i in $(seq 1 20); do dig +time=2 +tries=1 @127.0.0.1 pi.hole >/dev/null && break; sleep 1; done; dig +time=2 +tries=1 @127.0.0.1 pi.hole
+# utc: 2026-11-13T09:03:06Z
+
+; <<>> DiG 9.16.48-Debian <<>> +time +tries @127.0.0.1 pi.hole
+; (1 server found)
+;; global options: +cmd
+;; Got answer:
+;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 39700
+;; flags: qr aa rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 1
+
+;; OPT PSEUDOSECTION:
+; EDNS: version: 0, flags:; udp: 1232
+;; QUESTION SECTION:
+;pi.hole.			IN	A
+
+;; ANSWER SECTION:
+pi.hole.		0	IN	A	127.0.0.1
+
+;; Query time: 0 msec
+;; SERVER: 127.0.0.1#53(127.0.0.1)
+;; WHEN: Fri Nov 13 09:03:06 UTC 2026
+;; MSG SIZE  rcvd: 52
+# exit: 0
+
+$ systemctl --version | head -n 1; . /etc/os-release; echo "$PRETTY_NAME"; pihole-FTL -v
+# utc: 2026-11-13T09:03:06Z
+systemd 247 (247.3-7+deb11u4)
+Debian GNU/Linux 11 (bullseye)
+v5.25.2
+# exit: 0
+# verdict: PASS: system running, pihole-FTL active, dig answered (status: NOERROR); route 1 (pihole/pihole:2024.07.0), INIT=native

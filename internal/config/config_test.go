@@ -32,6 +32,9 @@ func TestDefaultConfigLoads(t *testing.T) {
 			cfg.Providers.Docker.Settings.Enabled, cfg.Providers.Apt.Settings.Enabled, cfg.Providers.Scripts.Settings.Enabled,
 			cfg.Providers.Nginx.Settings.Enabled)
 	}
+	if cfg.Providers.Pihole.Settings.Enabled {
+		t.Error("providers.pihole.enabled = true, want false")
+	}
 	if want := []string{"127.0.0.1:7443"}; !reflect.DeepEqual(cfg.Listen, want) {
 		t.Errorf("listen = %q, want %q", cfg.Listen, want)
 	}
@@ -200,6 +203,9 @@ func TestValidationRules(t *testing.T) {
 		// SEC-1 relaxation: every trusted Compose owner must exist on the host.
 		{"unknown trusted Compose owner", "providers:\n  docker:\n    compose:\n      trustedOwners: [root, nx-no-such-user-182]\n",
 			"providers.docker.compose.trustedOwners[1]", `unknown user "nx-no-such-user-182"`},
+		{"empty pihole dnsFile", "providers: {pihole: {dnsFile: \"\"}}\n", "providers.pihole.dnsFile", "absolute"},
+		// dnsmasq skips a lone "#": its first and last characters are both "#".
+		{"pihole dnsFile named #", "providers: {pihole: {dnsFile: \"/etc/dnsmasq.d/#\"}}\n", "providers.pihole.dnsFile", "dnsmasq skips"},
 		{"empty trusted Compose owner", "providers: {docker: {compose: {trustedOwners: [\"\"]}}}\n",
 			"providers.docker.compose.trustedOwners[0]", "must not be empty"},
 	}
@@ -351,6 +357,7 @@ func assertSameSettings(t *testing.T, got, want *Config) {
 		{"providers.apt", got.Providers.Apt.Settings, want.Providers.Apt.Settings},
 		{"providers.scripts", got.Providers.Scripts.Settings, want.Providers.Scripts.Settings},
 		{"providers.nginx", got.Providers.Nginx.Settings, want.Providers.Nginx.Settings},
+		{"providers.pihole", got.Providers.Pihole.Settings, want.Providers.Pihole.Settings},
 	}
 	for _, p := range pairs {
 		if !reflect.DeepEqual(p.got, p.want) {

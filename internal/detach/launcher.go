@@ -125,6 +125,9 @@ type Options struct {
 	// Subject is how an outcome-unknown detail names operation id's runner.
 	// Nil names its unit, nexus-op-<id>.service.
 	Subject func(id string) string
+	// PollInterval is how often the watcher reads exit.json. Zero, in
+	// production, means the PollInterval constant; tests shorten it.
+	PollInterval time.Duration
 }
 
 // Launcher starts operation units, signals them and watches them to their
@@ -139,6 +142,7 @@ type Launcher struct {
 	listUnits func(context.Context) ([]string, error)
 	now       func() time.Time
 	subject   func(string) string
+	pollEvery time.Duration
 	real      bool
 
 	mu       sync.Mutex
@@ -181,6 +185,9 @@ func New(cfg Config, opts Options) (*Launcher, error) {
 	}
 	if l.now == nil {
 		l.now = time.Now
+	}
+	if l.pollEvery = opts.PollInterval; l.pollEvery <= 0 {
+		l.pollEvery = PollInterval
 	}
 	return l, nil
 }

@@ -18,6 +18,7 @@ Module path: `github.com/mauktik/nexus`. Go 1.26 is required.
 | [docs/scripts.md](docs/scripts.md) | Cataloging and running scripts: what changes from a terminal, integrity checks, the onboarding checklist |
 | [docs/mcp.md](docs/mcp.md) | MCP client setup, tool semantics and the tool budget |
 | [docs/nginx.md](docs/nginx.md) | The nginx provider: configuration, the include line, sites and the rename model, writes with backup and rollback, reload verification, the CLI's `--content` limit |
+| [docs/pihole.md](docs/pihole.md) | The Pi-hole provider: DNS zones and records, blocking, domains, blocklists, safe writes and rollback |
 | [docs/cli/nexus.md](docs/cli/nexus.md) | The CLI reference, generated from the command definitions |
 | [docs/api.md](docs/api.md) | The REST API reference, generated from the OpenAPI document |
 | [docs/adding-a-provider.md](docs/adding-a-provider.md) | Adding a provider: spec, binding, the two composition lines |

@@ -1,0 +1,22 @@
+gravitydb test fixture (WI 2.1; TC-32 to TC-36, TC-E9, TC-ERR5 in
+planning/pihole-dns-zones/test-cases.md)
+
+gravity.db.sql
+  Source: Pi-hole core, tag v5.18.4, advanced/Templates/gravity.db.sql,
+  copied byte for byte (no edits, triggers and views included).
+  URL: https://raw.githubusercontent.com/pi-hole/pi-hole/v5.18.4/advanced/Templates/gravity.db.sql
+  Tag: refs/tags/v5.18.4 -> commit 2cf046d559f2430253fde4e3bf1a89ef4d8f1587
+       (https://api.github.com/repos/pi-hole/pi-hole/git/ref/tags/v5.18.4)
+  Fetched: 2026-11-13 (UTC) with curl -fsSL; exit 0.
+  Bytes: 6575
+  sha256: ed58ef0b93aea9a37efe10b61dd08e51fbeabdc9755f0cfe5a8152a95b82e11e
+  Schema version: info.version = 15 (A-12, V-5).
+  A-15: the fixture defines the default-group insert trigger
+      CREATE TRIGGER tr_domainlist_add AFTER INSERT ON domainlist
+          BEGIN
+            INSERT INTO domainlist_by_group (domainlist_id, group_id) VALUES (NEW.id, 0);
+          END;
+    and seeds "group" id 0 ('Default'). TC-34 exercises it.
+  The template has no info rows for updated or gravity_count; gravity.sh
+  writes them on the host. Tests insert them where a case needs them.
+  Every database in a test is built from this file in t.TempDir().

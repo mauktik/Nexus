@@ -10,6 +10,7 @@ import (
 	apt "github.com/mauktik/nexus/internal/providers/apt/spec"
 	docker "github.com/mauktik/nexus/internal/providers/docker/spec"
 	nginx "github.com/mauktik/nexus/internal/providers/nginx/spec"
+	pihole "github.com/mauktik/nexus/internal/providers/pihole/spec"
 	scripts "github.com/mauktik/nexus/internal/providers/scripts/spec"
 	"github.com/mauktik/nexus/internal/systemspec"
 )
@@ -22,6 +23,7 @@ func All() []def.ProviderSpec {
 		apt.Spec(),
 		scripts.Spec(),
 		nginx.Spec(),
+		pihole.Spec(),
 	}
 }
 

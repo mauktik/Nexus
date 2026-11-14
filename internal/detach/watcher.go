@@ -80,7 +80,7 @@ func (l *Launcher) Watch(ctx context.Context, id string, started time.Time, maxR
 
 // watchLoop polls every watched operation and returns once none is left.
 func (l *Launcher) watchLoop() {
-	t := time.NewTicker(PollInterval)
+	t := time.NewTicker(l.pollEvery)
 	defer t.Stop()
 	for range t.C {
 		l.mu.Lock()

@@ -2,12 +2,14 @@ package catalog_test
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/mauktik/nexus/internal/catalog"
 	"github.com/mauktik/nexus/internal/def"
 	"github.com/mauktik/nexus/internal/openapi"
+	pihole "github.com/mauktik/nexus/internal/providers/pihole/spec"
 )
 
 // row is one line of the Operation catalog table in architecture.md. Scope
@@ -21,7 +23,7 @@ type row struct {
 	cli, tool        string
 }
 
-// golden is the Operation catalog table, row for row (25 rows), then the nginx
+// golden is the Operation catalog table, row for row (51 rows), then the nginx
 // operations table (planning/nginx-provider/architecture.md, 13 rows). Any added
 // op must update it on purpose.
 var golden = []row{
@@ -65,6 +67,32 @@ var golden = []row{
 	{"nginx.sites.disable", "POST /providers/nginx/sites/{name}/disable", "nginx:write", def.RiskDestructive, def.ModeLongRunning, "nginxsite stop name", "disable_nginx_site"},
 	{"nginx.sites.add", "POST /providers/nginx/sites/{name}/add", "nginx:config", def.RiskMutating, def.ModeLongRunning, "nginxsite add name", "add_nginx_site"},
 	{"nginx.sites.update", "POST /providers/nginx/sites/{name}/update", "nginx:config", def.RiskMutating, def.ModeLongRunning, "nginxsite update name", "update_nginx_site"},
+	{"pihole.status.get", "GET /providers/pihole/status", "pihole:read", def.RiskReadOnly, def.ModeSync, "pihole get", "get_pihole_status"},
+	{"pihole.summary.get", "GET /providers/pihole/summary", "pihole:read", def.RiskReadOnly, def.ModeSync, "piholesummary get", "get_pihole_summary"},
+	{"pihole.blocking.get", "GET /providers/pihole/blocking", "pihole:read", def.RiskReadOnly, def.ModeSync, "piholeblocking get", "get_pihole_blocking"},
+	{"pihole.actions.stop-blocking", "POST /providers/pihole/actions/stop-blocking", "pihole:write", def.RiskMutating, def.ModeLongRunning, "piholeblocking stop", "stop_pihole_blocking"},
+	{"pihole.actions.start-blocking", "POST /providers/pihole/actions/start-blocking", "pihole:write", def.RiskMutating, def.ModeLongRunning, "piholeblocking start", "start_pihole_blocking"},
+	{"pihole.domains.list", "GET /providers/pihole/domains", "pihole:read", def.RiskReadOnly, def.ModeSync, "piholedomain get", "list_pihole_domains"},
+	{"pihole.domains.get", "GET /providers/pihole/domains/{name}", "pihole:read", def.RiskReadOnly, def.ModeSync, "piholedomain get name", "get_pihole_domain"},
+	{"pihole.actions.add-domain", "POST /providers/pihole/actions/add-domain", "pihole:write", def.RiskMutating, def.ModeLongRunning, "piholedomain add", "add_pihole_domain"},
+	{"pihole.actions.remove-domain", "POST /providers/pihole/actions/remove-domain", "pihole:write", def.RiskDestructive, def.ModeLongRunning, "piholedomain remove", "remove_pihole_domain"},
+	{"pihole.adlists.list", "GET /providers/pihole/adlists", "pihole:read", def.RiskReadOnly, def.ModeSync, "piholeadlist get", "list_pihole_adlists"},
+	{"pihole.adlists.get", "GET /providers/pihole/adlists/{name}", "pihole:read", def.RiskReadOnly, def.ModeSync, "piholeadlist get name", "get_pihole_adlist"},
+	{"pihole.actions.add-adlist", "POST /providers/pihole/actions/add-adlist", "pihole:write", def.RiskMutating, def.ModeLongRunning, "piholeadlist add", "add_pihole_adlist"},
+	{"pihole.actions.remove-adlist", "POST /providers/pihole/actions/remove-adlist", "pihole:write", def.RiskDestructive, def.ModeLongRunning, "piholeadlist remove", "remove_pihole_adlist"},
+	{"pihole.actions.update-gravity", "POST /providers/pihole/actions/update-gravity", "pihole:write", def.RiskMutating, def.ModeLongRunning, "piholegravity update", "update_pihole_gravity"},
+	{"pihole.actions.restart-dns", "POST /providers/pihole/actions/restart-dns", "pihole:write", def.RiskMutating, def.ModeLongRunning, "piholeresolver restart", "restart_pihole_dns"},
+	{"pihole.actions.flush-cache", "POST /providers/pihole/actions/flush-cache", "pihole:write", def.RiskMutating, def.ModeLongRunning, "piholecache remove", "flush_pihole_cache"},
+	{"pihole.zones.list", "GET /providers/pihole/zones", "pihole:read", def.RiskReadOnly, def.ModeSync, "piholezone get", "list_pihole_zones"},
+	{"pihole.zones.get", "GET /providers/pihole/zones/{name}", "pihole:read", def.RiskReadOnly, def.ModeSync, "piholezone get name", "get_pihole_zone"},
+	{"pihole.actions.add-zone", "POST /providers/pihole/actions/add-zone", "pihole:dns", def.RiskMutating, def.ModeLongRunning, "piholezone add", "add_pihole_zone"},
+	{"pihole.zones.remove", "POST /providers/pihole/zones/{name}/remove", "pihole:dns", def.RiskDestructive, def.ModeLongRunning, "piholezone remove name", "remove_pihole_zone"},
+	{"pihole.records.list", "GET /providers/pihole/records", "pihole:read", def.RiskReadOnly, def.ModeSync, "piholerecord get", "list_pihole_records"},
+	{"pihole.records.get", "GET /providers/pihole/records/{name}", "pihole:read", def.RiskReadOnly, def.ModeSync, "piholerecord get name", "get_pihole_record"},
+	{"pihole.actions.add-record", "POST /providers/pihole/actions/add-record", "pihole:dns", def.RiskMutating, def.ModeLongRunning, "piholerecord add", "add_pihole_record"},
+	{"pihole.records.update", "POST /providers/pihole/records/{name}/update", "pihole:dns", def.RiskMutating, def.ModeLongRunning, "piholerecord update name", "update_pihole_record"},
+	{"pihole.records.remove", "POST /providers/pihole/records/{name}/remove", "pihole:dns", def.RiskDestructive, def.ModeLongRunning, "piholerecord remove name", "remove_pihole_record"},
+	{"pihole.actions.apply-dns-changes", "POST /providers/pihole/actions/apply-dns-changes", "pihole:dns", def.RiskDestructive, def.ModeLongRunning, "piholednsbatch invoke", "apply_pihole_dns_changes"},
 }
 
 func rowOf(t *testing.T, op def.Op) row {
@@ -95,8 +123,8 @@ func rowOf(t *testing.T, op def.Op) row {
 // TC-146: the catalog matches the Operation catalog table exactly.
 func TestCatalogMatchesGoldenTable(t *testing.T) {
 	ops := catalog.Ops()
-	if len(golden) != 25+13 {
-		t.Fatalf("golden table has %d rows, the architectures' have 25+13", len(golden))
+	if len(golden) != 51+13 {
+		t.Fatalf("golden table has %d rows, the architectures' have 51+13", len(golden))
 	}
 	if len(ops) != len(golden) {
 		t.Errorf("catalog has %d ops, the table %d", len(ops), len(golden))
@@ -110,5 +138,36 @@ func TestCatalogMatchesGoldenTable(t *testing.T) {
 		if op.OperationControl && op.ID != "system.operations.cancel" {
 			t.Errorf("%s: OperationControl outside cancel", op.ID)
 		}
+	}
+}
+
+// TC-10 (pihole-dns-zones): docs/cli holds exactly one nexus_<noun>.md per
+// distinct pihole CLI noun and one nexus_<noun>_<verb>.md per distinct
+// (noun, verb) pair, both derived from the spec, and no other nexus_pihole*
+// page.
+func TestPiholeCLIReferencePages(t *testing.T) {
+	want := map[string]bool{}
+	nouns := map[string]bool{}
+	for _, op := range pihole.Spec().Ops {
+		nouns[op.CLI.Noun] = true
+		want["nexus_"+op.CLI.Noun+".md"] = true
+		want["nexus_"+op.CLI.Noun+"_"+op.CLI.Verb+".md"] = true
+	}
+	if len(nouns) != 11 || len(want) != 11+22 {
+		t.Errorf("spec derives %d nouns and %d pages, want 11 and 33", len(nouns), len(want))
+	}
+	got, err := filepath.Glob(filepath.Join("..", "..", "docs", "cli", "nexus_pihole*.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range got {
+		name := filepath.Base(path)
+		if !want[name] {
+			t.Errorf("docs/cli/%s is no pihole noun or (noun, verb) page", name)
+		}
+		delete(want, name)
+	}
+	for name := range want {
+		t.Errorf("docs/cli/%s is missing; run make docs", name)
 	}
 }

@@ -1,0 +1,107 @@
+# Check 5: modernc.org/sqlite reads gravity.db under every deploy/nexusd.service sandboxing directive (A-14, A-39)
+# spike: test/harness/pihole/spike.sh (WI 0.1, TC-120a), route 1, INIT=sysv
+# image: nexus-pihole-spike:sysv built FROM pihole/pihole:2024.07.0@sha256:0def896a596e8d45780b6359dbf82fc8c75ef05b97e095452e67a0a4ccc95377
+# docker: context colima, server 29.2.1, daemon architecture aarch64
+# container: nexus-pihole-spike-sysv-20261113T090325Z-47741
+# Each command below runs as root in the container through
+# `docker exec <container> env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root LANG=C.UTF-8 bash -c '<command>'`
+# unless marked [host]. Format: $ command / # utc / output / # exit.
+
+$ [host] sh -c sed -n '/^\[Service\]/,/^\[/p' deploy/nexusd.service | grep -E '^[A-Za-z]+=' | grep -cEv '^(Type|ExecStart|ExecReload|Restart|StateDirectory|StateDirectoryMode|LogsDirectory|LogsDirectoryMode)='
+# utc: 2026-11-13T09:03:31Z
+19
+# exit: 0
+# generated properties: 19 (grep -c of the same filter: 19)
+#   NoNewPrivileges=yes
+#   ProtectSystem=strict
+#   ProtectHome=read-only
+#   PrivateTmp=yes
+#   ProtectKernelTunables=yes
+#   ProtectKernelModules=yes
+#   ProtectKernelLogs=yes
+#   ProtectControlGroups=yes
+#   ProtectClock=yes
+#   ProtectHostname=yes
+#   RestrictNamespaces=yes
+#   RestrictRealtime=yes
+#   RestrictSUIDSGID=yes
+#   LockPersonality=yes
+#   MemoryDenyWriteExecute=yes
+#   SystemCallArchitectures=native
+#   SystemCallFilter=@system-service
+#   RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+#   CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+
+$ [host] go version -m build/harness/pihole/sqliteprobe
+# utc: 2026-11-13T09:03:31Z
+build/harness/pihole/sqliteprobe: go1.26.0
+	path	github.com/mauktik/nexus/test/harness/pihole/sqliteprobe
+	mod	github.com/mauktik/nexus/test/harness/pihole/sqliteprobe	(devel)	
+	dep	github.com/dustin/go-humanize	v1.1.0	h1:dbKTrvD0klcbBV/h4AWJdMuZogJACoMlvWIWZ5b2xWg=
+	dep	github.com/google/uuid	v1.6.0	h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
+	dep	github.com/remyoudompheng/bigfft	v0.0.0-20230129092748-24d4a6f8daec	h1:W09IVJc94icq4NjY3clb7Lk8O1qJ8BdBEF8z0ibU0rE=
+	dep	golang.org/x/sys	v0.49.0	h1:XbzkgYJHdqh/8m2Uu0W/dQv8nktxx4BFHp1M0gROTXA=
+	dep	modernc.org/libc	v1.79.0	h1:9Dvvv++bAMSkSuBzuOFAatbTV5OIoq6Y6FohmD3e7q8=
+	dep	modernc.org/mathutil	v1.7.1	h1:GCZVGXdaN8gTqB1Mf/usp1Y/hSqgI2vAGGP4jZMCxOU=
+	dep	modernc.org/memory	v1.12.1	h1:nFMiWrpStgZczNl6XI9GnIk/rWhYIyHGUaR04pGbp9g=
+	dep	modernc.org/sqlite	v1.61.0	h1:sQi63oLQ9uquAUA4CzOisH35Q3pEszkPBuHM0tFL8CY=
+	build	-buildmode=exe
+	build	-compiler=gc
+	build	-trimpath=true
+	build	CGO_ENABLED=0
+	build	GOARCH=arm64
+	build	GOOS=linux
+	build	GOARM64=v8.0
+# exit: 0
+# sqliteprobe copied in with docker cp as /usr/local/bin/sqliteprobe (root:root 0755), modernc.org/sqlite v1.61.0
+
+$ ls -la --time-style=full-iso /etc/pihole/ | grep gravity.db
+# utc: 2026-11-13T09:03:31Z
+-rw-rw-r-- 1 pihole pihole 9904128 2024-07-05 18:20:54.000000000 +0000 gravity.db
+# exit: 0
+
+$ date -u "+%Y-%m-%d %H:%M:%S"
+# utc: 2026-11-13T09:03:31Z
+2026-11-13 09:03:31
+# exit: 0
+
+$ systemd-run --wait --pipe --unit=nexus-sqliteprobe-20261113T090325Z -p NoNewPrivileges=yes -p ProtectSystem=strict -p ProtectHome=read-only -p PrivateTmp=yes -p ProtectKernelTunables=yes -p ProtectKernelModules=yes -p ProtectKernelLogs=yes -p ProtectControlGroups=yes -p ProtectClock=yes -p ProtectHostname=yes -p RestrictNamespaces=yes -p RestrictRealtime=yes -p RestrictSUIDSGID=yes -p LockPersonality=yes -p MemoryDenyWriteExecute=yes -p SystemCallArchitectures=native -p SystemCallFilter=@system-service -p RestrictAddressFamilies=AF_UNIX\ AF_INET\ AF_INET6\ AF_NETLINK -p CapabilityBoundingSet=CAP_DAC_READ_SEARCH /usr/local/bin/sqliteprobe /etc/pihole/gravity.db 
+# utc: 2026-11-13T09:03:31Z
+Running as unit: nexus-sqliteprobe-20261113T090325Z.service
+module modernc.org/sqlite v1.61.0
+dsn file:/etc/pihole/gravity.db?mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(2000)
+journal_mode delete
+query_only 1
+info gravity_count=165493
+info updated=1720203654
+info version=15
+domainlist_count 0
+Finished with result: success
+Main processes terminated with: code=exited/status=0
+Service runtime: 18ms
+CPU time consumed: 19ms
+# exit: 0
+
+$ ls -la --time-style=full-iso /etc/pihole/ | grep gravity.db
+# utc: 2026-11-13T09:03:31Z
+-rw-rw-r-- 1 pihole pihole 9904128 2024-07-05 18:20:54.000000000 +0000 gravity.db
+# exit: 0
+
+$ journalctl --no-pager -o short-precise -u nexus-sqliteprobe-20261113T090325Z
+# utc: 2026-11-13T09:03:31Z
+-- Journal begins at Fri 2026-11-13 09:03:26 UTC, ends at Fri 2026-11-13 09:03:31 UTC. --
+Nov 13 09:03:31.669771 289937a6696e systemd[1]: Started /usr/local/bin/sqliteprobe /etc/pihole/gravity.db.
+Nov 13 09:03:31.688666 289937a6696e systemd[1]: nexus-sqliteprobe-20261113T090325Z.service: Succeeded.
+# exit: 0
+
+$ journalctl --no-pager -o short-precise -k --since '2026-11-13 09:03:31'
+# utc: 2026-11-13T09:03:31Z
+-- Journal begins at Fri 2026-11-13 09:03:26 UTC, ends at Fri 2026-11-13 09:03:31 UTC. --
+-- No entries --
+# exit: 0
+
+$ journalctl --no-pager -o short-precise --since '2026-11-13 09:03:31' | grep -iE 'SIGSYS|EPERM|audit|seccomp|operation not permitted' || echo 'no SIGSYS, EPERM, audit or seccomp line in the journal since 2026-11-13 09:03:31'
+# utc: 2026-11-13T09:03:31Z
+no SIGSYS, EPERM, audit or seccomp line in the journal since 2026-11-13 09:03:31
+# exit: 0
+# verdict: PASS: 19 properties; exit 0; journal_mode delete; domainlist_count 0; no sidecar; no SIGSYS/EPERM/seccomp; modernc.org/sqlite v1.61.0
