@@ -54,3 +54,21 @@ All the gates of WI 6.1 passed:
 - **Start:** `validate-config` reported the configuration valid, and `systemctl enable --now nexusd` started it.
 - **TLS:** the fingerprint is `00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF`. The Mac's `openssl s_client` saw the same fingerprint, and an unauthenticated request returned `401`.
 - **Token:** `nexus-mac-test`, with scopes `pihole:read`, `pihole:write` and `pihole:dns`, expiring after 7 days. It is not recorded here.
+
+## Step 2: read-only reads compared with the host (2026-11-14, from the Mac)
+
+These come from `nexus --host pihole …` against `nexusd d23f764`. "Host view" is the step 0 report, or `dig @192.168.7.4` from the Mac.
+
+| Read | Nexus | Host view | Match |
+| --- | --- | --- | --- |
+| `capability get` | pihole `enabled`, backend `v5-cli`, core v5.18.4, FTL v5.25.2, web v5.21, `dnsWrites: available`, `preNexusBackupExists: false` | `/etc/pihole/versions`; no backup yet | yes |
+| `pihole get` | blocking `enabled`, `ftlRunning`, `dnsAnswering`, `gravityDomains` 78216, `gravityUpdated` 2026-11-08T12:48:01Z | `>stats`: `status enabled`, `domains_being_blocked 78216` | yes |
+| `piholeblocking get` | `enabled`, `reenableAt: null` | `status enabled` | yes |
+| `piholesummary get` | 78216 domains, 30 clients, `ftlApiReachable` | `>stats` (the query counts moved on between the two reads) | yes |
+| `piholeadlist get` | 1 adlist, id 1, StevenBlack hosts, 78216 domains, enabled | `gravity`: 78216 rows, all in `adlist_id` 1 | yes |
+| `piholedomain get` | 4 entries, all allow / exact / enabled | 0 enabled regex entries | yes |
+| `piholezone get` | no zones | no `# nexus:zone` markers in the file | yes |
+| `piholerecord get` | 53 A records, all `zone: null`, `duplicate: false`, etag `sha256:35e3646b…bf2d` | the 53 `address=` lines: same names, IPs and order; the etag is the file's sha256 | yes |
+| DNS | — | `dig @192.168.7.4` returns the file's IP for each of the 53 names (53/53); `pi.hole` → 192.168.7.4; `nexus-test.app.lan` → no answer (the name is free); `nexus-probe-x.invalid` → NXDOMAIN in 1 ms (answered locally) | yes |
+
+Read latency from the Mac was 23–30 ms per CLI call, end to end, across those six reads.
