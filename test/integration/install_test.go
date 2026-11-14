@@ -805,7 +805,7 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 	uhApp := uh.container("app")
 	uhID := containerID(t, uhApp)
 
-	dmesgBefore := kernelLines(t)
+	dmesgBefore := ngxKernelLines(t)
 	since := time.Now().Add(-time.Second)
 	pid := startExact(t)
 	n := exactNexusd(t, append([]string{dockerspec.ReadScope, dockerspec.WriteScope, aptspec.ReadScope,
@@ -1026,7 +1026,7 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 	sinceArg := "@" + strconv.FormatInt(since.Unix(), 10)
 	journal := mustSh(t, "journalctl", "-u", nexusdUnit, "--since", sinceArg, "--no-pager")
 	kjournal, _ := sh(30*time.Second, "journalctl", "-k", "--since", sinceArg, "--no-pager")
-	newKernel := kernelLines(t)
+	newKernel := ngxKernelLines(t)
 	if len(newKernel) >= len(dmesgBefore) {
 		newKernel = newKernel[len(dmesgBefore):]
 	}

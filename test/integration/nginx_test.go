@@ -495,6 +495,7 @@ type ngxDaemon struct {
 	name     string
 	stateDir string
 	home     string
+	ids      []string // The operations run ended, in order
 }
 
 // newNgxDaemon starts nexusd with the nginx section (ngxSection(extra)) and
@@ -564,7 +565,9 @@ func (d *ngxDaemon) begin(t *testing.T, path, body string) apitypes.Operation {
 // run POSTs body to path and returns the operation once it ended.
 func (d *ngxDaemon) run(t *testing.T, path, body string) apitypes.Operation {
 	t.Helper()
-	op := d.waitOp(d.begin(t, path, body).ID, 3*time.Minute)
+	started := d.begin(t, path, body)
+	d.ids = append(d.ids, started.ID)
+	op := d.waitOp(started.ID, 3*time.Minute)
 	t.Logf("POST %s: %s in %s, result %s, error %s", path, op.Status, ngxTook(op), op.Result, ngxProblem(op))
 	return op
 }
@@ -976,8 +979,25 @@ func TestNginxWriteRestartCases(t *testing.T) {
 		if len(helpers) != 1 {
 			t.Fatalf("helper processes %v, want one", helpers)
 		}
+		nexusdBefore := d.mainPID()
 		d.restartNexusd(t)
-		t.Logf("helper %d alive after the restart: %v", helpers[0], pidAlive(helpers[0]))
+		// The case proves that a running write survives a restart only if the
+		// helper was still running when nexusd came back (CR-B5): a helper that
+		// finished before the restart makes this case pass without showing it.
+		code, b := d.get("/v1/operations/" + op.ID)
+		var now apitypes.Operation
+		if code != http.StatusOK || json.Unmarshal(b, &now) != nil {
+			t.Fatalf("GET operation %s after the restart: %d %s", op.ID, code, b)
+		}
+		if after := d.mainPID(); after == nexusdBefore {
+			t.Fatalf("nexusd main pid %d did not change: it was not restarted", after)
+		}
+		if !pidAlive(helpers[0]) || now.Status != apitypes.StatusRunning {
+			t.Fatalf("window too short: after the restart helper %d alive %v and the operation is %s, want both still "+
+				"running: raise the wrapper delay (ngxWrapMode)", helpers[0], pidAlive(helpers[0]), now.Status)
+		}
+		t.Logf("helper %d alive after the restart, operation %s, nexusd main pid %d -> %d", helpers[0], now.Status,
+			nexusdBefore, d.mainPID())
 		end := d.waitOp(op.ID, 3*time.Minute)
 		res := ngxResult[ngxspec.WriteResult](t, "update across a restart", end)
 		got := ngxSha256sum(t, file)
@@ -1129,8 +1149,9 @@ func ngxVersion(t *testing.T) string {
 }
 
 // ngxEveryOp calls every nginx operation through n and reads each back
-// without Nexus. ok records one op. The test site is tc112 on port 18092.
-func ngxEveryOp(t *testing.T, n *nexusdInstance, ok func(op, format string, args ...any)) {
+// without Nexus. ok records one op. The test site is tc112 on port 18092. It
+// returns the IDs of the detached operations it ran.
+func ngxEveryOp(t *testing.T, n *nexusdInstance, ok func(op, format string, args ...any)) []string {
 	t.Helper()
 	const port = 18092
 	d := &ngxDaemon{nexusdInstance: n}
@@ -1237,11 +1258,129 @@ func ngxEveryOp(t *testing.T, n *nexusdInstance, ok func(op, format string, args
 	}
 	ngxServes(t, port, m2)
 	ok("nginx.sites.enable", "tc112.conf on disk; curl :%d -> %s", port, m2)
+	return d.ids
+}
+
+// ngxDetachedOps is how many of the provider's 13 ops are detached (test,
+// start, stop, restart, reload, enable, disable, add, update): each runs in a
+// nexus-op-<id> unit that the TC-112 journal window must show.
+const ngxDetachedOps = 9
+
+// ngxScanPatterns are what TC-112 looks for in the journal, the kernel log
+// and the operation logs.
+var ngxScanPatterns = []string{"SECCOMP", "audit: type=1326", "Permission denied", "Read-only file system"}
+
+// ngxKernelLines is the kernel log, read by dmesg. A scan for seccomp denials
+// that cannot read the kernel log would pass having read nothing, so a log
+// that cannot be read, or is empty, fails the test instead (CR-B6).
+func ngxKernelLines(t *testing.T) []string {
+	t.Helper()
+	out, err := sh(30*time.Second, "dmesg")
+	if err != nil {
+		t.Fatalf("dmesg cannot be read (%v): %s\nthe seccomp half of the denial scan would pass having read nothing; "+
+			"run the harness privileged", err, out)
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		t.Fatalf("dmesg printed nothing: the kernel log is not being read, so a seccomp denial could not show")
+	}
+	return lines
+}
+
+// ngxScanWindow is TC-112's scan. It returns the denials in the window and
+// the reasons the window cannot vouch for the absence of one: every detached
+// op's unit must appear in the journal and its operation log must have been
+// read, and nexusd.service must have logged. A scan that finds nothing in a
+// window that holds nothing proves nothing (CR-B6). kernel is the new kernel
+// log lines, which may be none.
+func ngxScanWindow(journal string, kernel, ids []string, logs map[string]string) (faults, vacuous []string) {
+	if len(ids) < ngxDetachedOps {
+		vacuous = append(vacuous, fmt.Sprintf("%d detached operations ran, want at least %d", len(ids), ngxDetachedOps))
+	}
+	if !strings.Contains(journal, "nexusd") {
+		vacuous = append(vacuous, "the journal window has no line from nexusd.service")
+	}
+	for _, id := range ids {
+		if unit := strings.TrimSuffix(detach.Unit(id), ".service"); !strings.Contains(journal, unit) {
+			vacuous = append(vacuous, "the journal window has no line from "+unit)
+		}
+		if _, ok := logs[id]; !ok {
+			vacuous = append(vacuous, "the log of operation "+id+" was not read")
+		}
+	}
+	for _, pattern := range ngxScanPatterns {
+		for line := range strings.Lines(journal) {
+			if strings.Contains(line, pattern) {
+				faults = append(faults, fmt.Sprintf("journal: %s", strings.TrimSpace(line)))
+			}
+		}
+		for _, line := range kernel {
+			if strings.Contains(line, pattern) && slices.ContainsFunc(slices.Concat(sandboxComms, []string{`comm="nginx"`}),
+				func(c string) bool { return strings.Contains(line, c) }) {
+				faults = append(faults, fmt.Sprintf("kernel: %s", strings.TrimSpace(line)))
+			}
+		}
+		for _, id := range ids {
+			for line := range strings.Lines(logs[id]) {
+				if strings.Contains(line, pattern) {
+					faults = append(faults, fmt.Sprintf("operation %s log: %s", id, strings.TrimSpace(line)))
+				}
+			}
+		}
+	}
+	return faults, vacuous
+}
+
+// nginx-provider TC-112 (the scan): the scan finds a planted denial in each
+// of its three sources, and calls an empty window vacuous. This is the red
+// probe of CR-B6 in a form that runs every time.
+func TestNginxDenialScan(t *testing.T) {
+	ids := make([]string, ngxDetachedOps)
+	logs := map[string]string{}
+	var journal strings.Builder
+	journal.WriteString("Nov 14 08:00:00 h nexusd[1]: started\n")
+	for i := range ids {
+		ids[i] = fmt.Sprintf("op%02d", i)
+		logs[ids[i]] = "nginx-op: the configuration is valid\n"
+		fmt.Fprintf(&journal, "Nov 14 08:00:0%d h systemd[1]: Started %s.\n", i, strings.TrimSuffix(detach.Unit(ids[i]), ".service"))
+	}
+	if faults, vacuous := ngxScanWindow(journal.String(), nil, ids, logs); len(faults)+len(vacuous) != 0 {
+		t.Fatalf("a clean window: faults %q, vacuous %q", faults, vacuous)
+	}
+
+	planted := []struct {
+		name    string
+		journal string
+		kernel  []string
+		logs    map[string]string
+	}{
+		{"journal", journal.String() + "Nov 14 08:00:09 h nexus-op-x[2]: open: Permission denied\n", nil, logs},
+		{"kernel seccomp", journal.String(), []string{`audit: type=1326 audit(1.2:3): comm="nginx" sig=31`}, logs},
+		{"kernel read-only", journal.String(), []string{`comm="nexusd" Read-only file system`}, logs},
+		{"operation log", journal.String(), nil, map[string]string{ids[0]: "nginx: [emerg] open() failed (13: Permission denied)\n"}},
+	}
+	for _, p := range planted {
+		l := map[string]string{}
+		for _, id := range ids {
+			l[id] = p.logs[id]
+		}
+		if faults, _ := ngxScanWindow(p.journal, p.kernel, ids, l); len(faults) == 0 {
+			t.Errorf("%s: the planted denial was not found", p.name)
+		}
+	}
+	if _, vacuous := ngxScanWindow("", nil, nil, nil); len(vacuous) == 0 {
+		t.Error("an empty window was not called vacuous")
+	}
+	if _, vacuous := ngxScanWindow(journal.String(), nil, ids, map[string]string{}); len(vacuous) == 0 {
+		t.Error("a window whose operation logs were not read was not called vacuous")
+	}
 }
 
 // nginx-provider TC-112: Every nginx op runs under the exact hardened unit
 // with no denial. The journal of nexusd.service and of every nexus-op-*
-// unit in the window is read for seccomp and permission denials.
+// unit in the window, the new kernel log lines and every operation's log are
+// read for seccomp and permission denials, and the window is checked to hold
+// what it should: a scan that read nothing proves nothing.
 func TestNginxUnderExactUnit(t *testing.T) {
 	requireInit(t, platform.Systemd)
 	freshHost(t)
@@ -1249,12 +1388,12 @@ func TestNginxUnderExactUnit(t *testing.T) {
 	writeConfig(t, fmt.Sprintf("host: {name: harness}\nlisten: [%q]\ntls: {mode: off}\nproviders:\n%s", exactAddr,
 		ngxSection("")))
 	ngxEnsureRunning(t)
-	dmesgBefore := kernelLines(t)
+	dmesgBefore := ngxKernelLines(t)
 	since := time.Now().Add(-time.Second)
 	pid := startExact(t)
 	n := exactNexusd(t, ngxScopes...)
 	var done []string
-	ngxEveryOp(t, n, func(op, format string, args ...any) {
+	ids := ngxEveryOp(t, n, func(op, format string, args ...any) {
 		done = append(done, op)
 		t.Logf("%-24s %s", op, fmt.Sprintf(format, args...))
 	})
@@ -1264,27 +1403,18 @@ func TestNginxUnderExactUnit(t *testing.T) {
 
 	sinceArg := "@" + strconv.FormatInt(since.Unix(), 10)
 	journal := mustSh(t, "journalctl", "-u", nexusdUnit, "-u", "nexus-op-*", "--since", sinceArg, "--no-pager")
-	newKernel := kernelLines(t)
+	newKernel := ngxKernelLines(t)
 	if len(newKernel) >= len(dmesgBefore) {
 		newKernel = newKernel[len(dmesgBefore):]
 	}
-	var faults []string
-	for _, d := range denialPatterns {
-		if d.pattern != "SECCOMP" && d.pattern != "audit: type=1326" && d.pattern != "Permission denied" &&
-			d.pattern != "Read-only file system" {
-			continue
-		}
-		for line := range strings.Lines(journal) {
-			if strings.Contains(line, d.pattern) {
-				faults = append(faults, fmt.Sprintf("journal (suspect %s): %s", d.directives, strings.TrimSpace(line)))
-			}
-		}
-		for _, line := range newKernel {
-			if strings.Contains(line, d.pattern) && slices.ContainsFunc(append(sandboxComms, `comm="nginx"`),
-				func(c string) bool { return strings.Contains(line, c) }) {
-				faults = append(faults, fmt.Sprintf("kernel (suspect %s): %s", d.directives, strings.TrimSpace(line)))
-			}
-		}
+	d := &ngxDaemon{nexusdInstance: n}
+	logs := map[string]string{}
+	for _, id := range ids {
+		logs[id] = d.opLog(t, id)
+	}
+	faults, vacuous := ngxScanWindow(journal, newKernel, ids, logs)
+	if len(vacuous) > 0 {
+		t.Fatalf("the denial scan cannot vouch for the window:\n%s\n--- journal ---\n%s", strings.Join(vacuous, "\n"), journal)
 	}
 	u := showUnit(t, nexusdUnit, "MainPID", "NRestarts", "ActiveState")
 	opUnits := regexp.MustCompile(`nexus-op-[0-9a-z-]+\.service`).FindAllString(journal, -1)
@@ -1315,7 +1445,12 @@ type ngxScenario struct {
 
 // fakenginxErrorLogLine is the read-only error-log line fakenginx's header
 // lists (internal/providers/nginx/testdata/fakenginx/main.go), captured
-// from nginx 1.26.3 on Alpine; the path is the build's error log.
+// from nginx 1.26.3 on Alpine; the path is the build's error log. This
+// test pins the real nginx to it. The harness container has no Go toolchain
+// to build fakenginx, so the other half is T0's
+// TestFakeNginxErrorLogAlertIsTheLineTC113ChecksAgainstRealNginx
+// (internal/providers/nginx), which runs fakenginx and reads this constant
+// from this file: fake, constant and real nginx cannot drift apart unseen.
 const fakenginxErrorLogLine = `nginx: [alert] could not open error log file: open() "/var/lib/nginx/logs/error.log" failed (30: Read-only file system)`
 
 // nginx-provider TC-113: The fakes match the real init systems and nginx.
