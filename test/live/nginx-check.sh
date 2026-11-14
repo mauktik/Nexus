@@ -690,6 +690,7 @@ facts() {
 		DSUFFIX=$(json_str disabledSuffix "$NX_OUT")
 		SVC=$(json_str service "$NX_OUT")
 		_pi=$(json_str initSystem "$NX_OUT")
+		PROVIDER_MAINPID=$(json_num mainPid "$NX_OUT")
 		{ [ "$NX_RC" -eq 0 ] && [ -n "$INCDIR" ]; } || refuse "nexus nginx get failed: is the nginx provider enabled in /etc/nexus/nexusd.yaml, and does the token have nginx:read?"
 		if [ "$_pi" = "$INIT" ] && [ "$_st" = running ]; then
 			result 1-provider PASS "nexus nginx get: running, initSystem $_pi, includeDir $INCDIR, service $SVC"
@@ -745,6 +746,17 @@ facts() {
 	{ [ "$INIT_STATE" = started ] && [ "$MASTER" != none ]; } ||
 		refuse "nginx is not running ($INIT: $INIT_STATE, master $MASTER): this check needs it running, and does not start it"
 	MASTER0=$MASTER
+	# ASM-1: nexusd runs as root on this host and manages this host's nginx.
+	# shellcheck disable=SC2016 # Expanded on the host.
+	hrun 'for d in /proc/[0-9]*; do case $(tr "\0" " " <$d/cmdline 2>/dev/null) in "/usr/local/bin/nexusd serve "*) echo "nexusd pid ${d#/proc/} uid $(sed -n "s/^Uid:[[:space:]]*\([0-9]*\).*/\1/p" $d/status)" ;; esac; done'
+	_nu=$(printf '%s\n' "$HX_OUT" | sed -n 's/.* uid //p' | sort -u)
+	if [ -z "$NXHOST" ]; then
+		result 1-asm1 NOT-RUN "the provider was not asked (no NEXUS_TOKEN and no --nexus-host); nexusd uid: ${_nu:-not found}"
+	elif [ "$_nu" = 0 ] && [ "${PROVIDER_MAINPID:-}" = "$MASTER" ]; then
+		result 1-asm1 PASS "nexusd runs as uid 0 on the host, and the provider's mainPid $PROVIDER_MAINPID is the host's nginx master"
+	else
+		result 1-asm1 FAIL "nexusd uid '${_nu:-not found}' (want 0); provider mainPid ${PROVIDER_MAINPID:-?}, the host's master $MASTER"
+	fi
 	log "  nginx.conf sha256: $(hx "sha256sum $NGINX_CONF | cut -d' ' -f1" && echo "$HX_OUT")"
 	if [ "${IN_CONTAINER:-0}" = 1 ]; then
 		result 1-host FAIL "running in a container: not a real host"
