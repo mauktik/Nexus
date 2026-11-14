@@ -108,53 +108,43 @@ func (b *processBackend) launch(ctx context.Context, inv Invocation) (err error)
 	if err := logFile.Chmod(0o600); err != nil {
 		return fmt.Errorf("detach: chmod %s: %w", SupervisorLog, err)
 	}
-	ready, readyW, err := os.Pipe()
-	if err != nil {
-		return fmt.Errorf("detach: readiness pipe: %w", err)
-	}
-	// Only the read end is left open; nothing is ever written to it.
-	defer func() { _ = ready.Close() }()
-
-	newCmd := func() *exec.Cmd {
-		// Not CommandContext: the supervisor must outlive this call and nexusd.
-		cmd := exec.Command(exe, "op-supervise", "--dir", dir, "--process")
-		cmd.Env = []string{} // Empty, not nil: nothing of nexusd's environment
-		cmd.Dir = "/"
-		cmd.Stdin = nil // /dev/null
-		cmd.Stdout, cmd.Stderr = logFile, logFile
-		cmd.ExtraFiles = []*os.File{readyW} // readyFD
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-		return cmd
+	newCmd := func(readyW *os.File) func() *exec.Cmd {
+		return func() *exec.Cmd {
+			// Not CommandContext: the supervisor must outlive this call and nexusd.
+			cmd := exec.Command(exe, "op-supervise", "--dir", dir, "--process")
+			cmd.Env = []string{} // Empty, not nil: nothing of nexusd's environment
+			cmd.Dir = "/"
+			cmd.Stdin = nil // /dev/null
+			cmd.Stdout, cmd.Stderr = logFile, logFile
+			cmd.ExtraFiles = []*os.File{readyW} // readyFD
+			cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+			return cmd
+		}
 	}
 	// The supervisor goes into its own cgroup, out of nexusd's (for
 	// OpenRC, openrc.nexusd), so neither a stop of nexusd with
 	// rc_cgroup_cleanup="YES" (ASM-14) nor anything else that ends nexusd's
 	// group reaches it.
 	group := b.cgroup(inv.ID)
-	var cmd *exec.Cmd
-	if group == "" {
-		cmd = newCmd()
-		err = cmd.Start()
-	} else {
-		var notPlaced error
-		cmd, notPlaced, err = startInCgroup(newCmd, group)
-		if err == nil && notPlaced != nil {
-			b.log().Warn("cannot place an operation supervisor in its cgroup; it runs without one (CON-10)",
-				"operationId", inv.ID, "cgroup", group, "error", notPlaced.Error())
-			b.removeCgroup(inv.ID, group)
-			group = ""
-		}
-	}
-	// Once the supervisor holds the only write end, a read sees its exit.
-	if cerr := readyW.Close(); cerr != nil && err == nil {
-		err = cerr
-	}
+	cmd, ready, err := b.startSupervisor(inv.ID, newCmd, &group, startInCgroup)
 	if err != nil {
-		if group != "" {
-			b.removeCgroup(inv.ID, group)
-		}
 		return fmt.Errorf("detach: start supervisor of %s: %w", inv.Unit, err)
 	}
+	err = awaitReady(ctx, ready, cmd.Process.Pid)
+	if group != "" && errors.Is(err, errExitedBeforeReady) && killedBySIGKILL(cmd) {
+		// Linux 6.8 SIGKILLs every CLONE_INTO_CGROUP child of a process in
+		// a group that cgroup.kill was written to, as OpenRC's
+		// rc_cgroup_cleanup="YES" does to openrc.nexusd, while clone3
+		// reports success. A plain fork is not killed (WI 3.4).
+		b.log().Warn("an operation supervisor was killed as it started in its cgroup; starting it outside and moving it in",
+			"operationId", inv.ID, "cgroup", group)
+		_ = ready.Close()
+		if cmd, ready, err = b.startSupervisor(inv.ID, newCmd, &group, startMoved); err != nil {
+			return fmt.Errorf("detach: start supervisor of %s: %w", inv.Unit, err)
+		}
+		err = awaitReady(ctx, ready, cmd.Process.Pid)
+	}
+	_ = ready.Close() // Only ever read
 	pid := cmd.Process.Pid
 	fail := func(err error) error {
 		// SIGKILL before the identity exists: the supervisor has taken
@@ -168,7 +158,7 @@ func (b *processBackend) launch(ctx context.Context, inv Invocation) (err error)
 		}
 		return fmt.Errorf("detach: launch %s: %w", inv.Unit, err)
 	}
-	if err := awaitReady(ctx, ready, pid); err != nil {
+	if err != nil {
 		return fail(err)
 	}
 	id, err := b.identityOf(pid)
@@ -225,6 +215,59 @@ func (b *processBackend) removeCgroup(id, path string) {
 	}
 }
 
+// startSupervisor starts the supervisor that newCmd builds around the write
+// end of a new readiness pipe, and returns it with the read end. In
+// *group, unless that is "", it starts it with start, and when start could
+// not place it there it clears *group, having removed the group. When it
+// did not start, the group is removed.
+func (b *processBackend) startSupervisor(id string, newCmd func(*os.File) func() *exec.Cmd, group *string,
+	start func(func() *exec.Cmd, string) (*exec.Cmd, error, error)) (*exec.Cmd, *os.File, error) {
+	ready, readyW, err := os.Pipe()
+	if err != nil {
+		if *group != "" {
+			b.removeCgroup(id, *group)
+		}
+		return nil, nil, fmt.Errorf("readiness pipe: %w", err)
+	}
+	var cmd *exec.Cmd
+	if *group == "" {
+		cmd = newCmd(readyW)()
+		err = cmd.Start()
+	} else {
+		var notPlaced error
+		cmd, notPlaced, err = start(newCmd(readyW), *group)
+		if err == nil && notPlaced != nil {
+			b.log().Warn("cannot place an operation supervisor in its cgroup; it runs without one (CON-10)",
+				"operationId", id, "cgroup", *group, "error", notPlaced.Error())
+			b.removeCgroup(id, *group)
+			*group = ""
+		}
+	}
+	// Once the supervisor holds the only write end, a read sees its exit.
+	// Closing a pipe end loses nothing.
+	_ = readyW.Close()
+	if err != nil {
+		_ = ready.Close()
+		if *group != "" {
+			b.removeCgroup(id, *group)
+		}
+		return nil, nil, err
+	}
+	return cmd, ready, nil
+}
+
+// errExitedBeforeReady is awaitReady's error for a supervisor that exited
+// before it reported ready.
+var errExitedBeforeReady = errors.New("exited before it could handle a cancel")
+
+// killedBySIGKILL reaps cmd, which has exited, and reports whether a
+// SIGKILL ended it.
+func killedBySIGKILL(cmd *exec.Cmd) bool {
+	_ = cmd.Wait() // Its status is read below
+	ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus)
+	return ok && ws.Signaled() && ws.Signal() == syscall.SIGKILL
+}
+
 // awaitReady waits until supervisor pid writes to its readiness pipe r,
 // for as long as ctx allows and at most LaunchTimeout.
 func awaitReady(ctx context.Context, r *os.File, pid int) error {
@@ -241,7 +284,7 @@ func awaitReady(ctx context.Context, r *os.File, pid int) error {
 	case err == nil:
 		return nil
 	case errors.Is(err, io.EOF):
-		return fmt.Errorf("supervisor %d exited before it could handle a cancel; see %s", pid, SupervisorLog)
+		return fmt.Errorf("supervisor %d %w; see %s", pid, errExitedBeforeReady, SupervisorLog)
 	case errors.Is(err, os.ErrDeadlineExceeded):
 		return fmt.Errorf("supervisor %d did not report that it handles a cancel: %w", pid, context.Cause(ctx))
 	}

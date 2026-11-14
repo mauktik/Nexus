@@ -142,14 +142,21 @@ func startInCgroup(newCmd func() *exec.Cmd, path string) (cmd *exec.Cmd, notPlac
 	if cloneErr == nil {
 		return cmd, nil, nil
 	}
+	cmd, notPlaced, err = startMoved(newCmd, path)
+	if notPlaced != nil {
+		notPlaced = errors.Join(cloneErr, notPlaced)
+	}
+	return cmd, notPlaced, err
+}
+
+// startMoved is startInCgroup without the clone: it starts the command
+// outside the group at path and moves it in through cgroup.procs.
+func startMoved(newCmd func() *exec.Cmd, path string) (cmd *exec.Cmd, notPlaced, err error) {
 	cmd = newCmd()
 	if err := cmd.Start(); err != nil {
 		return nil, nil, err
 	}
-	if err := moveTo(path, cmd.Process.Pid); err != nil {
-		return cmd, errors.Join(cloneErr, err), nil
-	}
-	return cmd, nil, nil
+	return cmd, moveTo(path, cmd.Process.Pid), nil
 }
 
 // moveTo moves process pid, with all its threads, into the group at path.
