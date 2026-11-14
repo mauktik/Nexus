@@ -837,10 +837,11 @@ const (
 	nfrSample    = time.Millisecond
 	nfrBurstGap  = 20 * time.Millisecond
 	nfrWakeSlack = 0.10 // The liveness check's own wakeup (PollInterval/LivenessInterval = 5%) and the window's edges
-	// TC-45 asks for 10%, but one 30 s window on one harness spreads far
-	// wider: twelve runs of the same nexusd took 13.8 to 34.4 ms (0.60 to
-	// 1.50 of the systemd mean), while the means of the two harnesses agree
-	// within 3% (docs/verification/wi-3.4-harness.md, which compares them).
+	// TC-45 asks for 10%, but one 30 s window spreads far wider: fourteen
+	// runs of the same nexusd took 13.8 to 35.1 ms (0.60x to 1.53x of the
+	// systemd mean; coefficient of variation 17% on Ubuntu, 33% on Alpine),
+	// too wide to resolve 10% even between the harnesses' means
+	// (docs/verification/wi-3.4-harness.md records and compares them).
 	// One window is held within this factor of the systemd launcher's mean,
 	// the proposed TC-45 erratum: a 250 ms timer next to the watcher
 	// (2.97x, measured) fails it. The wakeup bound is the precise one.
@@ -849,7 +850,7 @@ const (
 
 // nfrSystemdOpCPU is the systemd launcher's side of TC-45's CPU comparison:
 // nexusd's CPU time over the one-op window on the Ubuntu harness, the mean
-// of seven runs in docs/verification/wi-3.4-harness.md (T1 arm64).
+// of eight runs (23.18 ms) in docs/verification/wi-3.4-harness.md (T1 arm64).
 // Alpine's window is held within nfrCPUFactor of it, and Ubuntu's own too,
 // so a change on either side shows. Another harness host passes its own
 // Ubuntu mean.

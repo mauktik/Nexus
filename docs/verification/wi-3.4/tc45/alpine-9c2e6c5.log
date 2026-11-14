@@ -1,0 +1,41 @@
+BASE='' RUN='^TestNFRIdleFootprint' test/harness/run.sh alpine
+harness: docker context colima, daemon architecture aarch64 -> GOARCH=arm64, BASE=alpine:latest, init openrc
+harness: building linux/arm64 test-only binaries into build/harness/
+harness: building image nexus-harness:alpine-alpine-latest from test/harness/Dockerfile.alpine
+harness: starting container nx-tc45-alpine-20261114T050712Z-69996
+harness: mounts: volume:/var/lib/docker volume:/var/lib/containerd 
+harness: waiting for OpenRC: docker started in the default runlevel
+harness: rc-status default: Runlevel: default docker [ started 00:00:01 (0) ]
+harness: PID 1: /sbin/init 
+harness: versions: openrc (OpenRC [DOCKER]) 0.63.2 nginx version: nginx/1.30.6 curl 8.23.0 (aarch64-alpine-linux-musl) libcurl/8.23.0 OpenSSL/3.5.9 zlib/1.3.2 brotli/1.2.1 zstd/1.5.7 c-ares/1.34.9 libidn2/2.3.8 libpsl/0.21.5 nghttp2/1.70.0 docker 29.9.3 Alpine Linux v3.24
+harness: copying binaries, unit, lib.sh and fixtures in with docker cp
+harness: running tests
+=== RUN   TestNFRIdleFootprint
+    footprint_test.go:637: NFR load at start: VM loadavg 0.16 0.66 0.70 5/916 674, 4 CPUs
+    footprint_test.go:639: NFR DRY RUN: idle window 30s is shorter than NFR-1's 5 minutes; not a measurement
+    footprint_test.go:644: NFR env: 50 nfr containers running, 50 containers on the Engine in all; nested Engine 29.9.3 (API 1.56, linux/arm64)
+    footprint_test.go:645: NFR env: no apt on Alpine: the apt provider is enabled and reports unavailable
+    footprint_test.go:649: NFR harness binary /usr/local/bin/nexusd: 18517886 bytes (unstripped linux/arm64 build; the release size is make nfr's)
+    footprint_test.go:660: NFR TC-187 startup exec->ready line (OpenRC: process start time to the line's own time) over 10 starts: n=10 p50=21.9ms p95=48.3ms max=48.3ms mean=24.4ms; each [22.39325ms 21.849831ms 24.308174ms 16.807725ms 21.86962ms 16.494807ms 29.958695ms 24.01167ms 17.718185ms 48.257314ms]
+    footprint_test.go:662: NFR TC-187 startup rc-service start + ready line wall time: n=10 p50=141.0ms p95=172.3ms max=172.3ms mean=146.4ms
+    footprint_test.go:677: NFR TC-187 after start (no request yet): RSS 20.3 MiB, threads 9, fds 10
+    footprint_test.go:692: NFR TC-188 control: during the warm-up the Engine logged 56 API calls and nexusd's cminflt grew by 1034 (children reaped)
+    footprint_test.go:780: NFR TC-187 idle window 30.002s (29 RSS samples at 1 s)
+    footprint_test.go:781: NFR TC-187 idle RSS: max 20.64 MiB, mean 20.64 MiB, start 20.64 MiB, end 20.64 MiB, VmHWM 20.64 MiB; threads 9 -> 9, fds 10 -> 10
+    footprint_test.go:783: NFR TC-187 idle CPU: cgroup usage 0s over 30.002s = 0.0000% of one core; /proc ticks 0 = 0.0000%
+    footprint_test.go:806: NFR TC-188 idle window: 0 Docker API calls, cminflt +0, cutime+cstime +0, 0 other processes in the unit's cgroup, 0 apt/dpkg processes seen (any parent), 0 nexusd journal lines, 0 op-unit journal lines
+    footprint_test.go:824: NFR TC-45 openrc, 30s windows, watcher poll rate 2.0/s (60 polls); RSS 20.64 MiB
+    footprint_test.go:824: NFR TC-45 nexusd idle: 2 wakeups at a 20ms gap (0.07/s); 8 context switches (0.13 per poll), 8 timeslices; CPU 936µs (15.6 us per poll, 0.0031% of one core); 17903 samples, 2 active; wakeups at 2ms=2 5ms=2 10ms=2 20ms=2 50ms=2 100ms=1 200ms=1; CPU per wakeup p10 134µs, median 134µs, p90 134µs, max 802µs; gaps up to 2/5/10/20/50/100/300/450/550/more ms [0 0 0 0 0 1 0 0 0 0]; threads 5724{7 switches, 263µs} 5759{1 switches, 673µs}
+    footprint_test.go:824: NFR TC-45 nexusd one op running: 60 wakeups at a 20ms gap (2.00/s); 501 context switches (8.35 per poll), 501 timeslices; CPU 35.147ms (585.8 us per poll, 0.1172% of one core); 17678 samples, 104 active; wakeups at 2ms=63 5ms=61 10ms=60 20ms=60 50ms=60 100ms=60 200ms=60; CPU per wakeup p10 175µs, median 339µs, p90 650µs, max 8.953ms; gaps up to 2/5/10/20/50/100/300/450/550/more ms [41 2 1 0 0 0 0 0 59 0]; threads 5720{78 switches, 14.489ms} 5724{321 switches, 7.732ms} 5725{79 switches, 10.276ms} 5728{9 switches, 1.316ms} 5759{14 switches, 1.334ms}
+    footprint_test.go:824: NFR TC-45 reference process (ReadExit every 500ms, in the idle window): 61 wakeups at a 20ms gap (2.03/s); 514 context switches (8.57 per poll), 514 timeslices; CPU 19.744ms (329.1 us per poll, 0.0658% of one core); 18017 samples, 111 active; wakeups at 2ms=71 5ms=63 10ms=61 20ms=61 50ms=61 100ms=61 200ms=61; CPU per wakeup p10 146µs, median 260µs, p90 536µs, max 1.053ms; gaps up to 2/5/10/20/50/100/300/450/550/more ms [40 8 2 0 0 0 0 0 60 0]; threads 5829{63 switches, 5.234ms} 5830{294 switches, 6.531ms} 5831{79 switches, 3.848ms} 5833{78 switches, 4.131ms}
+    footprint_test.go:824: NFR TC-45 one op adds 58 wakeups (1.93/s, 0.97 per poll) and 493 context switches (8.22 per poll; the reference 8.57 per poll); CPU over the op window 35.147ms (34.21ms over idle), 1.53x the systemd launcher's mean 23ms
+    footprint_test.go:1122: NFR load at end: VM loadavg 0.44 0.57 0.66 6/939 8040
+--- PASS: TestNFRIdleFootprint (142.11s)
+PASS
+harness: tests exited 0
+harness: collecting logs into build/harness/logs/20261114T050712Z
+harness: collected rc.log (53 lines)
+harness: collected messages.log (82 lines)
+harness: container nx-tc45-alpine-20261114T050712Z-69996 removed
+harness: dist/ untouched
+harness: exit 0

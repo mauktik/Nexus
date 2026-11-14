@@ -198,22 +198,33 @@ committed):
 | A 250 ms ticker in `internal/ops` runDetached while a detached op is watched | `alpine-red-planted-ticker.log` | FAIL: `one running op adds 118 wakeups to nexusd in 30s (3.93/s), want no more than the watcher's 60 polls`; CPU 68.281 ms, which is +173% of the then 25 ms reference and 2.97x of 23 ms, so the factor-of-2 bound also fails |
 | Detector gap set to 2 ms | `alpine-red-planted-gap.log` | FAIL: `the reference process with one timer every 500ms woke 67 times in 30s, want 60 within 10%` |
 
-### CPU: the 10% comparison cannot be held per run
+### CPU: the 10% comparison cannot be resolved on this harness
 
-Every run of the same nexusd, CPU time over the 30 s one-op window:
+Every run of the same nexusd, CPU time over the 30 s one-op window, in
+order, the last being the confirmation run at 9c2e6c5:
 
-| Harness | Runs (ms) | Mean | Range against the systemd mean |
-| --- | --- | --- | --- |
-| Ubuntu / systemd launcher (7) | 25.111, 18.396, 29.504, 26.066, 17.218, 21.731, 23.233 | **23.04 ms** | 0.75x to 1.28x |
-| Alpine / process backend (5) | 25.551, 26.225, 13.800, 18.250, 34.409 | **23.65 ms** | 0.60x to 1.49x |
+| Harness | Runs (ms) | Mean | SD (CV) | Against 23 ms |
+| --- | --- | --- | --- | --- |
+| Ubuntu / systemd launcher (8) | 25.111, 18.396, 29.504, 26.066, 17.218, 21.731, 23.233, 24.194 | **23.18 ms** | 4.03 ms (17%) | 0.75x to 1.28x |
+| Alpine / process backend (6) | 25.551, 26.225, 13.800, 18.250, 34.409, 35.147 | **25.56 ms** | 8.51 ms (33%) | 0.60x to 1.53x |
 
-The Alpine mean is **+2.6%** of the Ubuntu mean, which is within TC-45's
-10%. Without the planted-gap run, whose nexusd is unchanged, Alpine's
-4-run mean is 23.00 ms (−0.2%). Single 30 s windows on one harness
-spread from −25% to +28% around their own mean (Ubuntu). Of the three
-Ubuntu runs asserted at 10% of 25 ms (`ubuntu-10pct-*.log`), two failed:
-18.396 ms (−26.4%) and 29.504 ms (+18.0%). Measurement resolution is not
-the limit: schedstat is in ns.
+Measurement resolution is not the limit, because schedstat is in ns.
+The limit is the spread of single 30 s windows.
+
+- **Single runs:** of the three Ubuntu runs asserted at 10% of 25 ms
+  (`ubuntu-10pct-*.log`), two failed on noise: 18.396 ms (−26.4%) and
+  29.504 ms (+18.0%).
+- **Means:** the Alpine mean is +10.3% of the Ubuntu mean, or +9.7%
+  without the planted-gap run, whose nexusd is unchanged. The standard
+  error of that difference is about ±16% (3.48 ms and 1.42 ms standard
+  errors), so these runs can neither confirm nor refute 10%.
+- **Runs needed:** with a coefficient of variation of about 30%, the
+  error of a difference of means is about 30% × √(2/n). Resolving 10%
+  at one standard error would take about 20 windows per harness, and at
+  two about 40.
+
+After the first five Alpine windows the means had looked within 3%.
+The last two Alpine windows moved them, which shows how small samples mislead here.
 
 The spread is in the host, not in nexusd. The reference process, on the
 same runtime with fixed work, also took 8.101 to 16.685 ms per window (13 windows).
@@ -222,7 +233,7 @@ as widely: 150 to 333 us for nexusd and 94 to 200 us for the reference.
 VM load during the runs was 0.1 to 1.4, with other agents' harness
 containers on the same colima VM.
 
-### Stability: the committed bounds, 3 runs per harness
+### Stability: the committed bounds, 3 runs per harness plus a confirmation run
 
 | Log | Init | Idle window | One op adds (wakeups) | Op / idle / reference wakeups | Switches per poll, op (reference) | CPU over op window | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -233,12 +244,21 @@ containers on the same colima VM.
 | `ubuntu-2.log` | systemd | 30 s | 61 | 63 / 2 / 60 | 11.63 (8.22) | 21.731 ms (0.94x) | PASS |
 | `ubuntu-3.log` | systemd | 30 s | 58 | 60 / 2 / 60 | 10.67 (9.25) | 23.233 ms (1.01x) | PASS |
 
-These six ran with the CPU bound at ±50% of 25 ms. The committed bound,
-a factor of 2 of 23 ms, admits each of these values (0.60x to 1.50x), so
-the change only re-centres the CPU bound on the recorded mean; the
-wakeup bounds are unchanged. The 30 s idle runs log `NFR DRY RUN` for
-NFR-1's idle window, which does not change TC-45 step 2. Every run also
-passed TC-45 step 1: idle RSS, startup and binary size, as before.
+| `alpine-9c2e6c5.log` | OpenRC | 30 s | 58 | 60 / 2 / 61 | 8.35 (8.57) | 35.147 ms (1.53x) | PASS |
+| `ubuntu-9c2e6c5.log` | systemd | 30 s | 59 | 61 / 2 / 60 | 10.37 (8.17) | 24.194 ms (1.05x) | PASS |
+
+The first six ran with the CPU bound at ±50% of 25 ms; the committed
+bound, a factor of 2 of 23 ms, admits each of their values (0.60x to
+1.50x), and the wakeup bounds are unchanged. The last two are the exact
+committed tree at 9c2e6c5, which also carries the product changes of
+56c8848 and a77ffd7, one run per harness. The 30 s idle runs log
+`NFR DRY RUN` for NFR-1's idle window, which does not change TC-45
+step 2. Every run also passed TC-45 step 1: idle RSS, startup and binary
+size, as before.
+
+Margins: added wakeups were 58 to 61 against a bound of 66. The control
+was 60 or 61 against 54 to 66. CPU was 0.60x to 1.53x against 0.5x to
+2x; the narrowest CPU margin is the low side (13.800 ms against 11.5 ms).
 
 ### Proposed TC-45 erratum (for the orchestrator)
 
@@ -252,14 +272,25 @@ Replace TC-45 Expected bullet 2 with:
 > timer is counted as one wakeup per timer, within 10%, as the
 > detector's control. Context switches are logged and are not wakeups.
 > `nexusd`'s CPU time over the one-op window (schedstat ns) is within a
-> factor of 2 of the systemd launcher's mean on Ubuntu, and the mean of at
-> least three windows on each harness, recorded in
-> docs/verification/wi-3.4-harness.md, is within 10%.
+> factor of 2 of the systemd launcher's mean on Ubuntu. Each harness's
+> windows and their means are recorded in
+> docs/verification/wi-3.4-harness.md. A 10% comparison is not asserted,
+> because one window's CPU time varies by 17% to 33% (coefficient of
+> variation) on the shared T1 VM.
 
-Why: a single 30 s window on one harness spreads −25% to +28% (Ubuntu,
-7 runs), so a per-run 10% cross-harness bound fails on noise (2 of 3
-runs failed). The means agree within 3% (Alpine 23.65 ms over 5 runs,
-Ubuntu 23.04 ms over 7). The factor of 2 still fails a 250 ms timer
-added next to the watcher (2.97x, measured). The wakeup bound is the
-precise test of NFR-11: that same defect is 118 wakeups against a bound
-of 66.
+Why:
+
+- **Per run:** 2 of 3 Ubuntu runs failed a per-run 10% bound on noise.
+- **Between means:** at these sample sizes, Alpine at +10.3% has a
+  standard error of about ±16%. It would take about 20 to 40 windows per
+  harness to resolve 10%.
+- **What the factor of 2 still catches:** a 250 ms timer added next to
+  the watcher (2.97x, measured).
+- **The precise test of NFR-11 is the wakeup bound:** that same defect
+  is 118 wakeups against a bound of 66, while every clean run was 58 to
+  61.
+
+If the orchestrator wants the 10% kept as written, the alternative is a
+dedicated measurement of at least 20 one-op windows per harness on an
+otherwise idle VM, compared by mean. That cannot be a per-run assertion
+in this test.
