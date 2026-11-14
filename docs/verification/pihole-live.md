@@ -96,3 +96,17 @@ nexus --host pihole piholezone add --zone app.lan --if-match sha256:35e3646ba1ca
   - Plain `capability get` still showed `preNexusBackupExists: false`, the snapshot from nexusd's start, as documented.
   - `capability get --refresh` showed `true`.
   - On the host console, `sha256sum` of the backup printed `35e3646ba1ca58c420b933d0b63df0dd3cba640d950a114dc3c9d03ed9f3bf2d`, equal to step 0's. The pre-Nexus backup is the original file byte for byte.
+
+## WI 6.2 step 2: record add, update and remove of `nexus-test.app.lan` (approved 2026-11-14)
+
+The test IPs are 192.0.2.10 and 192.0.2.11, from TEST-NET-1. After each op, the Mac ran `dig @192.168.7.4` for the test name and for all 53 original names.
+
+| Op | id | FTL pid | Restart → FTL answering | Nexus verify | `dig` from the Mac | 53 names | End to end |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `piholerecord add --fqdn nexus-test.app.lan --ipv4 192.0.2.10` | `01a1d870-74af-…1141` | 176 → 792 | 401 ms | expected [192.0.2.10], observed [192.0.2.10], NOERROR | `192.0.2.10` | 53/53 | 609 ms |
+| `piholerecord update nexus-test.app.lan~A --ipv4 192.0.2.11` | `01a1d870-790b-…6eb2` | 792 → 858 | 401 ms | expected [192.0.2.11], observed [192.0.2.11], NOERROR | `192.0.2.11` | 53/53 | 571 ms |
+| `piholerecord remove nexus-test.app.lan~A` | `01a1d870-7d31-…15c6` | 858 → 924 | 401 ms | expected [], observed [], NXDOMAIN | no answer | 53/53 | 564 ms |
+
+Each op logged the full pipeline: temp file, rollback copy, atomic replace, `pihole-FTL --test` (`syntax check OK`), `pihole restartdns`, the readiness wait and the per-name verify. Commanded matched observed both in Nexus's own verify and in an independent `dig` from the Mac.
+
+After the remove, the file's etag was back to `sha256:097da9de…`, byte-for-byte the file step 1 left. `piholerecord get` lists 53 records, and `app.lan` holds 24 records.
