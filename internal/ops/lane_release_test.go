@@ -15,7 +15,6 @@ import (
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/detach"
-	"github.com/mauktik/nexus/internal/detach/detachtest"
 	"github.com/mauktik/nexus/internal/ops"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
@@ -123,10 +122,6 @@ func (w *world) cancelHeld(p auth.Principal, name, lane, policy string) (id stri
 // operation at the moment the previous record reads terminal and fails on
 // any 409 while every holder of the lane reads terminal.
 func TestLaneFreeWhenRecordReadsTerminal(t *testing.T) {
-	perBackend(t, testLaneFreeWhenRecordReadsTerminal)
-}
-
-func testLaneFreeWhenRecordReadsTerminal(t *testing.T, _ detachtest.Backend) {
 	t.Run("http-limit1-submit-on-visible", func(t *testing.T) {
 		w := newWorld(t)
 		w.serve()
@@ -333,9 +328,7 @@ func conflictNaming(t *testing.T, err error, id string) {
 // crash at that point would leave it. A holder is retired only once its
 // record reads terminal; a restart then finds at most one holder on a
 // limit-1 lane, never a terminal one.
-func TestLaneReapCrashSafety(t *testing.T) { perBackend(t, testLaneReapCrashSafety) }
-
-func testLaneReapCrashSafety(t *testing.T, _ detachtest.Backend) {
+func TestLaneReapCrashSafety(t *testing.T) {
 	p := who("ops", "test:write", "test:read", "td:write", "td:read")
 	runIn := func(name, lane string) string {
 		return fmt.Sprintf(`{"name":%q,"lane":%q,"policy":"reject"}`, name, lane)

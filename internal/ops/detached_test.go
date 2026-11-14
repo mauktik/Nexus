@@ -364,9 +364,7 @@ func TestRunningIsCommittedBeforeLaunch(t *testing.T) {
 	perBackend(t, testRunningIsCommittedBeforeLaunch)
 }
 
-func testRunningIsCommittedBeforeLaunch(t *testing.T, _ detachtest.Backend) {
-	spy := newUnitSpy()
-	w := spyWorld(t, spy)
+func testRunningIsCommittedBeforeLaunch(t *testing.T, backend detachtest.Backend) {
 	type seen struct {
 		status  apitypes.OperationStatus
 		audited bool
@@ -374,22 +372,27 @@ func testRunningIsCommittedBeforeLaunch(t *testing.T, _ detachtest.Backend) {
 		err     error
 	}
 	got := make(chan seen, 1)
-	base := spy.onLaunch
-	spy.onLaunch = func(inv detach.Invocation) error {
-		var s seen
-		rec, err := w.store.Get(inv.ID)
-		s.status, s.err = rec.Status, err
-		for _, r := range w.records() {
-			if r.OperationID == inv.ID && r.Outcome == string(apitypes.StatusRunning) {
-				s.audited = true
+	var w *world // Set before the first launch
+	// The backend's own launch runs after the checks: its supervisor really
+	// starts and ends the operation.
+	w = backendWorld(t, backend, func(d *detach.Options) {
+		launch := d.Launch
+		d.Launch = func(ctx context.Context, inv detach.Invocation) error {
+			var s seen
+			rec, err := w.store.Get(inv.ID)
+			s.status, s.err = rec.Status, err
+			for _, r := range w.records() {
+				if r.OperationID == inv.ID && r.Outcome == string(apitypes.StatusRunning) {
+					s.audited = true
+				}
 			}
+			if fi, err := os.Stat(filepath.Join(inv.Dir, detach.SpecFile)); err == nil {
+				s.mode = fi.Mode().Perm()
+			}
+			got <- s
+			return launch(ctx, inv)
 		}
-		if fi, err := os.Stat(filepath.Join(inv.Dir, detach.SpecFile)); err == nil {
-			s.mode = fi.Mode().Perm()
-		}
-		got <- s
-		return base(inv)
-	}
+	})
 	op := w.start(who("ops", "td:write"), tdOps.job.Op(), `{"name":"one"}`, "")
 	s := <-got
 	if s.err != nil || s.status != apitypes.StatusRunning || !s.audited {
@@ -499,10 +502,6 @@ func testMaximumRuntimeReportsWithoutSignaling(t *testing.T, backend detachtest.
 // TC-ERR20: a failed launch fails the operation with a structured error,
 // leaves nothing Running, removes spec.json and releases the lane.
 func TestLaunchFailureFailsTheOperation(t *testing.T) {
-	perBackend(t, testLaunchFailureFailsTheOperation)
-}
-
-func testLaunchFailureFailsTheOperation(t *testing.T, _ detachtest.Backend) {
 	spy := newUnitSpy()
 	spy.onLaunch = func(detach.Invocation) error {
 		return errors.New("systemd-run: exit status 1: Failed to start transient service unit")
@@ -533,10 +532,6 @@ func testLaunchFailureFailsTheOperation(t *testing.T, _ detachtest.Backend) {
 // with Prepare returning concurrently, each run either ends Canceled with no
 // launch or is launched and then canceled under the Running rules.
 func TestCancelCannotLoseARaceWithADequeuedOperation(t *testing.T) {
-	perBackend(t, testCancelCannotLoseARaceWithADequeuedOperation)
-}
-
-func testCancelCannotLoseARaceWithADequeuedOperation(t *testing.T, _ detachtest.Backend) {
 	spy := newUnitSpy()
 	w := spyWorld(t, spy)
 	p := who("ops", "td:write")
@@ -690,9 +685,8 @@ func TestDetachedSensitiveInputStaysOutOfFinalize(t *testing.T) {
 	perBackend(t, testDetachedSensitiveInputStaysOutOfFinalize)
 }
 
-func testDetachedSensitiveInputStaysOutOfFinalize(t *testing.T, _ detachtest.Backend) {
-	spy := newUnitSpy()
-	w := spyWorld(t, spy)
+func testDetachedSensitiveInputStaysOutOfFinalize(t *testing.T, backend detachtest.Backend) {
+	w := backendWorld(t, backend)
 	var specEnv []string
 	w.td.onPrepare("secretive", func(_ context.Context, in thingIn) (detach.Spec, error) {
 		s := shJob("true")

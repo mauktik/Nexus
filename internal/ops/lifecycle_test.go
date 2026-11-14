@@ -18,7 +18,6 @@ import (
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/audit"
 	"github.com/mauktik/nexus/internal/def"
-	"github.com/mauktik/nexus/internal/detach/detachtest"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/store"
@@ -28,10 +27,6 @@ import (
 // TC-47: a long-running op answers 202 with Location and Retry-After, and
 // polling shows Running then Succeeded with the result and ordered times.
 func TestLongRunningAcknowledgementAndTerminalRecord(t *testing.T) {
-	perBackend(t, testLongRunningAcknowledgementAndTerminalRecord)
-}
-
-func testLongRunningAcknowledgementAndTerminalRecord(t *testing.T, _ detachtest.Backend) {
 	w := newWorld(t)
 	w.serve()
 	tok := w.mint("deployer", "test:write", "test:read")
@@ -87,9 +82,7 @@ func testLongRunningAcknowledgementAndTerminalRecord(t *testing.T, _ detachtest.
 // compare-and-set first and an audit second (WI 3.2: only the
 // compare-and-set decides which happened). Creation commits, then writes
 // the Queued record, since the ID exists only once committed.
-func TestStateChangesAuditThenCommit(t *testing.T) { perBackend(t, testStateChangesAuditThenCommit) }
-
-func testStateChangesAuditThenCommit(t *testing.T, _ detachtest.Backend) {
+func TestStateChangesAuditThenCommit(t *testing.T) {
 	w := newWorld(t)
 	w.tp.on("bad", func(context.Context, thingIn, *provider.Run) (thingOut, error) {
 		return thingOut{}, problem.New(problem.DependencyUnavailable, "the dependency is down").With("provider", "tp")
@@ -149,10 +142,6 @@ func testStateChangesAuditThenCommit(t *testing.T, _ detachtest.Backend) {
 // structured error; the panic is contained to its operation and logged with
 // its stack, and the next operation on the lane runs.
 func TestOperationFailureAndPanicContainment(t *testing.T) {
-	perBackend(t, testOperationFailureAndPanicContainment)
-}
-
-func testOperationFailureAndPanicContainment(t *testing.T, _ detachtest.Backend) {
 	w := newWorld(t)
 	const sentinel = "SENTINEL-77aa-run-failure"
 	w.tp.on("prob", func(context.Context, thingIn, *provider.Run) (thingOut, error) {
@@ -198,10 +187,6 @@ func testOperationFailureAndPanicContainment(t *testing.T, _ detachtest.Backend)
 // TC-52: the status set is exactly the five states, a terminal state never
 // changes, and a mutating op starts with no approval step.
 func TestOperationStatusSetHasNoApprovalState(t *testing.T) {
-	perBackend(t, testOperationStatusSetHasNoApprovalState)
-}
-
-func testOperationStatusSetHasNoApprovalState(t *testing.T, _ detachtest.Backend) {
 	all := []apitypes.OperationStatus{apitypes.StatusQueued, apitypes.StatusRunning, apitypes.StatusSucceeded,
 		apitypes.StatusFailed, apitypes.StatusCanceled}
 	if got := []string{"Queued", "Running", "Succeeded", "Failed", "Canceled"}; !slices.Equal(got, func() []string {
@@ -262,10 +247,6 @@ func testOperationStatusSetHasNoApprovalState(t *testing.T, _ detachtest.Backend
 // it. The record carries every FR-24 field; the operation ID it lacks at
 // that moment is carried by the operation's Queued record, which names it.
 func TestAuditRecordIsDurableBeforeExecution(t *testing.T) {
-	perBackend(t, testAuditRecordIsDurableBeforeExecution)
-}
-
-func testAuditRecordIsDurableBeforeExecution(t *testing.T, _ detachtest.Backend) {
 	w := newWorld(t)
 	type seen struct {
 		file   []byte
@@ -323,10 +304,6 @@ func testAuditRecordIsDurableBeforeExecution(t *testing.T, _ detachtest.Backend)
 // TC-35: sensitive values and the bearer token never enter the audit log;
 // the field names remain with the redaction marker.
 func TestSensitiveValuesAndTokensNeverEnterAudit(t *testing.T) {
-	perBackend(t, testSensitiveValuesAndTokensNeverEnterAudit)
-}
-
-func testSensitiveValuesAndTokensNeverEnterAudit(t *testing.T, _ detachtest.Backend) {
 	w := newWorld(t)
 	w.serve()
 	tok := w.mint("deployer", "test:write", "test:read")
@@ -371,10 +348,6 @@ func testSensitiveValuesAndTokensNeverEnterAudit(t *testing.T, _ detachtest.Back
 // TC-222: no OpRecord internal field reaches any API body or the wire type,
 // and state.db holds the ordinary parameter but not the sensitive one.
 func TestAPIResponsesContainNoInternalFields(t *testing.T) {
-	perBackend(t, testAPIResponsesContainNoInternalFields)
-}
-
-func testAPIResponsesContainNoInternalFields(t *testing.T, _ detachtest.Backend) {
 	// The internal fields are those of store.OpRecord that the wire type
 	// lacks, computed by reflection rather than typed in.
 	wire := map[string]bool{}
@@ -485,9 +458,7 @@ func testAPIResponsesContainNoInternalFields(t *testing.T, _ detachtest.Backend)
 // mutating path without the storage check, ignore their key, write no
 // requested, refused or replayed record, and are not refused by a failing
 // audit log; their state changes are still audited (Data Flow).
-func TestReadRiskRequests(t *testing.T) { perBackend(t, testReadRiskRequests) }
-
-func testReadRiskRequests(t *testing.T, _ detachtest.Backend) {
+func TestReadRiskRequests(t *testing.T) {
 	w := newWorld(t)
 	p := who("ops", "test:read", "test:write")
 	w.overFull.Store(true)
@@ -532,10 +503,6 @@ func testReadRiskRequests(t *testing.T, _ detachtest.Backend) {
 // The storage hook (4.3) refuses new mutations at Data Flow step 5, after the
 // idempotency lookup, so a replay at the limit returns the original (F2).
 func TestStorageLimitRefusesNewMutationsButNotReplays(t *testing.T) {
-	perBackend(t, testStorageLimitRefusesNewMutationsButNotReplays)
-}
-
-func testStorageLimitRefusesNewMutationsButNotReplays(t *testing.T, _ detachtest.Backend) {
 	w := newWorld(t)
 	p := who("ops", "test:write")
 	op := w.start(p, tpOps.run.Op(), `{"name":"web"}`, "K")

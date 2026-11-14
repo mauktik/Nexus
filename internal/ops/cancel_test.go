@@ -43,9 +43,7 @@ func (w *world) mustCancel(p auth.Principal, id, key string) apitypes.Operation 
 // TC-55: canceling a queued operation answers 200 with it Canceled; the
 // request record precedes the one Canceled record; the cancel creates no
 // record and takes no lane; the canceled op never runs and the lane goes on.
-func TestCancelAQueuedOperation(t *testing.T) { perBackend(t, testCancelAQueuedOperation) }
-
-func testCancelAQueuedOperation(t *testing.T, _ detachtest.Backend) {
+func TestCancelAQueuedOperation(t *testing.T) {
 	w := newWorld(t)
 	p := who("ops", "test:write")
 	g := w.tp.gated("first")
@@ -91,10 +89,6 @@ func testCancelAQueuedOperation(t *testing.T, _ detachtest.Backend) {
 // TC-204: a repeat cancel returns the same body, keys are ignored, and only
 // actual cancels add state-change records.
 func TestRepeatCancelReturnsTheSameResultAndIgnoresKeys(t *testing.T) {
-	perBackend(t, testRepeatCancelReturnsTheSameResultAndIgnoresKeys)
-}
-
-func testRepeatCancelReturnsTheSameResultAndIgnoresKeys(t *testing.T, _ detachtest.Backend) {
 	w := newWorld(t)
 	p := who("ops", "test:write")
 	g := w.tp.gated("held")
@@ -148,10 +142,6 @@ func testRepeatCancelReturnsTheSameResultAndIgnoresKeys(t *testing.T, _ detachte
 // TC-ERR18: cancel refusals leave state unchanged; scope comes from the
 // loaded record, which loads before the scope check; denials are audited.
 func TestCancelRefusalsAndAuthorization(t *testing.T) {
-	perBackend(t, testCancelRefusalsAndAuthorization)
-}
-
-func testCancelRefusalsAndAuthorization(t *testing.T, _ detachtest.Backend) {
 	w := newWorld(t)
 	p := who("ops", "test:write", "test:read")
 	held := w.tp.gated("held")

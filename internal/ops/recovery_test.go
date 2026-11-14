@@ -281,27 +281,25 @@ func testRecoveryClassifiesEveryTableRow(t *testing.T, backend detachtest.Backen
 // wins: the real outcome, not outcome-unknown.
 func TestRecoveryExitDuringRecheck(t *testing.T) { perBackend(t, testRecoveryExitDuringRecheck) }
 
-func testRecoveryExitDuringRecheck(t *testing.T, _ detachtest.Backend) {
-	var opsDir atomic.Value
+func testRecoveryExitDuringRecheck(t *testing.T, backend detachtest.Backend) {
 	var calls atomic.Int64
-	w := newWorld(t, func(o *ops.Options) {
-		opsDir.Store(o.Dir)
-		withDetach(t, detach.Options{
-			Launch: func(context.Context, detach.Invocation) error { return errors.New("no launch in this test") },
-			UnitState: func(_ context.Context, unit string) (detach.UnitState, error) {
-				if calls.Add(1) == 1 {
-					id := strings.TrimSuffix(strings.TrimPrefix(unit, detach.UnitPrefix), ".service")
-					now := time.Now()
-					if err := detach.WriteExit(filepath.Join(opsDir.Load().(string), id),
-						detach.Exit{ExitCode: 0, Started: now, Ended: now}); err != nil {
-						return detach.UnitState{}, err
-					}
+	var w *world // Set before recovery runs
+	w = backendWorld(t, backend, func(d *detach.Options) {
+		if d.ListUnits == nil { // The local backend cannot list; recovery must not ask systemctl
+			d.ListUnits = func(context.Context) ([]string, error) { return nil, nil }
+		}
+		state := d.UnitState
+		d.UnitState = func(ctx context.Context, unit string) (detach.UnitState, error) {
+			if calls.Add(1) == 1 {
+				// The supervisor finished after this first look at its unit.
+				id := strings.TrimSuffix(strings.TrimPrefix(unit, detach.UnitPrefix), ".service")
+				now := time.Now()
+				if err := detach.WriteExit(w.opDir(id), detach.Exit{ExitCode: 0, Started: now, Ended: now}); err != nil {
+					return detach.UnitState{}, err
 				}
-				return detach.UnitState{ActiveState: "inactive", LoadState: "not-found"}, nil
-			},
-			Signal:    func(context.Context, string, syscall.Signal) error { return errors.New("no signal in this test") },
-			ListUnits: func(context.Context) ([]string, error) { return nil, nil },
-		})(o)
+			}
+			return state(ctx, unit) // The backend's answer: no supervisor, so absent
+		}
 	})
 	id := w.seed(tdRec("late", store.Lane{}), apitypes.StatusRunning)
 	if err := os.MkdirAll(w.opDir(id), 0o700); err != nil {
@@ -385,33 +383,46 @@ func TestRecoveryOrphanUnitsAreOnlyLogged(t *testing.T) {
 	perBackend(t, testRecoveryOrphanUnitsAreOnlyLogged)
 }
 
-func testRecoveryOrphanUnitsAreOnlyLogged(t *testing.T, _ detachtest.Backend) {
+func testRecoveryOrphanUnitsAreOnlyLogged(t *testing.T, backend detachtest.Backend) {
+	const orphan = "orphan1" // A supervisor with no record
 	var mu sync.Mutex
 	var signals []string
-	w := newWorld(t, withDetach(t, detach.Options{
-		Launch: func(context.Context, detach.Invocation) error { return errors.New("no launch in this test") },
-		UnitState: func(context.Context, string) (detach.UnitState, error) {
-			return detach.UnitState{ActiveState: "active", LoadState: "loaded"}, nil
-		},
-		Signal: func(_ context.Context, unit string, _ syscall.Signal) error {
+	var seams detach.Options
+	w := newWorld(t, withBackend(t, backend, &seams, func(d *detach.Options) {
+		if d.ListUnits == nil {
+			// The local backend cannot list units; it names the one it started.
+			d.ListUnits = func(context.Context) ([]string, error) { return []string{detach.Unit(orphan)}, nil }
+		}
+		signal := d.Signal
+		d.Signal = func(ctx context.Context, unit string, sig syscall.Signal) error {
 			mu.Lock()
-			defer mu.Unlock()
 			signals = append(signals, unit)
-			return nil
-		},
-		ListUnits: func(context.Context) ([]string, error) {
-			return []string{"nexus-op-x.service"}, nil
-		},
+			mu.Unlock()
+			return signal(ctx, unit, sig)
+		}
 	}))
+	// The orphan is a real supervisor of the backend, found as the backend
+	// finds any: the process backend lists it from its supervisor.json.
+	dir := w.opDir(orphan)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := detach.WriteSpec(dir, shJob("exec sleep 300")); err != nil {
+		t.Fatal(err)
+	}
+	if err := seams.Launch(context.Background(), detach.Invocation{ID: orphan, Unit: detach.Unit(orphan), Dir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	defer stopLocal(t, seams, orphan) // After the assertions below, which count signals
 	waitClosed(t, w.recoverNow(), 15*time.Second, "classification")
 	var warned bool
 	for _, line := range strings.Split(w.logs.String(), "\n") {
-		if strings.Contains(line, `"level":"WARN"`) && strings.Contains(line, `"unit":"nexus-op-x.service"`) {
+		if strings.Contains(line, `"level":"WARN"`) && strings.Contains(line, `"unit":"`+detach.Unit(orphan)+`"`) {
 			warned = true
 		}
 	}
 	if !warned {
-		t.Fatalf("no warning names nexus-op-x.service:\n%s", w.logs.String())
+		t.Fatalf("no warning names %s:\n%s", detach.Unit(orphan), w.logs.String())
 	}
 	mu.Lock()
 	defer mu.Unlock()
@@ -424,10 +435,6 @@ func testRecoveryOrphanUnitsAreOnlyLogged(t *testing.T, _ detachtest.Backend) {
 // the record unclassified until the deadline, which ends it
 // outcome-unknown. The default deadline is 30 seconds, under FR-6's 60.
 func TestRecoveryBlockedClassificationHitsDeadline(t *testing.T) {
-	perBackend(t, testRecoveryBlockedClassificationHitsDeadline)
-}
-
-func testRecoveryBlockedClassificationHitsDeadline(t *testing.T, _ detachtest.Backend) {
 	if ops.RecoveryDeadline != 30*time.Second || ops.RecoveryDeadline >= 60*time.Second {
 		t.Fatalf("RecoveryDeadline = %v, want 30s", ops.RecoveryDeadline)
 	}
