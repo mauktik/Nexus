@@ -430,8 +430,34 @@ func startOps(t *testing.T, f *fixture, tune func(*config.NginxConfig)) *opsServ
 		if err := alog.Close(); err != nil {
 			t.Errorf("audit close: %v", err)
 		}
+		waitWatchLoopsEnd(t)
 	})
 	return s
+}
+
+// waitWatchLoopsEnd waits for detach.Launcher's watch loop to exit. The loop
+// ends on the first PollInterval tick after the last watched operation is
+// gone, so after mgr.Shutdown it outlives the test by up to a tick, and the
+// next test of the package would see it as an extra goroutine.
+func waitWatchLoopsEnd(t *testing.T) {
+	t.Helper()
+	const loop = "detach.(*Launcher).watchLoop"
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if !strings.Contains(goroutineDump(), loop) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("%s still running 10 s after the ops manager shut down", loop)
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func goroutineDump() string {
+	buf := make([]byte, 1<<20)
+	return string(buf[:runtime.Stack(buf, true)])
 }
 
 func (s *opsServer) do(method, path string, body io.Reader) (int, []byte) {

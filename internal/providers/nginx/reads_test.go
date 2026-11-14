@@ -437,9 +437,16 @@ func TestReadLatencyAndNoBackgroundWork(t *testing.T) {
 	block := strings.Repeat(strings.Repeat("#", 63)+"\n", 64) // 4 KiB
 	ctx := context.Background()
 
-	// Goroutines: the provider alone, before Configure, after Preflight,
-	// and after reads and 2 s of idle time.
-	before := runtime.NumGoroutine()
+	// Goroutines: the provider alone. The package's tests run in one process
+	// and share it, and a goroutine an earlier test left behind is not the
+	// provider's: detach.Launcher's watch loop, for one, outlives the last
+	// operation it watched by up to a PollInterval (seen on Linux as a third
+	// goroutine after Preflight that was gone after the idle time, so a count
+	// compared to the count after Preflight failed with no change in what
+	// the provider does). So the check is by identity: after Preflight
+	// the goroutines are recorded, and after reads and 2 s of idle time no
+	// goroutine exists that was not among them (none was started) and none
+	// runs this package's non-test code.
 	f := newFixture(t, runningSystemd())
 	tree := map[string]entry{}
 	for i := range 50 {
@@ -449,7 +456,7 @@ func TestReadLatencyAndNoBackgroundWork(t *testing.T) {
 	if st := f.p.Preflight(ctx); st.State != apitypes.ProviderEnabled {
 		t.Fatalf("Preflight = %+v", st)
 	}
-	afterPreflight := settledGoroutines()
+	afterPreflight := goroutineStacks()
 	for range 10 {
 		if _, err := f.p.status(ctx, spec.StatusInput{}); err != nil {
 			t.Fatal(err)
@@ -462,9 +469,14 @@ func TestReadLatencyAndNoBackgroundWork(t *testing.T) {
 		}
 	}
 	time.Sleep(2 * time.Second)
-	if idle := settledGoroutines(); idle != afterPreflight {
-		t.Errorf("goroutines: %d before Configure, %d after Preflight, %d idle; want idle == after Preflight",
-			before, afterPreflight, idle)
+	for id, stack := range goroutineStacks() {
+		if _, ok := afterPreflight[id]; !ok {
+			t.Errorf("goroutine %d started after Preflight and still running after 2 s idle (%d goroutines after Preflight):\n%s",
+				id, len(afterPreflight), stack)
+		}
+	}
+	if frames := nginxFrames(); len(frames) > 0 {
+		t.Errorf("goroutines after reads and 2 s idle run nginx package code:\n%s", strings.Join(frames, "\n\n"))
 	}
 
 	// Latency through the real server. A round is the 100 iterations of the
@@ -506,20 +518,18 @@ func TestReadLatencyAndNoBackgroundWork(t *testing.T) {
 	}
 }
 
-// settledGoroutines is the goroutine count once it stops changing: os/exec's
-// goroutines of a finished nginx -v can still be ending when Run returns
-// (seen on Linux), and they are not work the provider left behind.
-func settledGoroutines() int {
-	n := runtime.NumGoroutine()
-	for range 20 {
-		time.Sleep(50 * time.Millisecond)
-		m := runtime.NumGoroutine()
-		if m == n {
-			return n
+// goroutineStacks returns every goroutine's stack, keyed by goroutine id.
+func goroutineStacks() map[int]string {
+	buf := make([]byte, 1<<20)
+	buf = buf[:runtime.Stack(buf, true)]
+	out := map[int]string{}
+	for _, g := range strings.Split(string(buf), "\n\n") {
+		var id int
+		if _, err := fmt.Sscanf(g, "goroutine %d [", &id); err == nil {
+			out[id] = g
 		}
-		n = m
 	}
-	return n
+	return out
 }
 
 // nginxFrame matches a stack frame's source line in a non-test file of this
