@@ -619,6 +619,20 @@ func TestTCSME3_ReUploadingAStagedUploadWhile(t *testing.T) {
 	if n := st.inflightCount(); n != 0 {
 		t.Errorf("in flight %d after the refusal, want 0", n)
 	}
+
+	// A probe passes Admit, so its refusal after the body was received is
+	// audited as requested, then refused:conflict, under one request (A-26).
+	recs := s.auditOf(t, spec.Upload.Op().ID)
+	if len(recs) < 2 {
+		t.Fatalf("upload audit holds %d records, want the refused probe's two at the end", len(recs))
+	}
+	last := recs[len(recs)-2:]
+	if got, want := outcomes(last), []string{audit.OutcomeRequested, audit.OutcomeRefused + ":" + string(problem.Conflict)}; !slices.Equal(got, want) {
+		t.Errorf("the refused probe's audit outcomes = %v, want %v", got, want)
+	}
+	if last[1].RequestID == "" || last[1].RequestID != last[0].ID {
+		t.Errorf("refused record names request %q, want the requested record's %q", last[1].RequestID, last[0].ID)
+	}
 }
 
 // TC-SM-E16 (WI 5.1; FR-1, FR-19): A disabled nexusd provider refuses every
