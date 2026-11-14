@@ -47,24 +47,25 @@ const (
 	UploadMinRate       = 1 << 20 // Bytes per second
 )
 
-// A chunked upload declares no length, so the window above is the cap's, and
-// a client could hold the upload's staging slot for all of it by sending a
-// byte at a time (SEC-2). Its body therefore also has a floor: after
-// UploadChunkedGrace, the bytes received must average at least
-// UploadChunkedMinRate, and the read deadline of each read is the time the
-// next byte is due at that rate, never later than the window's end. A body
-// below the floor fails its read with the read deadline's error, as one that
-// outlasts its window does. A declared length keeps its computed deadline.
+// The window above is long: the cap's for a chunked upload, and up to the
+// cap's for a declared length, which a client may set to the cap. A client
+// could hold the upload's staging slot for all of it by sending a byte at a
+// time (SEC-2), whatever the framing. Every upload body therefore also has a
+// floor: after UploadFloorGrace, the bytes received must average at least
+// UploadFloorRate, and the read deadline of each read is the time the next
+// byte is due at that rate, never later than the window's end. A body below
+// the floor fails its read with the read deadline's error, as one that
+// outlasts its window does.
 const (
-	UploadChunkedGrace   = 10 * time.Second
-	UploadChunkedMinRate = 64 << 10 // Bytes per second
+	UploadFloorGrace = 10 * time.Second
+	UploadFloorRate  = 64 << 10 // Bytes per second
 )
 
-// chunkedGrace and chunkedMinRate are the values in force; a test shortens
-// them through SetChunkedGuard.
+// floorGrace and floorRate are the values in force; a test shortens them
+// through SetUploadFloor.
 var (
-	chunkedGrace   = UploadChunkedGrace
-	chunkedMinRate = int64(UploadChunkedMinRate)
+	floorGrace = UploadFloorGrace
+	floorRate  = int64(UploadFloorRate)
 )
 
 // DefaultMaxBodyBytes is the request body limit when Options leaves it zero.

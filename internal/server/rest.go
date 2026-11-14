@@ -192,7 +192,7 @@ func (s *Server) opHandler(disp *core.Dispatcher, op def.Op, names []string, fie
 		var body *provider.UploadBody
 		if upload != nil {
 			body = &provider.UploadBody{
-				Reader: &uploadReader{body: r.Body, chunked: r.ContentLength < 0, rc: http.NewResponseController(w),
+				Reader: &uploadReader{body: r.Body, rc: http.NewResponseController(w),
 					extend: func() time.Time {
 						return s.extendUploadDeadlines(w, r, op, uploadWindowBytes(r.ContentLength, upload()))
 					}},
@@ -221,17 +221,16 @@ func (s *Server) opHandler(disp *core.Dispatcher, op def.Op, names []string, fie
 
 // uploadReader is an upload's body as Receive reads it. Its first read
 // extends the request's deadlines, so a request refused before Receive
-// reads (scope, Admit, a declared oversize) keeps the base timeouts. A
-// chunked body is then paced: before each read the read deadline is set to
-// when the next byte is due at chunkedMinRate after chunkedGrace, at most the
-// window's end (SEC-2). A read past the route's cap fails with an error
+// reads (scope, Admit, a declared oversize) keeps the base timeouts. The
+// body is then paced, whether it is chunked or declares a length: before each
+// read the read deadline is set to when the next byte is due at floorRate
+// after floorGrace, at most the window's end (SEC-2). A read past the route's cap fails with an error
 // wrapping core.ErrUploadTooLarge, which the Dispatcher answers as
 // upload-too-large. Reads come from one goroutine at a time, as io.Reader
 // requires of its callers.
 type uploadReader struct {
 	body     io.Reader
 	extend   func() time.Time // Extends the deadlines, and returns the read window's end
-	chunked  bool
 	rc       *http.ResponseController
 	extended bool
 	start    time.Time // The first read
@@ -244,7 +243,7 @@ func (u *uploadReader) Read(p []byte) (int, error) {
 		u.extended = true
 		u.start, u.end = time.Now(), u.extend()
 	}
-	if u.chunked && !u.end.IsZero() {
+	if !u.end.IsZero() {
 		// A writer without deadlines fails here too, and extend has logged it.
 		_ = u.rc.SetReadDeadline(pacedDeadline(u.start, u.end, u.received))
 	}
@@ -257,11 +256,11 @@ func (u *uploadReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// pacedDeadline is when byte received+1 of a chunked body is due: the grace
+// pacedDeadline is when byte received+1 of an upload body is due: the grace
 // after start plus the time the bytes so far, and one more, take at the floor
 // rate, but never later than end.
 func pacedDeadline(start, end time.Time, received int64) time.Time {
-	due := start.Add(chunkedGrace + time.Duration(float64(received+1)/float64(chunkedMinRate)*float64(time.Second)))
+	due := start.Add(floorGrace + time.Duration(float64(received+1)/float64(floorRate)*float64(time.Second)))
 	if due.After(end) {
 		return end
 	}

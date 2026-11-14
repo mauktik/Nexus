@@ -686,13 +686,13 @@ func (r *trickle) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-// SEC-2: a chunked upload that falls below the minimum rate after the grace
-// is cut by the read deadline, well before the cap's window; one that keeps
-// the rate, and one that declares its length, are not. The grace and the rate
+// SEC-2: an upload, chunked or declaring its length, that falls below the
+// minimum rate after the grace is cut by the read deadline, well before its
+// window; one that keeps the rate is not. The grace and the rate
 // are shortened through the test seam: 300 ms and 100 KB/s, against a trickle
 // of 100 bytes every 100 ms (1 KB/s).
-func TestUploadChunkedMinimumRate(t *testing.T) {
-	defer server.SetChunkedGuard(300*time.Millisecond, 100_000)()
+func TestUploadMinimumRate(t *testing.T) {
+	defer server.SetUploadFloor(300*time.Millisecond, 100_000)()
 	do := func(t *testing.T, fu *fupl, body io.Reader, length int64) (*http.Response, []byte, error) {
 		t.Helper()
 		us := startUploads(t, fu, uplOptions{})
@@ -746,13 +746,42 @@ func TestUploadChunkedMinimumRate(t *testing.T) {
 		}
 	})
 
-	t.Run("a declared length keeps its own deadline", func(t *testing.T) {
-		fu := newFupl(fuCeiling, "")
+	t.Run("a declared-length trickle is cut", func(t *testing.T) {
+		// The declared length is a window of 30s+, so only the floor can cut it.
+		dir := t.TempDir()
+		fu := newFupl(fuCeiling, dir)
 		stop := make(chan struct{})
 		defer close(stop)
-		resp, body, err := do(t, fu, &trickle{total: 600, per: 100, gap: 100 * time.Millisecond, stop: stop}, 600)
+		start := time.Now()
+		resp, rbody, err := do(t, fu, &trickle{total: 100 * 600, per: 100, gap: 100 * time.Millisecond, stop: stop}, 100*600)
+		_, rerr, file := fu.result(t)
+		if elapsed := time.Since(start); elapsed > 2*time.Second {
+			t.Errorf("the declared trickle ran %v, want it cut within about 1s of the 300ms grace", elapsed)
+		}
+		if !errors.Is(rerr, os.ErrDeadlineExceeded) {
+			t.Fatalf("Receive error %v, want the read deadline's", rerr)
+		}
+		if resp != nil && resp.StatusCode == http.StatusCreated {
+			t.Errorf("a cut upload was answered 201")
+		}
+		if resp != nil {
+			t.Logf("cut after %v: client saw %s %s", time.Since(start), resp.Status, rbody)
+		} else {
+			t.Logf("cut after %v: client error %v", time.Since(start), err)
+		}
+		if _, err := os.Stat(file); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("temp file %q still there: %v", file, err)
+		}
+	})
+
+	t.Run("a declared-length body above the floor is stored", func(t *testing.T) {
+		fu := newFupl(fuCeiling, "")
+		resp, body, err := do(t, fu, &throttled{left: 300_000, rate: 400_000}, 300_000)
 		if err != nil || resp.StatusCode != http.StatusCreated {
-			t.Fatalf("a declared 600 bytes trickled over 0.6s: %v, %v %s; want 201", err, resp, body)
+			t.Fatalf("a declared body at 4x the floor: %v, %v %s; want 201", err, resp, body)
+		}
+		if got, rerr, _ := fu.result(t); got != 300_000 || rerr != nil {
+			t.Errorf("Receive saw %d bytes, error %v; want 300000 and nil", got, rerr)
 		}
 	})
 }
