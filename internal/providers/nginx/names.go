@@ -58,6 +58,7 @@ type fileStat struct {
 	Size     int64
 	ModTime  time.Time
 	Dev, Ino uint64 // Identity, to check that a later open found this entry
+	Nlink    uint64 // Hard links to the inode: a managed file has exactly one
 }
 
 // site is a site name's classification: its enabled and disabled entries
@@ -86,9 +87,11 @@ func (s site) File() *fileStat {
 }
 
 // classify reads name's two entries in the directory dirfd, without
-// following symlinks. Only a regular file owned by managedUID, under a
-// valid name, with no counterpart in the other state, is managed. The
-// reasons are checked in this order: invalid-name, conflict, symlink,
+// following symlinks. Only a regular file owned by managedUID, with no other
+// hard link, under a valid name, with no counterpart in the other state, is
+// managed. A second link could make the entry another path's file (a root-only
+// file linked into includeDir), so a file with one is reported not-regular.
+// The reasons are checked in this order: invalid-name, conflict, symlink,
 // not-regular, not-root-owned.
 func classify(dirfd int, name string, s Settings) (site, error) {
 	c := site{Name: name}
@@ -111,7 +114,7 @@ func classify(dirfd int, name string, s Settings) (site, error) {
 		c.Reason = spec.ReasonConflict
 	case f.Type == spec.FileTypeSymlink:
 		c.Reason = spec.ReasonSymlink
-	case f.Type != spec.FileTypeFile:
+	case f.Type != spec.FileTypeFile, f.Nlink != 1:
 		c.Reason = spec.ReasonNotRegular
 	case f.UID != managedUID:
 		c.Reason = spec.ReasonNotRootOwned
@@ -136,7 +139,7 @@ func statAt(dirfd int, fileName string) (*fileStat, error) {
 
 func newFileStat(fileName string, st *unix.Stat_t) *fileStat {
 	return &fileStat{FileName: fileName, Type: fileType(uint32(st.Mode)), UID: st.Uid, Size: st.Size,
-		ModTime: time.Unix(st.Mtim.Unix()).UTC(), Dev: uint64(st.Dev), Ino: st.Ino}
+		ModTime: time.Unix(st.Mtim.Unix()).UTC(), Dev: uint64(st.Dev), Ino: st.Ino, Nlink: uint64(st.Nlink)}
 }
 
 func fileType(mode uint32) string {

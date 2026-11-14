@@ -114,6 +114,7 @@ func statusItem(t *testing.T, s *server) (map[string]any, spec.Service) {
 // nginx-provider TC-63: Status reports the live service state and follows changes
 // Owner WI 4.5. Requirements: FR-3, FR-19.
 func TestStatusFollowsServiceState(t *testing.T) {
+	ownedByTester(t) // includeDir is a temp directory the test owns
 	f := newFixture(t, fixtureOptions{model: svcctltest.Model{State: svcctl.Running, MainPID: 4242}})
 	s := startNginx(t, f)
 
@@ -149,6 +150,7 @@ func TestStatusFollowsServiceState(t *testing.T) {
 // nginx-provider TC-64: Status succeeds for stopped nginx and on OpenRC with no since
 // Owner WI 4.5. Requirements: FR-3.
 func TestStatusStoppedAndOpenRC(t *testing.T) {
+	ownedByTester(t) // includeDir is a temp directory the test owns
 	f := newFixture(t, fixtureOptions{plat: alpine, model: svcctltest.Model{State: svcctl.Stopped}})
 	s := startNginx(t, f)
 	raw, svc := statusItem(t, s)

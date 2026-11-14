@@ -292,6 +292,7 @@ func (s *server) capability(name string) apitypes.ProviderCapability {
 // nginx-provider TC-61: Preflight reports nginx available with details when every condition holds
 // Owner WI 4.5. Requirements: FR-2a, FR-1.
 func TestPreflightAvailable(t *testing.T) {
+	ownedByTester(t) // includeDir is a temp directory the test owns
 	f := newFixture(t, fixtureOptions{model: svcctltest.Model{State: svcctl.Running}})
 	st := f.p.Preflight(context.Background())
 	if st.State != apitypes.ProviderEnabled {
@@ -320,6 +321,7 @@ func TestPreflightAvailable(t *testing.T) {
 // internal/daemon (it composes this provider), so the test drives the same
 // two steps: config.Load, then Apply.
 func TestPreflightRecheckedOnReload(t *testing.T) {
+	ownedByTester(t) // includeDir is a temp directory the test owns
 	f := newFixture(t, fixtureOptions{noNginx: true, model: svcctltest.Model{Absent: true}})
 	cfgPath := filepath.Join(t.TempDir(), "nexusd.yaml")
 	yaml := fmt.Sprintf("listen: [\"127.0.0.1:1\"]\ntls: {mode: off}\nproviders:\n  nginx:\n    enabled: true\n    includeDir: %s\n", f.dir)

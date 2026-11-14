@@ -73,7 +73,7 @@ func TestReadManagedRefusesAHardlinkCreatedAfterTheClassification(t *testing.T) 
 	if err := os.Link(filepath.Join(dir, "a.conf"), filepath.Join(t.TempDir(), "elsewhere")); err != nil {
 		t.Skipf("hard links are not available here: %v", err)
 	}
-	if _, _, err := readManaged(int(f.Fd()), st, testMaxConfigBytes); err == nil || !strings.Contains(err.Error(), "hard link") {
+	if _, _, err := readManaged(int(f.Fd()), st, 1<<20); err == nil || !strings.Contains(err.Error(), "hard link") {
 		t.Errorf("readManaged = %v, want a refusal naming the hard link", err)
 	}
 }

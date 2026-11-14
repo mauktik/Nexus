@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"os"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/mauktik/nexus/internal/apitypes"
@@ -144,7 +145,8 @@ func (p *Provider) controller(s Settings) (svcctl.Controller, error) {
 // Preflight reports the provider available only when, in order: the nginx
 // binary is a regular executable file; detached operations can run, which
 // every change needs; the init system knows the service; and includeDir is a
-// directory itself, not a symlink to one (FR-2a). Each failure names what is
+// directory itself, not a symlink to one (FR-2a), owned by root and not
+// writable by its group or others (SEC-3). Each failure names what is
 // missing. Nothing here is cached across calls, so a reload (SIGHUP) or a
 // call-time re-check notices nginx installed after nexusd started.
 func (p *Provider) Preflight(ctx context.Context) provider.Status {
@@ -193,6 +195,19 @@ func (p *Provider) Preflight(ctx context.Context) provider.Status {
 		return unavailable("includeDir %s is a symlink: it must be the directory itself", s.IncludeDir)
 	case !di.IsDir():
 		return unavailable("includeDir %s is not a directory", s.IncludeDir)
+	}
+	// Whoever can change includeDir can swap what a root helper reads and
+	// renames in it between its checks and its changes, so it must be root's
+	// alone. The provider is unavailable otherwise (reads included), which
+	// names the directory and what to fix, rather than refusing each
+	// operation separately.
+	if st, ok := di.Sys().(*syscall.Stat_t); ok && st.Uid != managedUID {
+		return unavailable("includeDir %s is owned by uid %d, not by root: only root may own the directory nginx "+
+			"includes (chown root %s)", s.IncludeDir, st.Uid, s.IncludeDir)
+	}
+	if perm := di.Mode().Perm(); perm&0o022 != 0 {
+		return unavailable("includeDir %s (mode %#o) is writable by its group or by others: only root may change "+
+			"the directory nginx includes (chmod go-w %s)", s.IncludeDir, perm, s.IncludeDir)
 	}
 
 	return provider.Status{State: apitypes.ProviderEnabled, Details: map[string]any{

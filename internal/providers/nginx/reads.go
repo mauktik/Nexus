@@ -205,7 +205,8 @@ func (p *Provider) siteResource(dirfd int, c site, s Settings) spec.Site {
 // readManaged reads the regular file f in dirfd, at most max bytes, and
 // returns its bytes and their SHA-256. The open never follows a symlink and
 // never blocks on a FIFO, and the opened file must be the entry classify
-// saw, so a swap between the two is refused rather than read.
+// saw, so a swap between the two is refused rather than read. A file with
+// another hard link is refused too, whatever classify saw.
 func readManaged(dirfd int, f *fileStat, max int64) ([]byte, string, error) {
 	if f.Size > max {
 		return nil, "", tooLarge(f.FileName, f.Size, max)
@@ -227,6 +228,9 @@ func readManaged(dirfd int, f *fileStat, max int64) ([]byte, string, error) {
 	now := newFileStat(f.FileName, &st)
 	if now.Type != spec.FileTypeFile || now.Dev != f.Dev || now.Ino != f.Ino || now.UID != f.UID {
 		return nil, "", changed(f.FileName, fmt.Errorf("it was replaced"))
+	}
+	if now.Nlink != 1 {
+		return nil, "", changed(f.FileName, fmt.Errorf("it has another hard link, so it may be another path's file"))
 	}
 	b, err := io.ReadAll(io.LimitReader(file, max+1))
 	if err != nil {
