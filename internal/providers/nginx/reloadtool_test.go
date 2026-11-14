@@ -20,6 +20,7 @@ import (
 	"testing"
 	"testing/synctest"
 
+	"github.com/mauktik/nexus/internal/def"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/providers/nginx/spec"
 	"github.com/mauktik/nexus/internal/svcctl"
@@ -210,4 +211,39 @@ func TestReloadToolNeverStarted(t *testing.T) {
 			t.Errorf("includeDir %v, was %v", after, before)
 		}
 	})
+}
+
+// nginx-provider CR-B1 H (the sweep): a start, stop or restart tool that
+// died after it started may have acted too, so the state it left decides,
+// as for a reload.
+func TestStateChangeToolDiedAfterActing(t *testing.T) {
+	fakeNginxBinary(t)
+	for _, m := range lcModes {
+		for _, tc := range []struct {
+			verb  string
+			op    def.Op
+			from  svcctl.State
+			state svcctl.State
+		}{
+			{"start", spec.Start.Op(), svcctl.Stopped, svcctl.Running},
+			{"stop", spec.Stop.Op(), svcctl.Running, svcctl.Stopped},
+			{"restart", spec.Restart.Op(), svcctl.Running, svcctl.Running},
+		} {
+			t.Run(m.name+"/"+tc.verb, func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					h := newLC(t, m.plat, svcctltest.Model{State: tc.from})
+					writeTree(t, h.f.dir, map[string]string{"a.conf": validSite})
+					h.set(func(h *lcHarness) {
+						h.reloadFault = reloadFault{verb: tc.verb, n: 1, err: toolDied}
+						h.nextPIDs = []int{4343}
+					})
+
+					r := h.op(tc.op).succeeded(t)
+					if !r.Changed || r.State != string(tc.state) {
+						t.Errorf("result %+v, want changed and %s: the tool acted before it died", r, tc.state)
+					}
+				})
+			})
+		}
+	}
 }

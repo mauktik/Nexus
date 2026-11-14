@@ -2,6 +2,7 @@ package nginx
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -90,11 +91,13 @@ type lcHarness struct {
 	ops         int
 }
 
-// reloadFault makes the init tool fail the next n reloads with err. When
-// before is set the tool never started, so the fake does not see the
-// reload; otherwise it delivered the reload and then died (a signal, a
-// wait error), so the fake applied it and the caller still got err.
+// reloadFault makes the init tool fail the next n actions named verb (""
+// is reload) with err. When before is set the tool never started, so the
+// fake does not see the action; otherwise it delivered the action and then
+// died (a signal, a wait error), so the fake applied it and the caller
+// still got err.
 type reloadFault struct {
+	verb   string
 	n      int
 	err    error
 	before bool
@@ -161,7 +164,7 @@ func (h *lcHarness) run(ctx context.Context, argv []string) (svcctl.Result, erro
 	}
 	afterDo, reloaded := h.afterDo, h.reloaded
 	var fault *reloadFault
-	if what == "reload" && h.reloadFault.n > 0 {
+	if h.reloadFault.n > 0 && what == cmp.Or(h.reloadFault.verb, "reload") {
 		h.reloadFault.n--
 		f := h.reloadFault
 		fault = &f
@@ -197,9 +200,9 @@ func (h *lcHarness) run(ctx context.Context, argv []string) (svcctl.Result, erro
 		if reloaded != nil {
 			reloaded(after.Generation > before)
 		}
-		if fault != nil {
-			return svcctl.Result{}, fault.err
-		}
+	}
+	if fault != nil {
+		return svcctl.Result{}, fault.err
 	}
 	if afterDo != nil && what != "status" && what != "exists" {
 		afterDo(what)
