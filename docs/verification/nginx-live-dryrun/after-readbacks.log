@@ -1,0 +1,341 @@
+
+== Alpine baseline, before any run (nx-wi72-alpine-20261114T075727Z, 07:57:33Z)
+$ ls -la /etc/nginx/http.d
+total 36
+drwxr-xr-x    1 root     root          4096 Nov 14 07:57 .
+drwxr-xr-x    1 root     root          4096 Nov 14 07:57 ..
+-rw-r--r--    1 root     root             6 Nov 14 07:57 README.local
+-rw-r--r--    1 root     root           342 Nov 13 19:29 default.conf
+drwxr-xr-x    2 root     root          4096 Nov 14 07:57 snippets
+-rw-r--r--    1 root     root           132 Nov 14 07:57 user-api.conf
+-rw-r--r--    1 root     root           130 Nov 14 07:57 user-app.conf
+-rw-r--r--    1 root     root            75 Nov 14 07:57 user-old.conf.disabled
+$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf
+536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/http.d/user-api.conf
+5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/http.d/user-app.conf
+4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/http.d/user-old.conf.disabled
+dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd  /etc/nginx/nginx.conf
+$ ls -la /var/lib/nexus-nginx-check
+ls: /var/lib/nexus-nginx-check: No such file or directory
+$ curl -sS http://127.0.0.1:18301/
+user-app
+$ curl -sS http://127.0.0.1:18302/
+user-api
+$ rc-service nginx status
+ * status: started
+(holder processes: none unless listed above)
+
+== Ubuntu baseline, before any run (nx-wi72-ubuntu-20261114T075727Z, 07:57:33Z)
+$ ls -la /etc/nginx/conf.d
+total 32
+drwxr-xr-x 1 root root 4096 Nov 14 07:57 .
+drwxr-xr-x 1 root root 4096 Nov 14 04:44 ..
+-rw-r--r-- 1 root root    6 Nov 14 07:57 README.local
+drwxr-xr-x 2 root root 4096 Nov 14 07:57 snippets
+-rw-r--r-- 1 root root  132 Nov 14 07:57 user-api.conf
+-rw-r--r-- 1 root root  130 Nov 14 07:57 user-app.conf
+-rw-r--r-- 1 root root   75 Nov 14 07:57 user-old.conf.disabled
+$ sha256sum /etc/nginx/conf.d/user-* /etc/nginx/nginx.conf
+536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/conf.d/user-api.conf
+5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/conf.d/user-app.conf
+4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/conf.d/user-old.conf.disabled
+d7be180d12cb332090cf4a0e8de780bd30e7f59fd0ffa4ad42be0e70e6bc6348  /etc/nginx/nginx.conf
+$ ls -la /var/lib/nexus-nginx-check
+ls: cannot access '/var/lib/nexus-nginx-check': No such file or directory
+$ curl -sS http://127.0.0.1:18301/
+user-app
+$ curl -sS http://127.0.0.1:18302/
+user-api
+$ systemctl is-active nginx
+active
+(holder processes: none unless listed above)
+
+== after 01 (full run with --with-lifecycle) (nx-wi72-alpine-20261114T075727Z, 07:58:19Z)
+$ ls -la /etc/nginx/http.d
+total 36
+drwxr-xr-x    1 root     root          4096 Nov 14 07:58 .
+drwxr-xr-x    1 root     root          4096 Nov 14 07:57 ..
+-rw-r--r--    1 root     root             6 Nov 14 07:57 README.local
+-rw-r--r--    1 root     root           342 Nov 13 19:29 default.conf
+drwxr-xr-x    2 root     root          4096 Nov 14 07:57 snippets
+-rw-r--r--    1 root     root           132 Nov 14 07:57 user-api.conf
+-rw-r--r--    1 root     root           130 Nov 14 07:57 user-app.conf
+-rw-r--r--    1 root     root            75 Nov 14 07:57 user-old.conf.disabled
+$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf
+536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/http.d/user-api.conf
+5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/http.d/user-app.conf
+4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/http.d/user-old.conf.disabled
+dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd  /etc/nginx/nginx.conf
+$ ls -la /var/lib/nexus-nginx-check
+ls: /var/lib/nexus-nginx-check: No such file or directory
+$ curl -sS http://127.0.0.1:18301/
+user-app
+$ curl -sS http://127.0.0.1:18302/
+user-api
+$ rc-service nginx status
+ * status: started
+(holder processes: none unless listed above)
+
+== after 02 (default run) (nx-wi72-alpine-20261114T075727Z, 07:58:59Z)
+$ ls -la /etc/nginx/http.d
+total 36
+drwxr-xr-x    1 root     root          4096 Nov 14 07:58 .
+drwxr-xr-x    1 root     root          4096 Nov 14 07:57 ..
+-rw-r--r--    1 root     root             6 Nov 14 07:57 README.local
+-rw-r--r--    1 root     root           342 Nov 13 19:29 default.conf
+drwxr-xr-x    2 root     root          4096 Nov 14 07:57 snippets
+-rw-r--r--    1 root     root           132 Nov 14 07:57 user-api.conf
+-rw-r--r--    1 root     root           130 Nov 14 07:57 user-app.conf
+-rw-r--r--    1 root     root            75 Nov 14 07:57 user-old.conf.disabled
+$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf
+536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/http.d/user-api.conf
+5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/http.d/user-app.conf
+4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/http.d/user-old.conf.disabled
+dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd  /etc/nginx/nginx.conf
+$ ls -la /var/lib/nexus-nginx-check
+ls: /var/lib/nexus-nginx-check: No such file or directory
+$ curl -sS http://127.0.0.1:18301/
+user-app
+$ curl -sS http://127.0.0.1:18302/
+user-api
+$ rc-service nginx status
+ * status: started
+(holder processes: none unless listed above)
+
+== after 03 (Ctrl-C at step 5b) (nx-wi72-alpine-20261114T075727Z, 07:59:38Z)
+$ ls -la /etc/nginx/http.d
+total 36
+drwxr-xr-x    1 root     root          4096 Nov 14 07:59 .
+drwxr-xr-x    1 root     root          4096 Nov 14 07:57 ..
+-rw-r--r--    1 root     root             6 Nov 14 07:57 README.local
+-rw-r--r--    1 root     root           342 Nov 13 19:29 default.conf
+drwxr-xr-x    2 root     root          4096 Nov 14 07:57 snippets
+-rw-r--r--    1 root     root           132 Nov 14 07:57 user-api.conf
+-rw-r--r--    1 root     root           130 Nov 14 07:57 user-app.conf
+-rw-r--r--    1 root     root            75 Nov 14 07:57 user-old.conf.disabled
+$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf
+536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/http.d/user-api.conf
+5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/http.d/user-app.conf
+4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/http.d/user-old.conf.disabled
+dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd  /etc/nginx/nginx.conf
+$ ls -la /var/lib/nexus-nginx-check
+ls: /var/lib/nexus-nginx-check: No such file or directory
+$ curl -sS http://127.0.0.1:18301/
+user-app
+$ curl -sS http://127.0.0.1:18302/
+user-api
+$ rc-service nginx status
+ * status: started
+(holder processes: none unless listed above)
+
+== after 04 (SIGKILL at step 5b: what is left) (nx-wi72-alpine-20261114T075727Z, 08:00:15Z)
+$ ls -la /etc/nginx/http.d
+total 40
+drwxr-xr-x    1 root     root          4096 Nov 14 08:00 .
+drwxr-xr-x    1 root     root          4096 Nov 14 07:57 ..
+-rw-r--r--    1 root     root             6 Nov 14 07:57 README.local
+-rw-r--r--    1 root     root           342 Nov 13 19:29 default.conf
+-rw-r--r--    1 root     root           200 Nov 14 08:00 nexus-check-5476fbfc.conf
+drwxr-xr-x    2 root     root          4096 Nov 14 07:57 snippets
+-rw-r--r--    1 root     root           132 Nov 14 07:57 user-api.conf
+-rw-r--r--    1 root     root           130 Nov 14 07:57 user-app.conf
+-rw-r--r--    1 root     root            75 Nov 14 07:57 user-old.conf.disabled
+$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf
+536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/http.d/user-api.conf
+5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/http.d/user-app.conf
+4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/http.d/user-old.conf.disabled
+dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd  /etc/nginx/nginx.conf
+$ ls -la /var/lib/nexus-nginx-check
+total 20
+drwx------    2 root     root          4096 Nov 14 08:00 .
+drwxr-xr-x    1 root     root          4096 Nov 14 07:59 ..
+-rw-r--r--    1 root     root          1409 Nov 14 07:59 snap.before
+-rw-------    1 root     root           173 Nov 14 08:00 state
+$ curl -sS http://127.0.0.1:18301/
+user-app
+$ curl -sS http://127.0.0.1:18302/
+user-api
+$ rc-service nginx status
+ * status: started
+holder process still running: 13422 busybox nc -l -s 127.0.0.1 -p 18284 
+holder process still running: 13424 timeout 600 busybox nc -l -s 127.0.0.1 -p 18284 
+(holder processes: none unless listed above)
+
+== after 06 (--cleanup) (nx-wi72-alpine-20261114T075727Z, 08:00:17Z)
+$ ls -la /etc/nginx/http.d
+total 36
+drwxr-xr-x    1 root     root          4096 Nov 14 08:00 .
+drwxr-xr-x    1 root     root          4096 Nov 14 07:57 ..
+-rw-r--r--    1 root     root             6 Nov 14 07:57 README.local
+-rw-r--r--    1 root     root           342 Nov 13 19:29 default.conf
+drwxr-xr-x    2 root     root          4096 Nov 14 07:57 snippets
+-rw-r--r--    1 root     root           132 Nov 14 07:57 user-api.conf
+-rw-r--r--    1 root     root           130 Nov 14 07:57 user-app.conf
+-rw-r--r--    1 root     root            75 Nov 14 07:57 user-old.conf.disabled
+$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf
+536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/http.d/user-api.conf
+5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/http.d/user-app.conf
+4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/http.d/user-old.conf.disabled
+dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd  /etc/nginx/nginx.conf
+$ ls -la /var/lib/nexus-nginx-check
+ls: /var/lib/nexus-nginx-check: No such file or directory
+$ curl -sS http://127.0.0.1:18301/
+user-app
+$ curl -sS http://127.0.0.1:18302/
+user-api
+$ rc-service nginx status
+ * status: started
+(holder processes: none unless listed above)
+
+== after 08 (refused: nothing of the script may exist) (nx-wi72-alpine-20261114T075727Z, 08:00:19Z)
+$ ls -la /etc/nginx/http.d
+total 40
+drwxr-xr-x    1 root     root          4096 Nov 14 08:00 .
+drwxr-xr-x    1 root     root          4096 Nov 14 07:57 ..
+-rw-r--r--    1 root     root             6 Nov 14 07:57 README.local
+-rw-r--r--    1 root     root           342 Nov 13 19:29 default.conf
+drwxr-xr-x    2 root     root          4096 Nov 14 07:57 snippets
+-rw-r--r--    1 root     root           132 Nov 14 07:57 user-api.conf
+-rw-r--r--    1 root     root           130 Nov 14 07:57 user-app.conf
+-rw-r--r--    1 root     root            75 Nov 14 07:57 user-old.conf.disabled
+-rw-r--r--    1 root     root            26 Nov 14 08:00 zz-user-broken.conf
+$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf
+536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/http.d/user-api.conf
+5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/http.d/user-app.conf
+4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/http.d/user-old.conf.disabled
+dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd  /etc/nginx/nginx.conf
+$ ls -la /var/lib/nexus-nginx-check
+ls: /var/lib/nexus-nginx-check: No such file or directory
+$ curl -sS http://127.0.0.1:18301/
+user-app
+$ curl -sS http://127.0.0.1:18302/
+user-api
+$ rc-service nginx status
+ * status: started
+(holder processes: none unless listed above)
+
+== after 10 (user-app.conf put back by the dry-run driver) (nx-wi72-alpine-20261114T075727Z, 08:01:01Z)
+$ ls -la /etc/nginx/http.d
+total 36
+drwxr-xr-x    1 root     root          4096 Nov 14 08:01 .
+drwxr-xr-x    1 root     root          4096 Nov 14 08:00 ..
+-rw-r--r--    1 root     root             6 Nov 14 07:57 README.local
+-rw-r--r--    1 root     root           342 Nov 13 19:29 default.conf
+drwxr-xr-x    2 root     root          4096 Nov 14 07:57 snippets
+-rw-r--r--    1 root     root           132 Nov 14 07:57 user-api.conf
+-rw-r--r--    1 root     root           130 Nov 14 07:57 user-app.conf
+-rw-r--r--    1 root     root            75 Nov 14 07:57 user-old.conf.disabled
+$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf
+536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/http.d/user-api.conf
+5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/http.d/user-app.conf
+4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/http.d/user-old.conf.disabled
+dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd  /etc/nginx/nginx.conf
+$ ls -la /var/lib/nexus-nginx-check
+ls: /var/lib/nexus-nginx-check: No such file or directory
+$ curl -sS http://127.0.0.1:18301/
+user-app
+$ curl -sS http://127.0.0.1:18302/
+user-api
+$ rc-service nginx status
+ * status: started
+(holder processes: none unless listed above)
+
+== after 12 (full run with --with-lifecycle) (nx-wi72-ubuntu-20261114T075727Z, 08:01:42Z)
+$ ls -la /etc/nginx/conf.d
+total 32
+drwxr-xr-x 1 root root 4096 Nov 14 08:01 .
+drwxr-xr-x 1 root root 4096 Nov 14 04:44 ..
+-rw-r--r-- 1 root root    6 Nov 14 07:57 README.local
+drwxr-xr-x 2 root root 4096 Nov 14 07:57 snippets
+-rw-r--r-- 1 root root  132 Nov 14 07:57 user-api.conf
+-rw-r--r-- 1 root root  130 Nov 14 07:57 user-app.conf
+-rw-r--r-- 1 root root   75 Nov 14 07:57 user-old.conf.disabled
+$ sha256sum /etc/nginx/conf.d/user-* /etc/nginx/nginx.conf
+536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/conf.d/user-api.conf
+5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/conf.d/user-app.conf
+4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/conf.d/user-old.conf.disabled
+d7be180d12cb332090cf4a0e8de780bd30e7f59fd0ffa4ad42be0e70e6bc6348  /etc/nginx/nginx.conf
+$ ls -la /var/lib/nexus-nginx-check
+ls: cannot access '/var/lib/nexus-nginx-check': No such file or directory
+$ curl -sS http://127.0.0.1:18301/
+user-app
+$ curl -sS http://127.0.0.1:18302/
+user-api
+$ systemctl is-active nginx
+active
+(holder processes: none unless listed above)
+
+== after 13 (SIGINT with the add in flight) (nx-wi72-ubuntu-20261114T075727Z, 08:01:45Z)
+$ ls -la /etc/nginx/conf.d
+total 32
+drwxr-xr-x 1 root root 4096 Nov 14 08:01 .
+drwxr-xr-x 1 root root 4096 Nov 14 04:44 ..
+-rw-r--r-- 1 root root    6 Nov 14 07:57 README.local
+drwxr-xr-x 2 root root 4096 Nov 14 07:57 snippets
+-rw-r--r-- 1 root root  132 Nov 14 07:57 user-api.conf
+-rw-r--r-- 1 root root  130 Nov 14 07:57 user-app.conf
+-rw-r--r-- 1 root root   75 Nov 14 07:57 user-old.conf.disabled
+$ sha256sum /etc/nginx/conf.d/user-* /etc/nginx/nginx.conf
+536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/conf.d/user-api.conf
+5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/conf.d/user-app.conf
+4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/conf.d/user-old.conf.disabled
+d7be180d12cb332090cf4a0e8de780bd30e7f59fd0ffa4ad42be0e70e6bc6348  /etc/nginx/nginx.conf
+$ ls -la /var/lib/nexus-nginx-check
+ls: cannot access '/var/lib/nexus-nginx-check': No such file or directory
+$ curl -sS http://127.0.0.1:18301/
+user-app
+$ curl -sS http://127.0.0.1:18302/
+user-api
+$ systemctl is-active nginx
+active
+(holder processes: none unless listed above)
+
+== after 14 (SIGTERM with the nginx stop in flight) (nx-wi72-ubuntu-20261114T075727Z, 08:01:55Z)
+$ ls -la /etc/nginx/conf.d
+total 32
+drwxr-xr-x 1 root root 4096 Nov 14 08:01 .
+drwxr-xr-x 1 root root 4096 Nov 14 04:44 ..
+-rw-r--r-- 1 root root    6 Nov 14 07:57 README.local
+drwxr-xr-x 2 root root 4096 Nov 14 07:57 snippets
+-rw-r--r-- 1 root root  132 Nov 14 07:57 user-api.conf
+-rw-r--r-- 1 root root  130 Nov 14 07:57 user-app.conf
+-rw-r--r-- 1 root root   75 Nov 14 07:57 user-old.conf.disabled
+$ sha256sum /etc/nginx/conf.d/user-* /etc/nginx/nginx.conf
+536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/conf.d/user-api.conf
+5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/conf.d/user-app.conf
+4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/conf.d/user-old.conf.disabled
+d7be180d12cb332090cf4a0e8de780bd30e7f59fd0ffa4ad42be0e70e6bc6348  /etc/nginx/nginx.conf
+$ ls -la /var/lib/nexus-nginx-check
+ls: cannot access '/var/lib/nexus-nginx-check': No such file or directory
+$ curl -sS http://127.0.0.1:18301/
+user-app
+$ curl -sS http://127.0.0.1:18302/
+user-api
+$ systemctl is-active nginx
+active
+(holder processes: none unless listed above)
+
+== after 15 (SIGTERM after the stop) (nx-wi72-ubuntu-20261114T075727Z, 08:02:36Z)
+$ ls -la /etc/nginx/conf.d
+total 32
+drwxr-xr-x 1 root root 4096 Nov 14 08:02 .
+drwxr-xr-x 1 root root 4096 Nov 14 04:44 ..
+-rw-r--r-- 1 root root    6 Nov 14 07:57 README.local
+drwxr-xr-x 2 root root 4096 Nov 14 07:57 snippets
+-rw-r--r-- 1 root root  132 Nov 14 07:57 user-api.conf
+-rw-r--r-- 1 root root  130 Nov 14 07:57 user-app.conf
+-rw-r--r-- 1 root root   75 Nov 14 07:57 user-old.conf.disabled
+$ sha256sum /etc/nginx/conf.d/user-* /etc/nginx/nginx.conf
+536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/conf.d/user-api.conf
+5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/conf.d/user-app.conf
+4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/conf.d/user-old.conf.disabled
+d7be180d12cb332090cf4a0e8de780bd30e7f59fd0ffa4ad42be0e70e6bc6348  /etc/nginx/nginx.conf
+$ ls -la /var/lib/nexus-nginx-check
+ls: cannot access '/var/lib/nexus-nginx-check': No such file or directory
+$ curl -sS http://127.0.0.1:18301/
+user-app
+$ curl -sS http://127.0.0.1:18302/
+user-api
+$ systemctl is-active nginx
+active
+(holder processes: none unless listed above)

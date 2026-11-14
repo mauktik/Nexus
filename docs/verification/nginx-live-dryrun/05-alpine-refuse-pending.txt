@@ -1,0 +1,23 @@
+# nginx-check.sh transcript: nginx-provider WI 7.2 (TC-118 Alpine/OpenRC, TC-119 Ubuntu/systemd)
+# started 2026-11-14T08:00:15Z on Devuser-Macbook-Pro.local, mode main, host root@127.0.0.1, arguments: --ssh root@127.0.0.1 --transcript 05-alpine-refuse-pending.txt --yes
+# script sha256 dab9e551c6c9889275a5f631fca05d06b465a56fa5e6e49ed5895cbf0ba6d14e
+# CONTAINER DETECTED on the host (/.dockerenv, /run/.containerenv or container= in PID 1's environment):
+# this transcript is a dry run, NOT real-host evidence.
+$ [host] ls -la /var/lib/nexus-nginx-check; cat /var/lib/nexus-nginx-check/state
+total 20
+drwx------    2 root     root          4096 Nov 14 08:00 .
+drwxr-xr-x    1 root     root          4096 Nov 14 07:59 ..
+-rw-r--r--    1 root     root          1409 Nov 14 07:59 snap.before
+-rw-------    1 root     root           173 Nov 14 08:00 state
+site=nexus-check-5476fbfc
+port=18710
+cport=18284
+incdir=/etc/nginx/http.d
+init=openrc
+svc=nginx
+enabled_ever=1
+stopped_by_us=0
+holder_pid=13422
+inflight=
+nxhost=nginx-check
+REFUSED: an earlier run did not finish (/var/lib/nexus-nginx-check exists): run with --yes --cleanup first

@@ -1,0 +1,36 @@
+# nginx-check.sh transcript: nginx-provider WI 7.2 (TC-118 Alpine/OpenRC, TC-119 Ubuntu/systemd)
+# started 2026-11-14T08:00:17Z on Devuser-Macbook-Pro.local, mode cleanup, host root@127.0.0.1, arguments: --ssh root@127.0.0.1 --transcript 07-alpine-cleanup-noop.txt --yes --cleanup
+# script sha256 dab9e551c6c9889275a5f631fca05d06b465a56fa5e6e49ed5895cbf0ba6d14e
+# CONTAINER DETECTED on the host (/.dockerenv, /run/.containerenv or container= in PID 1's environment):
+# this transcript is a dry run, NOT real-host evidence.
+$ [host] /usr/local/bin/nexusd tls fingerprint
+01:F8:0D:FB:01:2C:BC:BD:51:1B:A2:D6:94:1E:A5:2B:08:4F:B6:AE:42:EF:CF:D8:21:3D:55:4E:00:C8:47:C5
+$ printf '%s\n' "$NEXUS_TOKEN" | nexus host add nginx-check --url https://localhost:17443 --fingerprint 01:F8:0D:FB:01:2C:BC:BD:51:1B:A2:D6:94:1E:A5:2B:08:4F:B6:AE:42:EF:CF:D8:21:3D:55:4E:00:C8:47:C5 --token-stdin
+Server certificate SHA-256 fingerprint:
+  01:F8:0D:FB:01:2C:BC:BD:51:1B:A2:D6:94:1E:A5:2B:08:4F:B6:AE:42:EF:CF:D8:21:3D:55:4E:00:C8:47:C5
+It matches --fingerprint; pinning it.
+Added host "nginx-check" (https://localhost:17443, nexusd dev, trust: pin) to <throwaway client config>
+$ nexus --host nginx-check nginx get -o jsonl
+{"host":"nginx-check","id":"/providers/nginx/service/nginx","name":"nginx","properties":{"disabledSuffix":".disabled","includeDir":"/etc/nginx/http.d","includeSuffix":".conf","initSystem":"openrc","mainPid":3118,"service":"nginx","since":null,"state":"running","version":"1.30.6"},"type":"service"}
+no state in /var/lib/nexus-nginx-check; a disposable site in /etc/nginx/http.d: none
+
+== Plan. With --yes the script will, on root@127.0.0.1:
+  - wait for (or cancel, if queued) the operation an interrupted run left, kill its
+    holder process, remove /etc/nginx/http.d/nexus-check-<random>.conf (and .conf.disabled), run nginx -t,
+    reload nginx through openrc if the site was ever enabled, start nginx if the run
+    stopped it, compare the sha256 of every other file, and remove /var/lib/nexus-nginx-check.
+[08:00:18] == Cleanup
+$ nexus --host nginx-check operation get --filter provider=nginx --filter status=Queued --filter status=Running -o jsonl
+$ [host] /usr/sbin/nginx -t
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+$ [host] env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /sbin/rc-service -C nginx status
+ * status: started
+$ [host] [ ! -f /var/lib/nexus-nginx-check/snap.before ] || { S=; for r in /etc/nginx /etc/nginx/http.d; do [ -e "$r" ] && find "$r" -print; done | sort -u | while IFS= read -r f; do b=${f##*/}; case $b in "$S".* | ."$S".*) continue ;; esac; if [ -L "$f" ]; then echo "L $(stat -c "%a %u %g" "$f") $f -> $(readlink "$f")"; elif [ -f "$f" ]; then echo "F $(stat -c "%a %u %g %s" "$f") $(sha256sum <"$f" | cut -d" " -f1) $f"; elif [ -d "$f" ]; then echo "D $(stat -c "%a %u %g" "$f") $f"; else echo "O $(stat -c "%a %u %g" "$f") $f"; fi; done; } >/var/lib/nexus-nginx-check/snap.after; [ ! -f /var/lib/nexus-nginx-check/snap.before ] || diff /var/lib/nexus-nginx-check/snap.before /var/lib/nexus-nginx-check/snap.after
+$ [host] rm -rf /var/lib/nexus-nginx-check
+RESULT token-absent: PASS - NEXUS_TOKEN does not appear in the transcript
+
+== Summary (cleanup)
+  token-absent  PASS  NEXUS_TOKEN does not appear in the transcript
+  (container: not real-host evidence)
+transcript: 07-alpine-cleanup-noop.txt

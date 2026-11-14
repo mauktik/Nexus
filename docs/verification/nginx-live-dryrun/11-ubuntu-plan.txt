@@ -1,0 +1,107 @@
+# nginx-check.sh transcript: nginx-provider WI 7.2 (TC-118 Alpine/OpenRC, TC-119 Ubuntu/systemd)
+# started 2026-11-14T08:01:01Z on dd5aae30b64a, mode main, host this machine, arguments: --transcript 11-ubuntu-plan.txt
+# script sha256 dab9e551c6c9889275a5f631fca05d06b465a56fa5e6e49ed5895cbf0ba6d14e
+# CONTAINER DETECTED on the host (/.dockerenv, /run/.containerenv or container= in PID 1's environment):
+# this transcript is a dry run, NOT real-host evidence.
+$ [host] /usr/local/bin/nexusd tls fingerprint
+67:C4:1F:7B:DF:5A:D8:49:89:73:6A:E2:4D:F9:6D:5C:85:D4:C2:B3:1E:D4:F3:DE:F2:A8:12:2E:1F:AA:19:99
+$ printf '%s\n' "$NEXUS_TOKEN" | nexus host add nginx-check --url https://127.0.0.1:7443 --fingerprint 67:C4:1F:7B:DF:5A:D8:49:89:73:6A:E2:4D:F9:6D:5C:85:D4:C2:B3:1E:D4:F3:DE:F2:A8:12:2E:1F:AA:19:99 --token-stdin
+Server certificate SHA-256 fingerprint:
+  67:C4:1F:7B:DF:5A:D8:49:89:73:6A:E2:4D:F9:6D:5C:85:D4:C2:B3:1E:D4:F3:DE:F2:A8:12:2E:1F:AA:19:99
+It matches --fingerprint; pinning it.
+Added host "nginx-check" (https://127.0.0.1:7443, nexusd dev, trust: pin) to <throwaway client config>
+[08:01:01] == Step 1: facts, the include line (ASM-12, ASM-3) and nginx -t
+$ [host] uname -a; [ ! -r /etc/alpine-release ] || echo "Alpine $(cat /etc/alpine-release)"; [ ! -r /etc/debian_version ] || echo "Debian base $(cat /etc/debian_version)"; tr "\0" " " </proc/1/cmdline; echo
+Linux dd5aae30b64a 6.8.0-100-generic #100-Ubuntu SMP PREEMPT_DYNAMIC Tue Jan 13 16:39:21 UTC 2026 aarch64 GNU/Linux
+Debian base forky/sid
+/sbin/init 
+$ [host] systemctl --version | head -n 1
+systemd 259 (259.9-0ubuntu0.1)
+$ [host] /usr/sbin/nginx -v
+nginx version: nginx/1.28.3 (Ubuntu)
+$ [host] /usr/local/bin/nexusd -version
+nexusd dev
+$ nexus --version
+nexus dev
+  readback of the test port with: curl
+$ nexus --host nginx-check nginx get -o jsonl
+{"host":"nginx-check","id":"/providers/nginx/service/nginx","name":"nginx","properties":{"disabledSuffix":".disabled","includeDir":"/etc/nginx/conf.d","includeSuffix":".conf","initSystem":"systemd","mainPid":446,"service":"nginx","since":"2026-11-14T07:57:33Z","state":"running","version":"1.28.3"},"type":"service"}
+RESULT 1-provider: PASS - nexus nginx get: running, initSystem systemd, includeDir /etc/nginx/conf.d, service nginx
+  nginx pid file: /run/nginx.pid
+$ [host] grep -n include /etc/nginx/nginx.conf
+6:include /etc/nginx/modules-enabled/*.conf;
+27:	include /etc/nginx/mime.types;
+60:	include /etc/nginx/conf.d/*.conf;
+61:	include /etc/nginx/sites-enabled/*;
+  include statements (line|context|argument):
+    6|main|/etc/nginx/modules-enabled/*.conf
+    27|main/http|/etc/nginx/mime.types
+    60|main/http|/etc/nginx/conf.d/*.conf
+    61|main/http|/etc/nginx/sites-enabled/*
+RESULT 1-include: PASS - /etc/nginx/nginx.conf line 60: include /etc/nginx/conf.d/*.conf; (in http) names /etc/nginx/conf.d/*.conf
+$ [host] /usr/sbin/nginx -t
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+RESULT 1-nginx-t: PASS - nginx -t passes on the host's configuration before any change
+$ [host] /usr/bin/systemctl is-active -- nginx.service
+active
+  (/proc) nginx master 446, workers 447 448 449 450
+$ [host] for d in /proc/[0-9]*; do case $(tr "\0" " " <$d/cmdline 2>/dev/null) in "/usr/local/bin/nexusd serve "*) echo "nexusd pid ${d#/proc/} uid $(sed -n "s/^Uid:[[:space:]]*\([0-9]*\).*/\1/p" $d/status)" ;; esac; done
+nexusd pid 478 uid 0
+RESULT 1-asm1: PASS - nexusd runs as uid 0 on the host, and the provider's mainPid 446 is the host's nginx master
+  nginx.conf sha256: d7be180d12cb332090cf4a0e8de780bd30e7f59fd0ffa4ad42be0e70e6bc6348
+RESULT 1-host: FAIL - running in a container: not a real host
+$ [host] (ss -Htln 2>/dev/null || netstat -tln 2>/dev/null) | awk '{ print $4 }' | grep -E ':(18371|18647)$'; grep -rsEn 'listen[[:space:]]([^;]*[^0-9])?(18371|18647)([^0-9]|$)' /etc/nginx /etc/nginx/conf.d; echo 'no listener and no listen directive on either port'
+no listener and no listen directive on either port
+  disposable site nexus-check-209a9568, port 18371, conflict port 18647
+  snapshot: 27 entries under /etc/nginx and /etc/nginx/conf.d, every other file's sha256:
+    D 755 0 0 /etc/nginx
+    D 755 0 0 /etc/nginx/conf.d
+    F 644 0 0 6 444e0fffbd825e9610ff5b199485707a0c895339ae80c15cc8a8aee41b106fda /etc/nginx/conf.d/README.local
+    D 755 0 0 /etc/nginx/conf.d/snippets
+    F 644 0 0 10 4ada1bb11eb6946114d758e2a4f879569faccf502216e34444255e4e81730849 /etc/nginx/conf.d/snippets/common.inc
+    F 644 0 0 132 536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf /etc/nginx/conf.d/user-api.conf
+    F 644 0 0 130 5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838 /etc/nginx/conf.d/user-app.conf
+    F 644 0 0 75 4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da /etc/nginx/conf.d/user-old.conf.disabled
+    F 644 0 0 1125 dc4a3e6f16eb08000fb4a4ba6aaf9faeb50d55a3eaf152907938632f5b85b3aa /etc/nginx/fastcgi.conf
+    F 644 0 0 1126 8045b8899a09eec11ffb9e7ef940a877280f38b51a1841b68ec614e1e3c8bcb7 /etc/nginx/fastcgi_params
+    F 644 0 0 2837 b5f8a6d411db5e5d11d151d50cd1e962444732593adec0e1ef0a8c6eebec63ee /etc/nginx/koi-utf
+    F 644 0 0 2223 de518a9eafe86c8bc705e296d0ef26135835b46bdc0de01d1d50a630fa5d341e /etc/nginx/koi-win
+    F 644 0 0 5527 b12cd90b120d4b97e76a7b857eb4a2bf0b6df37c4b246d471f37e6493dc191ac /etc/nginx/mime.types
+    D 755 0 0 /etc/nginx/modules-available
+    D 755 0 0 /etc/nginx/modules-enabled
+    F 644 0 0 1547 d7be180d12cb332090cf4a0e8de780bd30e7f59fd0ffa4ad42be0e70e6bc6348 /etc/nginx/nginx.conf
+    F 644 0 0 204 75702aac6b685def6135b2367728d684510a4aad6bdb6f7c241bdff6af9ec4cc /etc/nginx/proxy_params
+    F 644 0 0 704 30fbc6ab335956502428484bd6b3e8a36191e7c5ca0c47a3178de2d0a43e1769 /etc/nginx/scgi_params
+    D 755 0 0 /etc/nginx/sites-available
+    F 644 0 0 2412 ce0901350a021608139b5639cf4ccd7717bef8c3a9e4f79031eb46386b67b03f /etc/nginx/sites-available/default
+    D 755 0 0 /etc/nginx/sites-enabled
+    L 777 0 0 /etc/nginx/sites-enabled/default -> /etc/nginx/sites-available/default
+    D 755 0 0 /etc/nginx/snippets
+    F 644 0 0 423 a9dd98bf9631d727f0a846a9c7f4fe6193468a714c782df26d5cc9a7756411f2 /etc/nginx/snippets/fastcgi-php.conf
+    F 644 0 0 217 69de463039725a6636b5a3ca87a0968dde646279bc8bb4419d200f547448a55a /etc/nginx/snippets/snakeoil.conf
+    F 644 0 0 733 1ed30ac1bba026f1dbf1131439dda9dda7deadbee26969bd053abbb05c16a43f /etc/nginx/uwsgi_params
+    F 644 0 0 3071 400bc5c78ad9e194069f8ce65db4284378fc95a89a70b17f4b0150a9af54b05b /etc/nginx/win-utf
+
+== Plan. With --yes the script will, on this host:
+  - use one disposable site, nexus-check-209a9568 (/etc/nginx/conf.d/nexus-check-209a9568.conf), serving
+    "nexus-check 209a9568 M1" on 127.0.0.1:18371, a port nothing listens on or names;
+  - through nexus: whatIf, add, update, disable, update while disabled, whatIf an invalid
+    text, enable, config test, start (a no-op, nginx is running) and reload, each read back
+    with systemd, /proc, ls -ln, sha256sum and curl on 127.0.0.1:18371;
+  - an invalid write and a write whose port, 127.0.0.1:18647, a holder process
+    (self-ending after 600 s) has taken: both must be rolled back;
+  - ASM-7: write an invalid text, then a bind-conflict text, to nexus-check-209a9568.conf directly
+    and run env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/bin/systemctl reload -- nginx.service after each, recording the exit codes; the
+    valid text goes back at once, and nginx keeps its running configuration;
+  - not stop, start or restart nginx (they interrupt production traffic; opt in with
+    --with-lifecycle; without it those results are NOT-RUN and the exit status is 3);
+  - remove nexus-check-209a9568's file (rm, as root on the host: the provider cannot delete, OOS-4),
+    run nginx -t, reload, and check that every other file under /etc/nginx and
+    /etc/nginx/conf.d is byte-identical to the snapshot taken first.
+  It never edits nginx.conf or any other site. If it is interrupted (Ctrl-C once, or
+  SIGTERM), its EXIT trap waits for a running operation, removes the site, runs nginx -t,
+  reloads only if the site was ever enabled, and starts nginx if it had stopped it.
+  If even that is cut short: sh nginx-check.sh --yes --cleanup
+
+REFUSED: nothing was changed: re-run with --yes to do the above

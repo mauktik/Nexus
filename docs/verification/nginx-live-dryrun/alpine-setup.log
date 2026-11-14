@@ -1,0 +1,88 @@
++ git rev-parse HEAD: 6b65a3cf391c7fa1b58fc46bebfedacdef563ca2
++ docker run -d --name nx-wi72-alpine-20261114T075727Z --privileged --cgroupns=private --tmpfs /run --tmpfs /run/lock -v /var/lib/docker -v /var/lib/containerd -p 127.0.0.1:2222:22 -p 127.0.0.1:17443:7443 nx-wi72-harness:alpine
+387da97cc800997c9aa4569cedab7d388f64ca379f25a592be7d08adc0c052c1
++ PID 1: /sbin/init 
++ nginx version: nginx/1.30.6
++ aarch64
++ alpine 3.24.4
++ openrc (OpenRC [DOCKER]) 0.63.2
++ docker cp /private/tmp/claude-501/-Users-devuser--orbit-worktrees-7e1cb4e6-b42a-4eec-ab43-37b904639e97-feat-nginx-support/b8dc6963-76b4-4fc0-b2d2-e828af9bf17c/scratchpad/release nx-wi72-alpine-20261114T075727Z:/harness-release
++ docker exec nx-wi72-alpine-20261114T075727Z chown -R root:root /harness-release
++ docker exec nx-wi72-alpine-20261114T075727Z sh /harness-release/nexusd/install.sh
+install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/init.d/nexusd
+install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+/etc/nexus/nexusd.yaml: configuration is valid
+install.sh: next steps:
+install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+install.sh:   start nexusd at boot: rc-update add nexusd default
+install.sh:   start nexusd now: rc-service nexusd start
++ docker cp /private/tmp/claude-501/-Users-devuser--orbit-worktrees-7e1cb4e6-b42a-4eec-ab43-37b904639e97-feat-nginx-support/b8dc6963-76b4-4fc0-b2d2-e828af9bf17c/scratchpad/bin/nexus-linux nx-wi72-alpine-20261114T075727Z:/usr/local/bin/nexus
++ docker exec nx-wi72-alpine-20261114T075727Z sh -c chown root:root /usr/local/bin/nexus && chmod 0755 /usr/local/bin/nexus
++ docker exec nx-wi72-alpine-20261114T075727Z sed -i /^  nginx:$/,/^  [a-z]/ s/^    enabled: false /    enabled: true  / /etc/nexus/nexusd.yaml
++ docker exec nx-wi72-alpine-20261114T075727Z sed -i s/^listen: \["127.0.0.1:7443"\]/listen: ["0.0.0.0:7443"]/ /etc/nexus/nexusd.yaml
++ docker exec nx-wi72-alpine-20261114T075727Z /usr/local/bin/nexusd validate-config
+/etc/nexus/nexusd.yaml: configuration is valid
++ docker exec nx-wi72-alpine-20261114T075727Z sh -c grep -n -A2 '^  nginx:' /etc/nexus/nexusd.yaml; grep -n '^listen' /etc/nexus/nexusd.yaml
+125:  nginx:
+126-    enabled: true              # Off until enabled here
+127-    includeDir: ""             # Absolute; empty means /etc/nginx/http.d on Alpine, /etc/nginx/conf.d elsewhere
+14:listen: ["0.0.0.0:7443"]
++ docker exec nx-wi72-alpine-20261114T075727Z sed -i s#^\tinclude /etc/nginx/http.d/\*.conf;#\tinclude http.d/*.conf;# /etc/nginx/nginx.conf
++ docker exec nx-wi72-alpine-20261114T075727Z sh -c chmod 0644 /etc/nginx/http.d/user-*.conf*; mkdir -p /etc/nginx/http.d/snippets && echo '# snippet' >/etc/nginx/http.d/snippets/common.inc && echo 'notes' >/etc/nginx/http.d/README.local
++ docker exec nx-wi72-alpine-20261114T075727Z sh -c grep -n 'include' /etc/nginx/nginx.conf; ls -la /etc/nginx/http.d
+15:include /etc/nginx/modules/*.conf;
+18:include /etc/nginx/conf.d/*.conf;
+29:	include /etc/nginx/mime.types;
+102:	include http.d/*.conf;
+total 36
+drwxr-xr-x    1 root     root          4096 Nov 14 07:57 .
+drwxr-xr-x    1 root     root          4096 Nov 14 07:57 ..
+-rw-r--r--    1 root     root             6 Nov 14 07:57 README.local
+-rw-r--r--    1 root     root           342 Nov 13 19:29 default.conf
+drwxr-xr-x    2 root     root          4096 Nov 14 07:57 snippets
+-rw-r--r--    1 root     root           132 Nov 14 07:57 user-api.conf
+-rw-r--r--    1 root     root           130 Nov 14 07:57 user-app.conf
+-rw-r--r--    1 root     root            75 Nov 14 07:57 user-old.conf.disabled
++ docker exec nx-wi72-alpine-20261114T075727Z rc-update add nginx default
+ * service nginx added to runlevel default
++ docker exec nx-wi72-alpine-20261114T075727Z rc-service nginx start
+Service 'acpid' needs non existent service 'dev'
+Service 'hwdrivers' needs non existent service 'dev'
+Service 'machine-id' needs non existent service 'dev'
+Service 'watchdog' needs non existent service 'dev'
+ * Caching service dependencies ... [ ok ]
+ * /run/nginx: creating directory
+ * /run/nginx: correcting owner
+ * Starting nginx ... [ ok ]
++ docker exec nx-wi72-alpine-20261114T075727Z rc-update add nexusd default
+ * service nexusd added to runlevel default
++ docker exec nx-wi72-alpine-20261114T075727Z rc-service nexusd start
+ * /var/lib/nexus: creating directory
+ * /var/log/nexus: creating directory
+ * Starting nexusd ... [ ok ]
++ docker exec nx-wi72-alpine-20261114T075727Z nginx -t
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
++ docker exec nx-wi72-alpine-20261114T075727Z apk add --no-cache openssh-server
+(1/4) Installing openssh-keygen (10.3_p1-r2)
+(2/4) Installing openssh-server-common (10.3_p1-r2)
+(3/4) Installing openssh-server-common-openrc (10.3_p1-r2)
+(4/4) Installing openssh-server (10.3_p1-r2)
+Executing busybox-1.37.0-r31.trigger
+OK: 346.7 MiB in 116 packages
++ docker exec nx-wi72-alpine-20261114T075727Z sh -c ssh-keygen -A >/dev/null && rc-service sshd start
+Service 'acpid' needs non existent service 'dev'
+Service 'hwdrivers' needs non existent service 'dev'
+Service 'machine-id' needs non existent service 'dev'
+Service 'watchdog' needs non existent service 'dev'
+ * Caching service dependencies ... [ ok ]
+ * Starting sshd ... [ ok ]
++ docker exec nx-wi72-alpine-20261114T075727Z sh -c mkdir -p /root/.ssh && chmod 700 /root/.ssh
++ docker exec nx-wi72-alpine-20261114T075727Z sh -c chown root:root /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys; passwd -u root >/dev/null 2>&1 || true; sed -i "s/^root:!:/root:*:/" /etc/shadow
++ docker exec nx-wi72-alpine-20261114T075727Z curl -sk https://127.0.0.1:7443/healthz
+{"status":"ok"}Created token "nginx-check" (id 40125a1c3caf). It is shown only this once; store it now.
++ token created (name nginx-check; value in the scratchpad only, 61 bytes)
++ docker exec nx-wi72-alpine-20261114T075727Z /usr/local/bin/nexusd tls fingerprint
+01:F8:0D:FB:01:2C:BC:BD:51:1B:A2:D6:94:1E:A5:2B:08:4F:B6:AE:42:EF:CF:D8:21:3D:55:4E:00:C8:47:C5
++ container nx-wi72-alpine-20261114T075727Z ready

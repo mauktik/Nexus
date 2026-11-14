@@ -1,0 +1,36 @@
+# WI 7.2 dry runs, 20261114T075727Z
+# script: test/live/nginx-check.sh at 6cd0775, sha256 dab9e551c6c9889275a5f631fca05d06b465a56fa5e6e49ed5895cbf0ba6d14e
+# nexusd and nexus: built at 6cd0775, linux/arm64 (nexus also darwin/arm64); make nexusd-tree, installed by its install.sh
+00-alpine-plan.txt: exit 2
+01-alpine-full-lifecycle.txt: exit 1
+02-alpine-default.txt: exit 1
+03: kill -INT -- -32270 (process group) at 07:59:36.731438000
+03-alpine-ctrl-c-step5.txt: exit 130
+04: kill -KILL -- -62344 (process group) at 08:00:15.399664000
+04-alpine-sigkill-step5.txt: exit 137
+05-alpine-refuse-pending.txt: exit 2
+06-alpine-cleanup.txt: exit 0
+07-alpine-cleanup-noop.txt: exit 0
+08: planted /etc/nginx/http.d/zz-user-broken.conf (user_broken_directive on;)
+08-alpine-refuse-invalid-config.txt: exit 2
+15:include /etc/nginx/modules/*.conf;
+18:include /etc/nginx/conf.d/*.conf;
+29:	include /etc/nginx/mime.types;
+102:	# include line removed by the dry-run driver
+09: removed the include of http.d from nginx.conf (plan mode)
+09-alpine-guard-no-include-line.txt: exit 2
+dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd  /etc/nginx/nginx.conf
+10: appended a comment line to /etc/nginx/http.d/user-app.conf at 08:00:27 (step 2)
+10-alpine-guard-user-file-edited.txt: exit 1
+11-ubuntu-plan.txt: exit 2
+12-ubuntu-full-lifecycle.txt: exit 1
+13: kill -INT 5903 (the script) at 08:01:44.122305000
+13-ubuntu-sigint-op-in-flight.txt: exit 130
+14: kill -TERM 7477 (the script) at 08:01:53.369399000, when the nginx stop was submitted
+14-ubuntu-sigterm-nginx-stopped.txt: exit 130
+15: kill -TERM 10074
+12384 (the script) at 08:02:03.677756000, when systemctl is-active printed inactive
+15-ubuntu-sigterm-after-stop.txt: exit 1
+token of nx-wi72-alpine-20261114T075727Z: not found in any file (grep -rF -f <token file>)
+token of nx-wi72-ubuntu-20261114T075727Z: not found in any file (grep -rF -f <token file>)
+containers removed: 0 nx-wi72 containers left
