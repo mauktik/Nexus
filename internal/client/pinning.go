@@ -81,6 +81,18 @@ func pinnedTLS(pin string) *tls.Config {
 	}
 }
 
+// PinnedTLS is pinnedTLS for a fingerprint in any form NormalizeFingerprint
+// accepts. A fingerprint it cannot normalize is an error, never a
+// configuration that accepts every certificate. The nexusd health check
+// pins the daemon's own certificate with it.
+func PinnedTLS(fingerprint string) (*tls.Config, error) {
+	pin, err := NormalizeFingerprint(fingerprint)
+	if err != nil {
+		return nil, err
+	}
+	return pinnedTLS(pin), nil
+}
+
 func verifyPin(pin string, cs tls.ConnectionState) error {
 	if len(cs.PeerCertificates) == 0 {
 		return errors.New("server presented no certificate")

@@ -160,6 +160,39 @@ func phPollOp(t *testing.T, n *nexusdInstance, id string, timeout time.Duration)
 
 func phSplitAnswers(a phAnswer) bool { return len(a.addrs) == 1 && a.addrs[0] == phSplitIP }
 
+// phDigRetries is how often phDigRetried re-asks after no answer.
+const phDigRetries = 2
+
+// phDigRetried asks for name as a stub resolver does: an unanswered dig is
+// retried up to phDigRetries times, 1 s apart, each with phDig's 6 s
+// timeout. FTL v5.25.2 drops, with no reply, a query whose gravity check
+// meets a gravity.db write lock (REPLY_WHEN_BUSY=DROP by default, busy
+// timeout 0; it logs a "Gravity database is busy" triple), and the first
+// query for a name after a list reload always checks gravity.db. A commit
+// failing one concurrent query that way is out of scope (A-69); a stuck FTL
+// leaves the name unanswered across every try. It returns the first answer,
+// the last one and the number of tries.
+func phDigRetried(name string) (first, last phAnswer, tries int) {
+	first = phDig(name)
+	last, tries = first, 1
+	for ; last.status == "" && tries <= phDigRetries; tries++ {
+		time.Sleep(time.Second)
+		last = phDig(name)
+	}
+	return first, last, tries
+}
+
+// phBusyLines counts the "Gravity database is busy" lines in lines.
+func phBusyLines(lines []string) int {
+	n := 0
+	for _, l := range lines {
+		if strings.Contains(l, "Gravity database is busy") {
+			n++
+		}
+	}
+	return n
+}
+
 // phStartHealthy starts a race test from a FTL with its lists loaded. The
 // harness setup's own `pihole -a adlist del`, right after `pihole -g`, can
 // meet the reload that `pihole -g` ends with (gravity.sh L946, `pihole
@@ -179,7 +212,11 @@ func phStartHealthy(t *testing.T) {
 // answering, and each domain is blocked as soon as its operation succeeds.
 // Before WI 5.6 an operation returned as soon as `pihole restartdns
 // reload-lists` exited, and the next operation in the lane could commit to
-// gravity.db while FTL re-read it.
+// gravity.db while FTL re-read it. Each dig is retried as a stub resolver
+// would (phDigRetried): it lands, by the watcher's tick, inside the next
+// operation's commit, which can make FTL drop that one query (A-69). FTL is
+// stuck when a name stays unanswered across every try, or when new
+// "database is locked" lines appear (A-64).
 func TestPiholeListReloadRace(t *testing.T) {
 	phStartHealthy(t)
 	t.Cleanup(func() { phCleanRace(t) })
@@ -192,9 +229,8 @@ func TestPiholeListReloadRace(t *testing.T) {
 		failures = append(failures, fmt.Sprintf(format, args...))
 		t.Errorf(format, args...)
 	}
-	// explain logs, after a dig that got no answer, what FTL logged since
-	// off and whether it answers 2 s later: a stuck FTL still does not, a
-	// busy one does.
+	// explain logs, after a name stayed unanswered or answered wrong, what
+	// FTL logged since off and whether it answers 2 s later.
 	explain := func(off int64, name string) {
 		time.Sleep(2 * time.Second)
 		lines := phLogSince(t, off)
@@ -203,6 +239,49 @@ func TestPiholeListReloadRace(t *testing.T) {
 		}
 		t.Logf("2 s later: dig %s: %s, dig %s: %s; FTL.log since the step:\n%s", name, phDig(name), phSplit, phDig(phSplit),
 			strings.Join(lines, "\n"))
+	}
+	// dig asks for name with retries (phDigRetried). An answer on a retry is
+	// logged as A-69's busy drop, with the "Gravity database is busy" lines
+	// FTL logged since off; it is not a failure. It returns the last answer
+	// and whether a try went unanswered.
+	drops := 0
+	dig := func(step string, off int64, name string) (phAnswer, bool) {
+		first, last, tries := phDigRetried(name)
+		if tries == 1 {
+			return last, false
+		}
+		if last.status != "" {
+			drops++
+			t.Logf("%s: A-69 busy drop: dig %s went unanswered (%s), then answered %s on try %d; "+
+				"FTL.log has %d 'Gravity database is busy' lines since the step", step, name, first, last, tries,
+				phBusyLines(phLogSince(t, off)))
+		}
+		return last, true
+	}
+	// judge fails a step whose names stayed unanswered across every try
+	// (FTL stuck), whose domain answered anything but blocked, or whose
+	// www.xi.example answered anything but its local record.
+	judge := func(step string, off int64, name string, blocked, split phAnswer, retried bool) {
+		ok := true
+		switch {
+		case blocked.status == "":
+			fail("%s: dig %s unanswered across %d tries (FTL stuck)", step, name, 1+phDigRetries)
+			ok = false
+		case !phIsBlocked(blocked):
+			fail("%s: %s not blocked (%s) at the first answered dig after its op succeeded", step, name, blocked)
+			ok = false
+		}
+		switch {
+		case split.status == "":
+			fail("%s: dig %s unanswered across %d tries (FTL stuck)", step, phSplit, 1+phDigRetries)
+			ok = false
+		case !phSplitAnswers(split):
+			fail("%s: dig %s: %s, want %s", step, phSplit, split, phSplitIP)
+			ok = false
+		}
+		if !ok || retried {
+			explain(off, name)
+		}
 	}
 
 	// 1. Burst: 10 add-domain operations posted without waiting.
@@ -215,21 +294,15 @@ func TestPiholeListReloadRace(t *testing.T) {
 		off := phLogSize(t)
 		op = phPollOp(t, n, op.ID, 5*time.Minute)
 		name := fmt.Sprintf("race-b%d.example", i)
+		step := fmt.Sprintf("burst %d", i)
 		if op.Status != apitypes.StatusSucceeded {
-			fail("burst %d: add-domain %s ended %s: %+v (an op failing on a locked database)", i, name, op.Status, op.Error)
+			fail("%s: add-domain %s ended %s: %+v (an op failing on a locked database)", step, name, op.Status, op.Error)
 			continue
 		}
-		blocked, split := phDig(name), phDig(phSplit)
-		t.Logf("burst %d: add-domain %s succeeded in %s; dig %s: %s; dig %s: %s", i, name, phTook(op), name, blocked, phSplit, split)
-		if !phIsBlocked(blocked) {
-			fail("burst %d: %s not blocked (%s) at the first dig after its op succeeded", i, name, blocked)
-		}
-		if !phSplitAnswers(split) {
-			fail("burst %d: dig %s: %s (FTL stuck)", i, phSplit, split)
-		}
-		if !phIsBlocked(blocked) || !phSplitAnswers(split) {
-			explain(off, name)
-		}
+		blocked, bRetried := dig(step, off, name)
+		split, sRetried := dig(step, off, phSplit)
+		t.Logf("%s: add-domain %s succeeded in %s; dig %s: %s; dig %s: %s", step, name, phTook(op), name, blocked, phSplit, split)
+		judge(step, off, name, blocked, split, bRetried || sRetried)
 	}
 
 	// 2. Pairs: add-domain, then at once add-adlist (no gravity), so the
@@ -237,36 +310,30 @@ func TestPiholeListReloadRace(t *testing.T) {
 	const pairs = 10
 	for i := range pairs {
 		name := fmt.Sprintf("race-a%d.example", i)
+		step := fmt.Sprintf("pair %d", i)
 		url := phFixture(t, fmt.Sprintf("race-%d.txt", i), []string{fmt.Sprintf("race-list-%d.example", i)})
 		off := phLogSize(t)
 		dop := phStart(t, n, "/actions/add-domain", fmt.Sprintf(`{"list":"deny","kind":"exact","value":%q}`, name))
 		aop := phStart(t, n, "/actions/add-adlist", fmt.Sprintf(`{"url":%q}`, url))
 		dop, aop = phPollOp(t, n, dop.ID, 5*time.Minute), phPollOp(t, n, aop.ID, 5*time.Minute)
-		split, blocked := phDig(phSplit), phDig(name)
-		t.Logf("pair %d: add-domain %s %s in %s, add-adlist %s %s in %s; dig %s: %s; dig %s: %s", i, name, dop.Status,
+		split, sRetried := dig(step, off, phSplit)
+		blocked, bRetried := dig(step, off, name)
+		t.Logf("%s: add-domain %s %s in %s, add-adlist %s %s in %s; dig %s: %s; dig %s: %s", step, name, dop.Status,
 			phTook(dop), url, aop.Status, phTook(aop), phSplit, split, name, blocked)
 		if dop.Status != apitypes.StatusSucceeded || aop.Status != apitypes.StatusSucceeded {
-			fail("pair %d: add-domain %s %+v, add-adlist %s %+v", i, dop.Status, dop.Error, aop.Status, aop.Error)
+			fail("%s: add-domain %s %+v, add-adlist %s %+v", step, dop.Status, dop.Error, aop.Status, aop.Error)
 		}
-		if !phSplitAnswers(split) {
-			fail("pair %d: dig %s: %s (FTL stuck)", i, phSplit, split)
-		}
-		if !phIsBlocked(blocked) {
-			fail("pair %d: %s not blocked (%s)", i, name, blocked)
-		}
-		if !phIsBlocked(blocked) || !phSplitAnswers(split) {
-			explain(off, name)
-		}
+		judge(step, off, name, blocked, split, bRetried || sRetried)
 	}
 
 	// 3. No reload met a write.
 	l1 := phLockedLines(t)
 	t.Logf("FTL.log 'database is locked' lines: L0 %d, L1 %d", l0, l1)
 	if l1 != l0 {
-		fail("%d new 'database is locked' lines in FTL.log: a list reload met a gravity.db write", l1-l0)
+		fail("%d new 'database is locked' lines in FTL.log: a list reload met a gravity.db write (FTL stuck)", l1-l0)
 		phFTLDiag(t)
 	}
-	t.Logf("TC-158 summary: R %d, D %s, %d failures", r, d, len(failures))
+	t.Logf("TC-158 summary: R %d, D %s, %d failures, %d A-69 busy drops answered on a retry", r, d, len(failures), drops)
 }
 
 // phStuck reports FTL stuck: more 'database is locked' lines than before,

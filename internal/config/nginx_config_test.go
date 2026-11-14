@@ -168,24 +168,6 @@ func TestNginxValidationRules(t *testing.T) {
 	})
 }
 
-// valueNode returns the value node of the dotted key path.
-func valueNode(n *yaml.Node, path string) *yaml.Node {
-	for _, part := range strings.Split(path, ".") {
-		if n == nil || n.Kind != yaml.MappingNode {
-			return nil
-		}
-		var next *yaml.Node
-		for i := 0; i+1 < len(n.Content); i += 2 {
-			if n.Content[i].Value == part {
-				next = n.Content[i+1]
-				break
-			}
-		}
-		n = next
-	}
-	return n
-}
-
 // providerConfigNames reads the keys of the map literal providerConfigs
 // returns. It is unexported in package daemon, which imports this one.
 func providerConfigNames(t *testing.T) map[string]bool {

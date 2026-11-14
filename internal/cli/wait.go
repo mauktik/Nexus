@@ -49,12 +49,113 @@ const (
 	// followRetries bounds consecutive failures to reopen a stream.
 	followRetries  = 5
 	followRetryGap = time.Second
+	// reconnectGap is the retry gap inside an op's reconnect window (FR-14).
+	reconnectGap = time.Second
 	// maxFrameLine bounds one NDJSON frame line.
 	maxFrameLine = 4 << 20
 )
 
 // watchdog is followWatchdog; tests shorten it.
 var watchdog = followWatchdog
+
+// clock is the wait path's time source. Every elapsed-time read and every
+// sleep of await and followFrames goes through waitClock, so a test runs a
+// reconnect window in virtual time (A-45). The followed stream's watchdog
+// stays on real time, with its own seam.
+type clock struct {
+	now   func() time.Time
+	sleep func(context.Context, time.Duration) error
+}
+
+// waitClock is the real clock. Tests replace it, and must then not run in
+// parallel.
+var waitClock = clock{now: time.Now, sleep: sleepCtx}
+
+// sleepCtx waits for d, or returns ctx.Err() if ctx ends first.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+// reconnector is an op's reconnect window (FR-14): it measures how long
+// the host has been continuously unreachable, and when that was last shown.
+// A zero window retries nothing.
+type reconnector struct {
+	window, gap          time.Duration
+	now                  func() time.Time
+	sleep                func(context.Context, time.Duration) error
+	firstFail, lastShown time.Time
+}
+
+func newReconnector(window time.Duration) *reconnector {
+	return &reconnector{window: window, gap: reconnectGap, now: waitClock.now, sleep: waitClock.sleep}
+}
+
+func (rc *reconnector) enabled() bool { return rc.window > 0 }
+
+// failed records a retryable failure. It returns how long the host has been
+// unreachable, whether to show that (at the first failure and every
+// progressEvery), and whether the window is spent.
+func (rc *reconnector) failed() (elapsed time.Duration, show, spent bool) {
+	now := rc.now()
+	if rc.firstFail.IsZero() {
+		rc.firstFail, rc.lastShown = now, time.Time{}
+	}
+	elapsed = now.Sub(rc.firstFail)
+	if elapsed >= rc.window {
+		return elapsed, false, true
+	}
+	if rc.lastShown.IsZero() || now.Sub(rc.lastShown) >= progressEvery {
+		rc.lastShown, show = now, true
+	}
+	return elapsed, show, false
+}
+
+// reached ends a run of failures: the host answered.
+func (rc *reconnector) reached() { rc.firstFail, rc.lastShown = time.Time{}, time.Time{} }
+
+// spentError is the exit 5 of a spent window, naming operation id. It
+// quotes err rather than wrapping it, so the message stays this one.
+func (rc *reconnector) spentError(host, id string, err error) error {
+	return &ExitError{Code: ExitConnection, Err: fmt.Errorf(
+		"nexusd on host %s stayed unreachable for %s, the reconnect window (%v); the operation may still be running; "+
+			"see it with `%s operation get %s --host %s`", hostOr(host), seconds(rc.window), err, programName, id, host)}
+}
+
+// retryable reports whether err is a failure to reach the host that a
+// reconnect window rides out: a transport failure, or a 503. A certificate
+// pin mismatch never is (NSM FR-35): it reaches errors.As through the
+// transport error (A-34).
+func retryable(err error) bool {
+	var (
+		pin    *client.PinMismatchError
+		tr     *client.TransportError
+		prob   *problem.Error
+		status *client.StatusError
+	)
+	switch {
+	case errors.As(err, &pin):
+		return false
+	case errors.As(err, &tr):
+		return true
+	case errors.As(err, &prob):
+		return prob.Status == http.StatusServiceUnavailable
+	case errors.As(err, &status):
+		return status.Status == http.StatusServiceUnavailable
+	}
+	return false
+}
+
+// seconds renders d in whole seconds, such as 60s.
+func seconds(d time.Duration) string { return fmt.Sprintf("%ds", wholeSeconds(d)) }
+
+func wholeSeconds(d time.Duration) int64 { return int64(d.Round(time.Second) / time.Second) }
 
 // waitOptions are the flags of a long-running command.
 type waitOptions struct {
@@ -244,18 +345,24 @@ func (a *app) await(ctx context.Context, c *client.Client, t hostTarget, op def.
 		return body, &operationError{id: cur.ID, err: err}
 	}
 
+	rc := newReconnector(op.CLI.ReconnectWindow)
 	if w.follow && !cur.Status.Terminal() {
 		r := &resume{lastO: -1}
 		for {
-			err := a.followOperation(wctx, c, t, cur.ID, r)
+			err := a.followOperation(wctx, c, t, cur.ID, op.CLI.ReconnectWindow, r)
 			if wctx.Err() != nil {
 				return ended(wctx.Err())
 			}
 			if err != nil {
+				if rc.enabled() && retryable(err) {
+					// Inside a window, followFrames gives up on such a
+					// failure only once the window is spent.
+					err = rc.spentError(t.Name, cur.ID, err)
+				}
 				return body, a.readError(op, cur.ID, t, err)
 			}
 			// The stream ends when the operation does; read its end state.
-			b, next, err := getOperation(wctx, c, cur.ID)
+			b, next, err := a.pollOperation(wctx, c, t, cur.ID, rc)
 			if wctx.Err() != nil {
 				return ended(wctx.Err())
 			}
@@ -267,27 +374,21 @@ func (a *app) await(ctx context.Context, c *client.Client, t hostTarget, op def.
 				break
 			}
 			// The stream ended early, as when nexusd shut down: reopen it.
-			select {
-			case <-wctx.Done():
+			if err := waitClock.sleep(wctx, pollFirst); err != nil {
 				return ended(wctx.Err())
-			case <-time.After(pollFirst):
 			}
 		}
 	}
 
-	start := time.Now()
+	start := waitClock.now()
 	gap := pollFirst
 	var shown apitypes.OperationStatus
 	var shownAt time.Time
-	timer := time.NewTimer(gap)
-	defer timer.Stop()
 	for !cur.Status.Terminal() {
-		select {
-		case <-wctx.Done():
+		if err := waitClock.sleep(wctx, gap); err != nil {
 			return ended(wctx.Err())
-		case <-timer.C:
 		}
-		b, next, err := getOperation(wctx, c, cur.ID)
+		b, next, err := a.pollOperation(wctx, c, t, cur.ID, rc)
 		if wctx.Err() != nil {
 			return ended(wctx.Err())
 		}
@@ -295,13 +396,13 @@ func (a *app) await(ctx context.Context, c *client.Client, t hostTarget, op def.
 			return body, a.readError(op, cur.ID, t, err)
 		}
 		body, cur = b, next
-		if el := time.Since(start); !cur.Status.Terminal() && el >= progressAfter &&
-			(cur.Status != shown || time.Since(shownAt) >= progressEvery) {
+		now := waitClock.now()
+		if el := now.Sub(start); !cur.Status.Terminal() && el >= progressAfter &&
+			(cur.Status != shown || now.Sub(shownAt) >= progressEvery) {
 			a.progress(t.Name, cur, el)
-			shown, shownAt = cur.Status, time.Now()
+			shown, shownAt = cur.Status, now
 		}
 		gap = min(gap*2, pollMax)
-		timer.Reset(gap)
 	}
 	return body, operationOutcome(cur)
 }
@@ -360,6 +461,47 @@ func (a *app) readScope(provider string) string {
 	return ""
 }
 
+// pollOperation reads operation id. Inside the reconnect window of rc, a
+// retryable failure is retried every rc.gap while the host has been
+// unreachable for less than the window, with progress on stderr (FR-14).
+// Without a window it is getOperation.
+func (a *app) pollOperation(ctx context.Context, c *client.Client, t hostTarget, id string, rc *reconnector) ([]byte, apitypes.Operation, error) {
+	for {
+		b, op, err := getOperation(ctx, c, id)
+		if err == nil {
+			rc.reached()
+			return b, op, nil
+		}
+		if ctx.Err() != nil || !rc.enabled() || !retryable(err) {
+			return nil, apitypes.Operation{}, err
+		}
+		elapsed, show, spent := rc.failed()
+		if spent {
+			return nil, apitypes.Operation{}, rc.spentError(t.Name, id, err)
+		}
+		if show {
+			a.reconnectProgress(t.Name, id, elapsed, rc.window)
+		}
+		if err := rc.sleep(ctx, rc.gap); err != nil {
+			return nil, apitypes.Operation{}, err
+		}
+	}
+}
+
+// reconnectProgress writes one reconnect progress line to stderr: JSON in
+// a machine format.
+func (a *app) reconnectProgress(host, id string, elapsed, window time.Duration) {
+	msg := fmt.Sprintf("nexusd on host %s is unreachable, likely restarting; retrying (%s of %s)",
+		hostOr(host), seconds(elapsed), seconds(window))
+	if !a.format.Machine() {
+		fmt.Fprintf(a.env.Stderr, "%s: %s\n", programName, msg)
+		return
+	}
+	// A failed write to stderr has nowhere to go.
+	_ = output.WriteLine(a.env.Stderr, map[string]any{"level": "progress", "event": "reconnecting", "host": host,
+		"id": id, "message": msg, "elapsedSeconds": wholeSeconds(elapsed), "windowSeconds": wholeSeconds(window)})
+}
+
 // getOperation reads operation id.
 func getOperation(ctx context.Context, c *client.Client, id string) ([]byte, apitypes.Operation, error) {
 	req, err := buildRequest(systemspec.OperationsGet.Op(), map[string]any{"id": id})
@@ -392,11 +534,16 @@ func (a *app) progress(host string, op apitypes.Operation, elapsed time.Duration
 
 // followOperation streams operation id's output to stderr until the stream
 // ends, which it does when the operation does (FR-33). In a machine format
-// each frame is a JSON line labeled with host and id, else its text.
-func (a *app) followOperation(ctx context.Context, c *client.Client, t hostTarget, id string, r *resume) error {
+// each frame is a JSON line labeled with host and id, else its text. The
+// stream rides out an outage within window, the reconnect window of the
+// operation's own op, and shows it on stderr as a plain wait does (FR-14).
+func (a *app) followOperation(ctx context.Context, c *client.Client, t hostTarget, id string, window time.Duration, r *resume) error {
 	op := systemspec.OperationsLogs.Op()
+	op.CLI.ReconnectWindow = window
 	in := map[string]any{"id": id, "follow": true}
-	return followFrames(ctx, c, op, in, r, func(f map[string]any) error {
+	// The same reconnect progress as a plain wait (FR-14).
+	reconnecting := func(elapsed time.Duration) { a.reconnectProgress(t.Name, id, elapsed, window) }
+	return followFrames(ctx, c, op, in, r, reconnecting, func(f map[string]any) error {
 		f["id"] = frameLocator(id, f)
 		if a.format.Machine() {
 			f["level"] = "output"
@@ -504,8 +651,19 @@ func (r *resume) next(f map[string]any) bool {
 // sees no gap and no repeat. The stream client has no overall timeout; the
 // watchdog, ctx and the transport's handshake and header timeouts bound
 // it. Only failures to connect count toward giving up: a silent stream
-// reopens every watchdog period for as long as it lasts.
-func followFrames(ctx context.Context, c *client.Client, op def.Op, in map[string]any, r *resume, emit func(map[string]any) error) error {
+// reopens every watchdog period for as long as it lasts. Without a
+// reconnect window on op it gives up after followRetries consecutive
+// failures to connect; with one, after the window of continuous failure, a
+// 503 counting as one and a pin mismatch ending it at once (FR-14).
+// reconnecting, when not nil, is called with how long the host has been
+// unreachable at the first failure of an outage and every progressEvery
+// after it, as the reconnector's failed reports.
+func followFrames(ctx context.Context, c *client.Client, op def.Op, in map[string]any, r *resume, reconnecting func(elapsed time.Duration), emit func(map[string]any) error) error {
+	rc := newReconnector(op.CLI.ReconnectWindow)
+	gap := followRetryGap
+	if rc.enabled() {
+		gap = rc.gap
+	}
 	failures := 0
 	for {
 		req, err := buildRequest(op, resumeInput(in, r))
@@ -518,21 +676,32 @@ func followFrames(ctx context.Context, c *client.Client, op def.Op, in map[strin
 			return ctx.Err()
 		}
 		var tr *client.TransportError
-		if !errors.Is(err, errStreamCut) && !errors.As(err, &tr) {
+		reopen := errors.Is(err, errStreamCut) || (rc.enabled() && retryable(err)) || (!rc.enabled() && errors.As(err, &tr))
+		if !reopen {
 			return err // A refusal, such as 403, or a bad frame
 		}
-		if connected {
+		switch {
+		case connected:
 			failures = 0
-		} else if failures++; failures > followRetries {
-			return err
+			rc.reached()
+		case rc.enabled():
+			elapsed, show, spent := rc.failed()
+			if spent {
+				return err
+			}
+			if show && reconnecting != nil {
+				reconnecting(elapsed)
+			}
+		default:
+			if failures++; failures > followRetries {
+				return err
+			}
 		}
 		if got {
 			continue
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(followRetryGap):
+		if err := rc.sleep(ctx, gap); err != nil {
+			return err
 		}
 	}
 }

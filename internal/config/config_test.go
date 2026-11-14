@@ -1,6 +1,10 @@
 package config
 
 import (
+	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -14,6 +18,8 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/mauktik/nexus/internal/release"
 )
 
 const defaultConfigPath = "../../deploy/nexusd.default.yaml"
@@ -27,10 +33,10 @@ func TestDefaultConfigLoads(t *testing.T) {
 	}
 
 	if cfg.Providers.Docker.Settings.Enabled || cfg.Providers.Apt.Settings.Enabled || cfg.Providers.Scripts.Settings.Enabled ||
-		cfg.Providers.Nginx.Settings.Enabled {
-		t.Errorf("providers enabled: docker=%v apt=%v scripts=%v nginx=%v, want all false",
+		cfg.Providers.Nginx.Settings.Enabled || cfg.Providers.Nexusd.Settings.Enabled {
+		t.Errorf("providers enabled: docker=%v apt=%v scripts=%v nginx=%v nexusd=%v, want all false",
 			cfg.Providers.Docker.Settings.Enabled, cfg.Providers.Apt.Settings.Enabled, cfg.Providers.Scripts.Settings.Enabled,
-			cfg.Providers.Nginx.Settings.Enabled)
+			cfg.Providers.Nginx.Settings.Enabled, cfg.Providers.Nexusd.Settings.Enabled)
 	}
 	if cfg.Providers.Pihole.Settings.Enabled {
 		t.Error("providers.pihole.enabled = true, want false")
@@ -357,6 +363,7 @@ func assertSameSettings(t *testing.T, got, want *Config) {
 		{"providers.apt", got.Providers.Apt.Settings, want.Providers.Apt.Settings},
 		{"providers.scripts", got.Providers.Scripts.Settings, want.Providers.Scripts.Settings},
 		{"providers.nginx", got.Providers.Nginx.Settings, want.Providers.Nginx.Settings},
+		{"providers.nexusd", got.Providers.Nexusd.Settings, want.Providers.Nexusd.Settings},
 		{"providers.pihole", got.Providers.Pihole.Settings, want.Providers.Pihole.Settings},
 	}
 	for _, p := range pairs {
@@ -448,4 +455,199 @@ func TestRetentionDaysAtTheBoundIsValid(t *testing.T) {
 	if cfg.Audit.RetentionDays != MaxAuditRetentionDays {
 		t.Fatalf("retentionDays = %d", cfg.Audit.RetentionDays)
 	}
+}
+
+// TC-SM-41 (FR-19, FR-1, FR-10, FR-6): providers.nexusd defaults to disabled
+// with the spec's health timeout and upload cap and no trusted key, and the
+// shipped default file spells out the same section. The every-key check in
+// TestDefaultConfigMatchesDefaultsAndHasEveryKey covers its four keys.
+func TestTCSM41_ProvidersNexusdDefaultsAndTheDeploy(t *testing.T) {
+	want := NexusdConfig{
+		Enabled:       false,
+		HealthTimeout: 30 * time.Second,
+		Update:        NexusdUpdateConfig{MaxUploadBytes: 67108864, TrustedKeys: []string{}},
+	}
+	if got := Default().Providers.Nexusd.Settings; !reflect.DeepEqual(got, want) {
+		t.Errorf("Default().Providers.Nexusd.Settings = %+v, want %+v", got, want)
+	}
+
+	cfg, err := Load(defaultConfigPath)
+	if err != nil {
+		t.Fatalf("Load(%s): %v", defaultConfigPath, err)
+	}
+	if got := cfg.Providers.Nexusd.Settings; !reflect.DeepEqual(got, want) {
+		t.Errorf("deploy default providers.nexusd = %+v, want %+v", got, want)
+	}
+
+	data, err := os.ReadFile(defaultConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	section := valueNode(doc.Content[0], "providers.nexusd")
+	if section == nil {
+		t.Fatal("deploy/nexusd.default.yaml has no providers.nexusd section")
+	}
+	if n := valueNode(section, "enabled"); n == nil || n.Value != "false" {
+		t.Errorf("providers.nexusd.enabled = %v, want false", n)
+	}
+	if n := valueNode(section, "update.trustedKeys"); n == nil || n.Kind != yaml.SequenceNode || len(n.Content) != 0 {
+		t.Errorf("providers.nexusd.update.trustedKeys = %v, want []", n)
+	}
+	comments := keyNode(doc.Content[0], "providers.nexusd").HeadComment + "\n" + allComments(section)
+	if !strings.Contains(comments, "make release-key") {
+		t.Errorf("no providers.nexusd comment mentions make release-key:\n%s", comments)
+	}
+}
+
+// TC-SM-42 (FR-15, FR-10, FR-6): the bounds themselves are valid, and each
+// trusted key loads as written and parses to the key it encodes.
+func TestTCSM42_BoundValuesAreAcceptedAndA(t *testing.T) {
+	k1, k2 := newPublicKey(t), newPublicKey(t)
+	cases := []struct {
+		name string
+		yaml string
+		want NexusdConfig
+	}{
+		{"healthTimeout 5s", "providers:\n  nexusd:\n    healthTimeout: 5s\n",
+			NexusdConfig{HealthTimeout: 5 * time.Second, Update: NexusdUpdateConfig{MaxUploadBytes: 64 << 20, TrustedKeys: []string{}}}},
+		{"healthTimeout 10m", "providers:\n  nexusd:\n    healthTimeout: 10m\n",
+			NexusdConfig{HealthTimeout: 10 * time.Minute, Update: NexusdUpdateConfig{MaxUploadBytes: 64 << 20, TrustedKeys: []string{}}}},
+		{"maxUploadBytes 1 MiB", "providers:\n  nexusd:\n    update:\n      maxUploadBytes: 1048576\n",
+			NexusdConfig{HealthTimeout: 30 * time.Second, Update: NexusdUpdateConfig{MaxUploadBytes: 1048576, TrustedKeys: []string{}}}},
+		{"maxUploadBytes 256 MiB", "providers:\n  nexusd:\n    update:\n      maxUploadBytes: 268435456\n",
+			NexusdConfig{HealthTimeout: 30 * time.Second, Update: NexusdUpdateConfig{MaxUploadBytes: 268435456, TrustedKeys: []string{}}}},
+		{"no trusted key", "providers:\n  nexusd:\n    enabled: true\n    update:\n      trustedKeys: []\n",
+			NexusdConfig{Enabled: true, HealthTimeout: 30 * time.Second, Update: NexusdUpdateConfig{MaxUploadBytes: 64 << 20, TrustedKeys: []string{}}}},
+		{"one trusted key", "providers:\n  nexusd:\n    update:\n      trustedKeys: [\"" + k1 + "\"]\n",
+			NexusdConfig{HealthTimeout: 30 * time.Second, Update: NexusdUpdateConfig{MaxUploadBytes: 64 << 20, TrustedKeys: []string{k1}}}},
+		{"two distinct trusted keys", "providers:\n  nexusd:\n    update:\n      trustedKeys:\n        - " + k1 + "\n        - \"" + k2 + "\"\n",
+			NexusdConfig{HealthTimeout: 30 * time.Second, Update: NexusdUpdateConfig{MaxUploadBytes: 64 << 20, TrustedKeys: []string{k1, k2}}}},
+	}
+	dir := t.TempDir()
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(dir, fmt.Sprintf("bound-%d.yaml", i))
+			if err := os.WriteFile(path, []byte(tc.yaml), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			got := cfg.Providers.Nexusd.Settings
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("providers.nexusd = %+v, want %+v", got, tc.want)
+			}
+			for j, s := range got.Update.TrustedKeys {
+				pub, err := release.ParsePublicKey(s)
+				if err != nil {
+					t.Fatalf("trustedKeys[%d] loaded but release.ParsePublicKey refuses it: %v", j, err)
+				}
+				if release.EncodePublicKey(pub) != tc.want.Update.TrustedKeys[j] {
+					t.Errorf("trustedKeys[%d] does not round-trip", j)
+				}
+			}
+		})
+	}
+}
+
+// TC-SM-ERR23 (FR-15, FR-10, FR-6, FR-3): each out-of-bound value, malformed
+// or duplicate key and unknown key is one error located at file, line and
+// column, naming the bound or index and never the key value.
+func TestTCSMERR23_ConfigValidationErrorsAreLocatedAnd(t *testing.T) {
+	k := newPublicKey(t)
+	short := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0xa7}, 31))
+	secrets := []string{"@@@", k, short, string(bytes.Repeat([]byte{0xa7}, 31))}
+	keys := func(list string) string {
+		return "providers:\n  nexusd:\n    update:\n      trustedKeys: " + list + "\n"
+	}
+	cases := []struct {
+		name      string
+		yaml      string
+		wantPath  string
+		wantLine  int
+		wantCol   int
+		wantNamed string // the bound or index the error names
+	}{
+		{"healthTimeout below 5s", "providers:\n  nexusd:\n    healthTimeout: 4s\n", "providers.nexusd.healthTimeout", 3, 20, "5s"},
+		{"healthTimeout above 10m", "providers:\n  nexusd:\n    healthTimeout: 11m\n", "providers.nexusd.healthTimeout", 3, 20, "10m"},
+		{"maxUploadBytes below 1 MiB", "providers:\n  nexusd:\n    update:\n      maxUploadBytes: 1048575\n",
+			"providers.nexusd.update.maxUploadBytes", 4, 23, "1048576"},
+		{"maxUploadBytes above 256 MiB", "providers:\n  nexusd:\n    update:\n      maxUploadBytes: 268435457\n",
+			"providers.nexusd.update.maxUploadBytes", 4, 23, "268435456"},
+		{"key that is not base64", keys(`["@@@"]`), "providers.nexusd.update.trustedKeys[0]", 4, 20, "trustedKeys[0]"},
+		{"key of 31 bytes", keys(`["` + short + `"]`), "providers.nexusd.update.trustedKeys[0]", 4, 20, "trustedKeys[0]"},
+		{"duplicate key", keys(`["` + k + `", "` + k + `"]`), "providers.nexusd.update.trustedKeys[1]", 4, 20, "trustedKeys[0]"},
+		{"unknown key", "providers:\n  nexusd:\n    bogus: 1\n", "providers.nexusd.bogus", 3, 5, "bogus"},
+	}
+	dir := t.TempDir()
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(dir, fmt.Sprintf("err-%d.yaml", i))
+			if err := os.WriteFile(path, []byte(tc.yaml), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load(path)
+			if err == nil {
+				t.Fatalf("Load succeeded with %+v, want an error", cfg.Providers.Nexusd.Settings)
+			}
+			var list ErrorList
+			if !errors.As(err, &list) || len(list) != 1 {
+				t.Fatalf("Load error = %v, want exactly one config.Error", err)
+			}
+			e := list[0]
+			if e.File != path || e.Line != tc.wantLine || e.Column != tc.wantCol || e.Path != tc.wantPath {
+				t.Errorf("error at %s:%d:%d path %q, want %s:%d:%d path %q", e.File, e.Line, e.Column, e.Path,
+					path, tc.wantLine, tc.wantCol, tc.wantPath)
+			}
+			if !strings.Contains(e.Error(), tc.wantNamed) {
+				t.Errorf("error %q does not name %q", e.Error(), tc.wantNamed)
+			}
+			for _, s := range secrets {
+				if strings.Contains(e.Msg, s) || strings.Contains(e.Error(), s) {
+					t.Errorf("error %q echoes key material %q", e.Error(), s)
+				}
+			}
+		})
+	}
+}
+
+func newPublicKey(t *testing.T) string {
+	t.Helper()
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return release.EncodePublicKey(pub)
+}
+
+// valueNode returns the value node at a dotted path (no indexes), or nil.
+func valueNode(n *yaml.Node, path string) *yaml.Node {
+	for _, part := range strings.Split(path, ".") {
+		if n == nil || n.Kind != yaml.MappingNode {
+			return nil
+		}
+		var next *yaml.Node
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			if n.Content[i].Value == part {
+				next = n.Content[i+1]
+				break
+			}
+		}
+		n = next
+	}
+	return n
+}
+
+// allComments joins every comment on n and the nodes below it.
+func allComments(n *yaml.Node) string {
+	s := n.HeadComment + "\n" + n.LineComment + "\n" + n.FootComment
+	for _, c := range n.Content {
+		s += "\n" + allComments(c)
+	}
+	return s
 }

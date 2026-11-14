@@ -78,6 +78,11 @@ type Options struct {
 	// Platform is the host's init system and OS. Nil means
 	// platform.Current().
 	Platform *platform.Info
+	// Signals, when non-nil, replaces the process's SIGHUP, SIGTERM and
+	// SIGINT: Run handles each value received as that signal and does not
+	// subscribe to real signals, so in-process tests deliver signals without
+	// signalling the test binary.
+	Signals <-chan os.Signal
 }
 
 // Daemon is one nexusd serve process.
@@ -87,16 +92,25 @@ type Daemon struct {
 	// cfg, then each reload that succeeded. Only the Run loop touches it.
 	applied *config.Config
 	path    string
-	log     *slog.Logger
-	reg     *core.Registry
-	audit   *audit.Log
-	store   *store.Store
-	ops     *ops.Manager
-	acct    *storage.Accountant
-	tick    <-chan time.Time // Nil: an hourly ticker made by Run
-	srv     *server.Server
-	notify  *notifier
-	ready   chan struct{}
+	// stateDir and started are what provider.Daemon reports.
+	stateDir string
+	started  time.Time
+	log      *slog.Logger
+	reg      *core.Registry
+	audit    *audit.Log
+	store    *store.Store
+	ops      *ops.Manager
+	acct     *storage.Accountant
+	tick     <-chan time.Time // Nil: an hourly ticker made by Run
+	srv      *server.Server
+	notify   *notifier
+	ready    chan struct{}
+	signals  <-chan os.Signal // Nil: Run subscribes to the process's signals
+
+	// reloads carries Reload calls to the Run loop (unbuffered); stopping
+	// is closed when Run leaves its loop, or returns before entering it.
+	reloads  chan reloadRequest
+	stopping chan struct{}
 
 	// binding finds an op's binding by ID, for restart recovery.
 	binding func(opID string) (provider.Binding, bool)
@@ -198,6 +212,7 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 		StateDB:     db.Path(),
 		OpsDir:      opsDir,
 		AuditDir:    auditLog.Dir(),
+		StagingDir:  filepath.Join(stateDir, "staging"),
 		Retention:   retention,
 		Audit:       auditLog,
 		Now:         opts.Now,
@@ -246,26 +261,54 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 	for _, e := range reg.Entries() {
 		bindings[e.Binding.Op().ID] = e.Binding
 	}
-	return &Daemon{
-		cfg:     cfg,
-		applied: cfg,
-		path:    path,
-		log:     log,
-		reg:     reg,
-		audit:   auditLog,
-		store:   db,
-		ops:     mgr,
-		acct:    acct,
-		tick:    opts.StorageTick,
-		srv:     srv,
-		notify:  newNotifier(os.Getenv("NOTIFY_SOCKET")),
-		ready:   make(chan struct{}),
+	d := &Daemon{
+		cfg:      cfg,
+		applied:  cfg,
+		path:     path,
+		stateDir: stateDir,
+		started:  time.Now(),
+		log:      log,
+		reg:      reg,
+		audit:    auditLog,
+		store:    db,
+		ops:      mgr,
+		acct:     acct,
+		tick:     opts.StorageTick,
+		srv:      srv,
+		notify:   newNotifier(os.Getenv("NOTIFY_SOCKET")),
+		ready:    make(chan struct{}),
+		signals:  opts.Signals,
+
+		reloads:  make(chan reloadRequest),
+		stopping: make(chan struct{}),
 
 		binding: func(id string) (provider.Binding, bool) {
 			b, ok := bindings[id]
 			return b, ok
 		},
-	}, nil
+	}
+	for _, p := range providers {
+		if u, ok := p.(provider.DaemonUser); ok {
+			u.UseDaemon(d)
+		}
+	}
+	return d, nil
+}
+
+// ConfigPath implements provider.Daemon: the file reload re-reads.
+func (d *Daemon) ConfigPath() string { return d.path }
+
+// StateDir implements provider.Daemon.
+func (d *Daemon) StateDir() string { return d.stateDir }
+
+// StartedAt implements provider.Daemon: when New built the daemon.
+func (d *Daemon) StartedAt() time.Time { return d.started }
+
+// CheckConfig implements provider.Daemon with the FR-3 check of
+// ConfigPath, the one `nexusd validate-config` runs.
+func (d *Daemon) CheckConfig() provider.ConfigCheck {
+	cfg, errs := CheckConfig(d.path)
+	return provider.ConfigCheck{Config: cfg, Errors: errs}
 }
 
 // Ready is closed once every listener is open and READY=1 has been sent.
@@ -287,9 +330,13 @@ func (d *Daemon) Addrs() []net.Addr {
 func (d *Daemon) Run(ctx context.Context) error {
 	// Before the listener opens: SIGHUP's default action would kill the
 	// process if a reload arrived right after READY=1.
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGINT)
-	defer signal.Stop(sigs)
+	sigs := d.signals
+	if sigs == nil {
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGINT)
+		defer signal.Stop(c)
+		sigs = c
+	}
 
 	// Restart recovery, synchronous stage: lanes and queues are rebuilt from
 	// state.db before the first request, with no systemctl or provider call
@@ -303,6 +350,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		listeners, err = d.listen(ctx)
 	}
 	if err != nil {
+		close(d.stopping)
 		if cerr := d.store.Close(); cerr != nil {
 			err = errors.Join(err, cerr)
 		}
@@ -349,11 +397,18 @@ loop:
 			break loop
 		case sig := <-sigs:
 			if sig == syscall.SIGHUP {
-				d.reload(ctx)
+				// Logged by reload; SIGHUP has no caller to answer.
+				_, _ = d.reload(ctx)
 				continue
 			}
 			d.log.Info("stopping", "signal", sig.String())
 			break loop
+		case req := <-d.reloads:
+			// Under the loop's context, as SIGHUP, never the caller's. The
+			// reply has a buffer of one and is the only send on it, so this
+			// never blocks, even when the caller has gone.
+			res, err := d.reload(ctx)
+			req.reply <- reloadReply{res: res, err: err}
 		case err := <-serveErr:
 			runErr = err
 			break loop
@@ -364,6 +419,7 @@ loop:
 		}
 	}
 
+	close(d.stopping)
 	d.shutdown()
 	wg.Wait()
 	for _, ln := range listeners {

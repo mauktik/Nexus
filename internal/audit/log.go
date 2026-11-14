@@ -50,6 +50,9 @@ const (
 	OutcomeDenied    = "denied"
 	OutcomeRefused   = "refused"
 	OutcomeReplayed  = "replayed"
+	// OutcomeStored is an upload whose body was stored. It follows the
+	// upload's requested record and names it in RequestID.
+	OutcomeStored = "stored"
 )
 
 // Redacted replaces the value of every sensitive path.

@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v3"
+
+	nexusdspec "github.com/mauktik/nexus/internal/providers/nexusd/spec"
 )
 
 // DefaultPath is where the installer writes the configuration.
@@ -91,6 +93,7 @@ type Providers struct {
 	Apt     Section[AptConfig]     `yaml:"apt"`
 	Scripts Section[ScriptsConfig] `yaml:"scripts"`
 	Nginx   Section[NginxConfig]   `yaml:"nginx"`
+	Nexusd  Section[NexusdConfig]  `yaml:"nexusd"`
 	Pihole  Section[PiholeConfig]  `yaml:"pihole"`
 }
 
@@ -138,6 +141,34 @@ type NginxConfig struct {
 	StateTimeout        time.Duration `yaml:"stateTimeout"`
 	ReloadVerifyTimeout time.Duration `yaml:"reloadVerifyTimeout"`
 	MaxConfigBytes      int64         `yaml:"maxConfigBytes"`
+}
+
+// Bounds of the nexusd provider section. The upload ceiling is
+// nexusdspec.MaxUploadBytesCeiling, the cap the upload route is declared with.
+const (
+	MinNexusdHealthTimeout  = 5 * time.Second
+	MaxNexusdHealthTimeout  = 10 * time.Minute
+	MinNexusdMaxUploadBytes = 1 << 20
+)
+
+// NexusdConfig is the nexusd provider section: managing the daemon itself.
+type NexusdConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// HealthTimeout bounds how long a restarted, updated or rolled-back
+	// nexusd may take to pass the health check.
+	HealthTimeout time.Duration      `yaml:"healthTimeout"`
+	Update        NexusdUpdateConfig `yaml:"update"`
+}
+
+// NexusdUpdateConfig is how nexusd accepts a release to update to.
+type NexusdUpdateConfig struct {
+	// MaxUploadBytes caps one uploaded release tarball.
+	MaxUploadBytes int64 `yaml:"maxUploadBytes"`
+	// TrustedKeys are the Ed25519 public keys a release signature must
+	// verify under, each the standard base64 of the raw 32 bytes that
+	// release.ParsePublicKey takes. None means updates are not configured.
+	// They change only by editing the file.
+	TrustedKeys []string `yaml:"trustedKeys"`
 }
 
 // PiholeConfig is the pihole provider section.
@@ -241,6 +272,13 @@ func Default() Config {
 				StateTimeout:        30 * time.Second,
 				ReloadVerifyTimeout: 15 * time.Second,
 				MaxConfigBytes:      256 << 10,
+			}},
+			Nexusd: Section[NexusdConfig]{Settings: NexusdConfig{
+				HealthTimeout: nexusdspec.DefaultHealthTimeout,
+				Update: NexusdUpdateConfig{
+					MaxUploadBytes: nexusdspec.DefaultMaxUploadBytes,
+					TrustedKeys:    []string{},
+				},
 			}},
 			Pihole: Section[PiholeConfig]{Settings: PiholeConfig{DNSFile: "/etc/dnsmasq.d/03-custom-dns-names.conf"}},
 		},

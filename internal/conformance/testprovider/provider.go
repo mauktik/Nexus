@@ -6,14 +6,15 @@
 // Its handlers are spies. A spy records each call that reached its handler,
 // which is only a call that passed authorization and validation, so the FR-25
 // negative suite can show that a hostile value it accepted arrived as inert
-// data. The generic Sync, Stream and InProcess helpers bind a spy to any typed
-// declaration, so a provider added to the catalog gets stub handlers for the
-// conformance suite with one line per op.
+// data. The generic Sync, Stream, InProcess and Upload helpers bind a spy to
+// any typed declaration, so a provider added to the catalog gets stub
+// handlers for the conformance suite with one line per op.
 package testprovider
 
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"slices"
 	"sync"
 
@@ -177,6 +178,7 @@ type Call struct {
 	Op          string
 	OperationID string // Set for a long-running op
 	Input       any    // The decoded input, as the handler received it
+	BodyBytes   int64  // For an upload: the body bytes Receive read
 }
 
 // Spy records handler calls. The zero value is ready to use.
@@ -258,6 +260,27 @@ func InProcess[In, Out any](s *Spy, op def.Typed[In, Out]) provider.Binding {
 			s.record(Call{Op: id, OperationID: r.ID(), Input: in})
 			var out Out
 			return out, nil
+		},
+	})
+}
+
+// UploadMaxBytes is the body cap of an upload bound by Upload: small, so the
+// suite can send a body over it cheaply. An op whose own ceiling is lower
+// keeps its ceiling (provider.Upload clamps).
+const UploadMaxBytes = 4 << 10
+
+// Upload binds a spy to a KindUpload declaration, capped at UploadMaxBytes.
+// Receive reads the body to its end, records the call with the bytes read,
+// and returns the zero output; a read error, such as the cap, is returned.
+func Upload[In, Out any](s *Spy, op def.Typed[In, Out]) provider.Binding {
+	id := op.Op().ID
+	return provider.Upload(op, provider.UploadSpec[In, Out]{
+		MaxBytes: func() int64 { return UploadMaxBytes },
+		Receive: func(_ context.Context, in In, b provider.UploadBody) (Out, error) {
+			n, err := io.Copy(io.Discard, b.Reader)
+			s.record(Call{Op: id, Input: in, BodyBytes: n})
+			var out Out
+			return out, err
 		},
 	})
 }

@@ -5,19 +5,25 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"debug/buildinfo"
 	"debug/elf"
 	"debug/macho"
 	"encoding/hex"
+	"errors"
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/mauktik/nexus/internal/release"
 )
 
 const releaseVersion = "v0.0.0-test"
@@ -93,10 +99,11 @@ func sortedKeys(m map[string]tarEntry) []string {
 // default config, install and uninstall scripts and docs; govulncheck runs
 // and reports nothing; a failing release step stops the build before any
 // tarball. `-o test` skips only the test step, which `make test` already is
-// (this case runs inside it); a dry run shows release runs it.
+// (this case runs inside it); a dry run shows release runs it. Every run
+// names a temporary signing key (WI 1.4).
 func TestReleaseTarballs(t *testing.T) {
 	skipUnderMake(t)
-	env := envWithout(makeGuardEnv)
+	env := releaseEnv()
 	root := repoRoot(t)
 
 	t.Run("release flow runs the whole gate", func(t *testing.T) {
@@ -117,7 +124,8 @@ func TestReleaseTarballs(t *testing.T) {
 
 	t.Run("tarballs, checksums and vuln step", func(t *testing.T) {
 		dir := copyRepo(t)
-		out, code := run(t, dir, env, "make", "-o", "test", "release", "VERSION="+releaseVersion)
+		key, _ := releaseKey(t, dir)
+		out, code := run(t, dir, env, "make", "-o", "test", "release", "VERSION="+releaseVersion, "NEXUS_RELEASE_KEY="+key)
 		if code != 0 {
 			t.Fatalf("make release exited %d (network access is a prerequisite for govulncheck):\n%s", code, out)
 		}
@@ -140,13 +148,14 @@ func TestReleaseTarballs(t *testing.T) {
 		for _, top := range tops {
 			want = append(want, top+".tar.gz")
 		}
-		want = append(want, "SHA256SUMS")
+		want = append(want, "SHA256SUMS", nexusdTop+".tar.gz.sig")
 		slices.Sort(want)
 		if !slices.Equal(files, want) {
 			t.Fatalf("dist/release = %q, want %q", files, want)
 		}
 
-		// Step 1: SHA256SUMS lists each tarball once, with its real digest.
+		// Step 1: SHA256SUMS lists each tarball and the signature once, with
+		// its real digest.
 		sums, err := os.Open(filepath.Join(rel, "SHA256SUMS"))
 		if err != nil {
 			t.Fatal(err)
@@ -169,8 +178,8 @@ func TestReleaseTarballs(t *testing.T) {
 				t.Errorf("%s: sha256 %x, SHA256SUMS says %s", name, got, sum)
 			}
 		}
-		if len(listed) != len(tops) {
-			t.Fatalf("SHA256SUMS lists %d files, want %d", len(listed), len(tops))
+		if len(listed) != len(tops)+1 {
+			t.Fatalf("SHA256SUMS lists %d files, want %d", len(listed), len(tops)+1)
 		}
 
 		// Step 1: contents.
@@ -243,12 +252,13 @@ func TestReleaseTarballs(t *testing.T) {
 
 	t.Run("a failing step stops the build", func(t *testing.T) {
 		dir := copyRepo(t)
+		key, _ := releaseKey(t, dir)
 		planted := filepath.Join(dir, "internal", "version", "zz_planted_vet_failure.go")
 		src := "package version\n\nimport \"fmt\"\n\nfunc plantedVetFailure() string { return fmt.Sprintf(\"%d\", \"not a number\") }\n"
 		if err := os.WriteFile(planted, []byte(src), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		out, code := run(t, dir, env, "make", "-o", "test", "release", "VERSION="+releaseVersion)
+		out, code := run(t, dir, env, "make", "-o", "test", "release", "VERSION="+releaseVersion, "NEXUS_RELEASE_KEY="+key)
 		if code == 0 {
 			t.Fatalf("make release with a planted vet failure exited 0:\n%s", out)
 		}
@@ -262,7 +272,7 @@ func TestReleaseTarballs(t *testing.T) {
 	})
 
 	t.Run("version is required in release form", func(t *testing.T) {
-		out, code := run(t, copyRepo(t), env, "make", "release", "VERSION=dev")
+		out, code := run(t, copyRepo(t), env, "make", "release", "VERSION=dev", "NEXUS_RELEASE_KEY=/nonexistent")
 		if code == 0 || !strings.Contains(out, "is not vMAJOR.MINOR.PATCH") {
 			t.Fatalf("make release VERSION=dev exited %d:\n%s", code, out)
 		}
@@ -303,5 +313,140 @@ func checkReleaseBinary(t *testing.T, top, bin string, data []byte) {
 		if err != nil || f.Cpu != macho.CpuArm64 {
 			t.Errorf("%s: not an arm64 Mach-O: %v", top, err)
 		}
+	}
+}
+
+// TC-SM-17 (WI 1.4; FR-15): make -n release runs the key check before check
+// and the build.
+func TestTCSM17_MakeNReleaseRunsTheKey(t *testing.T) {
+	skipUnderMake(t)
+	out, code := run(t, copyRepo(t), releaseEnv(), "make", "-n", "release", "VERSION="+releaseVersion, "NEXUS_RELEASE_KEY=/nonexistent")
+	if code != 0 {
+		t.Fatalf("make -n release exited %d:\n%s", code, out)
+	}
+	keyCheck := strings.Index(out, "nexus-release check-key --key '/nonexistent'")
+	if keyCheck < 0 {
+		t.Fatalf("make -n release has no key check:\n%s", out)
+	}
+	if i := strings.Index(out, "/nonexistent"); i < keyCheck {
+		t.Errorf("the key is referenced before the key check:\n%s", out)
+	}
+	// make test passes -timeout between -race and ./... (nginx-provider).
+	for _, later := range []string{"go vet ./...", "go test -race ", "go build "} {
+		if i := strings.Index(out, later); i < keyCheck {
+			t.Errorf("%q is missing or runs before the key check:\n%s", later, out)
+		}
+	}
+	sign := strings.Index(out, "nexus-release sign --key '/nonexistent' dist/release/nexusd-"+releaseVersion+"-linux-amd64.tar.gz")
+	sums := strings.Index(out, "*.tar.gz *.sig >SHA256SUMS")
+	if sign < 0 || sums < sign {
+		t.Errorf("make -n release does not sign the nexusd tarball and then list *.tar.gz *.sig in SHA256SUMS:\n%s", out)
+	}
+}
+
+// TC-SM-18 (WI 1.4; FR-15): make release with a temp key signs only the
+// nexusd tarball and lists the .sig in SHA256SUMS. `-o test` as in TC-178.
+func TestTCSM18_MakeReleaseWithATempKey(t *testing.T) {
+	skipUnderMake(t)
+	dir := copyRepo(t)
+	key, pubB64 := releaseKey(t, dir)
+	out, code := run(t, dir, releaseEnv(), "make", "-o", "test", "release", "VERSION="+releaseVersion, "NEXUS_RELEASE_KEY="+key)
+	if code != 0 {
+		t.Fatalf("make release exited %d (network access is a prerequisite for govulncheck):\n%s", code, out)
+	}
+	rel := filepath.Join(dir, "dist", "release")
+	entries, err := os.ReadDir(rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nexusd := "nexusd-" + releaseVersion + "-linux-amd64.tar.gz"
+	var sigs []string
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".sig") {
+			sigs = append(sigs, e.Name())
+		}
+	}
+	if !slices.Equal(sigs, []string{nexusd + ".sig"}) {
+		t.Fatalf("signatures in dist/release = %q, want exactly %s.sig", sigs, nexusd)
+	}
+
+	sums, err := os.ReadFile(filepath.Join(rel, "SHA256SUMS"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`(?m)^[0-9a-f]{64}  ` + regexp.QuoteMeta(nexusd+".sig") + `$`).Match(sums) {
+		t.Errorf("SHA256SUMS has no line for %s.sig:\n%s", nexusd, sums)
+	}
+	sha := []string{"sha256sum"}
+	if _, err := exec.LookPath("sha256sum"); err != nil {
+		sha = []string{"shasum", "-a", "256"}
+	}
+	if out, code := run(t, rel, nil, sha[0], append(sha[1:], "-c", "SHA256SUMS")...); code != 0 {
+		t.Errorf("%q -c SHA256SUMS exited %d:\n%s", sha, code, out)
+	}
+
+	pub, err := release.ParsePublicKey(pubB64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sigFile, err := os.ReadFile(filepath.Join(rel, nexusd+".sig"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig, err := release.DecodeSignature(sigFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, _, err := release.DigestFile(filepath.Join(rel, nexusd))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !release.Verify([]ed25519.PublicKey{pub}, digest, sig) {
+		t.Fatalf("%s.sig does not verify against the temporary key", nexusd)
+	}
+	t.Logf("%s.sig verifies against %s", nexusd, pubB64)
+}
+
+// TC-SM-ERR7 (WI 1.4; FR-15): make release with a missing or 0644 key fails
+// before any tarball and before build-release.
+func TestTCSMERR7_MakeReleaseWithAMissingOr(t *testing.T) {
+	skipUnderMake(t)
+	cases := []struct {
+		name   string
+		key    func(t *testing.T, dir string) string
+		reason string
+	}{
+		{"missing", func(*testing.T, string) string { return "/nonexistent" }, "missing"},
+		{"mode 0644", func(t *testing.T, dir string) string {
+			key, _ := releaseKey(t, dir)
+			if err := os.Chmod(key, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			return key
+		}, "mode 0644 is too open"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := copyRepo(t)
+			key := c.key(t, dir)
+			out, code := run(t, dir, releaseEnv(), "make", "release", "VERSION="+releaseVersion, "NEXUS_RELEASE_KEY="+key)
+			if code == 0 {
+				t.Fatalf("make release with a %s key exited 0:\n%s", c.name, out)
+			}
+			if !strings.Contains(out, c.reason) {
+				t.Errorf("make release output does not name the reason %q:\n%s", c.reason, out)
+			}
+			if strings.Contains(out, "go vet") {
+				t.Errorf("the gate ran despite the bad key:\n%s", out)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "dist", "nexusd-linux-amd64")); !errors.Is(err, fs.ErrNotExist) {
+				t.Errorf("build-release ran: dist/nexusd-linux-amd64: %v", err)
+			}
+			tarballs, err := filepath.Glob(filepath.Join(dir, "dist", "release", "*.tar.gz"))
+			if err != nil || len(tarballs) != 0 {
+				t.Errorf("tarballs after a refused key: %q %v", tarballs, err)
+			}
+			t.Logf("%s key: make release exited %d", c.name, code)
+		})
 	}
 }

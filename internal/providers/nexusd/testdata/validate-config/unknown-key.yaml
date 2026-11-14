@@ -1,0 +1,6 @@
+listen: ["127.0.0.1:7443"]
+bogus: 1
+providers:
+  nexusd:
+    enabled: true
+    healthTimeot: 30s

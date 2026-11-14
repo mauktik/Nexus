@@ -1,14 +1,19 @@
 #!/bin/sh
-# Removes nexusd (FR-36, FR-24):
+# Removes nexusd (FR-36, FR-24, FR-19):
 #
 #   sudo ./uninstall.sh            stop nexusd and take it out of boot, remove
 #                                  the binary and the unit (systemd) or
-#                                  /etc/init.d/nexusd (OpenRC); keep the config,
-#                                  the audit log and the operation history
-#   sudo ./uninstall.sh --purge    also delete /etc/nexus, /var/lib/nexus,
-#                                  /var/log/nexus and any nexusd.service
-#                                  drop-ins (systemd) or /etc/conf.d/nexusd
-#                                  (OpenRC)
+#                                  /etc/init.d/nexusd (OpenRC), the previous
+#                                  binary an update keeps for rollback
+#                                  (nexusd.prev) and the saved unit
+#                                  (/var/lib/nexus/rollback); keep the config,
+#                                  the audit log, the operation history and
+#                                  the staged uploads
+#   sudo ./uninstall.sh --purge    also delete /etc/nexus, /var/lib/nexus
+#                                  (with the staged uploads in
+#                                  /var/lib/nexus/staging), /var/log/nexus and
+#                                  any nexusd.service drop-ins (systemd) or
+#                                  /etc/conf.d/nexusd (OpenRC)
 #
 # Operations run in their own nexus-op-* units (systemd) or supervisor
 # processes (OpenRC), which uninstalling does not stop. The script lists any
@@ -22,6 +27,12 @@ DROPINS=/etc/systemd/system/nexusd.service.d
 INITD=/etc/init.d/nexusd
 CONFD=/etc/conf.d/nexusd
 OPS=/var/lib/nexus/ops
+PREV=$BIN.prev
+ROLLBACK=/var/lib/nexus/rollback
+STAGING=/var/lib/nexus/staging
+# Copies an interrupted update or rollback leaves beside the files it
+# replaces: the unverified backup and the swap copies.
+LEFTOVERS="$PREV.tmp $BIN.swap.tmp $UNIT.swap.new.tmp"
 KEPT="/etc/nexus /var/lib/nexus /var/log/nexus"
 
 say() { printf '%s\n' "uninstall.sh: $*"; }
@@ -106,13 +117,15 @@ if [ "$init" = systemd ]; then
 		systemctl disable --now nexusd.service
 		say "stopped and disabled nexusd.service"
 	fi
-	rm -f "$UNIT" "$BIN"
+	# shellcheck disable=SC2086 # LEFTOVERS is a list of fixed paths.
+	rm -f "$UNIT" "$BIN" "$PREV" $LEFTOVERS
+	rm -rf "$ROLLBACK"
 	if [ $purge -eq 1 ]; then
 		rm -rf "$DROPINS"
 	fi
 	systemctl daemon-reload
 	systemctl reset-failed nexusd.service 2>/dev/null || true
-	say "removed $BIN and $UNIT"
+	say "removed $BIN, $PREV, $UNIT and $ROLLBACK"
 	removed_extra=
 else
 	running=$(live_supervisors | xargs)
@@ -139,15 +152,17 @@ else
 		rc-update del nexusd "$level"
 		say "removed nexusd from the $level runlevel"
 	done
-	rm -f "$INITD" "$BIN"
-	say "removed $BIN and $INITD"
+	# shellcheck disable=SC2086 # LEFTOVERS is a list of fixed paths.
+	rm -f "$INITD" "$BIN" "$PREV" $LEFTOVERS
+	rm -rf "$ROLLBACK"
+	say "removed $BIN, $PREV, $INITD and $ROLLBACK"
 	removed_extra=" $CONFD"
 fi
 
 if [ $purge -eq 1 ]; then
 	# shellcheck disable=SC2086 # KEPT and removed_extra are lists of fixed paths.
 	rm -rf $KEPT $removed_extra
-	say "purged $KEPT$removed_extra"
+	say "purged $KEPT$removed_extra, with the staged uploads in $STAGING"
 else
-	say "kept the configuration (/etc/nexus), operation history, tokens and TLS key (/var/lib/nexus) and audit log (/var/log/nexus); delete them with --purge"
+	say "kept the configuration (/etc/nexus), operation history, staged uploads, tokens and TLS key (/var/lib/nexus) and audit log (/var/log/nexus); delete them with --purge"
 fi

@@ -1,5 +1,6 @@
 // Package storage keeps nexusd within its storage budget (NFR-10): it
-// measures state.db, the ops directory and the audit directory, applies
+// measures state.db, the ops directory, the audit directory and the upload
+// staging directory, applies
 // retention, frees space in a fixed order when over budget, and holds the
 // limit flag the Dispatcher checks before admitting a new mutation (Data
 // Flow step 5).
@@ -8,7 +9,8 @@
 // evicted oldest first, keeping the records; then audit files older than
 // their retention are deleted; only then is the limit flag set. Audit
 // younger than retention is never deleted, and the output of a Queued or
-// Running operation is never touched. Reads, idempotent replays, read-risk
+// Running operation is never touched. Staged uploads count toward the
+// budget but are never evicted here: each expires by itself. Reads, idempotent replays, read-risk
 // requests, whatIf and cancel continue at the limit (A-68).
 package storage
 
@@ -51,12 +53,15 @@ type AuditPruner interface {
 type Options struct {
 	BudgetBytes int64 // limits.storageBudgetBytes; must be positive
 	// StateDB is the state.db file, OpsDir the ops directory and AuditDir
-	// the audit directory: together, what is measured.
+	// the audit directory: with StagingDir, what is measured.
 	StateDB, OpsDir, AuditDir string
-	Retention                 Retention   // Required
-	Audit                     AuditPruner // Nil means audit files are never deleted here
-	Now                       func() time.Time
-	Logger                    *slog.Logger // Nil means slog.Default()
+	// StagingDir holds staged uploads (<stateDir>/staging). It is measured
+	// but never evicted from. Empty means none.
+	StagingDir string
+	Retention  Retention   // Required
+	Audit      AuditPruner // Nil means audit files are never deleted here
+	Now        func() time.Time
+	Logger     *slog.Logger // Nil means slog.Default()
 	// Observe, when non-nil, receives the report of every pass.
 	Observe func(Report)
 }
@@ -66,9 +71,9 @@ type Report struct {
 	At     time.Time
 	Budget int64
 	// Usage in bytes after the pass.
-	StateBytes, OpsBytes, AuditBytes, Total int64
-	Evicted                                 []string // Operations whose output this pass evicted
-	Limited                                 bool     // The limit flag after the pass
+	StateBytes, OpsBytes, AuditBytes, StagingBytes, Total int64
+	Evicted                                               []string // Operations whose output this pass evicted
+	Limited                                               bool     // The limit flag after the pass
 }
 
 // Accountant runs accounting passes and holds the limit flag. It is safe
@@ -80,6 +85,7 @@ type Accountant struct {
 	stateDB   string
 	opsDir    string
 	auditDir  string
+	staging   string
 	retention Retention
 	audit     AuditPruner
 	now       func() time.Time
@@ -101,7 +107,8 @@ func New(opts Options) (*Accountant, error) {
 	}
 	a := &Accountant{
 		budget: opts.BudgetBytes, stateDB: opts.StateDB, opsDir: opts.OpsDir, auditDir: opts.AuditDir,
-		retention: opts.Retention, audit: opts.Audit, now: opts.Now, log: opts.Logger, observe: opts.Observe,
+		staging: opts.StagingDir, retention: opts.Retention, audit: opts.Audit, now: opts.Now, log: opts.Logger,
+		observe: opts.Observe,
 		pending: make(chan struct{}, 1),
 	}
 	if a.now == nil {
@@ -187,7 +194,8 @@ func (a *Accountant) Account() Report {
 	return r
 }
 
-// measure sizes state.db, the ops directory and the audit directory. ok is
+// measure sizes state.db, the ops directory, the audit directory and the
+// staging directory. ok is
 // false when any of them cannot be read, which is logged.
 func (a *Accountant) measure() (Report, bool) {
 	r := Report{At: a.now(), Budget: a.budget}
@@ -202,7 +210,10 @@ func (a *Accountant) measure() (Report, bool) {
 	if r.AuditBytes, err = DirSize(a.auditDir); err != nil {
 		errs = append(errs, err)
 	}
-	r.Total = r.StateBytes + r.OpsBytes + r.AuditBytes
+	if r.StagingBytes, err = DirSize(a.staging); err != nil {
+		errs = append(errs, err)
+	}
+	r.Total = r.StateBytes + r.OpsBytes + r.AuditBytes + r.StagingBytes
 	if err := errors.Join(errs...); err != nil {
 		a.log.Error("storage accounting cannot measure usage", "error", err.Error())
 		return r, false

@@ -32,6 +32,10 @@ var tabledExits = map[problem.Slug]int{
 	"idempotency-key-reused": 1, "rate-limited": 3, "internal-error": 1,
 	"capability-unavailable": 4, "compose-plugin-missing": 4, "dependency-unavailable": 1,
 	"audit-unavailable": 1, "storage-limit-reached": 1,
+	// nexusd-self-management Problem types table (HTTP-level rows).
+	"config-invalid": 1, "upload-too-large": 2, "upload-not-found": 1, "update-not-configured": 1,
+	"update-signature-invalid": 1, "update-package-invalid": 1, "version-downgrade": 1,
+	"rollback-unavailable": 1,
 }
 
 // nginxExits are the nginx provider's non-operation-level problem types.
@@ -92,11 +96,24 @@ var piholeTabledExits = map[problem.Slug]int{
 	"dns-file-conflict": 1, "dns-name-unzoned": 1, "dns-batch-rejected": 1,
 }
 
-// architectureExits parses the same column out of architecture.md, so a
-// change there that is not carried here fails.
-func architectureExits(t *testing.T) map[problem.Slug]int {
+// planTable names a problem types table in a planning document: the file, the
+// header line that opens it, and how many HTTP-level rows it carries.
+type planTable struct {
+	feature string
+	header  string
+	rows    int
+}
+
+var planTables = []planTable{
+	{"nexus-server-manager", "| Slug | HTTP | CLI exit |", 20},
+	{"nexusd-self-management", "| Slug | Status | Exit |", 8},
+}
+
+// architectureExits parses the same column out of one architecture.md table,
+// so a change there that is not carried here fails.
+func architectureExits(t *testing.T, tb planTable) map[problem.Slug]int {
 	t.Helper()
-	path := filepath.Join("..", "..", "planning", "nexus-server-manager", "architecture.md")
+	path := filepath.Join("..", "..", "planning", tb.feature, "architecture.md")
 	f, err := os.Open(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		// Copies of the module without planning/ (the build-system tests'
@@ -114,7 +131,7 @@ func architectureExits(t *testing.T) map[problem.Slug]int {
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := sc.Text()
-		if strings.HasPrefix(line, "| Slug | HTTP | CLI exit |") {
+		if strings.HasPrefix(line, tb.header) {
 			in = true
 			continue
 		}
@@ -138,13 +155,29 @@ func architectureExits(t *testing.T) map[problem.Slug]int {
 // TC-156: every problem slug maps to its tabled exit code, with none
 // unmapped, and every transport failure exits 5.
 func TestExitCodeMapping(t *testing.T) {
-	if arch := architectureExits(t); arch != nil {
-		if len(arch) != 20 {
-			t.Fatalf("parsed %d rows from architecture.md's problem table, want 20", len(arch))
+	inPlans := map[problem.Slug]bool{}
+	for _, tb := range planTables {
+		arch := architectureExits(t, tb)
+		if arch == nil {
+			inPlans = nil
+			continue
+		}
+		for slug := range arch {
+			if inPlans != nil {
+				inPlans[slug] = true
+			}
+		}
+		if len(arch) != tb.rows {
+			t.Fatalf("parsed %d rows from %s architecture.md's problem table, want %d", len(arch), tb.feature, tb.rows)
+		}
+		for slug, code := range arch {
+			if got, ok := tabledExits[slug]; !ok || got != code {
+				t.Errorf("%s: %s architecture.md says %d, this test says %d (tabled=%t)", slug, tb.feature, code, got, ok)
+			}
 		}
 		for slug, code := range tabledExits {
-			if arch[slug] != code {
-				t.Errorf("%s: architecture.md says %d, this test says %d", slug, arch[slug], code)
+			if want, ok := arch[slug]; ok && want != code {
+				t.Errorf("%s: %s architecture.md says %d, this test says %d", slug, tb.feature, want, code)
 			}
 		}
 	}
@@ -163,6 +196,11 @@ func TestExitCodeMapping(t *testing.T) {
 			if rows[typ.Slug] != want {
 				t.Errorf("%s: nginx architecture.md says status %q, registry says %q", typ.Slug, rows[typ.Slug], want)
 			}
+		}
+	}
+	for slug := range tabledExits {
+		if inPlans != nil && !inPlans[slug] {
+			t.Errorf("%s: in this test's table but in no architecture.md problem table", slug)
 		}
 	}
 	for _, typ := range problem.All() {

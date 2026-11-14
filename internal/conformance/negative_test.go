@@ -1,12 +1,19 @@
 package conformance_test
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
 
@@ -15,6 +22,7 @@ import (
 	"github.com/mauktik/nexus/internal/def"
 	"github.com/mauktik/nexus/internal/openapi"
 	"github.com/mauktik/nexus/internal/problem"
+	nexusd "github.com/mauktik/nexus/internal/providers/nexusd/spec"
 	nginx "github.com/mauktik/nexus/internal/providers/nginx/spec"
 	pihole "github.com/mauktik/nexus/internal/providers/pihole/spec"
 	scripts "github.com/mauktik/nexus/internal/providers/scripts/spec"
@@ -98,7 +106,10 @@ type sampler struct {
 }
 
 var sampleStrings = []string{"w1", "a", "red", "1", "x-1", "color=red",
-	"a.b", "192.0.2.1", "a.b~A", "add-zone:a.b", "https://a.b/l.txt"}
+	"a.b", "192.0.2.1", "a.b~A", "add-zone:a.b", "https://a.b/l.txt",
+	strings.Repeat("a", 32),        // An upload ID: 32 lowercase hex digits
+	strings.Repeat("A", 86) + "==", // A signature's form: 64 bytes in padded base64
+}
 
 func (sm sampler) value(t *testing.T, op def.Op, path string, s *jsonschema.Schema) any {
 	t.Helper()
@@ -329,4 +340,122 @@ func (s *stack) received(t *testing.T, op def.Op, r response, before int) any {
 		t.Fatal(err)
 	}
 	return v
+}
+
+// blockingBody hands out head, then blocks until release is closed: a
+// client still holding the rest of its body.
+type blockingBody struct {
+	head    io.Reader
+	release chan struct{}
+}
+
+func (b *blockingBody) Read(p []byte) (int, error) {
+	if n, err := b.head.Read(p); n > 0 || !errors.Is(err, io.EOF) {
+		return n, err
+	}
+	<-b.release
+	return 0, io.EOF
+}
+
+// TC-SM-ERR59 (WI 6.1; NFR-7, FR-6, FR-1): the nexusd upload, bound by
+// testprovider.Upload in catalogStubs, is refused four ways before Receive
+// runs: a body over the stub's cap (413), a read-only token (403 naming
+// nexusd:admin), no token (401, answered while the client still holds its
+// body, so the server never read it) and a JSON content type (400).
+func TestTCSMERR59_ConformanceNegativesOnTheUploadOversize(t *testing.T) {
+	s := newStack(t)
+	upload := nexusd.Upload.Op()
+	_, path, err := openapi.Route(upload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig := url.Values{"signature": {strings.Repeat("A", 86) + "=="}}.Encode()
+	target := s.base + path + "?" + sig
+	admin := s.exact[nexusd.AdminScope]
+
+	send := func(t *testing.T, token, contentType string, body io.Reader, length int64) response {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPost, target, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.ContentLength = length
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		req.Header.Set("Content-Type", contentType)
+		hc := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{}}
+		defer hc.CloseIdleConnections()
+		resp, err := hc.Do(req)
+		if err != nil {
+			t.Fatalf("POST %s: %v", path, err)
+		}
+		defer resp.Body.Close()
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return response{status: resp.StatusCode, body: b}
+	}
+	expect := func(t *testing.T, r response, status int, slug problem.Slug) *problem.Error {
+		t.Helper()
+		if r.status != status {
+			t.Fatalf("status %d %.300s, want %d", r.status, r.body, status)
+		}
+		p := r.problem(t)
+		if p.Slug() != slug {
+			t.Fatalf("problem %s, want %s", p.Slug(), slug)
+		}
+		return p
+	}
+
+	// The control: the same request with the admin token and a body at the
+	// cap is received, so the refusals below are not a broken route.
+	atCap := bytes.Repeat([]byte("u"), testprovider.UploadMaxBytes)
+	if r := send(t, admin, octetStream, bytes.NewReader(atCap), int64(len(atCap))); r.status != http.StatusCreated {
+		t.Fatalf("control upload at the cap: %d %.300s", r.status, r.body)
+	}
+	calls := s.spy.Calls()
+	if len(calls) != 1 || calls[0].Op != upload.ID || calls[0].BodyBytes != testprovider.UploadMaxBytes {
+		t.Fatalf("control upload: spy calls %+v, want one Receive of %d bytes", calls, testprovider.UploadMaxBytes)
+	}
+
+	t.Run("over the cap", func(t *testing.T) {
+		over := bytes.Repeat([]byte("u"), testprovider.UploadMaxBytes+1)
+		r := send(t, admin, octetStream, bytes.NewReader(over), int64(len(over)))
+		expect(t, r, http.StatusRequestEntityTooLarge, problem.UploadTooLarge)
+	})
+	t.Run("read-only token", func(t *testing.T) {
+		r := send(t, s.exact[nexusd.ReadScope], octetStream, bytes.NewReader(uploadBody), int64(len(uploadBody)))
+		if p := expect(t, r, http.StatusForbidden, problem.Forbidden); p.Extensions["requiredScope"] != nexusd.AdminScope {
+			t.Errorf("requiredScope %v, want %s", p.Extensions["requiredScope"], nexusd.AdminScope)
+		}
+	})
+	t.Run("no token", func(t *testing.T) {
+		// A watchdog frees the body after 3 s, because the client cannot
+		// give up while its body read blocks; an answer that came only
+		// after it means the server waited for the body.
+		release := make(chan struct{})
+		var once sync.Once
+		var fired atomic.Bool
+		free := func() { once.Do(func() { close(release) }) }
+		watchdog := time.AfterFunc(3*time.Second, func() { fired.Store(true); free() })
+		defer watchdog.Stop()
+		defer free()
+		body := &blockingBody{head: bytes.NewReader(uploadBody), release: release}
+		r := send(t, "", octetStream, body, -1)
+		if fired.Load() {
+			t.Fatal("the 401 came only after the client body was released: the server waited for the body")
+		}
+		free()
+		expect(t, r, http.StatusUnauthorized, problem.Unauthorized)
+	})
+	t.Run("JSON content type", func(t *testing.T) {
+		r := send(t, admin, "application/json", bytes.NewReader([]byte(`{}`)), 2)
+		expect(t, r, http.StatusBadRequest, problem.ValidationFailed)
+	})
+
+	if got := s.spy.Calls(); len(got) != 1 {
+		t.Errorf("Receive ran for a refused upload: spy calls %+v, want only the control", got)
+	}
 }

@@ -41,10 +41,11 @@ func TestScriptsPreflightUsesDetachAvailable(t *testing.T) {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
 			return err
 		}
-		// Pi-hole stays systemd-only on purpose: a timed stop-blocking
-		// creates a transient systemd timer, and Pi-hole is not supported
-		// on OpenRC. Its descriptions and Preflight reason say so.
-		if filepath.Base(filepath.Dir(path)) == "pihole" {
+		// Pi-hole and nexusd's self-management stay systemd-only on purpose:
+		// a timed stop-blocking creates a transient systemd timer, and
+		// nexusd's restart, update and rollback swap and restart
+		// nexusd.service. Their descriptions and Preflight reasons say so.
+		if d := filepath.Base(filepath.Dir(path)); d == "pihole" || d == "nexusd" {
 			return nil
 		}
 		b, err := os.ReadFile(path)

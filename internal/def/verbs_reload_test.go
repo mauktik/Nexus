@@ -18,8 +18,8 @@ func TestReloadIsApprovedAndSynonymsAreNot(t *testing.T) {
 			t.Errorf("IsApprovedVerb(%q) = true, want false", v)
 		}
 	}
-	if n := len(ApprovedVerbs()); n != 12 {
-		t.Errorf("len(ApprovedVerbs()) = %d, want 12", n)
+	if n := len(ApprovedVerbs()); n != 14 { // rollback and validate-config came with nexusd self-management
+		t.Errorf("len(ApprovedVerbs()) = %d, want 14", n)
 	}
 	b, err := os.ReadFile(filepath.Join("..", "..", "docs", "adding-a-provider.md"))
 	if err != nil {

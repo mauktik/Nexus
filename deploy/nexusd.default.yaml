@@ -142,3 +142,23 @@ providers:
     stateTimeout: 30s          # How long start, stop or restart may take to reach the commanded state
     reloadVerifyTimeout: 15s   # How long nginx may take to show it loaded the new configuration after a reload
     maxConfigBytes: 262144     # Largest site file read or written (256 KiB); at most limits.maxBodyBytes
+  # nexusd itself: get and validate-config read it (nexusd:read); reload,
+  # restart, update and rollback change it and require nexusd:admin, which is
+  # root-equivalent. Restart, update and rollback run in a systemd unit
+  # outside the sandbox and need nexusd running as nexusd.service: systemd
+  # hosts only, not OpenRC.
+  nexusd:
+    enabled: false
+    healthTimeout: 30s         # 5s..10m: how long a restarted nexusd may take to become healthy
+    update:
+      maxUploadBytes: 67108864 # 1 MiB..256 MiB: largest release tarball accepted for update
+      # The Ed25519 public keys a release's .sig must verify under: the
+      # standard base64 of each raw 32-byte key. Empty means update is refused
+      # with update-not-configured. On the machine that builds releases,
+      # `make release-key` creates the signing key (kept off this host) and
+      # prints the line to put here, for example
+      #   trustedKeys: ["<base64>"]
+      # Keys change only by editing this file: no API, MCP or CLI call can add
+      # or remove one. To rotate, list the old and new keys, then remove the
+      # old one. A malformed or duplicate key is an error.
+      trustedKeys: []

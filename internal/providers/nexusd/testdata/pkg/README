@@ -1,0 +1,28 @@
+Package fixtures for pkg_test.go (WI 5.2, TC-SM-77, TC-SM-81)
+
+These are real release-shaped tarballs, made by the two tar programs
+`make release` uses, with the Makefile's TAR_FLAGS. They are not signed:
+the tests sign each one in-test with the fixed seedTrusted key. Malicious
+and size-bound archives are never committed; the tests generate them with
+archive/tar.
+
+  gnu-nexusd-v9.9.2-linux-{amd64,arm64}.tar.gz
+      GNU tar 1.35 (debian:stable image), GNU format ("ustar  \0" magic):
+      tar --owner=0 --group=0 --numeric-owner --no-xattrs -czf OUT TOP
+  bsd-nexusd-v9.9.2-linux-{amd64,arm64}.tar.gz
+      bsdtar 3.5.3 / libarchive 3.7.4 (macOS /usr/bin/tar), restricted pax
+      ("ustar\0" magic):
+      COPYFILE_DISABLE=1 tar --uid 0 --gid 0 --uname root --gname root \
+          --no-xattrs --no-mac-metadata -czf OUT TOP
+
+TOP is nexusd-v9.9.2-linux-<arch>, built as `make nexusd-tree` builds a
+release tree (cp of deploy/nexusd.service, nexusd.default.yaml, install.sh,
+uninstall.sh and README.md; `chmod -R u=rwX,go=rX`; `chmod 0755` on nexusd,
+install.sh and uninstall.sh), except that the binary is nexusd-standin.sh
+(prints "nexusd v9.9.2" for exactly "-version") and docs/ holds two pages
+(docs/install.md, docs/cli/nexus.md) instead of all of docs/.
+
+Regenerate from the repository root (needs Docker with debian:stable and a
+host bsdtar):
+
+  internal/providers/nexusd/testdata/pkg/mkfixtures.sh

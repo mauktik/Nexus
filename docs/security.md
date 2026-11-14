@@ -106,6 +106,8 @@ Keep `nexusd` LAN only.
 | `pihole:dns` | DNS zone and record changes, single or batched: can redirect any name for every LAN client |
 | `pihole:write` | Pi-hole blocking, allow and deny entries, adlists, gravity, DNS restart and cache flush |
 | `audit:read` | Querying the audit log |
+| `nexusd:read` | The running `nexusd`: version, uptime, rollback binary, whether updates are configured, and checking its configuration file |
+| `nexusd:admin` | Reloading, restarting, updating and rolling back `nexusd`, and uploading a release; **root-equivalent** |
 
 The generated [API reference](api.md) lists the scope of every operation.
 
@@ -148,6 +150,99 @@ file. That limits what a token can request, not what the requested work can
 do once it runs. For nginx, the service and the include directory come
 only from the configuration file and the binary is fixed at
 `/usr/sbin/nginx`; a request names a site and its content, never a path.
+
+## nexusd:admin is root-equivalent
+
+`nexusd:admin` is not potentially but plainly root-equivalent. An update
+replaces the `nexusd` binary, which runs as root, and runs the release's
+`install.sh` as root; a rollback puts the previous binary back, which may be
+older and have known flaws; a restart takes the API down while it runs.
+Give `nexusd:admin` only to whoever you would give a root shell on the
+host, keep it off agents, and give it an expiry. Reading `nexusd` needs only
+`nexusd:read`.
+
+No `nexusd:admin` operation is an MCP tool. Only `get_nexusd` and
+`validate_nexusd_config`, both read-only, are exposed over MCP; reload,
+restart, update, rollback and the upload are reachable only through REST and
+the `nexus` CLI.
+
+An update runs code a caller sent, which FR-25 otherwise rules out. It is
+allowed because the caller does not decide what runs. The update takes only
+an upload ID that the host generated, never a path, URL or command, and the
+host runs nothing from the upload unless its signature verifies under a key
+listed in the root-owned configuration file. A token can therefore install
+only a release that the holder of a trusted signing key has signed: the key
+holder and the root who listed the key decide what code may run, and the
+token decides only when.
+
+## The release signing key
+
+`nexusd` installs only releases signed by a key it trusts.
+
+- **Where it lives.** `make release-key` writes the Ed25519 private key to
+  `~/.config/nexus/release-signing.key` on the machine that builds
+  releases (or the path in `$NEXUS_RELEASE_KEY`), mode 0600, and never
+  replaces an existing key. `make release` refuses a key that a group or
+  others can read. The key never goes to a host, into the repository or into
+  a release.
+- **What is signed.** The signature is Ed25519 (RFC 8032) over a
+  domain-separated message: the fixed context `nexus-release-signature-v1`
+  and a NUL byte, then the SHA-256 digest of the tarball. The context keeps a
+  release signature from being valid for anything else the key might sign.
+  It is written beside the tarball as `<tarball>.sig`, in base64.
+- **Pinned keys.** A host trusts the base64 public keys listed in
+  `providers.nexusd.update.trustedKeys` in `/etc/nexus/nexusd.yaml`, and no
+  others. The list changes only by editing that root-owned file: no API, MCP
+  or CLI call can add or remove a key. With no key listed, update is refused
+  with `update-not-configured`.
+- **`SHA256SUMS` is integrity, not authentication.** It detects a corrupted
+  download, but anyone who can change a tarball can change `SHA256SUMS` with
+  it. A matching digest is never accepted in place of the signature, which
+  is checked before any byte of the tarball is unpacked or run.
+- **Rotation.** Make a new key at another path, list both the old and the
+  new public key in `trustedKeys` on every host and reload, sign releases
+  with the new key, then remove the old key from every host and reload.
+  [install.md](install.md#from-a-client-nexus-nexusd-update) has the
+  commands.
+- **A stolen key** lets anyone who also holds a `nexusd:admin` token, on any
+  host that trusts it, install arbitrary code that runs as root. If the key
+  is lost or may be copied, remove its public key from
+  `trustedKeys` on every host and reload, then make a new key.
+
+## Updates: uploads and the out-of-sandbox helper
+
+- **Upload limits.** A release reaches the host as the body of
+  `POST /v1/providers/nexusd/uploads`, which needs `nexusd:admin`. The body
+  is streamed to `/var/lib/nexus/staging/<uploadId>/` (mode 0700), never
+  held in memory whole, and a body over
+  `providers.nexusd.update.maxUploadBytes` (default 64 MiB, at most 256 MiB)
+  is refused with 413 `upload-too-large` and deleted. At most 2 uploads are
+  staged at once, and each is deleted after an hour, or when the update that
+  used it ends.
+- **Package checks.** After the signature verifies, the tarball is read
+  before anything is extracted: at most 1024 entries and 256 MiB of
+  content, only regular files and directories under the one top-level
+  `nexusd-<version>-linux-amd64/` directory, no absolute path, `..`,
+  symbolic link, hard link, device node or duplicate name, and the files a
+  release must hold. Every read re-hashes the file, so a file swapped after
+  verification is refused. The package's `nexusd` must then report the
+  version its directory names. A failure is `update-package-invalid`.
+- **The helper.** Restart, update and rollback must write
+  `/usr/local/bin/nexusd` and `/etc/systemd/system/nexusd.service` and
+  restart `nexusd.service`, which the sandbox forbids. They run as a
+  `nexus-op-<id>` unit, like other long-running operations, outside the
+  sandbox and outside `nexusd.service`, as root. The unit runs the installed
+  `nexusd` binary's hidden `service-helper` command, which saves the running
+  binary as `nexusd.prev` and the unit file under `/var/lib/nexus/rollback/`,
+  runs `install.sh` from the verified, extracted package as root, runs
+  `systemctl daemon-reload`, `reset-failed` and `restart` on
+  `nexusd.service` only, checks health, and restores the previous version on
+  failure. It takes no command or path from the caller: its input is
+  written by `nexusd` from the verified package and the configuration.
+- **Audit.** Each upload, reload, restart, update and rollback is audited
+  before it runs, with the upload ID, the tarball's SHA-256, the package
+  version, `allowDowngrade` and the signature verdict where they apply,
+  never key material. Refusals are audited with their problem type.
 
 ## nexusd runs as root; the sandbox is not a security boundary
 
@@ -400,10 +495,11 @@ The limits (OOS-12):
 ## Operation units
 
 Long-running work (apt changes, script runs, container updates, Pi-hole
-and nginx changes) runs in a transient `nexus-op-<id>.service` unit outside the
-`nexusd` sandbox, so it keeps running when `nexusd` restarts or crashes.
-The units are started with `RefuseManualStop=yes`, so `systemctl stop` on
-one is refused; this is also what keeps `needrestart`, Ubuntu's apt hook, from stopping a running script
+and nginx changes, and `nexusd`'s own restart, update and rollback) runs in a
+transient `nexus-op-<id>.service` unit outside the `nexusd` sandbox, so it
+keeps running when `nexusd` restarts or crashes. The units are started with
+`RefuseManualStop=yes`, so `systemctl stop` on one is refused; this is also
+what keeps `needrestart`, Ubuntu's apt hook, from stopping a running script
 or upgrade when it restarts services after an upgrade (it may restart
 `nexusd` itself, which then picks the operations up again).
 
@@ -441,11 +537,15 @@ becomes on Alpine, where there is no unit.
 
 `nexusd` runs as root under this unit, because Docker socket access and apt
 are root-equivalent anyway. The privileged work (apt changes, script runs,
-container updates, Pi-hole and nginx changes) runs in `nexus-op-*` transient units that `nexusd` starts
-with `systemd-run`. Those units are outside this sandbox. The sandbox limits
-what the `nexusd` process itself can do if it is compromised. It is not a
-boundary between a token holder and root: a token with a mutating `docker`,
-`apt` or `scripts` scope, or `nginx:config`, is potentially root-equivalent.
+container updates, Pi-hole and nginx changes, and restarting, updating and rolling
+back `nexusd`) runs in `nexus-op-*` transient units that `nexusd` starts with
+`systemd-run`. Those units are outside this sandbox. The sandbox limits what
+the `nexusd` process itself can do if it is compromised. It is not a boundary
+between a token holder and root: a token with a mutating `docker`, `apt` or
+`scripts` scope, or `nginx:config`, is potentially root-equivalent, and `nexusd:admin` is
+root-equivalent. Self-update did not relax any directive: everything
+`nexusd` writes for it inside the sandbox (staged uploads, the extracted
+package, the helper's input) is under `/var/lib/nexus`.
 
 ## Directives in force
 

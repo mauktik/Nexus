@@ -37,6 +37,37 @@ const (
 // so a test can shorten it.
 var StreamWriteDeadline = 30 * time.Second
 
+// Upload deadlines (A-5). ReadTimeout would cut a large upload on a slow
+// link, so an upload route moves the request's read deadline, once the body
+// is first read, to now + UploadDeadlineGrace + length/UploadMinRate (the
+// declared length, bounded by the cap; the cap if undeclared), and its
+// write deadline UploadDeadlineGrace past that.
+const (
+	UploadDeadlineGrace = 30 * time.Second
+	UploadMinRate       = 1 << 20 // Bytes per second
+)
+
+// The window above is long: the cap's for a chunked upload, and up to the
+// cap's for a declared length, which a client may set to the cap. A client
+// could hold the upload's staging slot for all of it by sending a byte at a
+// time (SEC-2), whatever the framing. Every upload body therefore also has a
+// floor: after UploadFloorGrace, the bytes received must average at least
+// UploadFloorRate, and the read deadline of each read is the time the next
+// byte is due at that rate, never later than the window's end. A body below
+// the floor fails its read with the read deadline's error, as one that
+// outlasts its window does.
+const (
+	UploadFloorGrace = 10 * time.Second
+	UploadFloorRate  = 64 << 10 // Bytes per second
+)
+
+// floorGrace and floorRate are the values in force; a test shortens them
+// through SetUploadFloor.
+var (
+	floorGrace = UploadFloorGrace
+	floorRate  = int64(UploadFloorRate)
+)
+
 // DefaultMaxBodyBytes is the request body limit when Options leaves it zero.
 const DefaultMaxBodyBytes = 1 << 20
 
@@ -63,11 +94,15 @@ type Options struct {
 
 // Server serves the REST API, /mcp and /healthz.
 type Server struct {
-	http       *http.Server
-	reg        *core.Registry
-	mcp        *mcpadapter.Adapter
-	mux        *http.ServeMux
-	routes     []Route
+	http   *http.Server
+	reg    *core.Registry
+	mcp    *mcpadapter.Adapter
+	mux    *http.ServeMux
+	routes []Route
+	// uploadCaps maps the path of each upload route to its binding's
+	// MaxBytes, the body limit limitBody applies to a POST there. It is
+	// filled by registerREST and only read once serving starts.
+	uploadCaps map[string]func() int64
 	log        *slog.Logger
 	base       context.Context
 	cancelBase context.CancelFunc
@@ -89,7 +124,7 @@ func New(reg *core.Registry, opts Options) (*Server, error) {
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()
 	}
-	s := &Server{reg: reg, mux: http.NewServeMux(), log: opts.Logger}
+	s := &Server{reg: reg, mux: http.NewServeMux(), log: opts.Logger, uploadCaps: map[string]func() int64{}}
 	// The base context outlives no shutdown: Shutdown cancels it first, so
 	// long-lived handlers such as log followers end promptly.
 	s.base, s.cancelBase = context.WithCancel(context.Background())
@@ -114,11 +149,13 @@ func New(reg *core.Registry, opts Options) (*Server, error) {
 	// Authentication, with its rate limit, runs before the body is touched
 	// or a route is matched, so an unauthenticated client learns nothing
 	// about routes and cannot make the server read a body. The Origin guard
-	// of /mcp runs before it (FR-23).
+	// of /mcp runs before it (FR-23). closeUnread keeps net/http from
+	// draining a body no handler read before it answers.
 	var h http.Handler = http.HandlerFunc(s.dispatch)
-	h = limitBody(s.log, opts.MaxBodyBytes, h)
+	h = limitBody(s.log, opts.MaxBodyBytes, s.uploadCaps, h)
 	h = opts.Auth.Middleware(h)
 	h = mcpadapter.OriginGuard(opts.MCPAllowedOrigins, s.log, h)
+	h = closeUnread(h)
 	h = recoverPanics(s.log, h)
 	s.http = &http.Server{
 		Handler:           h,

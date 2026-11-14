@@ -174,6 +174,40 @@ func TestAccountOrderAndFlag(t *testing.T) {
 	}
 }
 
+// TC-SM-48: the staging directory of uploads is measured into the total and
+// counts toward the limit flag, but no pass evicts from it: a staged upload
+// expires by itself.
+func TestTCSM48_StagingBytesCountTowardTheStorage(t *testing.T) {
+	const mib = 1 << 20
+	d := newDirs(t)
+	staging := filepath.Join(t.TempDir(), "staging")
+	staged := []string{filepath.Join(staging, "u1", "upload.tar.gz"), filepath.Join(staging, "u2", "upload.tar.gz")}
+	writeN(t, staged[0], 2*mib)
+	writeN(t, staged[1], 1*mib)
+	writeN(t, filepath.Join(d.ops, "a", "exit.json"), 2*mib)
+	var calls []string
+	acct, err := storage.New(storage.Options{BudgetBytes: 4 * mib, StateDB: d.db, OpsDir: d.ops, AuditDir: d.audit,
+		StagingDir: staging, Retention: &fakeRetention{calls: &calls}, Logger: quiet()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := acct.Account()
+	if r.StagingBytes != 3*mib || r.OpsBytes != 2*mib || r.Total != 5*mib {
+		t.Fatalf("report %+v: want 3 MiB staged within a 5 MiB total", r)
+	}
+	if !r.Limited || !acct.Limited() {
+		t.Fatalf("report %+v: 5 MiB over a 4 MiB budget must set the limit flag", r)
+	}
+	if !slices.Equal(calls, []string{"prune", "evict"}) {
+		t.Fatalf("calls %v: over budget, the pass must try eviction", calls)
+	}
+	for _, p := range staged {
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("eviction touched staging: %v", err)
+		}
+	}
+}
+
 // A pass that cannot measure keeps the flag as it was.
 func TestAccountKeepsTheFlagWhenItCannotMeasure(t *testing.T) {
 	d := newDirs(t)

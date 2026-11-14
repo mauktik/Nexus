@@ -36,6 +36,7 @@ nexus [flags]
 | [`nexus containerupdate`](nexus_containerupdate.md) | Verbs: get |
 | [`nexus help`](nexus_help.md) | Show usage and examples for a command |
 | [`nexus host`](nexus_host.md) | Configured hosts |
+| [`nexus nexusd`](nexus_nexusd.md) | Verbs: get, validate-config, reload, restart, update, rollback |
 | [`nexus nginx`](nexus_nginx.md) | Verbs: get, start, stop, restart, reload |
 | [`nexus nginxconfig`](nexus_nginxconfig.md) | Verbs: test |
 | [`nexus nginxsite`](nexus_nginxsite.md) | Verbs: get, start, stop, add, update |
@@ -78,6 +79,12 @@ nexus [flags]
 | [`nexus host add`](nexus_host_add.md) | Register a host and pin its certificate |
 | [`nexus host get`](nexus_host_get.md) | List configured hosts, or show one |
 | [`nexus host remove`](nexus_host_remove.md) | Remove a configured host and its token |
+| [`nexus nexusd get`](nexus_nexusd_get.md) | Get the running nexusd |
+| [`nexus nexusd reload`](nexus_nexusd_reload.md) | Reload the nexusd configuration |
+| [`nexus nexusd restart`](nexus_nexusd_restart.md) | Restart nexusd |
+| [`nexus nexusd rollback`](nexus_nexusd_rollback.md) | Roll nexusd back to the previous binary |
+| [`nexus nexusd update`](nexus_nexusd_update.md) | Update nexusd from a signed release |
+| [`nexus nexusd validate-config`](nexus_nexusd_validate-config.md) | Validate the nexusd configuration file |
 | [`nexus nginx get`](nexus_nginx_get.md) | Get nginx's status |
 | [`nexus nginx reload`](nexus_nginx_reload.md) | Reload nginx |
 | [`nexus nginx restart`](nexus_nginx_restart.md) | Restart nginx |

@@ -1,0 +1,52 @@
+OpenSSL 3 interoperability fixture for internal/release (TC-SM-8, CON-6)
+
+fixture.tar.gz.sig is an Ed25519 signature made by OpenSSL, not by Go, over
+the domain-separated release message
+
+    Message(d) = "nexus-release-signature-v1\x00" || d,   d = sha256(fixture.tar.gz)
+
+(27 + 32 = 59 bytes), base64-encoded on one line with a trailing newline,
+the .sig file format. pubkey.b64 is the standard base64 of the raw 32-byte
+public key, the trustedKeys format. The private key was a throwaway made for
+this fixture and was deleted; it is not committed and is not trusted anywhere.
+
+Generated on 2026-11-13 with:
+
+    $ /opt/homebrew/opt/openssl@3/bin/openssl version
+    OpenSSL 3.6.1 27 Jan 2026 (Library: OpenSSL 3.6.1 27 Jan 2026)
+
+Exact commands (run in this directory; K is a scratch directory outside the
+repository, deleted afterwards):
+
+    OPENSSL=/opt/homebrew/opt/openssl@3/bin/openssl
+    mkdir -p $K/src/fixture
+    printf 'internal/release TC-SM-8 fixture: signed with OpenSSL 3 over Message(sha256(tarball)).\n' > $K/src/fixture/hello.txt
+    tar -C $K/src -czf fixture.tar.gz fixture
+    $OPENSSL genpkey -algorithm ed25519 -out $K/key.pem
+    { printf 'nexus-release-signature-v1\0'; $OPENSSL dgst -sha256 -binary fixture.tar.gz; } > $K/msg.bin
+    $OPENSSL pkeyutl -sign -rawin -inkey $K/key.pem -in $K/msg.bin -out $K/sig.bin
+    { $OPENSSL base64 -A -in $K/sig.bin; printf '\n'; } > fixture.tar.gz.sig
+    { $OPENSSL pkey -in $K/key.pem -pubout -outform DER | tail -c 32 | $OPENSSL base64 -A; printf '\n'; } > pubkey.b64
+
+The DER SubjectPublicKeyInfo of an Ed25519 key is the fixed 12-byte prefix
+302a300506032b6570032100 followed by the 32 raw key bytes, so `tail -c 32`
+yields the raw key.
+
+OpenSSL's own check of the signature, transcript:
+
+    $ wc -c < $K/msg.bin
+          59
+    $ wc -c < $K/sig.bin
+          64
+    $ $OPENSSL pkey -in $K/key.pem -pubout -out $K/pub.pem
+    $ $OPENSSL pkeyutl -verify -rawin -pubin -inkey $K/pub.pem -in $K/msg.bin -sigfile $K/sig.bin
+    Signature Verified Successfully
+
+Resulting values:
+
+    sha256(fixture.tar.gz) = c9b454047ab57f6e4bbbd57204f6f74bfa1250dc79c42e17be74f93468a55750
+    fixture.tar.gz.sig     = Vf4yNAKe90RWqaZS4/l/si3vREdmLaD2gQ5B3Oernrvs732VsWYuuMlBH19wu+FHsWra2VcWbQmas/Elir2WBQ==
+    pubkey.b64             = 7UmXxFzwpLgc97wzIqPAhjYBQVpVJNRoxJVVBMWQ9rI=
+
+Regenerating replaces all three files together; the tarball, signature and
+key must come from the same run.

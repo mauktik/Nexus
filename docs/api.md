@@ -38,6 +38,13 @@ Only `GET /healthz` needs no token; it reports liveness only and is not part of 
 | [`POST /v1/providers/docker/containers/{name}/start`](#op-docker-containers-start) | `docker.containers.start` | mutating | Start a container |
 | [`POST /v1/providers/docker/containers/{name}/stop`](#op-docker-containers-stop) | `docker.containers.stop` | mutating | Stop a container |
 | [`POST /v1/providers/docker/containers/{name}/update`](#op-docker-containers-update) | `docker.containers.update` | mutating | Update a container to its image's newest digest |
+| [`POST /v1/providers/nexusd/actions/reload`](#op-nexusd-actions-reload) | `nexusd.actions.reload` | mutating | Reload the nexusd configuration |
+| [`POST /v1/providers/nexusd/actions/restart`](#op-nexusd-actions-restart) | `nexusd.actions.restart` | mutating | Restart nexusd |
+| [`POST /v1/providers/nexusd/actions/rollback`](#op-nexusd-actions-rollback) | `nexusd.actions.rollback` | destructive | Roll nexusd back to the previous binary |
+| [`POST /v1/providers/nexusd/actions/update`](#op-nexusd-actions-update) | `nexusd.actions.update` | mutating | Update nexusd from a signed release |
+| [`POST /v1/providers/nexusd/actions/validate-config`](#op-nexusd-actions-validate-config) | `nexusd.actions.validate-config` | read-only | Validate the nexusd configuration file |
+| [`GET /v1/providers/nexusd/daemons`](#op-nexusd-daemons-list) | `nexusd.daemons.list` | read-only | Get the running nexusd |
+| [`POST /v1/providers/nexusd/uploads`](#op-nexusd-uploads-add) | `nexusd.uploads.add` | mutating | Stage a release tarball for update |
 | [`POST /v1/providers/nginx/actions/reload`](#op-nginx-actions-reload) | `nginx.actions.reload` | mutating | Reload nginx |
 | [`POST /v1/providers/nginx/actions/restart`](#op-nginx-actions-restart) | `nginx.actions.restart` | mutating | Restart nginx |
 | [`POST /v1/providers/nginx/actions/start`](#op-nginx-actions-start) | `nginx.actions.start` | mutating | Start nginx |
@@ -101,7 +108,7 @@ Parameters:
 | Name | In | Required | Schema | Description |
 | --- | --- | --- | --- | --- |
 | `cursor` | query | no | `{"type":"string","maxLength":512,"pattern":"^[A-Za-z0-9_-]*$"}` | Opaque cursor from a previous page's nextCursor. |
-| `filter` | query | no | `{"type":"array","items":{"type":"string","maxLength":256,"pattern":"^(after\|before\|tokenName\|provider\|action\|outcome)=[^\\x00-\\x1f]*$"}}` | Repeatable key=value filter; an undeclared key is refused. Keys: after (Only records after this RFC 3339 time); before (Only records before this RFC 3339 time); tokenName (Name of the token that made the request); provider (Provider of the requested action); action (Operation ID of the requested action); outcome (Record outcome, such as requested, denied, refused or replayed). |
+| `filter` | query | no | `{"type":"array","items":{"type":"string","maxLength":256,"pattern":"^(after\|before\|tokenName\|provider\|action\|outcome)=[^\\x00-\\x1f]*$"}}` | Repeatable key=value filter; an undeclared key is refused. Keys: after (Only records after this RFC 3339 time); before (Only records before this RFC 3339 time); tokenName (Name of the token that made the request); provider (Provider of the requested action); action (Operation ID of the requested action); outcome (Record outcome, such as requested, denied, refused, replayed or stored). |
 | `limit` | query | no | `{"type":"integer","minimum":1,"maximum":1000}` | Page size: default 100, maximum 1000. |
 
 Responses:
@@ -188,6 +195,12 @@ Response `200` (`application/json`):
           },
           "count": {
             "type": "integer"
+          },
+          "facts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
           }
         },
         "required": [
@@ -3252,6 +3265,697 @@ Response `202` (`application/json`):
       "$ref": "#/components/schemas/Operation"
     }
   ]
+}
+```
+
+## Provider `nexusd`
+
+<a id="op-nexusd-actions-reload"></a>
+
+### `POST /v1/providers/nexusd/actions/reload`
+
+Reload the nexusd configuration.
+
+- Operation ID: `nexusd.actions.reload`
+- Scope: Requires nexusd:admin.
+- Risk: mutating
+- Long-running: yes: answers 202 with an operation to poll
+
+Re-reads and applies nexusd's configuration file, as SIGHUP does, serialized with SIGHUP. An invalid file is refused with 422 config-invalid and its errors, and no operation is created. Side effects: the new configuration is applied, all or nothing: if a provider refuses its section the operation fails with config-apply-failed and the configuration in force is unchanged. The result lists restartRequired, the top-level keys that take effect only after a restart. Long-running: answers 202 with an operation. Reload, restart, update and rollback share one lane: a second request while one is queued or running answers 409 naming the blocking operation. It can be canceled only while queued. Requires nexusd:admin, which is root-equivalent.
+
+Parameters:
+
+| Name | In | Required | Schema | Description |
+| --- | --- | --- | --- | --- |
+| `Idempotency-Key` | header | no | `{"type":"string","maxLength":255}` | Makes a retry safe: a repeat with the same key and request returns the original operation, and the same key with a different request is refused with idempotency-key-reused. |
+
+Responses:
+
+- `202`: Accepted: the operation was created, or an earlier one with the same Idempotency-Key is returned. Poll it at Location until its status is terminal. Headers: `Location`, `Retry-After`.
+- `400`: Problem: validation-failed.
+- `401`: Problem: unauthorized. Headers: `WWW-Authenticate`.
+- `403`: Problem: forbidden.
+- `404`: Problem: route-not-found.
+- `405`: Problem: method-not-allowed. Headers: `Allow`.
+- `409`: Problem: conflict.
+- `413`: Problem: payload-too-large.
+- `422`: Problem: idempotency-key-reused.
+- `429`: Problem: rate-limited. Headers: `Retry-After`.
+- `500`: Problem: internal-error.
+- `503`: Problem: audit-unavailable, capability-unavailable, dependency-unavailable.
+- `507`: Problem: storage-limit-reached.
+- `default`: Any other problem, such as one the provider reports, as problem details of a registered type.
+
+Response `202` (`application/json`):
+
+```json
+{
+  "properties": {
+    "result": {
+      "description": "The op's output once the operation has Succeeded; null until then.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "changed": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "applied": {
+              "type": "boolean"
+            },
+            "restartRequired": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "changed",
+            "applied",
+            "restartRequired"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Operation"
+    }
+  ]
+}
+```
+
+<a id="op-nexusd-actions-restart"></a>
+
+### `POST /v1/providers/nexusd/actions/restart`
+
+Restart nexusd.
+
+- Operation ID: `nexusd.actions.restart`
+- Scope: Requires nexusd:admin.
+- Risk: mutating
+- Long-running: yes: answers 202 with an operation to poll
+
+Restarts nexusd.service and checks its health: active, running the expected version, answering /healthz, and still so 5 seconds later, within providers.nexusd.healthTimeout. Side effects: the daemon stops and starts; the API is unreachable meanwhile. Unhealthy fails with restart-unhealthy, without rollback. Long-running: answers 202 with an operation. It runs in a systemd unit (systemd hosts only, not OpenRC) outside the sandbox, and the daemon that is running when the unit ends records the outcome. The CLI keeps reconnecting for up to 60 seconds while nexusd restarts. Restarting nexusd neither waits for nor cancels other operations: in-process operations of other providers end outcome-unknown, and detached operations survive. Reload, restart, update and rollback share one lane: a second request while one is queued or running answers 409 naming the blocking operation. It can be canceled only while queued. Requires nexusd:admin, which is root-equivalent.
+
+Parameters:
+
+| Name | In | Required | Schema | Description |
+| --- | --- | --- | --- | --- |
+| `Idempotency-Key` | header | no | `{"type":"string","maxLength":255}` | Makes a retry safe: a repeat with the same key and request returns the original operation, and the same key with a different request is refused with idempotency-key-reused. |
+
+Responses:
+
+- `202`: Accepted: the operation was created, or an earlier one with the same Idempotency-Key is returned. Poll it at Location until its status is terminal. Headers: `Location`, `Retry-After`.
+- `400`: Problem: validation-failed.
+- `401`: Problem: unauthorized. Headers: `WWW-Authenticate`.
+- `403`: Problem: forbidden.
+- `404`: Problem: route-not-found.
+- `405`: Problem: method-not-allowed. Headers: `Allow`.
+- `409`: Problem: conflict.
+- `413`: Problem: payload-too-large.
+- `422`: Problem: idempotency-key-reused.
+- `429`: Problem: rate-limited. Headers: `Retry-After`.
+- `500`: Problem: internal-error.
+- `503`: Problem: audit-unavailable, capability-unavailable, dependency-unavailable.
+- `507`: Problem: storage-limit-reached.
+- `default`: Any other problem, such as one the provider reports, as problem details of a registered type.
+
+Response `202` (`application/json`):
+
+```json
+{
+  "properties": {
+    "result": {
+      "description": "The op's output once the operation has Succeeded; null until then.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "changed": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "changed",
+            "version"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Operation"
+    }
+  ]
+}
+```
+
+<a id="op-nexusd-actions-rollback"></a>
+
+### `POST /v1/providers/nexusd/actions/rollback`
+
+Roll nexusd back to the previous binary.
+
+- Operation ID: `nexusd.actions.rollback`
+- Scope: Requires nexusd:admin.
+- Risk: destructive
+- Long-running: yes: answers 202 with an operation to poll
+
+Swaps nexusd with the rollback binary nexusd.prev, and the unit file with its saved copy when there is one, so a rollback can itself be rolled back. Refused with rollback-unavailable when there is no nexusd.prev, and with config-invalid when it rejects the current configuration. Side effects: the installed binary changes and nexusd restarts onto the previous version; if that is unhealthy the swap is undone and the operation fails with rollback-failed. Long-running: answers 202 with an operation. It runs in a systemd unit (systemd hosts only, not OpenRC) outside the sandbox, and the daemon that is running when the unit ends records the outcome. The CLI keeps reconnecting for up to 60 seconds while nexusd restarts. Restarting nexusd neither waits for nor cancels other operations: in-process operations of other providers end outcome-unknown, and detached operations survive. Reload, restart, update and rollback share one lane: a second request while one is queued or running answers 409 naming the blocking operation. It can be canceled only while queued. Requires nexusd:admin, which is root-equivalent.
+
+Parameters:
+
+| Name | In | Required | Schema | Description |
+| --- | --- | --- | --- | --- |
+| `Idempotency-Key` | header | no | `{"type":"string","maxLength":255}` | Makes a retry safe: a repeat with the same key and request returns the original operation, and the same key with a different request is refused with idempotency-key-reused. |
+
+Responses:
+
+- `202`: Accepted: the operation was created, or an earlier one with the same Idempotency-Key is returned. Poll it at Location until its status is terminal. Headers: `Location`, `Retry-After`.
+- `400`: Problem: validation-failed.
+- `401`: Problem: unauthorized. Headers: `WWW-Authenticate`.
+- `403`: Problem: forbidden.
+- `404`: Problem: route-not-found.
+- `405`: Problem: method-not-allowed. Headers: `Allow`.
+- `409`: Problem: conflict.
+- `413`: Problem: payload-too-large.
+- `422`: Problem: idempotency-key-reused.
+- `429`: Problem: rate-limited. Headers: `Retry-After`.
+- `500`: Problem: internal-error.
+- `503`: Problem: audit-unavailable, capability-unavailable, dependency-unavailable.
+- `507`: Problem: storage-limit-reached.
+- `default`: Any other problem, such as one the provider reports, as problem details of a registered type.
+
+Response `202` (`application/json`):
+
+```json
+{
+  "properties": {
+    "result": {
+      "description": "The op's output once the operation has Succeeded; null until then.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "changed": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "fromVersion": {
+              "type": "string"
+            },
+            "toVersion": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "changed",
+            "fromVersion",
+            "toVersion"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Operation"
+    }
+  ]
+}
+```
+
+<a id="op-nexusd-actions-update"></a>
+
+### `POST /v1/providers/nexusd/actions/update`
+
+Update nexusd from a signed release.
+
+- Operation ID: `nexusd.actions.update`
+- Scope: Requires nexusd:admin.
+- Risk: mutating
+- Long-running: yes: answers 202 with an operation to poll
+
+Installs the release tarball staged as uploadId. Before any operation exists it is refused with update-not-configured (no trusted key), upload-not-found, update-signature-invalid, update-package-invalid, or 409 version-downgrade (an older version without allowDowngrade); the same version succeeds with changed false. Side effects: the current binary and unit file are saved as the rollback copy, the package's install.sh runs as root, and nexusd restarts once onto the new version. If install, restart or the health check fails, the previous binary is restored and the operation fails with update-failed and rolledBack true, or update-rollback-failed if the restore also fails. Long-running: answers 202 with an operation. It runs in a systemd unit (systemd hosts only, not OpenRC) outside the sandbox, and the daemon that is running when the unit ends records the outcome. The CLI keeps reconnecting for up to 60 seconds while nexusd restarts. Restarting nexusd neither waits for nor cancels other operations: in-process operations of other providers end outcome-unknown, and detached operations survive. Reload, restart, update and rollback share one lane: a second request while one is queued or running answers 409 naming the blocking operation. It can be canceled only while queued. Requires nexusd:admin, which is root-equivalent.
+
+Parameters:
+
+| Name | In | Required | Schema | Description |
+| --- | --- | --- | --- | --- |
+| `Idempotency-Key` | header | no | `{"type":"string","maxLength":255}` | Makes a retry safe: a repeat with the same key and request returns the original operation, and the same key with a different request is refused with idempotency-key-reused. |
+
+Request body (`application/json`, required):
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "uploadId": {
+      "type": "string",
+      "description": "ID of a staged release upload, from POST /providers/nexusd/uploads.",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "allowDowngrade": {
+      "type": "boolean",
+      "description": "Install a package older than the running version. Default false."
+    }
+  },
+  "required": [
+    "uploadId"
+  ],
+  "additionalProperties": false
+}
+```
+
+Responses:
+
+- `202`: Accepted: the operation was created, or an earlier one with the same Idempotency-Key is returned. Poll it at Location until its status is terminal. Headers: `Location`, `Retry-After`.
+- `400`: Problem: validation-failed.
+- `401`: Problem: unauthorized. Headers: `WWW-Authenticate`.
+- `403`: Problem: forbidden.
+- `404`: Problem: route-not-found.
+- `405`: Problem: method-not-allowed. Headers: `Allow`.
+- `409`: Problem: conflict.
+- `413`: Problem: payload-too-large.
+- `422`: Problem: idempotency-key-reused.
+- `429`: Problem: rate-limited. Headers: `Retry-After`.
+- `500`: Problem: internal-error.
+- `503`: Problem: audit-unavailable, capability-unavailable, dependency-unavailable.
+- `507`: Problem: storage-limit-reached.
+- `default`: Any other problem, such as one the provider reports, as problem details of a registered type.
+
+Response `202` (`application/json`):
+
+```json
+{
+  "properties": {
+    "result": {
+      "description": "The op's output once the operation has Succeeded; null until then.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "changed": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "previousVersion": {
+              "type": "string"
+            },
+            "newVersion": {
+              "type": "string"
+            },
+            "rolledBack": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "changed",
+            "previousVersion",
+            "newVersion",
+            "rolledBack"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Operation"
+    }
+  ]
+}
+```
+
+<a id="op-nexusd-actions-validate-config"></a>
+
+### `POST /v1/providers/nexusd/actions/validate-config`
+
+Validate the nexusd configuration file.
+
+- Operation ID: `nexusd.actions.validate-config`
+- Scope: Requires nexusd:read.
+- Risk: read-only
+- Long-running: no
+
+Validates the configuration file nexusd was started with, on disk now, with exactly the checks of nexusd validate-config, and returns valid and each error with its file, line, column and key path when known. An invalid file is a successful call with valid false. It never applies the file and takes no path. Read-only.
+
+Responses:
+
+- `200`: The result.
+- `400`: Problem: validation-failed.
+- `401`: Problem: unauthorized. Headers: `WWW-Authenticate`.
+- `403`: Problem: forbidden.
+- `404`: Problem: route-not-found.
+- `405`: Problem: method-not-allowed. Headers: `Allow`.
+- `413`: Problem: payload-too-large.
+- `429`: Problem: rate-limited. Headers: `Retry-After`.
+- `500`: Problem: internal-error.
+- `503`: Problem: capability-unavailable, dependency-unavailable.
+- `default`: Any other problem, such as one the provider reports, as problem details of a registered type.
+
+Response `200` (`application/json`):
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "host": {
+      "type": "string"
+    },
+    "valid": {
+      "type": "boolean"
+    },
+    "configPath": {
+      "type": "string"
+    },
+    "errors": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer"
+          },
+          "column": {
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "host",
+    "valid",
+    "configPath",
+    "errors"
+  ],
+  "additionalProperties": false
+}
+```
+
+<a id="op-nexusd-daemons-list"></a>
+
+### `GET /v1/providers/nexusd/daemons`
+
+Get the running nexusd.
+
+- Operation ID: `nexusd.daemons.list`
+- Scope: Requires nexusd:read.
+- Risk: read-only
+- Long-running: no
+
+Returns this host's nexusd as a one-item list: its version, start time and uptime, the configuration file and executable it runs from, the rollback binary nexusd.prev (present, path and the version it reports, or unknown), whether release keys are configured for update, and whether self-management (restart, update, rollback) is available, with the reason when not. Read-only.
+
+Responses:
+
+- `200`: The result.
+- `400`: Problem: validation-failed.
+- `401`: Problem: unauthorized. Headers: `WWW-Authenticate`.
+- `403`: Problem: forbidden.
+- `404`: Problem: route-not-found.
+- `405`: Problem: method-not-allowed. Headers: `Allow`.
+- `413`: Problem: payload-too-large.
+- `429`: Problem: rate-limited. Headers: `Retry-After`.
+- `500`: Problem: internal-error.
+- `503`: Problem: capability-unavailable, dependency-unavailable.
+- `default`: Any other problem, such as one the provider reports, as problem details of a registered type.
+
+Response `200` (`application/json`):
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "string"
+              },
+              "startedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "uptimeSeconds": {
+                "type": "integer"
+              },
+              "configPath": {
+                "type": "string"
+              },
+              "executablePath": {
+                "type": "string"
+              },
+              "previous": {
+                "type": "object",
+                "properties": {
+                  "present": {
+                    "type": "boolean"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "present",
+                  "path",
+                  "version"
+                ],
+                "additionalProperties": false
+              },
+              "updateConfigured": {
+                "type": "boolean"
+              },
+              "selfManagement": {
+                "type": "object",
+                "properties": {
+                  "available": {
+                    "type": "boolean"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "available"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "version",
+              "startedAt",
+              "uptimeSeconds",
+              "configPath",
+              "executablePath",
+              "previous",
+              "updateConfigured",
+              "selfManagement"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "name",
+          "host",
+          "properties"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "nextCursor": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "items",
+    "nextCursor"
+  ],
+  "additionalProperties": false
+}
+```
+
+<a id="op-nexusd-uploads-add"></a>
+
+### `POST /v1/providers/nexusd/uploads`
+
+Stage a release tarball for update.
+
+- Operation ID: `nexusd.uploads.add`
+- Scope: Requires nexusd:admin.
+- Risk: mutating
+- Long-running: no
+
+Stages a release tarball, the request body, with its detached signature for a later nexusd update, and answers 201 with uploadId, sha256, sizeBytes and expiresAt. Side effects: the body is stored on the host, never in memory whole, and deleted an hour later or when the update that used it ends; at most 2 are staged at once, and a body that matches neither answers 409 once received, while re-sending a staged upload (same bytes and signature) answers 201 with its existing uploadId. A body over providers.nexusd.update.maxUploadBytes answers 413 upload-too-large and nothing is kept. The signature is verified by update, not here. Requires nexusd:admin, which is root-equivalent.
+
+Parameters:
+
+| Name | In | Required | Schema | Description |
+| --- | --- | --- | --- | --- |
+| `signature` | query | yes | `{"type":"string","maxLength":88,"pattern":"^[A-Za-z0-9+/]{86}==$"}` | Detached ed25519 signature of the tarball, standard base64 (the .sig file's content). |
+
+Request body (`application/gzip`, required):
+
+```json
+{
+  "type": "string",
+  "contentMediaType": "application/gzip"
+}
+```
+
+Request body (`application/octet-stream`, required):
+
+```json
+{
+  "type": "string",
+  "contentMediaType": "application/octet-stream"
+}
+```
+
+Responses:
+
+- `201`: Created: the upload is stored.
+- `400`: Problem: validation-failed.
+- `401`: Problem: unauthorized. Headers: `WWW-Authenticate`.
+- `403`: Problem: forbidden.
+- `404`: Problem: route-not-found.
+- `405`: Problem: method-not-allowed. Headers: `Allow`.
+- `409`: Problem: conflict.
+- `413`: Problem: payload-too-large, upload-too-large.
+- `429`: Problem: rate-limited. Headers: `Retry-After`.
+- `500`: Problem: internal-error.
+- `503`: Problem: audit-unavailable, capability-unavailable, dependency-unavailable.
+- `507`: Problem: storage-limit-reached.
+- `default`: Any other problem, such as one the provider reports, as problem details of a registered type.
+
+Response `201` (`application/json`):
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "uploadId": {
+      "type": "string"
+    },
+    "sha256": {
+      "type": "string"
+    },
+    "sizeBytes": {
+      "type": "integer"
+    },
+    "expiresAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "uploadId",
+    "sha256",
+    "sizeBytes",
+    "expiresAt"
+  ],
+  "additionalProperties": false
 }
 ```
 
@@ -9507,6 +10211,88 @@ Response `202` (`application/json`):
 }
 ```
 
+### Problem.config-apply-failed
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "urn:nexus:problem:config-apply-failed"
+    }
+  },
+  "title": "Configuration apply failed",
+  "description": "Appears only inside a failed operation's error.",
+  "required": [
+    "type"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.config-invalid
+
+```json
+{
+  "properties": {
+    "configPath": {
+      "type": "string"
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "column": {
+            "type": "integer",
+            "description": "1-based column; absent when unknown."
+          },
+          "file": {
+            "type": "string",
+            "description": "The file the error is in; absent when unknown."
+          },
+          "line": {
+            "type": "integer",
+            "description": "1-based line; absent when unknown."
+          },
+          "message": {
+            "type": "string",
+            "description": "What is wrong. It never echoes a key's value."
+          },
+          "path": {
+            "type": "string",
+            "description": "The configuration key, such as providers.nexusd.trustedKeys; absent when unknown."
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "description": "The configuration errors, located where known."
+    },
+    "status": {
+      "const": 422
+    },
+    "type": {
+      "const": "urn:nexus:problem:config-invalid"
+    }
+  },
+  "title": "Configuration invalid",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
 ### Problem.conflict
 
 ```json
@@ -10356,6 +11142,106 @@ Response `202` (`application/json`):
 }
 ```
 
+### Problem.restart-unhealthy
+
+```json
+{
+  "properties": {
+    "condition": {
+      "type": "integer",
+      "description": "The health condition that failed: 1 the service is active, 2 it runs the expected version, 3 /healthz answers, 4 all three held for 5 s.",
+      "minimum": 1,
+      "maximum": 4
+    },
+    "type": {
+      "const": "urn:nexus:problem:restart-unhealthy"
+    },
+    "version": {
+      "type": "string",
+      "description": "The nexusd version running after the restart."
+    }
+  },
+  "title": "Restart unhealthy",
+  "description": "Appears only inside a failed operation's error.",
+  "required": [
+    "type"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.rollback-failed
+
+```json
+{
+  "properties": {
+    "condition": {
+      "type": "integer",
+      "description": "The health condition that failed: 1 the service is active, 2 it runs the expected version, 3 /healthz answers, 4 all three held for 5 s.",
+      "minimum": 1,
+      "maximum": 4
+    },
+    "fromVersion": {
+      "type": "string",
+      "description": "The nexusd version the rollback replaced."
+    },
+    "rolledBack": {
+      "type": "boolean",
+      "description": "Whether the previous nexusd was restored and passed the health check."
+    },
+    "toVersion": {
+      "type": "string",
+      "description": "The nexusd version the rollback restored."
+    },
+    "type": {
+      "const": "urn:nexus:problem:rollback-failed"
+    }
+  },
+  "title": "Rollback failed",
+  "description": "Appears only inside a failed operation's error.",
+  "required": [
+    "type"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.rollback-unavailable
+
+```json
+{
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "status": {
+      "const": 409
+    },
+    "type": {
+      "const": "urn:nexus:problem:rollback-unavailable"
+    }
+  },
+  "title": "Rollback unavailable",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
 ### Problem.route-not-found
 
 ```json
@@ -10528,6 +11414,44 @@ Response `202` (`application/json`):
 }
 ```
 
+### Problem.update-failed
+
+```json
+{
+  "properties": {
+    "newVersion": {
+      "type": "string",
+      "description": "The nexusd version the update installed."
+    },
+    "previousVersion": {
+      "type": "string",
+      "description": "The nexusd version before the update."
+    },
+    "rolledBack": {
+      "type": "boolean",
+      "description": "Whether the previous nexusd was restored and passed the health check."
+    },
+    "step": {
+      "type": "string",
+      "description": "The update step that failed, such as precheck."
+    },
+    "type": {
+      "const": "urn:nexus:problem:update-failed"
+    }
+  },
+  "title": "Update failed",
+  "description": "Appears only inside a failed operation's error.",
+  "required": [
+    "type"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
 ### Problem.update-health-failed
 
 ```json
@@ -10551,6 +11475,180 @@ Response `202` (`application/json`):
   "description": "Appears only inside a failed operation's error.",
   "required": [
     "type"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.update-not-configured
+
+```json
+{
+  "properties": {
+    "status": {
+      "const": 409
+    },
+    "type": {
+      "const": "urn:nexus:problem:update-not-configured"
+    }
+  },
+  "title": "Update not configured",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.update-package-invalid
+
+```json
+{
+  "properties": {
+    "check": {
+      "type": "string"
+    },
+    "status": {
+      "const": 422
+    },
+    "type": {
+      "const": "urn:nexus:problem:update-package-invalid"
+    }
+  },
+  "title": "Update package invalid",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.update-rollback-failed
+
+```json
+{
+  "properties": {
+    "newVersion": {
+      "type": "string",
+      "description": "The nexusd version the update installed."
+    },
+    "previousVersion": {
+      "type": "string",
+      "description": "The nexusd version before the update."
+    },
+    "rolledBack": {
+      "type": "boolean",
+      "description": "Whether the previous nexusd was restored and passed the health check."
+    },
+    "step": {
+      "type": "string",
+      "description": "The update step that failed, such as precheck."
+    },
+    "type": {
+      "const": "urn:nexus:problem:update-rollback-failed"
+    }
+  },
+  "title": "Update rollback failed",
+  "description": "Appears only inside a failed operation's error.",
+  "required": [
+    "type"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.update-signature-invalid
+
+```json
+{
+  "properties": {
+    "status": {
+      "const": 422
+    },
+    "type": {
+      "const": "urn:nexus:problem:update-signature-invalid"
+    }
+  },
+  "title": "Update signature invalid",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.upload-not-found
+
+```json
+{
+  "properties": {
+    "status": {
+      "const": 422
+    },
+    "type": {
+      "const": "urn:nexus:problem:upload-not-found"
+    },
+    "uploadId": {
+      "type": "string"
+    }
+  },
+  "title": "Upload not found",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.upload-too-large
+
+```json
+{
+  "properties": {
+    "maxBytes": {
+      "type": "integer",
+      "description": "The largest body the route accepts, in bytes.",
+      "minimum": 0
+    },
+    "status": {
+      "const": 413
+    },
+    "type": {
+      "const": "urn:nexus:problem:upload-too-large"
+    }
+  },
+  "title": "Upload too large",
+  "required": [
+    "type",
+    "status"
   ],
   "allOf": [
     {
@@ -10593,6 +11691,39 @@ Response `202` (`application/json`):
     }
   },
   "title": "Validation failed",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.version-downgrade
+
+```json
+{
+  "properties": {
+    "packageVersion": {
+      "type": "string",
+      "description": "The version the uploaded package carries."
+    },
+    "runningVersion": {
+      "type": "string",
+      "description": "The nexusd version running now."
+    },
+    "status": {
+      "const": 409
+    },
+    "type": {
+      "const": "urn:nexus:problem:version-downgrade"
+    }
+  },
+  "title": "Version downgrade",
   "required": [
     "type",
     "status"
