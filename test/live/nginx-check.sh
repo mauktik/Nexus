@@ -38,6 +38,35 @@ set -u
 umask 022
 
 PROG=nginx-check.sh
+
+# The token must not stay in any environment: not this process's (the
+# kernel keeps the environment a process was started with, and every fork of
+# it, such as a command substitution, shows that copy in /proc/<pid>/environ),
+# and not a child's. So the script runs itself again, once, without
+# NEXUS_TOKEN in its environment, and gets the token on file descriptor 3
+# from a here-document. From then on the token is an unexported variable, and
+# it reaches only `nexus host add` and the transcript check, both on stdin.
+if [ -n "${NEXUS_TOKEN:-}" ] && [ -z "${NGINX_CHECK_TOKEN_FD:-}" ]; then
+	if [ ! -r "$0" ]; then
+		echo "$PROG: REFUSED: run it as a file (sh nginx-check.sh), not from stdin, so it can drop NEXUS_TOKEN from its environment" >&2
+		exit 1
+	fi
+	unset CHECK_TOKEN
+	CHECK_TOKEN=$NEXUS_TOKEN
+	unset NEXUS_TOKEN
+	NGINX_CHECK_TOKEN_FD=3
+	export NGINX_CHECK_TOKEN_FD
+	exec sh "$0" "$@" 3<<EOF
+$CHECK_TOKEN
+EOF
+fi
+unset CHECK_TOKEN
+CHECK_TOKEN=
+if [ "${NGINX_CHECK_TOKEN_FD:-}" = 3 ]; then
+	unset NGINX_CHECK_TOKEN_FD
+	IFS= read -r CHECK_TOKEN <&3 || CHECK_TOKEN=
+	exec 3<&-
+fi
 H_STATE=/var/lib/nexus-nginx-check
 NGINX_CONF=/etc/nginx/nginx.conf
 NGINX_BIN=/usr/sbin/nginx
@@ -138,13 +167,6 @@ for _p in "$PORT" "$CPORT"; do
 	*) { [ "$_p" -ge 1024 ] && [ "$_p" -le 65535 ]; } || { echo "$PROG: port $_p is not in 1024-65535" >&2; exit 2; } ;;
 	esac
 done
-
-# The token stays in this shell, unexported: no child (nexus, ssh, sh -c,
-# curl, the holder) inherits it. It reaches only `nexus host add` and the
-# transcript check, both on stdin.
-unset CHECK_TOKEN
-CHECK_TOKEN=${NEXUS_TOKEN:-}
-unset NEXUS_TOKEN
 
 if [ -z "$TRANSCRIPT" ]; then
 	_h=$(hostname)
