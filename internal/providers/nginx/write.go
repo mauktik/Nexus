@@ -345,10 +345,11 @@ type write struct {
 	target    writeTarget
 	content   []byte
 	sha256    string
-	candidate string // The content file, which a shadow test presents
-	presented string // The site's enabled file name
-	tmp       string // WriteAtomic's temporary name
-	meta      Meta   // The backup, once taken
+	candidate string   // The content file, which a shadow test presents
+	presented string   // The site's enabled file name
+	tmp       string   // WriteAtomic's temporary name
+	meta      Meta     // The backup, once taken
+	wrote     Identity // The file WriteAtomic made, which a rollback undoes
 }
 
 // whatIf is step 5b: a shadow test of the content presented as the site's
@@ -387,7 +388,12 @@ func (w *write) run(ctx context.Context) (any, *helperError) {
 	if herr := w.backUp(); herr != nil {
 		return nil, herr
 	}
-	if err := WriteAtomic(w.dirfd, file, w.content, writtenMode, int(managedUID), int(managedGID), w.tmp); err != nil {
+	// A file that did not exist is created without replacing: an entry that
+	// appeared since the backup is not ours to overwrite, or to roll back.
+	id, err := WriteAtomic(w.dirfd, file, w.content, writtenMode, int(managedUID), int(managedGID), w.tmp,
+		!w.meta.Exists)
+	w.wrote = id
+	if err != nil {
 		return nil, w.writeFailed(err)
 	}
 	say(e.out, "nginx-op: wrote %s (%d bytes, sha256 %s)", file, len(w.content), w.sha256)
@@ -494,7 +500,7 @@ func (w *write) unknown(first string, format string, args ...any) *helperError {
 // runs the configuration it had. A restore that fails leaves the file not
 // proven to be either, which is outcome-unknown.
 func (w *write) rollBack(herr *helperError) *helperError {
-	if err := Restore(w.dirfd, w.meta, w.e.dir, w.tmp); err != nil {
+	if err := Restore(w.dirfd, w.meta, w.wrote, w.e.dir, w.tmp); err != nil {
 		return w.unknown(herr.Detail, "restoring %s failed (%v), so it may hold the new content (nginx was not "+
 			"reloaded)", w.target.file, err)
 	}
@@ -506,6 +512,10 @@ func (w *write) rollBack(herr *helperError) *helperError {
 // writeFailed is a WriteAtomic that failed. When the target is as the
 // backup recorded, nothing was changed; else it is restored.
 func (w *write) writeFailed(err error) *helperError {
+	if errors.Is(err, ErrAppeared) {
+		return failure(problem.Conflict, "%s appeared while it was being created: it is not replaced, and nothing "+
+			"was changed", w.target.file)
+	}
 	herr := failure(problem.DependencyUnavailable, "writing %s failed: %v", w.target.file, err)
 	if w.unchanged() {
 		herr.Detail += "; nothing was changed"
@@ -551,7 +561,7 @@ func (w *write) reloadFailed(ctx context.Context, testOutput string, obs spec.Re
 		}
 		return u
 	}
-	if err := Restore(w.dirfd, w.meta, e.dir, w.tmp); err != nil {
+	if err := Restore(w.dirfd, w.meta, w.wrote, e.dir, w.tmp); err != nil {
 		return unknown("restoring %s failed (%v), so it may hold the new content and which configuration nginx "+
 			"runs is unknown", file, err)
 	}

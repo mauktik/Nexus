@@ -175,7 +175,7 @@ func TestWriteAtomic(t *testing.T) {
 			wd := watchDir(t, dir)
 			content := "server { listen 18080; }\n"
 
-			if err := WriteAtomic(dirfd, "a.conf", []byte(content), 0o644, uid, gid, tc90Temp); err != nil {
+			if _, err := WriteAtomic(dirfd, "a.conf", []byte(content), 0o644, uid, gid, tc90Temp, false); err != nil {
 				t.Fatal(err)
 			}
 
@@ -208,7 +208,7 @@ func TestWriteAtomic(t *testing.T) {
 		dir := t.TempDir()
 		dirfd := testIncludeDir(t, dir)
 		for _, tc := range [][2]string{{"../a.conf", tc90Temp}, {"a.conf", "../.t.tmp"}, {"a.conf", "visible.tmp"}} {
-			if err := WriteAtomic(dirfd, tc[0], []byte("x"), 0o644, uid, gid, tc[1]); err == nil {
+			if _, err := WriteAtomic(dirfd, tc[0], []byte("x"), 0o644, uid, gid, tc[1], false); err == nil {
 				t.Errorf("WriteAtomic(%q, temp %q) succeeded, want refused", tc[0], tc[1])
 			}
 		}
@@ -259,10 +259,11 @@ func TestBackupRestoreIdentity(t *testing.T) {
 		t.Errorf("includeDir = %q, want only a.conf: the backup is not kept there", got)
 	}
 
-	if err := WriteAtomic(dirfd, "a.conf", []byte("server { listen 18081; }\n"), 0o644, uid, gid, tc90Temp); err != nil {
+	wrote, err := WriteAtomic(dirfd, "a.conf", []byte("server { listen 18081; }\n"), 0o644, uid, gid, tc90Temp, false)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Restore(dirfd, m, opDir, tc90Temp); err != nil {
+	if err := Restore(dirfd, m, wrote, opDir, tc90Temp); err != nil {
 		t.Fatal(err)
 	}
 	checkFile(t, filepath.Join(dir, "a.conf"), orig, 0o640, fuid, fgid)
@@ -286,10 +287,11 @@ func TestBackupRestoreIdentity(t *testing.T) {
 	if got := dirNames(t, filepath.Join(opDir2, "previous")); !slices.Equal(got, []string{"meta.json"}) {
 		t.Errorf("previous/ = %q, want meta.json only", got)
 	}
-	if err := WriteAtomic(dirfd, "n.conf", []byte("server {}\n"), 0o644, uid, gid, ".n.nexus-01J.tmp"); err != nil {
+	created, err := WriteAtomic(dirfd, "n.conf", []byte("server {}\n"), 0o644, uid, gid, ".n.nexus-01J.tmp", true)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Restore(dirfd, n, opDir2, ".n.nexus-01J.tmp"); err != nil {
+	if err := Restore(dirfd, n, created, opDir2, ".n.nexus-01J.tmp"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(filepath.Join(dir, "n.conf")); !errors.Is(err, os.ErrNotExist) {
@@ -390,7 +392,7 @@ func TestSymlinkAtDestinationReplaced(t *testing.T) {
 	}
 	dirfd := testIncludeDir(t, dir)
 
-	if err := WriteAtomic(dirfd, "a.conf", []byte("N\n"), 0o644, uid, gid, tc90Temp); err != nil {
+	if _, err := WriteAtomic(dirfd, "a.conf", []byte("N\n"), 0o644, uid, gid, tc90Temp, false); err != nil {
 		t.Fatal(err)
 	}
 	checkFile(t, filepath.Join(dir, "a.conf"), "N\n", 0o644, uid, gid)
@@ -444,7 +446,7 @@ func TestTempNameExists(t *testing.T) {
 		inoA, inoT := lstat(t, filepath.Join(dir, "a.conf")).Ino, lstat(t, filepath.Join(dir, tc90Temp)).Ino
 		dirfd := testIncludeDir(t, dir)
 
-		err := WriteAtomic(dirfd, "a.conf", []byte("N\n"), 0o644, uid, gid, tc90Temp)
+		_, err := WriteAtomic(dirfd, "a.conf", []byte("N\n"), 0o644, uid, gid, tc90Temp, false)
 		if !errors.Is(err, unix.EEXIST) {
 			t.Fatalf("WriteAtomic = %v, want EEXIST", err)
 		}
@@ -467,7 +469,7 @@ func TestTempNameExists(t *testing.T) {
 		}
 		dirfd := testIncludeDir(t, dir)
 
-		if err := WriteAtomic(dirfd, "a.conf", []byte("N\n"), 0o644, uid, gid, tc90Temp); !errors.Is(err, unix.EEXIST) {
+		if _, err := WriteAtomic(dirfd, "a.conf", []byte("N\n"), 0o644, uid, gid, tc90Temp, false); !errors.Is(err, unix.EEXIST) {
 			t.Fatalf("WriteAtomic = %v, want EEXIST", err)
 		}
 		checkFile(t, filepath.Join(dir, "a.conf"), "P\n", 0o644, uid, gid)
@@ -489,7 +491,8 @@ func TestRestoreHashMismatchFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteAtomic(dirfd, "a.conf", []byte("N\n"), 0o644, uid, gid, tc90Temp); err != nil {
+	wrote, err := WriteAtomic(dirfd, "a.conf", []byte("N\n"), 0o644, uid, gid, tc90Temp, false)
+	if err != nil {
 		t.Fatal(err)
 	}
 	b := []byte(readString(t, PreviousContentPath(opDir)))
@@ -498,7 +501,7 @@ func TestRestoreHashMismatchFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = Restore(dirfd, m, opDir, tc90Temp)
+	err = Restore(dirfd, m, wrote, opDir, tc90Temp)
 	if err == nil {
 		t.Fatal("Restore of a corrupted backup succeeded")
 	}
