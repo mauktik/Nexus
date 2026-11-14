@@ -20,6 +20,7 @@ import (
 	"github.com/mauktik/nexus/internal/provider"
 	apt "github.com/mauktik/nexus/internal/providers/apt/spec"
 	docker "github.com/mauktik/nexus/internal/providers/docker/spec"
+	pihole "github.com/mauktik/nexus/internal/providers/pihole/spec"
 	scripts "github.com/mauktik/nexus/internal/providers/scripts/spec"
 )
 
@@ -207,6 +208,34 @@ func catalogStubs(s *testprovider.Spy) []provider.Provider {
 			testprovider.Sync(s, scripts.List),
 			testprovider.Sync(s, scripts.Get),
 			testprovider.InProcess(s, scripts.Invoke),
+		),
+		testprovider.NewStub(pihole.Spec(),
+			testprovider.Sync(s, pihole.StatusGet),
+			testprovider.Sync(s, pihole.SummaryGet),
+			testprovider.Sync(s, pihole.BlockingGet),
+			testprovider.InProcess(s, pihole.StopBlocking),
+			testprovider.InProcess(s, pihole.StartBlocking),
+			testprovider.Sync(s, pihole.DomainsList),
+			testprovider.Sync(s, pihole.DomainsGet),
+			testprovider.InProcess(s, pihole.AddDomain),
+			testprovider.InProcess(s, pihole.RemoveDomain),
+			testprovider.Sync(s, pihole.AdlistsList),
+			testprovider.Sync(s, pihole.AdlistsGet),
+			testprovider.InProcess(s, pihole.AddAdlist),
+			testprovider.InProcess(s, pihole.RemoveAdlist),
+			testprovider.InProcess(s, pihole.UpdateGravity),
+			testprovider.InProcess(s, pihole.RestartDNS),
+			testprovider.InProcess(s, pihole.FlushCache),
+			testprovider.Sync(s, pihole.ZonesList),
+			testprovider.Sync(s, pihole.ZonesGet),
+			testprovider.InProcess(s, pihole.AddZone),
+			testprovider.InProcess(s, pihole.ZonesRemove),
+			testprovider.Sync(s, pihole.RecordsList),
+			testprovider.Sync(s, pihole.RecordsGet),
+			testprovider.InProcess(s, pihole.AddRecord),
+			testprovider.InProcess(s, pihole.RecordsUpdate),
+			testprovider.InProcess(s, pihole.RecordsRemove),
+			testprovider.InProcess(s, pihole.ApplyDNSChanges),
 		),
 	}
 }

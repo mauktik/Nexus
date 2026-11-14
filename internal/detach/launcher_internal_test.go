@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TC-67: on Linux with a fixture layout the helper reports available only
@@ -42,4 +43,24 @@ func TestSystemdAvailabilityFixtureLayout(t *testing.T) {
 	}
 	check("linux", true, "")
 	check("darwin", false, "darwin")
+}
+
+// Review CR-18: Options.PollInterval is a test seam (the pihole tests
+// shorten the watcher's poll). A zero Options, which production passes
+// (internal/daemon), gives the PollInterval constant of 500 ms.
+func TestLauncherPollIntervalDefaultsToTheConstant(t *testing.T) {
+	cfg := Config{OpsDir: t.TempDir()}
+	l, err := New(cfg, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.pollEvery != PollInterval || PollInterval != 500*time.Millisecond {
+		t.Errorf("poll interval %s (constant %s), want 500ms", l.pollEvery, PollInterval)
+	}
+	if l, err = New(cfg, Options{PollInterval: -time.Second}); err != nil || l.pollEvery != PollInterval {
+		t.Errorf("a negative interval gave %s, %v; want the constant", l.pollEvery, err)
+	}
+	if l, err = New(cfg, Options{PollInterval: 20 * time.Millisecond}); err != nil || l.pollEvery != 20*time.Millisecond {
+		t.Errorf("an explicit interval gave %s, %v", l.pollEvery, err)
+	}
 }

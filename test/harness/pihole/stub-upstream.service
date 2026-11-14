@@ -1,0 +1,22 @@
+# T1 harness (WI 5.1, A-54): the stub upstream resolver Pi-hole forwards to,
+# on 127.0.0.1#5353. It answers www.xi.example A 203.0.113.10 (split-horizon,
+# TC-128), raw.githubusercontent.com A 192.0.2.1 (gravity's DNS check, A-33)
+# and NXDOMAIN for every other name, with no network. Debian's dnsmasq-base
+# binary, which ships no unit of its own.
+#
+# --conf-file=/dev/null is load-bearing: without it dnsmasq reads
+# /etc/dnsmasq.conf, whose conf-dir=/etc/dnsmasq.d loads Pi-hole's own files,
+# 03-custom-dns-names.conf included, and the stub would answer the local
+# records itself. --log-queries puts every query it receives in the journal,
+# so a test can show a name was forwarded rather than answered by FTL.
+[Unit]
+Description=Nexus T1 harness stub upstream resolver (127.0.0.1#5353)
+Before=pihole-FTL.service
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/dnsmasq --keep-in-foreground --conf-file=/dev/null --no-resolv --no-hosts --pid-file= --bind-interfaces --listen-address=127.0.0.1 --port=5353 --address=/www.xi.example/203.0.113.10 --address=/raw.githubusercontent.com/192.0.2.1 --address=/#/ --log-queries --log-facility=-
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

@@ -98,6 +98,45 @@ func (c *Config) validate(errs *collector) {
 	v.positiveDuration("providers.apt.maxRuntime", apt.MaxRuntime)
 
 	v.catalog(c.Providers.Scripts.Settings.Catalog)
+
+	v.piholeDNSFile("providers.pihole.dnsFile", c.Providers.Pihole.Settings.DNSFile)
+}
+
+// PiholeDNSDir is the directory dnsmasq, run by Pi-hole FTL, loads extra
+// configuration from. providers.pihole.dnsFile must be directly in it.
+const PiholeDNSDir = "/etc/dnsmasq.d"
+
+// piholeManagedFiles are the files Pi-hole itself writes in PiholeDNSDir,
+// which Nexus must never own.
+var piholeManagedFiles = []string{
+	"01-pihole.conf",
+	"02-pihole-dhcp.conf",
+	"04-pihole-static-dhcp.conf",
+	"05-pihole-custom-cname.conf",
+	"06-rfc6761.conf",
+}
+
+// piholeDNSFile requires a file dnsmasq loads and Pi-hole does not manage:
+// directly in PiholeDNSDir once cleaned, and not a name dnsmasq's conf-dir
+// skips, which is one starting with ".", ending with "~", or both starting
+// and ending with "#", a lone "#" included (V-11: FTL src/dnsmasq/option.c).
+func (v validator) piholeDNSFile(path, p string) {
+	if !filepath.IsAbs(p) {
+		v.failf(path, "must be an absolute path, got %q", p)
+		return
+	}
+	clean := filepath.Clean(p)
+	base := filepath.Base(clean)
+	switch {
+	case filepath.Dir(clean) != PiholeDNSDir:
+		v.failf(path, "must be a file directly in %s, got %q", PiholeDNSDir, p)
+	case strings.HasPrefix(base, "."), strings.HasSuffix(base, "~"),
+		strings.HasPrefix(base, "#") && strings.HasSuffix(base, "#"):
+		v.failf(path, "%q is a name dnsmasq skips in %s: it must not start with \".\", end with \"~\", "+
+			"or both start and end with \"#\"", base, PiholeDNSDir)
+	case slices.Contains(piholeManagedFiles, base):
+		v.failf(path, "%q is managed by Pi-hole and must not be used, got %q", base, p)
+	}
 }
 
 // catalog applies the Configuration rules for script entries, located in the
