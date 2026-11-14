@@ -26,13 +26,23 @@ type Tester interface {
 	Test(ctx context.Context) (TestOutput, error)
 }
 
+// ShadowTester runs `nginx -t` as if candidatePath's bytes were in
+// includeDir under presentedName, without changing includeDir (ASM-10): in
+// a private mount namespace over a shadow copy of it (shadow_linux.go). As
+// with Tester, an invalid configuration is a TestOutput with Valid false
+// and the error is for a test that could not run.
+type ShadowTester interface {
+	Test(ctx context.Context, presentedName, candidatePath string) (TestOutput, error)
+}
+
 // env is what an action runs with, built from input.json by newEnv. Tests
 // inject their own through runHelper.
 type env struct {
-	nginx Tester
-	svc   svcctl.Controller // The init system, each call bounded by stateTimeout
-	proc  ProcReader        // The host's processes, for reload verification
-	out   io.Writer         // The operation log
+	nginx  Tester
+	shadow ShadowTester      // Set by runAction, which knows the operation's directory, unless build set it
+	svc    svcctl.Controller // The init system, each call bounded by stateTimeout
+	proc   ProcReader        // The host's processes, for reload verification
+	out    io.Writer         // The operation log
 }
 
 // newEnv builds the real dependencies of in: the nginx binary it names,
@@ -84,7 +94,7 @@ var actions = map[string]action{
 // action and writes D/result.json, then exits 0 whatever the action's
 // outcome. It exits non-zero only when it cannot write a result, which the
 // operation reports as outcome-unknown. `shadow-test --dir D` is the shadow
-// configuration test's child, which needs Linux mount namespaces (WI 5.4).
+// configuration test's child (shadow_linux.go), which only the helper starts.
 func Helper(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 {
 		switch args[0] {
@@ -97,12 +107,11 @@ func Helper(args []string, stdout, stderr io.Writer) int {
 			defer stop()
 			return runHelper(ctx, dir, stdout, stderr, newEnv)
 		case "shadow-test":
-			if _, code := dirFlag("shadow-test", args[1:], stderr); code >= 0 {
+			dir, code := dirFlag("shadow-test", args[1:], stderr)
+			if code >= 0 {
 				return code
 			}
-			fmt.Fprintf(stderr, "nexusd %s shadow-test: unsupported: shadow configuration tests are not available "+
-				"in this build\n", HelperCommand)
-			return 1
+			return shadowChild(dir, stderr)
 		}
 	}
 	helperUsage(stderr)
@@ -186,5 +195,20 @@ func runAction(ctx context.Context, dir string, stdout io.Writer,
 		return nil, failure(problem.InternalError, "the helper cannot start action %s: %v; nothing was changed",
 			in.Action, err)
 	}
+	if e.shadow == nil {
+		e.shadow = newShadowTester(dir, in, stdout)
+	}
 	return act(ctx, e, in)
+}
+
+// shadowTest runs e's shadow test of candidatePath presented as
+// presentedName. A test that could not run fails with
+// dependency-unavailable, as a live one does (runTest).
+func shadowTest(ctx context.Context, e env, presentedName, candidatePath string) (TestOutput, *helperError) {
+	say(e.out, "nginx-op: shadow test with the candidate as %s", presentedName)
+	t, err := e.shadow.Test(ctx, presentedName, candidatePath)
+	if err != nil {
+		return t, failure(problem.DependencyUnavailable, "%v", err)
+	}
+	return t, nil
 }

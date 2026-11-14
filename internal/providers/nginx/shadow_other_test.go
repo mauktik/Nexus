@@ -9,7 +9,12 @@
 
 package nginx
 
-import "testing"
+import (
+	"bytes"
+	"context"
+	"strings"
+	"testing"
+)
 
 // nginx-provider TC-ERR23: Shadow tests refuse on non-Linux hosts
 // Owner WI 5.4. Requirements: ASM-10.
@@ -19,5 +24,16 @@ import "testing"
 //	  1. ShadowTester.Test.
 //	Expected: An error containing shadow tests need Linux.
 func TestShadowNeedsLinux(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-ERR23 (WI 5.4)")
+	dir := t.TempDir()
+	var tester ShadowTester = newShadowTester(dir, helperInput{Nginx: DefaultNginx}, &bytes.Buffer{})
+	if _, err := tester.Test(context.Background(), "cand.conf", "/nonexistent"); err == nil ||
+		!strings.Contains(err.Error(), "shadow tests need Linux") {
+		t.Errorf("ShadowTester.Test: %v, want an error containing %q", err, "shadow tests need Linux")
+	}
+	var stderr bytes.Buffer
+	if code := Helper([]string{"shadow-test", "--dir", dir}, &bytes.Buffer{}, &stderr); code != 1 ||
+		!strings.Contains(stderr.String(), "shadow tests need Linux") {
+		t.Errorf("nginx-op shadow-test: exit %d, stderr %q; want 1 with %q", code, stderr.String(),
+			"shadow tests need Linux")
+	}
 }
