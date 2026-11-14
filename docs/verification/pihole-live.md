@@ -127,3 +127,48 @@ The probe was `doubleclick.net`, which is on the StevenBlack list. Each probe wa
 - **Timed stop:** blocking came back on schedule, run by the systemd timer, between the +56 s and +61 s probes. reenableAt was 60 s after the op, with no nexusd involvement (A-5).
 - **Commanded matched observed** in all four transitions.
 - **Cosmetic:** each op's log carries `Failed to stop nexus-pihole-reenable.timer: Unit … not loaded` and `reset-failed … exited 1; continuing`. These come from clearing a timer that does not exist. They are harmless, and the op logs that it continues.
+
+## WI 6.2 step 4: domain deny add and remove, and 4a (approved 2026-11-14)
+
+The test domain was `example.org`, which resolves to 104.20.26.136 and 172.66.157.237.
+
+**Step 4, sequential:**
+
+| Op | id | Op log | `dig` after | End to end |
+| --- | --- | --- | --- | --- |
+| `piholedomain add --list deny --kind exact --value example.org` | `01a1d873-5936-…dda2` | added deny exact entry 5; `restartdns reload-lists`; `FTL reloaded its lists in 105 ms` | `0.0.0.0` | 1100 ms |
+| `piholedomain remove --list deny --kind exact --value example.org` | `01a1d873-5dbf-…b0ff` | entry is id 5; removed; reload-lists; `FTL reloaded its lists in 105 ms` | real IPs | 910 ms |
+
+**Step 4a, first attempt, as written:**
+- The run submitted the add with `--no-wait` and then submitted the remove at once.
+- The add (`01a1d873-9258-…5113`, entry 6) succeeded.
+- The remove was refused at submission with `404 not-found: no pi-hole domain entry matches; nothing was changed`, because the add had not committed yet.
+
+This is FR-11 as specified: removing an entry that does not exist answers `404`, checked when the request is admitted. The WI text "without waiting" assumed the remove would be admitted before the entry existed, which FR-11 rules out. The leftover entry 6 was removed right away, in an op that reloaded its lists in 105 ms. During the run, a 100 ms DNS watcher saw no failures: 60/60 upstream answers and 60/60 `.invalid` NXDOMAIN.
+
+**Step 4a, as run:** the run queued the remove the moment the add had committed, while the add's list reload was still in flight.
+
+| Time (UTC) | Event |
+| --- | --- |
+| 05:07:46.352 | add `01a1d874-5a30-…884a` created |
+| 05:07:46.400 | add: `added deny exact entry 7`; `restartdns reload-lists` |
+| 05:07:46.521 | remove `01a1d874-5ad9-…7ce1` created, queued on the `pihole` lane behind the add's reload barrier |
+| 05:07:46.617 | watcher: `example.org` → `0.0.0.0` |
+| 05:07:47.009 | add: `FTL reloaded its lists in 105 ms` |
+| 05:07:47.388 | add ended `Succeeded` |
+| 05:07:47.393 | remove started. Its barrier (`settleLists`) found FTL quiet. |
+| 05:07:47.430 | remove: `removed deny exact entry 7` |
+| 05:07:47.641 | watcher: `example.org` → real IPs again |
+| 05:07:48.038 | remove: `FTL reloaded its lists in 105 ms` |
+| 05:07:48.387 | remove ended `Succeeded` |
+
+- **DNS throughout:** a watcher polled `@192.168.7.4` every ~100 ms from 05:07:46.305 to 05:07:53.094, 50 rounds.
+  - `www.debian.org` (upstream) answered in all 50 rounds;
+  - `nexus-probe-x.invalid` answered NXDOMAIN in all 50.
+  - FTL never fell into the answer-only-`pi.hole` state from A-64.
+- **Both op logs** show `FTL reloaded its lists`.
+- **Final state:** `example.org` resolves; `piholedomain get` lists the 4 original allow / exact entries.
+- **About the reported times:**
+  - `reloaded its lists in N ms` is the time from the start of the wait to the poll that saw the completion line, and the log is polled every 100 ms (A-67). So 105 ms means "seen at the first poll after completion". FTL's own markers put the reload at about 103 ms (step 0).
+  - Likewise, `FTL answered after 401 ms` (step 2) is quantized by the 200 ms readiness poll (A-1).
+- **Still to check:** the count of `database is locked` lines in FTL's log, compared with step 0's 0. This needs the host console.
