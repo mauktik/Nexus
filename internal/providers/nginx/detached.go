@@ -146,7 +146,9 @@ func (p *Provider) lostDetail(action string, r *provider.Run) string {
 
 // previousClause names the file a change may have left partly changed and
 // where its previous content is kept, from previous/meta.json; it is empty
-// when nothing was backed up.
+// when nothing was backed up. A file that did not exist before has no
+// previous content: the clause says so, and that removing it undoes the
+// change.
 func previousClause(dir string) string {
 	var meta previousFile
 	ok, err := readJSON(dir, previousMetaFile, &meta)
@@ -156,6 +158,9 @@ func previousClause(dir string) string {
 			"read (%v)", filepath.Join(dir, previousMetaFile), err)
 	case !ok:
 		return ""
+	case !meta.Exists:
+		return fmt.Sprintf("; %s did not exist before and may have been created: there is no previous content, "+
+			"and removing %s restores the state before the operation", meta.FileName, meta.FileName)
 	}
 	return fmt.Sprintf("; %s may be partly changed: its previous content (sha256 %s) is kept at %s", meta.FileName,
 		meta.SHA256, filepath.Join(dir, previousContentFile))

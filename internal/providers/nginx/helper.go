@@ -43,6 +43,7 @@ type env struct {
 	svc    svcctl.Controller // The init system, each call bounded by stateTimeout
 	proc   ProcReader        // The host's processes, for reload verification
 	out    io.Writer         // The operation log
+	dir    string            // The operation's directory; set by runAction
 }
 
 // newEnv builds the real dependencies of in: the nginx binary it names,
@@ -90,6 +91,8 @@ var actions = map[string]action{
 	actionReload:  runReload,
 	actionEnable:  runEnable,
 	actionDisable: runDisable,
+	actionAdd:     runWrite,
+	actionUpdate:  runWrite,
 }
 
 // Helper is `nexusd nginx-op`. `run --dir D` reads D/input.json, runs its
@@ -159,6 +162,11 @@ func runHelper(ctx context.Context, dir string, stdout, stderr io.Writer,
 	}
 	res := helperResult{}
 	out, herr := runAction(ctx, dir, stdout, build)
+	// A write's content goes once the action is done, whatever its outcome
+	// (FR-15): only the backup it replaced stays in the directory.
+	if err := removeContent(dir); err != nil {
+		say(stdout, "nginx-op: %v", err)
+	}
 	if herr != nil {
 		res.Error = herr
 		say(stdout, "nginx-op: failed: %s: %s", herr.Slug, herr.Detail)
@@ -200,6 +208,7 @@ func runAction(ctx context.Context, dir string, stdout io.Writer,
 	if e.shadow == nil {
 		e.shadow = newShadowTester(dir, in, stdout)
 	}
+	e.dir = dir
 	return act(ctx, e, in)
 }
 

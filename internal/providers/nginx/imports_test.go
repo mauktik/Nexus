@@ -19,8 +19,6 @@ import (
 // client and no new dependency. Owner WI 6.3. Requirements: CON-1, CON-4,
 // CON-7.
 func TestNoNetworkClientOrNewDeps(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-103 (WI 6.3)")
-
 	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
 		t.Fatal(err)

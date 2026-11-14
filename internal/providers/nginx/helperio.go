@@ -67,7 +67,13 @@ type helperInput struct {
 	Settings    settingsSnapshot `json:"settings"`
 	InitSystem  string           `json:"initSystem"`
 	Nginx       string           `json:"nginx"`          // The nginx binary's absolute path
-	Name        string           `json:"name,omitempty"` // The site of enable and disable
+	Name        string           `json:"name,omitempty"` // The site of enable, disable, add and update
+	// Add and update (write.go). Their content is in the operation's
+	// content file, never here.
+	Create  bool   `json:"create,omitempty"`  // add: the site must not exist yet
+	IfMatch string `json:"ifMatch,omitempty"` // update: the current SHA-256, or none
+	Enabled *bool  `json:"enabled,omitempty"` // The state of a site the write creates
+	WhatIf  bool   `json:"whatIf,omitempty"`  // Test on a shadow copy only
 }
 
 // helperResult is result.json: the action's result, or the problem it
@@ -111,8 +117,10 @@ func (e *helperError) problem() *problem.Error {
 
 // previousFile is the part of previous/meta.json that names what a change
 // replaced, so an operator can restore it by hand if the helper is lost.
+// Exists is false when there was no file, so no previous content is kept.
 type previousFile struct {
 	FileName string `json:"fileName"`
+	Exists   bool   `json:"exists"`
 	SHA256   string `json:"sha256"`
 }
 

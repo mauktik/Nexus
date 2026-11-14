@@ -205,8 +205,7 @@ func (p *Provider) Preflight(ctx context.Context) provider.Status {
 	}}
 }
 
-// Bindings binds the synchronous reads and the detached operations. Each
-// detached operation's work item appends its binding.
+// Bindings binds the synchronous reads and the nine detached operations.
 func (p *Provider) Bindings() []provider.Binding {
 	return []provider.Binding{
 		provider.Sync(spec.Status, p.status),
@@ -220,5 +219,7 @@ func (p *Provider) Bindings() []provider.Binding {
 		p.lifecycleBinding(spec.Reload, actionReload, p.admitReload),
 		p.toggleBinding(spec.Enable, actionEnable),
 		p.toggleBinding(spec.Disable, actionDisable),
+		writeBinding(p, spec.Add, actionAdd, addRequest),
+		writeBinding(p, spec.Update, actionUpdate, updateRequest),
 	}
 }

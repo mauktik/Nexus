@@ -664,8 +664,8 @@ func TestNoOperationDeletes(t *testing.T) {
 //   - linkThenUnlink, RenameNoReplace's fallback, unlinks from after linking
 //     to (the inode keeps the name to), or to again when from cannot be
 //     unlinked (the inode keeps from);
-//   - writeJSONAtomic and shadowBin.cleanup remove the helper's own files
-//     in the operation's directory, never in includeDir.
+//   - writeJSONAtomic, shadowBin.cleanup and removeContent remove the
+//     helper's own files in the operation's directory, never in includeDir.
 //
 // Any other removal, enable and disable included, fails the test.
 func testRemovalCalls(t *testing.T) {
@@ -679,6 +679,7 @@ func testRemovalCalls(t *testing.T) {
 		"files_linux.go linkThenUnlink unlinkAt":      2,
 		"helperio.go writeJSONAtomic os.Remove":       1,
 		"shadow_linux.go shadowBin.cleanup os.Remove": 1,
+		"write.go removeContent os.Remove":            1,
 	}
 	sources, err := filepath.Glob("*.go")
 	if err != nil {

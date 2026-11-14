@@ -141,10 +141,11 @@ func (p *Provider) content(_ context.Context, in spec.SiteInput) (spec.SiteConte
 // lookup opens includeDir and classifies name: not-found when neither entry
 // exists. The caller closes the directory.
 func lookup(name string, s Settings) (*os.File, site, error) {
-	// The schema admits only NamePattern without ".."; a name reaching here
-	// any other way is still never a path.
-	if !nameRE.MatchString(name) || strings.Contains(name, "..") {
-		return nil, site{}, invalid("/name", "must match "+spec.NamePattern+` and not contain ".."`)
+	// The schema admits only NamePattern without ".."; the rest of the name
+	// rule (FR-12), the configured suffixes, is checked here, so a name the
+	// rule refuses is validation-failed on every op that takes one.
+	if err := ValidName(name, s); err != nil {
+		return nil, site{}, invalid("/name", err.Error())
 	}
 	dir, err := openIncludeDir(s)
 	if err != nil {
