@@ -25,8 +25,8 @@ import (
 // Options configures New.
 type Options struct {
 	Host string // Reported in every resource
-	// Preflight replaces the systemd check. Nil means the real one. T0 tests,
-	// on hosts without systemd, set it to exercise the read path.
+	// Preflight replaces the detach check. Nil means the real one. T0 tests,
+	// on hosts without detached operations, set it to exercise the read path.
 	Preflight func(context.Context) provider.Status
 }
 
@@ -35,14 +35,15 @@ type Provider struct {
 	host      string
 	preflight func(context.Context) provider.Status
 	catalog   atomic.Pointer[Catalog]
-	machine   machine // Run-as accounts and the filesystem the runner reads
+	machine   machine                    // Run-as accounts and the filesystem the runner reads
+	available func() detach.Availability // detach.Available outside tests
 }
 
 // New returns the provider with an empty catalog until Configure.
 func New(opts Options) *Provider {
-	p := &Provider{host: opts.Host, preflight: opts.Preflight, machine: realMachine}
+	p := &Provider{host: opts.Host, preflight: opts.Preflight, machine: realMachine, available: detach.Available}
 	if p.preflight == nil {
-		p.preflight = systemdPreflight
+		p.preflight = p.detachPreflight
 	}
 	p.catalog.Store(&Catalog{index: map[string]int{}})
 	return p
@@ -65,15 +66,15 @@ func (p *Provider) Configure(decode func(into any) error) error {
 // Catalog returns the current catalog. It is immutable: a reload replaces it.
 func (p *Provider) Catalog() *Catalog { return p.catalog.Load() }
 
-// Preflight reports whether scripts can run: only in a systemd transient
-// unit, so a run survives nexusd. Without systemd the provider is
-// unavailable; it never falls back to a child of nexusd (CON-4).
+// Preflight reports whether scripts can run: only as detached operations (a
+// systemd transient unit, or a supervised process on OpenRC), so a run
+// survives nexusd. Without them the provider is unavailable; it never falls
+// back to a child of nexusd (CON-4).
 func (p *Provider) Preflight(ctx context.Context) provider.Status { return p.preflight(ctx) }
 
-func systemdPreflight(context.Context) provider.Status {
-	a := detach.SystemdAvailable()
-	if !a.Available {
-		return provider.Status{State: apitypes.ProviderUnavailable, Reason: "scripts run only under systemd: " + a.Reason}
+func (p *Provider) detachPreflight(context.Context) provider.Status {
+	if a := p.available(); !a.Available {
+		return provider.Status{State: apitypes.ProviderUnavailable, Reason: "scripts run only as detached operations: " + a.Reason}
 	}
 	return provider.Status{State: apitypes.ProviderEnabled}
 }

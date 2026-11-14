@@ -1,0 +1,10 @@
+# nginx-check.sh transcript: nginx-provider WI 7.2 (TC-118 Alpine/OpenRC, TC-119 Ubuntu/systemd)
+# started 2026-11-14T09:05:20Z on 964d32b31849, mode main, host this machine, arguments: --transcript 21-ubuntu-sec9-fake-http.txt
+# script sha256 5f1bae798b5f2177b8393009b74437a60a9d75f2eb202b09540858293bbae148
+# CONTAINER DETECTED on the host (/.dockerenv, /run/.containerenv or container= in PID 1's environment):
+# this transcript is a dry run, NOT real-host evidence.
+$ [host] /usr/local/bin/nexusd tls fingerprint
+F2:BC:31:B4:E8:E1:31:30:F1:29:FD:9F:CF:FB:0E:F5:6A:C4:50:EF:2F:DE:48:0F:FC:47:96:93:71:3D:20:DA
+$ (the token, on stdin) | nexus host add nginx-check --url https://127.0.0.1:7443 --fingerprint F2:BC:31:B4:E8:E1:31:30:F1:29:FD:9F:CF:FB:0E:F5:6A:C4:50:EF:2F:DE:48:0F:FC:47:96:93:71:3D:20:DA --token-stdin
+nexus: host nginx-check: connection failed: context deadline exceeded
+REFUSED: nexus host add failed (exit 5)

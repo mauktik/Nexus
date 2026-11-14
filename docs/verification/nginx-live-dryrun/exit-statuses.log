@@ -1,0 +1,106 @@
+# WI 7.2 dry runs, 20261114T085925Z
+# script: test/live/nginx-check.sh as committed at 578b350, sha256 5f1bae798b5f2177b8393009b74437a60a9d75f2eb202b09540858293bbae148
+# nexusd and nexus: built from git archive of b3a3b62 (a clean tree), linux/arm64 (nexus also darwin/arm64); make nexusd-tree, installed by its install.sh
+00-alpine-plan.txt: exit 2
+01-alpine-full-lifecycle.txt: exit 1
+02-alpine-default.txt: exit 1
+03: kill -INT -- -15250 (process group, as Ctrl-C) at 09:01:43, once step 5b's holder was up
+03-alpine-ctrl-c-step5.txt: exit 130
+04: kill -KILL -- -48806 (process group) at 09:02:25, once step 5b's holder was up
+04-alpine-sigkill-step5.txt: exit 137
+05-alpine-refuse-pending.txt: exit 2
+06-alpine-cleanup.txt: exit 0
+07-alpine-cleanup-noop.txt: exit 0
+08: planted /etc/nginx/http.d/zz-user-broken.conf (user_broken_directive on;)
+08-alpine-refuse-invalid-config.txt: exit 2
+09: removed the include of http.d from nginx.conf (plan mode)
+09-alpine-guard-no-include-line.txt: exit 2
+10: appended a comment line to /etc/nginx/http.d/user-app.conf at 09:02:39 (step 2)
+10-alpine-guard-user-file-edited.txt: exit 1
+11: moved /sbin/ss and /bin/netstat (BusyBox) away
+11-alpine-refuse-no-listener-tool.txt: exit 2
+12: appended a comment line to /srv/nginx-extra/locations.conf (included by user-api.conf) at 09:03:24 (step 2)
+12-alpine-guard-outside-include-edited.txt: exit 1
+13-ubuntu-plan.txt: exit 2
+14-ubuntu-full-lifecycle.txt: exit 1
+15: SIGINT to the script from an in-container watcher at the first --no-wait submission
+15-ubuntu-sigint-op-in-flight.txt: exit 130
+16: SIGTERM to the script when the nginx stop was submitted
+16-ubuntu-sigterm-stop-in-flight.txt: exit 130
+17: SIGTERM to the script when systemctl is-active printed inactive (in-container watcher, 10 ms polling)
+17-ubuntu-sigterm-nginx-stopped.txt: exit 130
+18: a port grabber took the test site's port during the restart; SIGTERM when 2f-restart was reported
+18-ubuntu-restart-fails-sigterm.txt: exit 130
+grabbing 127.0.0.1:18582
+grabbed 18582 at 1794647111
+50,70c50
+< if [ -n "${NEXUS_TOKEN:-}" ] && [ -z "${NGINX_CHECK_TOKEN_FD:-}" ]; then
+< 	if [ ! -r "$0" ]; then
+< 		echo "$PROG: REFUSED: run it as a file (sh nginx-check.sh), not from stdin, so it can drop NEXUS_TOKEN from its environment" >&2
+< 		exit 1
+< 	fi
+< 	unset CHECK_TOKEN
+< 	CHECK_TOKEN=$NEXUS_TOKEN
+< 	unset NEXUS_TOKEN
+< 	NGINX_CHECK_TOKEN_FD=3
+< 	export NGINX_CHECK_TOKEN_FD
+< 	exec sh "$0" "$@" 3<<EOF
+< $CHECK_TOKEN
+< EOF
+< fi
+< unset CHECK_TOKEN
+< CHECK_TOKEN=
+< if [ "${NGINX_CHECK_TOKEN_FD:-}" = 3 ]; then
+< 	unset NGINX_CHECK_TOKEN_FD
+< 	IFS= read -r CHECK_TOKEN <&3 || CHECK_TOKEN=
+< 	exec 3<&-
+< fi
+---
+> CHECK_TOKEN=${NEXUS_TOKEN:-}
+19: /root/nginx-check-planted.sh is the script with its token block replaced by CHECK_TOKEN=${NEXUS_TOKEN:-} (diff above)
+19-ubuntu-token-probe-planted.txt: exit 2
+capabilities captured from the real nexusd, bytes: 1080
+nexusd stopped: inactive
+fake nexusd up as nobody   perl /tmp/fake-nexusd.pl 7443 x;touch /tmp/pwned-sec9;# /tmp/caps.json with service x;touch /tmp/pwned-sec9;#
+20-ubuntu-sec9-fake-http-before-fix.txt: exit 2
+20 (the script before the fix, 34e1c70, plan mode, no NEXUS_URL): /tmp/pwned-sec9 EXISTS: -rw-r--r-- 1 0 0 0 Nov 14 09:05 /tmp/pwned-sec9
+21-ubuntu-sec9-fake-http.txt: exit 2
+21 (fixed script, plan mode, no NEXUS_URL): /tmp/pwned-sec9 does not exist
+22-ubuntu-sec9-explicit-http-payload.txt: exit 2
+22 (fixed script, plan mode, NEXUS_URL=http://127.0.0.1:7443 set on purpose): /tmp/pwned-sec9 does not exist
+fake nexusd up as nobody   perl /tmp/fake-nexusd.pl 7443 apache9 /tmp/caps.json with service apache9
+23-ubuntu-sec9-explicit-http-unknown-service.txt: exit 2
+fake nexusd (uid 65534) on http://127.0.0.1:7443, service x;touch /tmp/pwned-sec9;#
+request: GET /healthz HTTP/1.1
+request: GET /healthz HTTP/1.1
+request: GET /v1/capabilities HTTP/1.1
+request: GET /v1/providers/nginx/service HTTP/1.1
+request: ???????????????<?09??????h9+?)?`??R?@??0ZKe ?#?x???I???2O/g?g???"V^d?N????a????+?/?,?0?????????
+request: GET /v1/capabilities HTTP/1.1
+request: GET /v1/providers/nginx/service HTTP/1.1
+fake nexusd (uid 65534) on http://127.0.0.1:7443, service apache9
+request: GET /healthz HTTP/1.1
+request: GET /v1/capabilities HTTP/1.1
+request: GET /v1/providers/nginx/service HTTP/1.1
+fake stopped, nexusd started: active
+125:  nginx:
+126-    enabled: true              # Off until enabled here
+127-    includeDir: ""             # Absolute; empty means /etc/nginx/http.d on Alpine, /etc/nginx/conf.d elsewhere
+128-    includeSuffix: .site
+/etc/nexus/nexusd.yaml: configuration is valid
+60:	include /etc/nginx/conf.d/*.conf;
+61:	include /etc/nginx/conf.d/*.site;
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+SEC-10 setup: providers.nginx.includeSuffix .site in nexusd.yaml, include /etc/nginx/conf.d/*.site; added to nginx.conf (above), nexusd restarted
+24-ubuntu-sec10-sigkill-site-enabled.txt: exit 137
+25-ubuntu-sec10-cleanup-before-fix.txt: exit 0
+26-ubuntu-sec10-cleanup-no-state.txt: exit 0
+27-ubuntu-sec10-sigkill-again.txt: exit 137
+27/28: planted /etc/nginx/conf.d/nexus-check-0badc0de.site (a comment) as another run's leftover
+28-ubuntu-sec10-cleanup-other-entry-left.txt: exit 1
+28/29: removed the planted nexus-check-0badc0de.site
+29-ubuntu-sec10-cleanup-again.txt: exit 0
+token of nx-wi72-alpine-20261114T085925Z: not found in any file (grep -rF -f <token file>)
+token of nx-wi72-ubuntu-20261114T085925Z: not found in any file (grep -rF -f <token file>)
+containers removed: 0 nx-wi72 containers left

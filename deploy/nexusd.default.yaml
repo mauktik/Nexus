@@ -120,10 +120,33 @@ providers:
     #       - {name: branch, type: string, pattern: '^[A-Za-z0-9._/][A-Za-z0-9._/-]*$', arg: "--branch"}
     #       - {name: apiKey, type: string, pattern: '^[A-Za-z0-9]+$', sensitive: true, env: API_KEY}
 
+  # nginx through its init-system service (systemd or OpenRC) and the site
+  # files in one include directory. nexusd does not read nginx.conf: it must
+  # already contain an include of that directory with the suffix glob,
+  #   include <includeDir>/*<includeSuffix>;
+  # which with the defaults is `include /etc/nginx/http.d/*.conf;` on Alpine
+  # and `include /etc/nginx/conf.d/*.conf;` on Debian and Ubuntu. A site NAME
+  # is the file <includeDir>/NAME<includeSuffix>; disabling it renames it to
+  # NAME<includeSuffix><disabledSuffix>, which that glob does not match. For
+  # example, on Alpine site example.com is /etc/nginx/http.d/example.com.conf,
+  # and /etc/nginx/http.d/example.com.conf.disabled when disabled. Needs the
+  # nginx binary at /usr/sbin/nginx and the service known to the init system;
+  # without them the provider reports unavailable.
+  nginx:
+    enabled: false             # Off until enabled here
+    includeDir: ""             # Absolute; empty means /etc/nginx/http.d on Alpine, /etc/nginx/conf.d elsewhere
+    includeSuffix: .conf       # Suffix the include glob matches: a dot then letters or digits
+    disabledSuffix: .disabled  # Appended to disable a site: a dot then letters or digits, not ending in includeSuffix
+    service: nginx             # Service name: nginx.service on systemd, /etc/init.d/nginx on OpenRC
+    testTimeout: 30s           # Bound on one nginx -t config test
+    stateTimeout: 30s          # How long start, stop or restart may take to reach the commanded state
+    reloadVerifyTimeout: 15s   # How long nginx may take to show it loaded the new configuration after a reload
+    maxConfigBytes: 262144     # Largest site file read or written (256 KiB); at most limits.maxBodyBytes
   # nexusd itself: get and validate-config read it (nexusd:read); reload,
   # restart, update and rollback change it and require nexusd:admin, which is
   # root-equivalent. Restart, update and rollback run in a systemd unit
-  # outside the sandbox and need nexusd running as nexusd.service.
+  # outside the sandbox and need nexusd running as nexusd.service: systemd
+  # hosts only, not OpenRC.
   nexusd:
     enabled: false
     healthTimeout: 30s         # 5s..10m: how long a restarted nexusd may take to become healthy

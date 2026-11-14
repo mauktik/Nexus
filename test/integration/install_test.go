@@ -44,6 +44,7 @@ import (
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/providers/apt"
 	aptspec "github.com/mauktik/nexus/internal/providers/apt/spec"
@@ -64,16 +65,27 @@ const (
 
 // wipeInstall removes every trace of an install, so install.sh starts from
 // a host that never had nexusd.
+// On OpenRC that is the script, its conf.d file and every runlevel link.
 func wipeInstall(t *testing.T) {
 	t.Helper()
 	lib(t, "stop-nexusd")
 	lib(t, "remove-dropins")
-	for _, p := range []string{installedUnit, nexusdBin, "/etc/nexus", nexusdState, logDir} {
+	paths := []string{installedUnit, nexusdBin, "/etc/nexus", nexusdState, logDir}
+	if detectedInit() == platform.OpenRC {
+		links, err := filepath.Glob("/etc/runlevels/*/nexusd")
+		if err != nil {
+			t.Fatal(err)
+		}
+		paths = append(append(paths, "/etc/init.d/nexusd", "/etc/conf.d/nexusd"), links...)
+	}
+	for _, p := range paths {
 		if err := os.RemoveAll(p); err != nil {
 			t.Fatal(err)
 		}
 	}
-	mustSh(t, detach.Systemctl, "daemon-reload")
+	if detectedInit() == platform.Systemd {
+		mustSh(t, detach.Systemctl, "daemon-reload")
+	}
 }
 
 // restoreHarness puts back the harness install: the harness binary, which
@@ -104,10 +116,11 @@ func freshHost(t *testing.T) {
 	t.Cleanup(func() { restoreHarness(t) })
 }
 
-// runInstall runs install.sh as an operator would and requires success.
+// runInstall runs install.sh with sh (dash on Ubuntu, BusyBox ash on
+// Alpine), as an operator would, and requires success.
 func runInstall(t *testing.T) string {
 	t.Helper()
-	out, err := sh(3*time.Minute, installSh)
+	out, err := sh(3*time.Minute, "sh", installSh)
 	t.Logf("install.sh: %v\n%s", err, strings.TrimSpace(out))
 	if err != nil {
 		t.Fatalf("install.sh failed: %v", err)
@@ -285,6 +298,7 @@ func pinnedClient(t *testing.T) *http.Client {
 // provider disabled; no state, audit or key file is group or world
 // readable, and /healthz answers.
 func TestInstallCleanIsLoopbackOnly(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	freshHost(t)
 	for _, tool := range []string{"go", "gcc", "cc", "clang"} {
 		if p, err := exec.LookPath(tool); err == nil {
@@ -355,9 +369,10 @@ func TestInstallCleanIsLoopbackOnly(t *testing.T) {
 		}
 	}
 	t.Logf("providers: %q", states)
-	// apt, docker, scripts and, since nexusd self-management, nexusd.
-	if len(caps.Providers) != 4 {
-		t.Fatalf("want the 4 compiled-in providers, got %q", states)
+	// apt, docker, scripts, nexusd (self-management), nginx (nginx-provider
+	// WI 4.4) and pihole.
+	if len(caps.Providers) != 6 {
+		t.Fatalf("want the 6 compiled-in providers, got %q", states)
 	}
 
 	// Mode of every file nexusd keeps. Each exists by now: the store and
@@ -380,6 +395,7 @@ func TestInstallCleanIsLoopbackOnly(t *testing.T) {
 // config byte for byte, adds no drop-in and no listener; and install.sh
 // refuses a bundled default config that is not loopback only.
 func TestInstallNeverOverwritesConfig(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	freshHost(t)
 	runInstall(t)
 	const marker = "# operator marker 7f3c: keep me\n"
@@ -536,6 +552,7 @@ func waitUnitGone(t *testing.T, id string) {
 // and the unit, and keeps config, audit and history, which a reinstalled
 // nexusd reads; uninstall.sh --purge removes them too.
 func TestUninstallRetentionAndPurge(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	freshHost(t)
 	runInstall(t)
 	dir := testDir(t, "tc181")
@@ -557,7 +574,7 @@ func TestUninstallRetentionAndPurge(t *testing.T) {
 	}
 
 	// Step 1: uninstall with the op unit running.
-	out, err := sh(3*time.Minute, uninstallSh)
+	out, err := sh(3*time.Minute, "sh", uninstallSh)
 	t.Logf("uninstall.sh: %v\n%s", err, strings.TrimSpace(out))
 	if err != nil {
 		t.Fatal(err)
@@ -566,8 +583,10 @@ func TestUninstallRetentionAndPurge(t *testing.T) {
 		t.Fatalf("uninstall.sh did not warn about %s", unit)
 	}
 	// CR-82: operation units refuse a manual stop (RefuseManualStop), so the
-	// advice must be the signal command docs/install.md gives.
-	if strings.Contains(out, "systemctl stop UNIT") || !strings.Contains(out, "systemctl kill --kill-whom=main --signal=SIGTERM") {
+	// advice must be the signal command docs/install.md gives. It is SIGINT,
+	// the operator's cancel: a SIGTERM without nexusd's cancel request is an
+	// interruption and ends the operation outcome-unknown.
+	if strings.Contains(out, "systemctl stop UNIT") || !strings.Contains(out, "systemctl kill --kill-whom=main --signal=SIGINT") {
 		t.Fatalf("uninstall.sh advises a stop command systemd refuses for %s:\n%s", unit, out)
 	}
 	if exists(nexusdBin) || exists(installedUnit) {
@@ -622,7 +641,7 @@ func TestUninstallRetentionAndPurge(t *testing.T) {
 		releaseFile(t, gate)
 		waitUnitGone(t, op2.ID)
 	})
-	out, err = sh(3*time.Minute, uninstallSh, "--purge")
+	out, err = sh(3*time.Minute, "sh", uninstallSh, "--purge")
 	t.Logf("uninstall.sh --purge: %v\n%s", err, strings.TrimSpace(out))
 	if err != nil {
 		t.Fatal(err)
@@ -719,8 +738,10 @@ func auditDirectives(t *testing.T) {
 }
 
 // TC-182: under the exact unit, installed by install.sh with no drop-in,
-// every catalog operation of docker, apt and scripts, plus the core
-// operation reads and cancel, reaches its expected outcome through REST,
+// every catalog operation of docker, apt, scripts and nginx (nginx-provider
+// TC-112: ngxEveryOp, against the image's nginx with includeDir
+// /etc/nginx/conf.d), plus the core operation reads and cancel, reaches its
+// expected outcome through REST,
 // with scripts in a home directory and a Compose project under /home
 // (ProtectHome=read-only), and nothing is denied; then the directive audit.
 //
@@ -732,6 +753,7 @@ func auditDirectives(t *testing.T) {
 // [deploy] applied by a reload, that project, its files now deploy's own,
 // updates.
 func TestEveryProviderOpUnderExactUnit(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	freshHost(t)
 	ensureUsers(t)
 	const (
@@ -766,8 +788,8 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 	cfgDir := configDir(t, "tc182", "")
 	cfg := func(dockerExtra string) string {
 		return fmt.Sprintf("host: {name: harness}\nlisten: [%q]\ntls: {mode: off}\nproviders:\n"+
-			"  docker: {enabled: true, socket: %s, configDir: %s%s}\n  apt:\n    enabled: true\n  scripts:\n    enabled: true\n    catalog:\n%s",
-			exactAddr, dockerSocket, cfgDir, dockerExtra,
+			"  docker: {enabled: true, socket: %s, configDir: %s%s}\n  apt:\n    enabled: true\n%s  scripts:\n    enabled: true\n    catalog:\n%s",
+			exactAddr, dockerSocket, cfgDir, dockerExtra, ngxSection(""),
 			catalogYAML(entry{id: "tc182-hello", path: hello, runAs: "deploy", dir: home},
 				entry{id: "tc182-wait", path: wait, runAs: "deploy", dir: home}))
 	}
@@ -786,11 +808,11 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 	uhApp := uh.container("app")
 	uhID := containerID(t, uhApp)
 
-	dmesgBefore := kernelLines(t)
+	dmesgBefore := ngxKernelLines(t)
 	since := time.Now().Add(-time.Second)
 	pid := startExact(t)
-	n := exactNexusd(t, dockerspec.ReadScope, dockerspec.WriteScope, aptspec.ReadScope, aptspec.WriteScope,
-		aptspec.InstallScope, spec.ReadScope, spec.RunScope)
+	n := exactNexusd(t, append([]string{dockerspec.ReadScope, dockerspec.WriteScope, aptspec.ReadScope,
+		aptspec.WriteScope, aptspec.InstallScope, spec.ReadScope, spec.RunScope}, ngxScopes...)...)
 	var done []string
 	ok := func(op string, format string, args ...any) {
 		t.Helper()
@@ -808,12 +830,24 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 
 	var caps apitypes.Capabilities
 	n.mustGet("/v1/capabilities?refresh=true", &caps)
+	// Every provider this config enables is enabled: all but pihole, which
+	// this image does not install (the Pi-hole harness covers it), and
+	// nexusd, whose operations restart the daemon under test (its own
+	// TC-SM T1 cases cover it).
+	enabled := 0
 	for _, pc := range caps.Providers {
-		if pc.Status != apitypes.ProviderEnabled {
-			t.Fatalf("provider %s %s: %s", pc.Name, pc.Status, pc.Reason)
+		if pc.Name == "pihole" || pc.Name == "nexusd" {
+			continue
 		}
+		if pc.Status != apitypes.ProviderEnabled {
+			t.Fatalf("provider %s %s, want %s: %s", pc.Name, pc.Status, apitypes.ProviderEnabled, pc.Reason)
+		}
+		enabled++
 	}
-	ok("capabilities", "%d providers enabled", len(caps.Providers))
+	if enabled != 4 {
+		t.Fatalf("%d providers enabled, want docker, apt, scripts and nginx", enabled)
+	}
+	ok("capabilities", "%d providers enabled (docker, apt, scripts, nginx)", enabled)
 
 	// docker
 	var list apitypes.List[dockerspec.Container]
@@ -991,11 +1025,17 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 	}
 	ok("operations list/get/logs", "%d operations", len(opsList))
 
+	// nginx (nginx-provider TC-112), each op read back without Nexus.
+	ngxEveryOp(t, n, func(op, format string, args ...any) {
+		t.Helper()
+		ok(op, format, args...)
+	})
+
 	// Step 2: nothing denied, nexusd never restarted, then the audit.
 	sinceArg := "@" + strconv.FormatInt(since.Unix(), 10)
 	journal := mustSh(t, "journalctl", "-u", nexusdUnit, "--since", sinceArg, "--no-pager")
 	kjournal, _ := sh(30*time.Second, "journalctl", "-k", "--since", sinceArg, "--no-pager")
-	newKernel := kernelLines(t)
+	newKernel := ngxKernelLines(t)
 	if len(newKernel) >= len(dmesgBefore) {
 		newKernel = newKernel[len(dmesgBefore):]
 	}
@@ -1025,6 +1065,7 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 // validate-config and its reload keeps the config in use, and MainPID never
 // changes.
 func TestReloadUnderExactUnitKeepsOperations(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	freshHost(t)
 	runInstall(t)
 	dir := testDir(t, "tc183")
@@ -1114,6 +1155,7 @@ func succeededScript(t *testing.T, n *nexusdInstance, id string) apitypes.Operat
 // the exact chmod; root:root 0600 passes; a non-root user's own 0640 file
 // passes, because the mode rule applies only as root.
 func TestConfigOwnershipEnforcedAsRoot(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	ensureUsers(t)
 	dir := "/etc/nexus/err67"
 	if err := os.RemoveAll(dir); err != nil {
@@ -1248,6 +1290,7 @@ func serveBriefly(t *testing.T, path string, port int) (string, error) {
 // is 503 audit-unavailable and creates no operation while a read works;
 // once space is freed the same mutation succeeds with no restart.
 func TestDiskFullRefusesMutations(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	freshHost(t)
 	runInstall(t)
 	dir := testDir(t, "err68")
@@ -1372,6 +1415,9 @@ func installTree(t *testing.T, tree string) string {
 // rollback leaves, and keeps the staged uploads and the operation history;
 // --purge removes /var/lib/nexus with staging/.
 func TestTCSM103_UninstallRemovesNexusdPrevAndRollback(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	freshHost(t)
 	tree := unpackFixture(t, "v9.9.1")
 	uninstall := filepath.Join(tree, "uninstall.sh")
@@ -1475,6 +1521,9 @@ func TestTCSM103_UninstallRemovesNexusdPrevAndRollback(t *testing.T) {
 // while the service is active, restarts it exactly once onto the new binary
 // and keeps the config (A-33, the restart the update helper relies on).
 func TestTCSM104_AManualInstallShFromAn(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	freshHost(t)
 	// Step 1: unpack both trees.
 	v1, v2 := unpackFixture(t, "v9.9.1"), unpackFixture(t, "v9.9.2")

@@ -1,0 +1,19 @@
+# alpine-check.sh transcript: nginx-provider WI 3.5 (TC-51, TC-52)
+# started 2026-11-14T06:06:10Z on host 2e3cf89e8c92, mode cleanup, arguments: --transcript /root/check/08-cleanup-noop.txt --yes --cleanup
+# script sha256 b77bdb0e75d221bf16dfa7bc226821b3b600457b70f6cbfd5c8aa860db7ca8c3
+# CONTAINER DETECTED (/.dockerenv, /run/.containerenv or container= in PID 1's environment):
+# this transcript is a dry run, NOT real-host evidence.
+
+
+== Plan (cleanup). With --yes the script will:
+  - start nexusd if it is stopped, cancel this script's test operations still running,
+    kill its canary, put back /etc/nexus/nexusd.yaml, /etc/conf.d/nexusd and /usr/libexec/rc/sh/rc-cgroup.sh from the
+    backups in /var/lib/nexus-alpine-check, and remove /usr/local/libexec/nexus-alpine-check/op.sh and /var/lib/nexus-alpine-check.
+  It never edits nginx's configuration or touches the nginx service, and never reboots.
+[06:06:10] API: https://localhost:7443 (curl -sS --connect-to localhost:7443:127.0.0.1:7443 --cacert /var/lib/nexus/tls/cert.pem)
+[06:06:10] == Cleanup
+$ rm -rf /usr/local/libexec/nexus-alpine-check /var/lib/nexus-alpine-check
+
+== Summary (cleanup)
+  (container: not real-host evidence)
+transcript: /root/check/08-cleanup-noop.txt

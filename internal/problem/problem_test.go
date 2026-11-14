@@ -33,6 +33,9 @@ var wantHTTP = map[Slug]int{
 	"dependency-unavailable":  503,
 	"audit-unavailable":       503,
 	"storage-limit-reached":   507,
+	"nginx-config-invalid":    422,
+	"nginx-config-unmanaged":  422,
+	"nginx-not-running":       422,
 	"dns-file-conflict":       409,
 	"dns-name-unzoned":        422,
 	"dns-batch-rejected":      422,
@@ -41,13 +44,14 @@ var wantHTTP = map[Slug]int{
 var wantOperationLevel = []Slug{
 	"outcome-unknown", "package-manager-busy", "package-manager-broken",
 	"apt-failed", "script-failed", "script-timeout", "update-health-failed",
+	"nginx-reload-failed",
 	"dns-config-test-failed", "dns-verification-failed", "dns-rollback-failed",
 	"gravity-failed", "pihole-command-failed", "pihole-busy",
 }
 
 // TC-7: the registry is complete and marshals as RFC 9457.
 func TestRegistryMatchesTable(t *testing.T) {
-	if len(wantHTTP) != 23 || len(wantOperationLevel) != 13 {
+	if len(wantHTTP) != 26 || len(wantOperationLevel) != 14 {
 		t.Fatalf("test table drifted: %d HTTP, %d operation-level", len(wantHTTP), len(wantOperationLevel))
 	}
 
@@ -56,8 +60,8 @@ func TestRegistryMatchesTable(t *testing.T) {
 	// of pihole-dns-zones (3 HTTP-level, 6 operation-level): 31 HTTP-level
 	// and 18 operation-level.
 	all := All()
-	if len(all) != 49 {
-		t.Errorf("registry has %d types, want 49 (31 HTTP + 18 operation-level)", len(all))
+	if len(all) != 53 {
+		t.Errorf("registry has %d types, want 53 (34 HTTP + 19 operation-level)", len(all))
 	}
 	for _, typ := range all {
 		if !strings.HasPrefix(typ.URI(), "urn:nexus:problem:") || typ.URI() != "urn:nexus:problem:"+string(typ.Slug) {
@@ -104,8 +108,8 @@ func TestRegistryMatchesTable(t *testing.T) {
 			t.Errorf("%s is missing from the HTTP table", compose)
 		}
 	}
-	if len(HTTP()) != 31 || len(ops) != 18 {
-		t.Errorf("HTTP() = %d, OperationLevel() = %d; want 31 and 18", len(HTTP()), len(ops))
+	if len(HTTP()) != 34 || len(ops) != 19 {
+		t.Errorf("HTTP() = %d, OperationLevel() = %d; want 34 and 19", len(HTTP()), len(ops))
 	}
 
 	if _, ok := Lookup("no-such-problem"); ok {
@@ -120,6 +124,7 @@ func TestExitCodesMatchTable(t *testing.T) {
 		ScriptIntegrityFailed: 1, ComposeFilesMissing: 1, IdempotencyKeyReused: 1, RateLimited: 3,
 		InternalError: 1, CapabilityUnavailable: 4, ComposePluginMissing: 4, DependencyUnavailable: 1,
 		AuditUnavailable: 1, StorageLimitReached: 1,
+		NginxConfigInvalid: 1, NginxConfigUnmanaged: 1, NginxNotRunning: 1,
 		DNSFileConflict: 1, DNSNameUnzoned: 1, DNSBatchRejected: 1,
 	}
 	for slug, exit := range want {
@@ -287,6 +292,10 @@ var wantExistingExtensions = map[Slug][]string{
 	"dns-verification-failed": {"rolledBack", "name", "expected", "observed"},
 	"dns-rollback-failed":     {"rollbackCopy"}, "gravity-failed": {"exitCode"},
 	"pihole-command-failed": {"command", "exitCode", "rolledBack"}, "pihole-busy": {"waitedSeconds"},
+	// nginx-provider, merged in beside them.
+	"nginx-config-invalid": {"testOutput", "rolledBack"}, "nginx-config-unmanaged": {"reason", "fileName"},
+	"nginx-not-running":   {"state"},
+	"nginx-reload-failed": {"observed", "rolledBack", "rollbackReload", "testOutput"},
 }
 
 func TestTCSM5_The13NewProblemTypesAre(t *testing.T) {

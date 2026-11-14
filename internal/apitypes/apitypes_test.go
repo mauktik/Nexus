@@ -122,7 +122,7 @@ func TestListWireShape(t *testing.T) {
 }
 
 func TestCapabilitiesWireShape(t *testing.T) {
-	c := NewCapabilities("nas", "1.2.3", []ProviderCapability{{
+	c := NewCapabilities("nas", "1.2.3", HostOS{ID: "alpine", VersionID: "3.21.2"}, "openrc", []ProviderCapability{{
 		Name: "docker", Status: ProviderUnavailable, Reason: "socket unreachable",
 		ResourceTypes: []string{"containers"}, Actions: []string{"check-updates"},
 	}})
@@ -132,9 +132,10 @@ func TestCapabilitiesWireShape(t *testing.T) {
 	if c.APIVersion != "v1" {
 		t.Errorf("APIVersion = %q, want v1", c.APIVersion)
 	}
-	wantKeys(t, "Capabilities", topLevelKeys(t, c), "id", "host", "apiVersion", "version", "providers")
+	wantKeys(t, "Capabilities", topLevelKeys(t, c), "id", "host", "apiVersion", "version", "os", "initSystem",
+		"providers")
 
-	none := NewCapabilities("nas", "dev", nil)
+	none := NewCapabilities("nas", "dev", HostOS{}, "unknown", nil)
 	b, err := json.Marshal(none)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)

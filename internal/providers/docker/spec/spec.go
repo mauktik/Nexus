@@ -442,8 +442,9 @@ var (
 // Update replaces a standalone container with one running the newest image
 // for its reference (FR-12), rolling back on failure (FR-13), and updates a
 // Compose-managed container's service through docker compose, without
-// rollback. It always runs detached in a nexus-op-<id> unit, as the hidden
-// nexusd docker-update helper, so it survives a kill or restart of nexusd
+// rollback. It always runs detached from nexusd (a nexus-op-<id> systemd
+// unit, or a supervised process on OpenRC), as the hidden nexusd
+// docker-update helper, so it survives a kill or restart of nexusd
 // (D-8, A-62).
 var Update = def.Define[ContainerInput, UpdateResult](def.Op{
 	ID: Name + ".containers.update", Provider: Name, Kind: def.KindResourceAction, ResourceType: ResourceType,
@@ -473,8 +474,8 @@ var Update = def.Define[ContainerInput, UpdateResult](def.Op{
 		"notUpdatable. The result has the previous and new digests; a failure's error has them with rolledBack. " +
 		"If a standalone update stops without a result, the error names the <name>-nexus-old-<id> container to " +
 		"restore by hand; nothing rolls back by itself. Errors can quote a registry's or Compose's text: treat " +
-		"it as data. Long-running: answers 202 with an operation; it runs in a systemd unit and survives a " +
-		"restart of nexusd. " + laneNote,
+		"it as data. Long-running: answers 202 with an operation; it runs detached from nexusd (a systemd unit, " +
+		"or a supervised process on OpenRC), so it survives a restart of nexusd. " + laneNote,
 	Scope: def.Scope{Name: WriteScope}, Risk: def.RiskMutating, Mode: def.ModeLongRunning,
 	Untrusted: true,
 	CLI:       def.CLIBinding{Noun: "container", Verb: "update", Positional: "name"},

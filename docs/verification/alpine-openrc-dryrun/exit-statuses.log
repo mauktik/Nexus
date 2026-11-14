@@ -1,0 +1,11 @@
+00-plan.txt: exit 2
+01-full-stock.txt: exit 1
+02-step3-with-910-fix.txt: exit 1
+03-reboot-phase1.txt: exit 1
+04-guard-reboot-pending.txt: exit 2
+05-guard-not-rebooted.txt: exit 2
+06-reboot-phase2.txt: exit 1
+07-interrupted-while-stopped.txt: exit 130
+08-cleanup-noop.txt: exit 0
+09-refuse-no-token.txt: exit 2
+10-ubuntu.txt: exit 1

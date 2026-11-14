@@ -1,0 +1,25 @@
+CONTAINER DRY RUN, NOT real-host evidence. Round 3, operation 01a1d8c2-53cb-7657-ada4-445322e8d087, after the fix.
+$ ls -la /var/lib/nexus/ops/01a1d8c2-53cb-7657-ada4-445322e8d087
+total 28
+drwx------    3 root     root          4096 Nov 14 06:32 .
+drwx------    5 root     root          4096 Nov 14 06:32 ..
+-rw-------    1 root     root           219 Nov 14 06:32 exit.json
+-rw-------    1 root     root             6 Nov 14 06:32 max-runtime
+drwx------    2 root     root          4096 Nov 14 06:32 output
+-rw-------    1 root     root            83 Nov 14 06:32 supervisor.json
+-rw-------    1 root     root           142 Nov 14 06:32 supervisor.log
+== exit.json
+{"exitCode":-1,"signal":"SIGTERM","started":"2026-11-14T06:32:56.562274199Z","ended":"2026-11-14T06:32:57.895791328Z","timedOut":false,"canceled":false,"interrupted":true,"bootId":"a2e5b43d-6ecf-4b62-bbde-f26dfa9c7fcf"}
+== cancel
+cat: can't open '/var/lib/nexus/ops/01a1d8c2-53cb-7657-ada4-445322e8d087/cancel': No such file or directory
+
+== supervisor.json
+{"pid":1440,"startTicks":239412717,"bootId":"a2e5b43d-6ecf-4b62-bbde-f26dfa9c7fcf"}
+== supervisor.log
+op-supervise: SIGTERM without a cancel request from nexusd (a host shutdown, or a signal sent by hand): the operation is reported interrupted
+
+== docker logs (BusyBox init's shutdown lines, last restart)
+The system is going down NOW!
+Sent SIGTERM to all processes
+Sent SIGKILL to all processes
+Requesting system poweroff

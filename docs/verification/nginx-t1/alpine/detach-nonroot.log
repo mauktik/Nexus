@@ -1,0 +1,107 @@
+=== RUN   TestPlatformOptionsSelection
+--- PASS: TestPlatformOptionsSelection (0.00s)
+=== RUN   TestAvailableIsPlatformNeutral
+--- PASS: TestAvailableIsPlatformNeutral (0.00s)
+=== RUN   TestOperationCgroupContainment
+    cgroup_linux_test.go:227: needs root
+--- SKIP: TestOperationCgroupContainment (0.00s)
+=== RUN   TestCancelKillsSetsidGrandchild
+    cgroup_linux_test.go:272: needs root
+--- SKIP: TestCancelKillsSetsidGrandchild (0.00s)
+=== RUN   TestLeftoverSweepOnlyForControlGroup
+    cgroup_linux_test.go:301: needs root
+--- SKIP: TestLeftoverSweepOnlyForControlGroup (0.00s)
+=== RUN   TestNoCgroupFallbackNotesCON10
+--- PASS: TestNoCgroupFallbackNotesCON10 (0.07s)
+=== RUN   TestCgroupFallbacks
+    cgroup_linux_test.go:381: needs root
+--- SKIP: TestCgroupFallbacks (0.00s)
+=== RUN   TestLaunchFallsBackWhenClonedSupervisorIsKilled
+    cgroup_linux_test.go:432: needs root
+--- SKIP: TestLaunchFallsBackWhenClonedSupervisorIsKilled (0.00s)
+=== RUN   TestParseCgroupFile
+--- PASS: TestParseCgroupFile (0.00s)
+=== RUN   TestForgedStartTicksIsAbsentAndUnsignalable
+--- PASS: TestForgedStartTicksIsAbsentAndUnsignalable (0.00s)
+=== RUN   TestOtherBootIsAbsent
+--- PASS: TestOtherBootIsAbsent (0.00s)
+=== RUN   TestZombieIsAbsent
+--- PASS: TestZombieIsAbsent (0.01s)
+=== RUN   TestProcStatParse
+--- PASS: TestProcStatParse (0.00s)
+=== RUN   TestProcStatOfSelf
+--- PASS: TestProcStatOfSelf (0.00s)
+=== RUN   TestIdentityMissingOrBroken
+--- PASS: TestIdentityMissingOrBroken (0.00s)
+=== RUN   TestSystemdAvailabilityFixtureLayout
+--- PASS: TestSystemdAvailabilityFixtureLayout (0.00s)
+=== RUN   TestSystemdArgvAndSpecBytesUnchanged
+--- PASS: TestSystemdArgvAndSpecBytesUnchanged (0.00s)
+=== RUN   TestUnitNamesFromListUnits
+--- PASS: TestUnitNamesFromListUnits (0.00s)
+=== RUN   TestLauncherInvocationIsExactAndSecretFree
+=== RUN   TestLauncherInvocationIsExactAndSecretFree/process
+=== RUN   TestLauncherInvocationIsExactAndSecretFree/control-group
+--- PASS: TestLauncherInvocationIsExactAndSecretFree (0.00s)
+    --- PASS: TestLauncherInvocationIsExactAndSecretFree/process (0.00s)
+    --- PASS: TestLauncherInvocationIsExactAndSecretFree/control-group (0.00s)
+=== RUN   TestSystemdAvailabilityRefusesSilentDowngrade
+--- PASS: TestSystemdAvailabilityRefusesSilentDowngrade (0.00s)
+=== RUN   TestStartAfterLaunchTimeoutReconcilesWithTheUnit
+=== RUN   TestStartAfterLaunchTimeoutReconcilesWithTheUnit/active
+2026/11/14 06:34:11 WARN launch did not report; the unit may be running, so it is watched operationId=0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b unit=nexus-op-0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b.service error="detach: launch nexus-op-0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b.service: context deadline exceeded"
+=== RUN   TestStartAfterLaunchTimeoutReconcilesWithTheUnit/activating
+2026/11/14 06:34:11 WARN launch did not report; the unit may be running, so it is watched operationId=0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b unit=nexus-op-0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b.service error="detach: launch nexus-op-0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b.service: context deadline exceeded"
+=== RUN   TestStartAfterLaunchTimeoutReconcilesWithTheUnit/unknown
+2026/11/14 06:34:11 WARN launch did not report; the unit may be running, so it is watched operationId=0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b unit=nexus-op-0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b.service error="detach: launch nexus-op-0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b.service: context deadline exceeded"
+=== RUN   TestStartAfterLaunchTimeoutReconcilesWithTheUnit/absent
+--- PASS: TestStartAfterLaunchTimeoutReconcilesWithTheUnit (0.23s)
+    --- PASS: TestStartAfterLaunchTimeoutReconcilesWithTheUnit/active (0.05s)
+    --- PASS: TestStartAfterLaunchTimeoutReconcilesWithTheUnit/activating (0.06s)
+    --- PASS: TestStartAfterLaunchTimeoutReconcilesWithTheUnit/unknown (0.06s)
+    --- PASS: TestStartAfterLaunchTimeoutReconcilesWithTheUnit/absent (0.06s)
+=== RUN   TestStartLaunchErrorWithoutTimeoutFailsWithoutAsking
+--- PASS: TestStartLaunchErrorWithoutTimeoutFailsWithoutAsking (0.00s)
+=== RUN   TestProcessLaunchRecordsIdentityInOwnSession
+--- PASS: TestProcessLaunchRecordsIdentityInOwnSession (2.05s)
+=== RUN   TestSupervisorOutlivesLauncherProcess
+--- PASS: TestSupervisorOutlivesLauncherProcess (1.56s)
+=== RUN   TestSignalCancelsVerifiedSupervisor
+--- PASS: TestSignalCancelsVerifiedSupervisor (0.11s)
+=== RUN   TestListUnitsReturnsLiveIdentitiesOnly
+--- PASS: TestListUnitsReturnsLiveIdentitiesOnly (0.05s)
+=== RUN   TestSupervisorLogIsCapped
+--- PASS: TestSupervisorLogIsCapped (0.14s)
+=== RUN   TestHandshakeTimeoutRunsNothing
+--- PASS: TestHandshakeTimeoutRunsNothing (0.51s)
+=== RUN   TestIdentityWriteFailureKillsSupervisor
+--- PASS: TestIdentityWriteFailureKillsSupervisor (0.31s)
+=== RUN   TestCancelRightAfterStartEndsCanceled
+--- PASS: TestCancelRightAfterStartEndsCanceled (1.52s)
+=== RUN   TestLaunchFailsWhenSupervisorNeverReady
+--- PASS: TestLaunchFailsWhenSupervisorNeverReady (0.50s)
+=== RUN   TestLaunchFailsWhenSupervisorExitsBeforeReady
+--- PASS: TestLaunchFailsWhenSupervisorExitsBeforeReady (0.00s)
+=== RUN   TestReadinessPipeNotInheritedByChild
+--- PASS: TestReadinessPipeNotInheritedByChild (0.04s)
+=== RUN   TestSupervisorRunsAChildAndWritesExitAtomically
+--- PASS: TestSupervisorRunsAChildAndWritesExitAtomically (0.33s)
+=== RUN   TestChildProcessIsolation
+--- PASS: TestChildProcessIsolation (0.73s)
+=== RUN   TestTimeoutEscalatesToSIGKILL
+=== RUN   TestTimeoutEscalatesToSIGKILL/exits_on_SIGTERM
+=== RUN   TestTimeoutEscalatesToSIGKILL/ignores_SIGTERM
+--- PASS: TestTimeoutEscalatesToSIGKILL (3.03s)
+    --- PASS: TestTimeoutEscalatesToSIGKILL/exits_on_SIGTERM (1.01s)
+    --- PASS: TestTimeoutEscalatesToSIGKILL/ignores_SIGTERM (2.02s)
+=== RUN   TestCancelThroughSupervisorSIGTERM
+--- PASS: TestCancelThroughSupervisorSIGTERM (1.01s)
+=== RUN   TestBackgroundGrandchildCannotHangCompletion
+--- PASS: TestBackgroundGrandchildCannotHangCompletion (3.01s)
+=== RUN   TestSupervisorIgnoresSIGHUPAndSIGPIPE
+--- PASS: TestSupervisorIgnoresSIGHUPAndSIGPIPE (0.81s)
+=== RUN   TestMissingSpecPreventsAnyRerun
+--- PASS: TestMissingSpecPreventsAnyRerun (0.00s)
+=== RUN   TestProcessModeWaitsForItsIdentity
+--- PASS: TestProcessModeWaitsForItsIdentity (0.31s)
+PASS

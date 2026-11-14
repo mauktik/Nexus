@@ -1,0 +1,60 @@
++ git rev-parse HEAD: 578b3509e7c96f69391b60e2808f55484b41f2c0
++ docker run -d --name nx-wi72-ubuntu-20261114T085925Z --privileged --cgroupns=host --tmpfs /run --tmpfs /run/lock -v /var/lib/docker -v /var/lib/containerd nx-wi72-harness:ubuntu
+964d32b318490cb3d8c8e595828e1979620a50594ae4cdd81426b4ed9f49a525
++ PID 1: /sbin/init 
++ nginx version: nginx/1.28.3 (Ubuntu)
++ aarch64
++ systemd 259 (259.9-0ubuntu0.1)
++ docker cp /private/tmp/claude-501/-Users-devuser--orbit-worktrees-7e1cb4e6-b42a-4eec-ab43-37b904639e97-feat-nginx-support/b8dc6963-76b4-4fc0-b2d2-e828af9bf17c/scratchpad/release nx-wi72-ubuntu-20261114T085925Z:/harness-release
++ docker exec nx-wi72-ubuntu-20261114T085925Z chown -R root:root /harness-release
++ docker exec nx-wi72-ubuntu-20261114T085925Z sh /harness-release/nexusd/install.sh
+install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+/etc/nexus/nexusd.yaml: configuration is valid
+install.sh: next steps:
+install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+install.sh:   start nexusd: systemctl enable --now nexusd.service
++ docker cp /private/tmp/claude-501/-Users-devuser--orbit-worktrees-7e1cb4e6-b42a-4eec-ab43-37b904639e97-feat-nginx-support/b8dc6963-76b4-4fc0-b2d2-e828af9bf17c/scratchpad/bin/nexus-linux nx-wi72-ubuntu-20261114T085925Z:/usr/local/bin/nexus
++ docker exec nx-wi72-ubuntu-20261114T085925Z sh -c chown root:root /usr/local/bin/nexus && chmod 0755 /usr/local/bin/nexus
++ docker exec nx-wi72-ubuntu-20261114T085925Z sed -i /^  nginx:$/,/^  [a-z]/ s/^    enabled: false /    enabled: true  / /etc/nexus/nexusd.yaml
++ docker exec nx-wi72-ubuntu-20261114T085925Z /usr/local/bin/nexusd validate-config
+/etc/nexus/nexusd.yaml: configuration is valid
++ docker exec nx-wi72-ubuntu-20261114T085925Z sh -c grep -n -A2 '^  nginx:' /etc/nexus/nexusd.yaml; grep -n '^listen' /etc/nexus/nexusd.yaml
+125:  nginx:
+126-    enabled: true              # Off until enabled here
+127-    includeDir: ""             # Absolute; empty means /etc/nginx/http.d on Alpine, /etc/nginx/conf.d elsewhere
+14:listen: ["127.0.0.1:7443"]
++ docker exec nx-wi72-ubuntu-20261114T085925Z sh -c mkdir -p /srv/nginx-extra /srv/nginx-sites && printf "location / { return 200 \"user-api\\n\"; }\n" >/srv/nginx-extra/locations.conf && printf "server { listen 127.0.0.1:18304; location / { return 200 \"user-linked\\n\"; } }\n" >/srv/nginx-sites/linked.conf
++ docker exec nx-wi72-ubuntu-20261114T085925Z ln -s /srv/nginx-sites/linked.conf /etc/nginx/conf.d/user-linked.conf
++ docker exec nx-wi72-ubuntu-20261114T085925Z sh -c chmod 0644 /etc/nginx/conf.d/user-*.conf*; mkdir -p /etc/nginx/conf.d/snippets && echo '# snippet' >/etc/nginx/conf.d/snippets/common.inc && echo 'notes' >/etc/nginx/conf.d/README.local
++ docker exec nx-wi72-ubuntu-20261114T085925Z sh -c grep -n 'include' /etc/nginx/nginx.conf; ls -la /etc/nginx/conf.d; cat /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+6:include /etc/nginx/modules-enabled/*.conf;
+27:	include /etc/nginx/mime.types;
+60:	include /etc/nginx/conf.d/*.conf;
+61:	include /etc/nginx/sites-enabled/*;
+total 32
+drwxr-xr-x 1 root root 4096 Nov 14 08:59 .
+drwxr-xr-x 1 root root 4096 Nov 14 04:44 ..
+-rw-r--r-- 1 root root    6 Nov 14 08:59 README.local
+drwxr-xr-x 2 root root 4096 Nov 14 08:59 snippets
+-rw-r--r-- 1 root root  133 Nov 14 08:59 user-api.conf
+-rw-r--r-- 1 root root  130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx 1 root root   28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r-- 1 root root   75 Nov 14 08:59 user-old.conf.disabled
+location / { return 200 "user-api
+"; }
+server { listen 127.0.0.1:18304; location / { return 200 "user-linked
+"; } }
++ docker exec nx-wi72-ubuntu-20261114T085925Z systemctl restart nginx
++ docker exec nx-wi72-ubuntu-20261114T085925Z systemctl enable --now nexusd
+Created symlink '/etc/systemd/system/multi-user.target.wants/nexusd.service' → '/etc/systemd/system/nexusd.service'.
++ docker exec nx-wi72-ubuntu-20261114T085925Z nginx -t
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
++ docker exec nx-wi72-ubuntu-20261114T085925Z curl -sk https://127.0.0.1:7443/healthz
+{"status":"ok"}Created token "nginx-check" (id 44352f9fff4f). It is shown only this once; store it now.
++ token created (name nginx-check; value in the scratchpad only, 61 bytes)
++ docker exec nx-wi72-ubuntu-20261114T085925Z /usr/local/bin/nexusd tls fingerprint
+F2:BC:31:B4:E8:E1:31:30:F1:29:FD:9F:CF:FB:0E:F5:6A:C4:50:EF:2F:DE:48:0F:FC:47:96:93:71:3D:20:DA
++ container nx-wi72-ubuntu-20261114T085925Z ready

@@ -19,6 +19,9 @@ var approvedVerbs = []string{
 	"test",
 	"add",
 	"cancel",
+	// reload was added by user decision on 2026-11-13 (nginx-provider),
+	// amending FR-29: reloading a service's configuration in place is
+	// distinct from restart. Its synonyms (refresh, reconfigure) are not.
 	"reload",
 	"rollback",
 	"validate-config",

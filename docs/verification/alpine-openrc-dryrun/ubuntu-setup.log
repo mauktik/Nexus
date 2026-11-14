@@ -1,0 +1,12 @@
++ docker build -f test/harness/Dockerfile -t nexus-harness:ubuntu-latest test/harness
+sha256:7a67b7dcedabcefafc289eccc7008738bacb96ae9b8eb9528da2c15e34f36395
++ docker run -d --name nx-wi35-ubuntu-20261114T060640Z --privileged --cgroupns=host --tmpfs /run --tmpfs /run/lock -v /var/lib/docker -v /var/lib/containerd nexus-harness:ubuntu-latest
+38ae9b243f8514a7fac34fad9538f953e1adda6758f11145cc24e2089004befe
++ systemctl is-system-running: degraded
+install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+/etc/nexus/nexusd.yaml: configuration is valid
+install.sh: next steps:
+install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+install.sh:   start nexusd: systemctl enable --now nexusd.service

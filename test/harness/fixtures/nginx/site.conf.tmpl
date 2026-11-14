@@ -1,0 +1,9 @@
+# nginx T1 test site (test/integration/nginx_test.go renders @PORT@ and
+# @MARKER@): curl on the port shows exactly which content nginx serves.
+server {
+	listen @PORT@;
+	location / {
+		default_type text/plain;
+		return 200 "@MARKER@\n";
+	}
+}

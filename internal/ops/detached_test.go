@@ -246,6 +246,12 @@ func localWorld(t *testing.T, wrap ...func(*detach.Options)) *world {
 	return newWorld(t, withDetach(t, d))
 }
 
+// backendWorld is a world whose detached operations run under the real
+// supervisor through backend's seams; wrap, when given, adjusts them.
+func backendWorld(t *testing.T, backend detachtest.Backend, wrap ...func(*detach.Options)) *world {
+	return newWorld(t, withBackend(t, backend, nil, wrap...))
+}
+
 func (w *world) opDir(id string) string { return filepath.Join(w.stateDir, "ops", id) }
 
 // opOutput is the output so far of operation id.
@@ -355,8 +361,10 @@ func waitNoWatcher(t *testing.T) {
 // TC-64: inside Launch the record is already Running and its Running audit
 // record exists; spec.json is in place, mode 0600.
 func TestRunningIsCommittedBeforeLaunch(t *testing.T) {
-	spy := newUnitSpy()
-	w := spyWorld(t, spy)
+	perBackend(t, testRunningIsCommittedBeforeLaunch)
+}
+
+func testRunningIsCommittedBeforeLaunch(t *testing.T, backend detachtest.Backend) {
 	type seen struct {
 		status  apitypes.OperationStatus
 		audited bool
@@ -364,22 +372,27 @@ func TestRunningIsCommittedBeforeLaunch(t *testing.T) {
 		err     error
 	}
 	got := make(chan seen, 1)
-	base := spy.onLaunch
-	spy.onLaunch = func(inv detach.Invocation) error {
-		var s seen
-		rec, err := w.store.Get(inv.ID)
-		s.status, s.err = rec.Status, err
-		for _, r := range w.records() {
-			if r.OperationID == inv.ID && r.Outcome == string(apitypes.StatusRunning) {
-				s.audited = true
+	var w *world // Set before the first launch
+	// The backend's own launch runs after the checks: its supervisor really
+	// starts and ends the operation.
+	w = backendWorld(t, backend, func(d *detach.Options) {
+		launch := d.Launch
+		d.Launch = func(ctx context.Context, inv detach.Invocation) error {
+			var s seen
+			rec, err := w.store.Get(inv.ID)
+			s.status, s.err = rec.Status, err
+			for _, r := range w.records() {
+				if r.OperationID == inv.ID && r.Outcome == string(apitypes.StatusRunning) {
+					s.audited = true
+				}
 			}
+			if fi, err := os.Stat(filepath.Join(inv.Dir, detach.SpecFile)); err == nil {
+				s.mode = fi.Mode().Perm()
+			}
+			got <- s
+			return launch(ctx, inv)
 		}
-		if fi, err := os.Stat(filepath.Join(inv.Dir, detach.SpecFile)); err == nil {
-			s.mode = fi.Mode().Perm()
-		}
-		got <- s
-		return base(inv)
-	}
+	})
 	op := w.start(who("ops", "td:write"), tdOps.job.Op(), `{"name":"one"}`, "")
 	s := <-got
 	if s.err != nil || s.status != apitypes.StatusRunning || !s.audited {
@@ -398,7 +411,11 @@ func TestRunningIsCommittedBeforeLaunch(t *testing.T) {
 // the operation is terminal about a second after the child exits; once no
 // detached operation runs, no watcher goroutine remains.
 func TestWatcherFinalizesAndStopsWhenIdle(t *testing.T) {
-	w := localWorld(t)
+	perBackend(t, testWatcherFinalizesAndStopsWhenIdle)
+}
+
+func testWatcherFinalizesAndStopsWhenIdle(t *testing.T, backend detachtest.Backend) {
+	w := backendWorld(t, backend)
 	w.td.onPrepare("seven", func(context.Context, thingIn) (detach.Spec, error) {
 		return shJob("echo bye; exit 7"), nil
 	})
@@ -437,10 +454,14 @@ func TestWatcherFinalizesAndStopsWhenIdle(t *testing.T) {
 // TC-66: past MaxRuntime the operation ends Failed with outcome-unknown
 // naming its unit, without a signal: the child is still alive.
 func TestMaximumRuntimeReportsWithoutSignaling(t *testing.T) {
+	perBackend(t, testMaximumRuntimeReportsWithoutSignaling)
+}
+
+func testMaximumRuntimeReportsWithoutSignaling(t *testing.T, backend detachtest.Backend) {
 	var offset atomic.Int64
 	var signals atomic.Int64
 	var local detach.Options
-	w := localWorld(t, func(d *detach.Options) {
+	w := backendWorld(t, backend, func(d *detach.Options) {
 		local = *d
 		d.Now = func() time.Time { return time.Now().Add(time.Duration(offset.Load())) }
 		d.Signal = func(ctx context.Context, unit string, sig syscall.Signal) error {
@@ -462,8 +483,13 @@ func TestMaximumRuntimeReportsWithoutSignaling(t *testing.T) {
 	}
 	offset.Store(int64(2 * time.Hour))
 	rec := w.waitStatus(op.ID, apitypes.StatusFailed)
-	if rec.Error == nil || rec.Error.Slug() != problem.OutcomeUnknown || !strings.Contains(rec.Error.Detail, "nexus-op-"+op.ID) {
-		t.Fatalf("error %+v, want outcome-unknown naming nexus-op-%s", rec.Error, op.ID)
+	// The process backend has no unit: the detail names its supervisor.
+	name := "nexus-op-" + op.ID
+	if backend.Name == "process" {
+		name = "the supervisor process of operation " + op.ID
+	}
+	if rec.Error == nil || rec.Error.Slug() != problem.OutcomeUnknown || !strings.Contains(rec.Error.Detail, name) {
+		t.Fatalf("error %+v, want outcome-unknown naming %s", rec.Error, name)
 	}
 	if !alive(pid) {
 		t.Fatal("the child died: max runtime must not signal")
@@ -612,8 +638,12 @@ func TestCancelCannotLoseARaceWithADequeuedOperation(t *testing.T) {
 // SIGTERM to its supervisor, which stops the child's group and reports
 // canceled, so the operation ends Canceled.
 func TestCancelARunningDetachedOperationThroughItsUnit(t *testing.T) {
+	perBackend(t, testCancelARunningDetachedOperationThroughItsUnit)
+}
+
+func testCancelARunningDetachedOperationThroughItsUnit(t *testing.T, backend detachtest.Backend) {
 	var sent atomic.Int64
-	w := localWorld(t, func(d *detach.Options) {
+	w := backendWorld(t, backend, func(d *detach.Options) {
 		inner := d.Signal
 		d.Signal = func(ctx context.Context, unit string, sig syscall.Signal) error {
 			sent.Add(1)
@@ -652,8 +682,11 @@ func TestCancelARunningDetachedOperationThroughItsUnit(t *testing.T) {
 // Sensitive values reach the child only through spec.json, and Finalize
 // runs on the record's redacted input.
 func TestDetachedSensitiveInputStaysOutOfFinalize(t *testing.T) {
-	spy := newUnitSpy()
-	w := spyWorld(t, spy)
+	perBackend(t, testDetachedSensitiveInputStaysOutOfFinalize)
+}
+
+func testDetachedSensitiveInputStaysOutOfFinalize(t *testing.T, backend detachtest.Backend) {
+	w := backendWorld(t, backend)
 	var specEnv []string
 	w.td.onPrepare("secretive", func(_ context.Context, in thingIn) (detach.Spec, error) {
 		s := shJob("true")

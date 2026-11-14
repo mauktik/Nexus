@@ -21,6 +21,7 @@ import (
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/providers/apt"
 	"github.com/mauktik/nexus/internal/providers/apt/spec"
@@ -206,6 +207,7 @@ func aptOpUnits(t *testing.T) string {
 // its own apt-get -s; standard removes nothing; the edited conffile keeps
 // its local content and is listed, with no prompt, within 60 seconds.
 func TestAptUpgradePreviewEqualsOutcome(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	for _, tc := range []struct{ mode, aptCmd string }{{spec.ModeStandard, "upgrade"}, {spec.ModeFull, "dist-upgrade"}} {
 		t.Run(tc.mode, func(t *testing.T) {
 			aptUpgradeWorld(t)
@@ -297,6 +299,7 @@ func TestAptUpgradePreviewEqualsOutcome(t *testing.T) {
 // TC-130: a subset upgrade changes only the named package, and a standard
 // subset whose upgrade needs a removal removes nothing.
 func TestAptUpgradeSubset(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	aptUpgradeWorld(t)
 	n := aptd(t, "apt-upgrade-subset")
 	before := aptDpkgSnapshot(t)
@@ -340,6 +343,7 @@ func pid1Start(t *testing.T) string {
 // package's postinst and apt-get's exit status 0; nothing reboots: PID 1
 // started at the same time and no shutdown job exists.
 func TestAptUpgradeResultAndNoReboot(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	aptFixture(t, false)
 	for _, f := range []string{apt.RebootMarker, apt.RebootPackagesFile} {
 		if exists(f) {
@@ -389,6 +393,7 @@ func TestAptUpgradeResultAndNoReboot(t *testing.T) {
 // upgrade, each against a real dpkg -i holding the frontend lock in the
 // gated postinst (S-1).
 func TestAptUpgradeWaitsForTheLock(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	t.Run("healthy transaction is waited on", func(t *testing.T) {
 		aptFixture(t, true)
 		n := aptdWith(t, "apt-upgrade-wait", "    lockWait: 120s\n")
@@ -541,6 +546,7 @@ func lockInodes(t *testing.T) string {
 // PID from F_GETLK, which is apt-get's; the holder is untouched and the
 // lock files keep their inodes.
 func TestAptUpgradeExternalHolderIsBusy(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	aptFixture(t, true)
 	gate := fmt.Sprintf("/run/nexus-gate-nxslow-%d", time.Now().UnixNano())
 	aptBuild(t, "add", aptRepo, "nxslow", "1.0", "--gate", gate)
@@ -619,6 +625,7 @@ func TestAptUpgradeExternalHolderIsBusy(t *testing.T) {
 // TC-ERR49: a real interrupted dpkg state, no lock holder: the upgrade
 // fails package-manager-broken and repairs nothing.
 func TestAptUpgradeBrokenStateIsReported(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	aptFixture(t, true)
 	n := aptd(t, "apt-upgrade-broken")
 	aptUnpack(t, "nxhalf")
@@ -642,6 +649,7 @@ func TestAptUpgradeBrokenStateIsReported(t *testing.T) {
 // TC-ERR50: a failing postinst is apt-failed with apt-get's exit status;
 // a bad mode is 400; nothing to do succeeds with no changes.
 func TestAptUpgradeFailureModes(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	aptFixture(t, false)
 	t.Cleanup(func() { _, _ = sh(2*time.Minute, apt.Dpkg, "--purge", "nxfail") })
 	mustSh(t, apt.Dpkg, "-i", aptBuild(t, "deb", filepath.Join(t.TempDir(), "debs"), "nxfail", "1.0"))
@@ -678,6 +686,7 @@ func TestAptUpgradeFailureModes(t *testing.T) {
 // A second run whose dpkg.log is rotated during the run has
 // conffilesComplete false.
 func TestAptUpgradeFinalizeAcrossRestartAndRotation(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	aptFixture(t, false)
 	t.Cleanup(func() {
 		_, _ = sh(2*time.Minute, apt.Dpkg, "--purge", "nxconf")
@@ -758,6 +767,7 @@ func TestAptUpgradeFinalizeAcrossRestartAndRotation(t *testing.T) {
 // token holding packages:write only: no operation, no unit, no change. The
 // controls prove apt still reads each one dangerously.
 func TestAptUpgradeRejectsHostileNames(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	aptFixture(t, true)
 	t.Cleanup(func() {
 		for _, p := range []string{"nxnewdep", "nxdep"} {

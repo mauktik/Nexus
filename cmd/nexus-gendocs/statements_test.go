@@ -149,6 +149,9 @@ func TestHandWrittenDocsNameRealCommands(t *testing.T) {
 	pages := append(slices.Clone(handWritten), "../README.md")
 	nexusRE := regexp.MustCompile(`\bnexus ([a-z]+)(?: ([a-z][a-z-]*))?`)
 	nexusdRE := regexp.MustCompile(`\bnexusd ([a-z][a-z-]*)(?: ([a-z]+))?`)
+	// OpenRC's commands name the nexusd service, not a nexusd command:
+	// rc-service nexusd start, rc-update add nexusd default.
+	serviceRE := regexp.MustCompile(`\b(rc-service|rc-update (?:add|del)) nexusd\b`)
 	// Words that can follow "nexus" in a code span without naming a command,
 	// such as a comment in an example.
 	prose := map[string]bool{"is": true, "and": true, "or": true, "on": true, "to": true, "the": true}
@@ -175,15 +178,17 @@ func TestHandWrittenDocsNameRealCommands(t *testing.T) {
 					t.Errorf("%s names %q, which is not a nexus command", page, m[0])
 				}
 			}
-			for _, ix := range nexusdRE.FindAllStringSubmatchIndex(code, -1) {
+			// rc-service and rc-update name the nexusd service, not the binary.
+			c := serviceRE.ReplaceAllString(code, "$1")
+			for _, ix := range nexusdRE.FindAllStringSubmatchIndex(c, -1) {
 				// "nexus nexusd <verb>" is the nexus CLI's nexusd noun,
 				// checked above, not the nexusd binary.
-				if strings.HasSuffix(code[:ix[0]], "nexus ") {
+				if strings.HasSuffix(c[:ix[0]], "nexus ") {
 					continue
 				}
-				m := []string{code[ix[0]:ix[1]], code[ix[2]:ix[3]], ""}
+				m := []string{c[ix[0]:ix[1]], c[ix[2]:ix[3]], ""}
 				if ix[4] >= 0 {
-					m[2] = code[ix[4]:ix[5]]
+					m[2] = c[ix[4]:ix[5]]
 				}
 				subs, ok := nexusdCommands[m[1]]
 				if !ok || (len(subs) > 0 && m[2] != "" && !slices.Contains(subs, m[2])) {

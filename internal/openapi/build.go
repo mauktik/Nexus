@@ -659,10 +659,26 @@ func extensionSchema(slug problem.Slug, name string) *jsonschema.Schema {
 		return &jsonschema.Schema{Type: "number", Description: "How long the script ran."}
 	case "rolledBack":
 		switch slug {
+		case problem.NginxConfigInvalid, problem.NginxReloadFailed:
+			return &jsonschema.Schema{Type: "boolean",
+				Description: "Whether the changed files were restored, so the include directory is as it was before the operation."}
 		case problem.UpdateFailed, problem.UpdateRollbackFailed, problem.RollbackFailed:
 			return &jsonschema.Schema{Type: "boolean", Description: "Whether the previous nexusd was restored and passed the health check."}
 		}
 		return &jsonschema.Schema{Type: "boolean", Description: "Whether the previous container was restored."}
+	case "testOutput":
+		if slug == problem.NginxConfigInvalid || slug == problem.NginxReloadFailed {
+			return &jsonschema.Schema{Type: "string",
+				Description: "nginx -t's output, at most 64 KiB; host-originated and untrusted."}
+		}
+	case "observed":
+		if slug == problem.NginxReloadFailed {
+			return reloadObservationSchema("What reload verification saw: verdict rejected or master-gone.")
+		}
+	case "rollbackReload":
+		if slug == problem.NginxReloadFailed {
+			return reloadObservationSchema("The reload after the restore; absent when nginx was no longer running.")
+		}
 	case "step":
 		return &jsonschema.Schema{Type: "string", Description: "The update step that failed, such as precheck."}
 	case "condition":
@@ -687,6 +703,28 @@ func extensionSchema(slug problem.Slug, name string) *jsonschema.Schema {
 		return &jsonschema.Schema{Type: "string", Description: "The version the uploaded package carries."}
 	}
 	return &jsonschema.Schema{Type: "string"}
+}
+
+// reloadObservationSchema is the wire shape of an nginx reload observation
+// (the nginx spec's ReloadObservation). openapi depends on declarations of
+// the core contract only, so it is written out here.
+func reloadObservationSchema(desc string) *jsonschema.Schema {
+	pids := func(d string) *jsonschema.Schema {
+		return &jsonschema.Schema{Type: "array", Items: &jsonschema.Schema{Type: "integer"}, Description: d}
+	}
+	return &jsonschema.Schema{
+		Type:        "object",
+		Description: desc,
+		Properties: map[string]*jsonschema.Schema{
+			"masterPid":    {Type: "integer"},
+			"oldWorkers":   pids("Worker PIDs before the reload."),
+			"newWorkers":   pids("Worker PIDs after it."),
+			"initExitCode": {Type: "integer", Description: "The init system's reload exit status."},
+			"verdict": {Type: "string", Enum: []any{"confirmed", "rejected", "unconfirmed", "master-gone"},
+				Description: "Clients must accept values they do not know."},
+		},
+		Required: []string{"masterPid", "oldWorkers", "newWorkers", "initExitCode", "verdict"},
+	}
 }
 
 // componentSchemas holds the shared schemas: problem details and one

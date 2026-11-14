@@ -29,6 +29,8 @@ import (
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/core"
 	"github.com/mauktik/nexus/internal/def"
+	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/detach/detachtest"
 	"github.com/mauktik/nexus/internal/ops"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
@@ -429,6 +431,37 @@ func (w *world) now() time.Time {
 
 func (w *world) setClock(t time.Time) { w.clock.Store(&t) }
 
+// perBackend runs body once per detach backend of detachtest.Backends, as a
+// subtest named after it: the behavioral suites pass unchanged on every
+// backend (NFR-8). A body that injects its own seams runs the same on each.
+func perBackend(t *testing.T, body func(t *testing.T, backend detachtest.Backend)) {
+	t.Helper()
+	for _, b := range detachtest.Backends(t) {
+		t.Run(b.Name, func(t *testing.T) { body(t, b) })
+	}
+}
+
+// withBackend gives the world's manager a launcher on backend's seams. They
+// are made once, for the world's ops directory, and kept across restarts as
+// a previous nexusd's supervisors are; wrap, when given, adjusts them, and
+// seams, when not nil, receives them.
+func withBackend(t *testing.T, backend detachtest.Backend, seams *detach.Options, wrap ...func(*detach.Options)) func(*ops.Options) {
+	var made *detach.Options
+	return func(o *ops.Options) {
+		if made == nil {
+			d := backend.Options(o.Dir, o.Logger)
+			for _, f := range wrap {
+				f(&d)
+			}
+			made = &d
+			if seams != nil {
+				*seams = d
+			}
+		}
+		withDetach(t, *made)(o)
+	}
+}
+
 // newWorld builds the stack. tune, when given, adjusts the manager's options.
 func newWorld(t *testing.T, tune ...func(*ops.Options)) *world {
 	t.Helper()
@@ -654,6 +687,10 @@ func (w *world) serve(configure ...func(*http.Server)) {
 	w.srv = srv
 	w.base = "http://" + ln.Addr().String()
 	t.Cleanup(func() {
+		// A burst leaves connections the client dialed but never used;
+		// Shutdown counts those as active for 5 s (net/http, issue 22682),
+		// as long as its whole deadline. Closing them here ends them now.
+		client.CloseIdleConnections()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(ctx); err != nil {

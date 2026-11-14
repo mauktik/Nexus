@@ -143,11 +143,15 @@ func wantOutcomeUnknown(t *testing.T, rec store.OpRecord, detail string) {
 // 2 seconds and ends outcome-unknown; an in-process Running record ends
 // outcome-unknown.
 func TestRecoveryClassifiesEveryTableRow(t *testing.T) {
+	perBackend(t, testRecoveryClassifiesEveryTableRow)
+}
+
+func testRecoveryClassifiesEveryTableRow(t *testing.T, backend detachtest.Backend) {
 	var states stateLog
-	local := detachtest.Local()
-	seams := local
-	seams.UnitState = states.wrap(local.UnitState)
-	w := newWorld(t, withDetach(t, seams))
+	var seams detach.Options
+	w := newWorld(t, withBackend(t, backend, &seams, func(d *detach.Options) {
+		d.UnitState = states.wrap(d.UnitState)
+	}))
 
 	fifo := store.Lane{Key: "fifo", Policy: store.LaneQueue, Limit: 1}
 	q1 := w.seed(tpRec("q1", fifo), apitypes.StatusQueued)
@@ -183,13 +187,19 @@ func TestRecoveryClassifiesEveryTableRow(t *testing.T) {
 	var before oplog.Page
 	deadline := time.Now().Add(10 * time.Second)
 	for {
+		// Up to and including "before": the process backend without a
+		// cgroup writes its CON-10 note as a frame first.
 		p, err := reader.Read(0, 0)
-		if err == nil && len(p.Frames) > 0 {
+		var text strings.Builder
+		for _, f := range p.Frames {
+			text.WriteString(f.D)
+		}
+		if err == nil && strings.Contains(text.String(), "before\n") {
 			before = p
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("the live supervisor printed nothing: %v", err)
+			t.Fatalf("the live supervisor did not print before: %v %q", err, text.String())
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -269,27 +279,27 @@ func TestRecoveryClassifiesEveryTableRow(t *testing.T) {
 
 // TC-E13: exit.json written between the absent answer and the re-check
 // wins: the real outcome, not outcome-unknown.
-func TestRecoveryExitDuringRecheck(t *testing.T) {
-	var opsDir atomic.Value
+func TestRecoveryExitDuringRecheck(t *testing.T) { perBackend(t, testRecoveryExitDuringRecheck) }
+
+func testRecoveryExitDuringRecheck(t *testing.T, backend detachtest.Backend) {
 	var calls atomic.Int64
-	w := newWorld(t, func(o *ops.Options) {
-		opsDir.Store(o.Dir)
-		withDetach(t, detach.Options{
-			Launch: func(context.Context, detach.Invocation) error { return errors.New("no launch in this test") },
-			UnitState: func(_ context.Context, unit string) (detach.UnitState, error) {
-				if calls.Add(1) == 1 {
-					id := strings.TrimSuffix(strings.TrimPrefix(unit, detach.UnitPrefix), ".service")
-					now := time.Now()
-					if err := detach.WriteExit(filepath.Join(opsDir.Load().(string), id),
-						detach.Exit{ExitCode: 0, Started: now, Ended: now}); err != nil {
-						return detach.UnitState{}, err
-					}
+	var w *world // Set before recovery runs
+	w = backendWorld(t, backend, func(d *detach.Options) {
+		if d.ListUnits == nil { // The local backend cannot list; recovery must not ask systemctl
+			d.ListUnits = func(context.Context) ([]string, error) { return nil, nil }
+		}
+		state := d.UnitState
+		d.UnitState = func(ctx context.Context, unit string) (detach.UnitState, error) {
+			if calls.Add(1) == 1 {
+				// The supervisor finished after this first look at its unit.
+				id := strings.TrimSuffix(strings.TrimPrefix(unit, detach.UnitPrefix), ".service")
+				now := time.Now()
+				if err := detach.WriteExit(w.opDir(id), detach.Exit{ExitCode: 0, Started: now, Ended: now}); err != nil {
+					return detach.UnitState{}, err
 				}
-				return detach.UnitState{ActiveState: "inactive", LoadState: "not-found"}, nil
-			},
-			Signal:    func(context.Context, string, syscall.Signal) error { return errors.New("no signal in this test") },
-			ListUnits: func(context.Context) ([]string, error) { return nil, nil },
-		})(o)
+			}
+			return state(ctx, unit) // The backend's answer: no supervisor, so absent
+		}
 	})
 	id := w.seed(tdRec("late", store.Lane{}), apitypes.StatusRunning)
 	if err := os.MkdirAll(w.opDir(id), 0o700); err != nil {
@@ -319,12 +329,17 @@ func (c *commitCrash) CommitTerminal(id string, from, to apitypes.OperationStatu
 // TC-E14: Finalize runs again after a crash between Finalize and the
 // commit, with the same result, and the record ends in one terminal state.
 func TestRecoveryFinalizeTwiceIsHarmless(t *testing.T) {
+	perBackend(t, testRecoveryFinalizeTwiceIsHarmless)
+}
+
+func testRecoveryFinalizeTwiceIsHarmless(t *testing.T, backend detachtest.Backend) {
 	crash := &atomic.Bool{}
 	crash.Store(true)
-	seams := detachtest.Local()
-	seams.ListUnits = func(context.Context) ([]string, error) { return nil, nil }
+	useBackend := withBackend(t, backend, nil, func(d *detach.Options) {
+		d.ListUnits = func(context.Context) ([]string, error) { return nil, nil }
+	})
 	w := newWorld(t, func(o *ops.Options) {
-		withDetach(t, seams)(o)
+		useBackend(o)
 		o.Store = &commitCrash{Store: o.Store, crash: crash}
 	})
 	id := w.seed(tdRec("twice", store.Lane{}), apitypes.StatusRunning)
@@ -365,32 +380,49 @@ func TestRecoveryFinalizeTwiceIsHarmless(t *testing.T) {
 // TC-E15: a nexus-op-* unit with no record is logged by name and never
 // signaled or stopped.
 func TestRecoveryOrphanUnitsAreOnlyLogged(t *testing.T) {
+	perBackend(t, testRecoveryOrphanUnitsAreOnlyLogged)
+}
+
+func testRecoveryOrphanUnitsAreOnlyLogged(t *testing.T, backend detachtest.Backend) {
+	const orphan = "orphan1" // A supervisor with no record
 	var mu sync.Mutex
 	var signals []string
-	w := newWorld(t, withDetach(t, detach.Options{
-		Launch: func(context.Context, detach.Invocation) error { return errors.New("no launch in this test") },
-		UnitState: func(context.Context, string) (detach.UnitState, error) {
-			return detach.UnitState{ActiveState: "active", LoadState: "loaded"}, nil
-		},
-		Signal: func(_ context.Context, unit string, _ syscall.Signal) error {
+	var seams detach.Options
+	w := newWorld(t, withBackend(t, backend, &seams, func(d *detach.Options) {
+		if d.ListUnits == nil {
+			// The local backend cannot list units; it names the one it started.
+			d.ListUnits = func(context.Context) ([]string, error) { return []string{detach.Unit(orphan)}, nil }
+		}
+		signal := d.Signal
+		d.Signal = func(ctx context.Context, unit string, sig syscall.Signal) error {
 			mu.Lock()
-			defer mu.Unlock()
 			signals = append(signals, unit)
-			return nil
-		},
-		ListUnits: func(context.Context) ([]string, error) {
-			return []string{"nexus-op-x.service"}, nil
-		},
+			mu.Unlock()
+			return signal(ctx, unit, sig)
+		}
 	}))
+	// The orphan is a real supervisor of the backend, found as the backend
+	// finds any: the process backend lists it from its supervisor.json.
+	dir := w.opDir(orphan)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := detach.WriteSpec(dir, shJob("exec sleep 300")); err != nil {
+		t.Fatal(err)
+	}
+	if err := seams.Launch(context.Background(), detach.Invocation{ID: orphan, Unit: detach.Unit(orphan), Dir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	defer stopLocal(t, seams, orphan) // After the assertions below, which count signals
 	waitClosed(t, w.recoverNow(), 15*time.Second, "classification")
 	var warned bool
 	for _, line := range strings.Split(w.logs.String(), "\n") {
-		if strings.Contains(line, `"level":"WARN"`) && strings.Contains(line, `"unit":"nexus-op-x.service"`) {
+		if strings.Contains(line, `"level":"WARN"`) && strings.Contains(line, `"unit":"`+detach.Unit(orphan)+`"`) {
 			warned = true
 		}
 	}
 	if !warned {
-		t.Fatalf("no warning names nexus-op-x.service:\n%s", w.logs.String())
+		t.Fatalf("no warning names %s:\n%s", detach.Unit(orphan), w.logs.String())
 	}
 	mu.Lock()
 	defer mu.Unlock()
@@ -432,5 +464,211 @@ func TestRecoveryBlockedClassificationHitsDeadline(t *testing.T) {
 	wantOutcomeUnknown(t, rec, detach.Unit(id))
 	if took < deadline || took > deadline+2*time.Second {
 		t.Fatalf("classification ended after %v, want at the %v deadline", took, deadline)
+	}
+}
+
+// waitUnitGone waits until unit's supervisor has exited.
+func waitUnitGone(t *testing.T, seams detach.Options, unit string) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		st, err := seams.UnitState(context.Background(), unit)
+		if err == nil && st.LoadState == "not-found" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the supervisor of %s did not exit: %+v %v", unit, st, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// exitJSON is operation id's exit.json as on disk, for a message.
+func (w *world) exitJSON(id string) string {
+	b, err := os.ReadFile(filepath.Join(w.opDir(id), detach.ExitFile))
+	if err != nil {
+		return err.Error()
+	}
+	return string(b)
+}
+
+// nginx-provider reboot-race finding (WI 3.5 dry run, TC-51 Expected 5): a
+// host shutdown stops nexusd first (OpenRC's shutdown runlevel), then sends
+// SIGTERM to the operation's supervisor without any cancel request: systemd
+// stopping the unit signals only its main process ("supervisor"), and init
+// signals every process ("every process"), the child too. After nexusd
+// starts again, the operation is Failed outcome-unknown: never Canceled,
+// and never the child's own failure through Finalize.
+func TestRecoveryAfterShutdownSIGTERMIsOutcomeUnknown(t *testing.T) {
+	perBackend(t, testRecoveryAfterShutdownSIGTERMIsOutcomeUnknown)
+}
+
+func testRecoveryAfterShutdownSIGTERMIsOutcomeUnknown(t *testing.T, backend detachtest.Backend) {
+	for _, mode := range []string{"supervisor", "every process"} {
+		t.Run(mode, func(t *testing.T) {
+			var seams detach.Options
+			w := newWorld(t, withBackend(t, backend, &seams))
+			w.td.onPrepare("long", func(context.Context, thingIn) (detach.Spec, error) {
+				return shJob("echo pid=$$; while :; do sleep 0.1; done"), nil
+			})
+			op := w.start(who("ops", "td:write"), tdOps.job.Op(), `{"name":"long"}`, "")
+			pid := w.childPID(op.ID)
+			t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) }) // After a failure; the group may be gone
+
+			w.closeState()
+			unit := detach.Unit(op.ID)
+			if mode == "every process" {
+				if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := seams.Signal(context.Background(), unit, syscall.SIGTERM); err != nil {
+				t.Fatal(err)
+			}
+			waitUnitGone(t, seams, unit)
+			w.open()
+			waitClosed(t, w.recoverNow(), 15*time.Second, "classification")
+
+			rec := w.waitTerminal(op.ID)
+			if rec.Status != apitypes.StatusFailed || rec.Error == nil || rec.Error.Slug() != problem.OutcomeUnknown {
+				t.Fatalf("after the shutdown: %s %+v, want Failed outcome-unknown; exit.json %s", rec.Status, rec.Error, w.exitJSON(op.ID))
+			}
+			if !strings.Contains(rec.Error.Detail, "lost detail for long") {
+				t.Errorf("detail %q lacks the provider's LostDetail", rec.Error.Detail)
+			}
+			if n := len(w.td.finalCalls()); n != 0 {
+				t.Errorf("Finalize ran %d times on an interrupted operation", n)
+			}
+		})
+	}
+}
+
+// The reverse: a cancel nexusd requested still ends Canceled when nexusd
+// restarts before it saw the end, as at a shutdown right after the cancel.
+func TestRecoveryAfterCancelAndRestartIsCanceled(t *testing.T) {
+	perBackend(t, testRecoveryAfterCancelAndRestartIsCanceled)
+}
+
+func testRecoveryAfterCancelAndRestartIsCanceled(t *testing.T, backend detachtest.Backend) {
+	var seams detach.Options
+	w := newWorld(t, withBackend(t, backend, &seams))
+	w.td.onPrepare("long", func(context.Context, thingIn) (detach.Spec, error) {
+		return shJob("echo pid=$$; while :; do sleep 0.1; done"), nil
+	})
+	p := who("ops", "td:write")
+	op := w.start(p, tdOps.job.Op(), `{"name":"long"}`, "")
+	pid := w.childPID(op.ID)
+	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) }) // After a failure; the group may be gone
+	if got := w.mustCancel(p, op.ID, ""); got.Status != apitypes.StatusRunning {
+		t.Fatalf("cancel answered %s, want Running", got.Status)
+	}
+	w.closeState()
+	waitUnitGone(t, seams, detach.Unit(op.ID))
+	w.open()
+	waitClosed(t, w.recoverNow(), 15*time.Second, "classification")
+	if rec := w.waitTerminal(op.ID); rec.Status != apitypes.StatusCanceled || rec.Error != nil {
+		t.Fatalf("after cancel and restart: %s %+v, want Canceled; exit.json %s", rec.Status, rec.Error, w.exitJSON(op.ID))
+	}
+}
+
+// A second guard for the reboot-race finding: an exit.json written in an
+// earlier boot whose child died of a signal its supervisor did not send
+// (not canceled, not timed out) is not trusted as the child's outcome, as
+// it is what a shutdown's SIGTERM to every process leaves when the
+// supervisor wrote before it handled its own. The same exit.json from this
+// boot is the child's outcome, and goes to Finalize.
+func TestRecoveryDistrustsSignalDeathFromAnEarlierBoot(t *testing.T) {
+	perBackend(t, testRecoveryDistrustsSignalDeathFromAnEarlierBoot)
+}
+
+func testRecoveryDistrustsSignalDeathFromAnEarlierBoot(t *testing.T, backend detachtest.Backend) {
+	b, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		t.Skipf("no boot id on this system: %v", err)
+	}
+	boot := strings.TrimSpace(string(b))
+	w := newWorld(t, withBackend(t, backend, nil))
+	earlier := w.seed(tdRec("earlier", store.Lane{}), apitypes.StatusRunning)
+	this := w.seed(tdRec("this", store.Lane{}), apitypes.StatusRunning)
+	for id, bootID := range map[string]string{earlier: "00000000-1111-2222-3333-444444444444", this: boot} {
+		if err := os.MkdirAll(w.opDir(id), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		// Written raw: these are the fields a supervisor writes.
+		x := `{"exitCode":-1,"signal":"SIGTERM","started":"2026-11-14T05:59:45Z","ended":"2026-11-14T05:59:59Z",` +
+			`"timedOut":false,"canceled":false,"bootId":"` + bootID + `"}`
+		if err := os.WriteFile(filepath.Join(w.opDir(id), detach.ExitFile), []byte(x), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitClosed(t, w.recoverNow(), 15*time.Second, "classification")
+
+	rec := w.waitTerminal(earlier)
+	if rec.Status != apitypes.StatusFailed || rec.Error == nil || rec.Error.Slug() != problem.OutcomeUnknown {
+		t.Fatalf("earlier boot: %s %+v, want Failed outcome-unknown", rec.Status, rec.Error)
+	}
+	rec = w.waitTerminal(this)
+	if rec.Status != apitypes.StatusFailed || rec.Error == nil || rec.Error.Slug() != problem.ScriptFailed {
+		t.Fatalf("this boot: %s %+v, want Failed script-failed from Finalize", rec.Status, rec.Error)
+	}
+	var names []string
+	for _, c := range w.td.finalCalls() {
+		names = append(names, c.name)
+	}
+	if !slices.Equal(names, []string{"this"}) {
+		t.Fatalf("Finalize ran for %q, want only this boot's", names)
+	}
+}
+
+// Follow-up to the reboot-race fix: SIGINT to an operation's supervisor is
+// the operator's explicit host-side cancel (docs/security.md), sent with
+// `systemctl kill --kill-whom=main --signal=SIGINT` on systemd and
+// `kill -INT` on OpenRC, with no cancel request from nexusd. The operation
+// ends Canceled with its child stopped, whether nexusd sees the end while it
+// runs or recovers it after a restart, and Finalize never runs.
+func TestOperatorSIGINTIsACancel(t *testing.T) {
+	perBackend(t, testOperatorSIGINTIsACancel)
+}
+
+func testOperatorSIGINTIsACancel(t *testing.T, backend detachtest.Backend) {
+	for _, restart := range []bool{false, true} {
+		name := "nexusd running"
+		if restart {
+			name = "nexusd restarted"
+		}
+		t.Run(name, func(t *testing.T) {
+			var seams detach.Options
+			w := newWorld(t, withBackend(t, backend, &seams))
+			w.td.onPrepare("long", func(context.Context, thingIn) (detach.Spec, error) {
+				return shJob("echo pid=$$; while :; do sleep 0.1; done"), nil
+			})
+			op := w.start(who("ops", "td:write"), tdOps.job.Op(), `{"name":"long"}`, "")
+			pid := w.childPID(op.ID)
+			t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) }) // After a failure; the group may be gone
+
+			unit := detach.Unit(op.ID)
+			if restart {
+				w.closeState()
+			}
+			if err := seams.Signal(context.Background(), unit, syscall.SIGINT); err != nil {
+				t.Fatal(err)
+			}
+			if restart {
+				waitUnitGone(t, seams, unit)
+				w.open()
+				waitClosed(t, w.recoverNow(), 15*time.Second, "classification")
+			}
+
+			rec := w.waitTerminal(op.ID)
+			if rec.Status != apitypes.StatusCanceled || rec.Error != nil {
+				t.Fatalf("after SIGINT: %s %+v, want Canceled; exit.json %s", rec.Status, rec.Error, w.exitJSON(op.ID))
+			}
+			if err := syscall.Kill(-pid, 0); !errors.Is(err, syscall.ESRCH) {
+				t.Errorf("the child's process group %d outlived the cancel: %v", pid, err)
+			}
+			if n := len(w.td.finalCalls()); n != 0 {
+				t.Errorf("Finalize ran %d times on a canceled operation", n)
+			}
+		})
 	}
 }

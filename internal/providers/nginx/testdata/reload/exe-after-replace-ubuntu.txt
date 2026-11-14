@@ -1,0 +1,8 @@
+$ readlink /proc/1061/exe   # master 1061, before
+/usr/sbin/nginx
+$ cp -p /usr/sbin/nginx /usr/sbin/nginx.nx-new && mv /usr/sbin/nginx.nx-new /usr/sbin/nginx
+exit 0
+$ readlink /proc/1061/exe   # master 1061, after
+/usr/sbin/nginx (deleted)
+$ head -c 64 /proc/1061/cmdline | tr '\0' ' '
+nginx: master process /usr/sbin/nginx -g daemon on; master_proce

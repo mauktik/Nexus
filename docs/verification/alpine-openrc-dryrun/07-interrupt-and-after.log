@@ -1,0 +1,10 @@
++ 06:06:00  * status: stopped
++ 06:06:00 kill -TERM 947 (sh alpine-check.sh --yes --steps 3 --transcript /root/check/07-interrupted-while-stopped.txt )
++ after the interrupted run:
+ls: /var/lib/nexus-alpine-check: No such file or directory
+ls: /usr/local/libexec/nexus-alpine-check: No such file or directory
+ls: /etc/conf.d/nexusd: No such file or directory
+158ac7d637fd1a9807080cc5a018ef8e5ff706a478cbc6db30d71dc6514833e2  /etc/nexus/nexusd.yaml
+ * status: started
+LEFT 2381: sh -c echo "+ after the interrupted run:"; ls -d /var/lib/nexus-alpine-check /usr/local/libexec/nexus-alpine-check /etc/conf.d/nexusd 2>&1; sha256sum /etc/nexus/nexusd.yaml; rc-service nexusd status; ls -d /sys/fs/cgroup/nexus-ops/*/ 2>/dev/null; for d in /proc/[0-9]*; do c=$(tr "\0" " " 2>/dev/null < $d/cmdline); case $c in "sleep 1000 "|*op-supervise*|*/op.sh" "*) echo "LEFT ${d#/proc/}: $c";; esac; done; echo "(end of leftover processes)" 
+(end of leftover processes)

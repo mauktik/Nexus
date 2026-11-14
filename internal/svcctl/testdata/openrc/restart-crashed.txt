@@ -1,0 +1,4 @@
+ * Stopping nginx ...
+ * start-stop-daemon: no matching processes found
+ [ ok ]
+ * Starting nginx ... [ ok ]

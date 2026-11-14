@@ -831,6 +831,44 @@ func TestAptFailedSchemaDeclaresTheOutcome(t *testing.T) {
 	}
 }
 
+// nginx-provider carry-forward (WI 4.3): nginx-reload-failed's observed and
+// rollbackReload are reload observations, not strings, and rolledBack of
+// the nginx types speaks of the include directory, not a container.
+func TestNginxProblemSchemasDeclareTheirMembers(t *testing.T) {
+	s := newStack(t)
+	d := parse(t, s.fetch(t))
+	schemas := obj(obj(d["components"])["schemas"])
+	reload := obj(obj(schemas[openapi.ProblemSchemaName(problem.NginxReloadFailed)])["properties"])
+	for _, member := range []string{"observed", "rollbackReload"} {
+		m := obj(reload[member])
+		if m["type"] != "object" {
+			t.Errorf("nginx-reload-failed %s: type %v, want object", member, m["type"])
+			continue
+		}
+		props := obj(m["properties"])
+		for key, typ := range map[string]string{"masterPid": "integer", "oldWorkers": "array", "newWorkers": "array",
+			"initExitCode": "integer", "verdict": "string"} {
+			if got := obj(props[key])["type"]; got != typ {
+				t.Errorf("nginx-reload-failed %s.%s: type %v, want %s", member, key, got, typ)
+			}
+		}
+	}
+	for _, slug := range []problem.Slug{problem.NginxReloadFailed, problem.NginxConfigInvalid} {
+		props := obj(obj(schemas[openapi.ProblemSchemaName(slug)])["properties"])
+		rb := obj(props["rolledBack"])
+		if desc, _ := rb["description"].(string); rb["type"] != "boolean" || strings.Contains(desc, "container") {
+			t.Errorf("%s rolledBack = %v", slug, rb)
+		}
+		if to := obj(props["testOutput"]); to["type"] != "string" || !strings.Contains(fmt.Sprint(to["description"]), "nginx -t") {
+			t.Errorf("%s testOutput = %v", slug, to)
+		}
+	}
+	dep := obj(obj(obj(schemas[openapi.ProblemSchemaName(problem.DependencyUnavailable)])["properties"])["rolledBack"])
+	if desc, _ := dep["description"].(string); !strings.Contains(desc, "container") {
+		t.Errorf("dependency-unavailable rolledBack description %q changed", desc)
+	}
+}
+
 // The schemas describe the wire: real responses of every shape validate
 // against the served document, by the independent validator.
 func TestResponsesMatchTheDocument(t *testing.T) {

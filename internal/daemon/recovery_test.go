@@ -26,6 +26,7 @@ import (
 	"github.com/mauktik/nexus/internal/def"
 	"github.com/mauktik/nexus/internal/detach"
 	"github.com/mauktik/nexus/internal/detach/detachtest"
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/store"
@@ -164,6 +165,11 @@ type recWorld struct {
 	prov     *recProvider
 	seams    detach.Options
 	client   *http.Client
+	// plat, process and logs, when set, are the daemons' Platform, Process
+	// and log output (backend_selection_test.go).
+	plat    *platform.Info
+	process detach.ProcessConfig
+	logs    io.Writer
 }
 
 func newRecWorld(t *testing.T, seams detach.Options) *recWorld {
@@ -236,13 +242,19 @@ func (w *recWorld) start() *running {
 	if err != nil {
 		w.t.Fatal(err)
 	}
+	logs := w.logs
+	if logs == nil {
+		logs = io.Discard
+	}
 	d, err := New(cfg, Options{
 		Providers:  []provider.Provider{w.prov},
 		ConfigPath: w.cfgPath,
-		Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Logger:     slog.New(slog.NewJSONHandler(logs, nil)),
 		StateDir:   w.stateDir,
 		AuditDir:   w.auditDir,
 		Detach:     w.seams,
+		Platform:   w.plat,
+		Process:    w.process,
 	})
 	if err != nil {
 		w.t.Fatal(err)

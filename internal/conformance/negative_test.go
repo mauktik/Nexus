@@ -23,6 +23,7 @@ import (
 	"github.com/mauktik/nexus/internal/openapi"
 	"github.com/mauktik/nexus/internal/problem"
 	nexusd "github.com/mauktik/nexus/internal/providers/nexusd/spec"
+	nginx "github.com/mauktik/nexus/internal/providers/nginx/spec"
 	pihole "github.com/mauktik/nexus/internal/providers/pihole/spec"
 	scripts "github.com/mauktik/nexus/internal/providers/scripts/spec"
 )
@@ -73,6 +74,10 @@ var inertAllowed = map[string]bool{
 	// Script parameter values reach the script only as one argv element or
 	// one env value (5.3 proves it against real processes, TC-106).
 	scripts.Invoke.Op().ID + " /parameters/{key}": true,
+	// nginx site content is only written to the configuration file and read
+	// by nginx, never passed to a shell or as an argument (FR-12).
+	nginx.Add.Op().ID + " /content":    true,
+	nginx.Update.Op().ID + " /content": true,
 	// A regex domain value reaches gravity.db only as a bound SQL parameter,
 	// never a shell or dnsmasq line; WI 5.2 proves it at T1 by storing a
 	// regex with `\.` and ";querytype=A" byte for byte.

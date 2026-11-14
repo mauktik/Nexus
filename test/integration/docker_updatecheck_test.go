@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/mauktik/nexus/internal/apitypes"
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/providers/docker/spec"
 )
@@ -388,6 +389,9 @@ func TestDockerUpdateBothImageStores(t *testing.T) {
 	results := map[bool]map[string]string{}
 	for _, containerd := range []bool{false, true} {
 		js := fmt.Sprintf(`{"features":{"containerd-snapshotter":%v}}`, containerd)
+		if err := os.MkdirAll("/etc/docker", 0o755); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile("/etc/docker/daemon.json", []byte(js), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -443,9 +447,15 @@ func TestDockerUpdateBothImageStores(t *testing.T) {
 // limits starts to 3 a minute, so the failed-start counter is reset first.
 func restartDocker(t *testing.T) {
 	t.Helper()
-	_, _ = sh(time.Minute, "systemctl", "reset-failed", "docker.service")
-	if out, err := sh(3*time.Minute, "systemctl", "restart", "docker.service"); err != nil {
-		t.Errorf("restart docker: %v\n%s", err, out)
+	if detectedInit() == platform.OpenRC {
+		if out, err := sh(3*time.Minute, "rc-service", "docker", "restart"); err != nil {
+			t.Errorf("restart docker: %v\n%s", err, out)
+		}
+	} else {
+		_, _ = sh(time.Minute, "systemctl", "reset-failed", "docker.service")
+		if out, err := sh(3*time.Minute, "systemctl", "restart", "docker.service"); err != nil {
+			t.Errorf("restart docker: %v\n%s", err, out)
+		}
 	}
 	deadline := time.Now().Add(90 * time.Second)
 	for {
@@ -492,7 +502,10 @@ func clearHelperMarker(t *testing.T) {
 // the result, the operation output and nexusd's journal.
 func noSecret(t *testing.T, n *nexusdInstance, res checkResult, since time.Time) {
 	t.Helper()
-	journal := mustSh(t, "journalctl", "-u", nexusdUnit, "--no-pager", "--since", since.Format("2006-01-02 15:04:05"))
+	journal := string(systemLog(t)) // On OpenRC, all of /var/log/messages
+	if detectedInit() != platform.OpenRC {
+		journal = mustSh(t, "journalctl", "-u", nexusdUnit, "--no-pager", "--since", since.Format("2006-01-02 15:04:05"))
+	}
 	all := res.raw + n.opLogs(res.op.ID) + journal
 	for _, s := range []string{regPass, b64(regUser + ":" + regPass)} {
 		if strings.Contains(all, s) {

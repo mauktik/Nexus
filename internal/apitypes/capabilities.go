@@ -23,7 +23,17 @@ type Capabilities struct {
 	Host       string               `json:"host"`
 	APIVersion string               `json:"apiVersion"`
 	Version    string               `json:"version"` // nexusd build version
+	OS         HostOS               `json:"os"`
+	InitSystem string               `json:"initSystem"` // systemd, openrc or unknown
 	Providers  []ProviderCapability `json:"providers"`
+}
+
+// HostOS identifies the host's operating system, as platform.OS reports it (FR-18).
+// Every field is empty when the host has no OS identification file.
+type HostOS struct {
+	ID         string `json:"id"`
+	VersionID  string `json:"versionId"`
+	PrettyName string `json:"prettyName,omitempty"`
 }
 
 // ProviderCapability describes one compiled-in provider.
@@ -37,12 +47,14 @@ type ProviderCapability struct {
 }
 
 // NewCapabilities builds a Capabilities with its fixed id and API version.
-func NewCapabilities(host, version string, providers []ProviderCapability) Capabilities {
+func NewCapabilities(host, version string, hostOS HostOS, initSystem string, providers []ProviderCapability) Capabilities {
 	return Capabilities{
 		ID:         CapabilitiesID,
 		Host:       host,
 		APIVersion: APIVersion,
 		Version:    version,
+		OS:         hostOS,
+		InitSystem: initSystem,
 		Providers:  providers,
 	}
 }

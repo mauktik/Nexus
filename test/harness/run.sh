@@ -1,7 +1,10 @@
 #!/bin/bash
 # T1 harness runner: `make test-harness [BASE=ubuntu:latest] [RUN=regex]`
-# (architecture.md, Verification Architecture). `run.sh emu` (make test-emu)
-# is the T1-emu smoke of the release artifact instead; see emu_smoke.
+# (architecture.md, Verification Architecture). `run.sh alpine`
+# (make test-harness-alpine) is the same run on the Alpine/OpenRC harness:
+# Dockerfile.alpine, BusyBox init with OpenRC as PID 1, --cgroupns=private.
+# `run.sh emu` (make test-emu) is the T1-emu smoke of the release artifact
+# instead; see emu_smoke.
 #
 # Builds the image FROM $BASE, cross-compiles nexusd, opsd and the
 # integration test binary for the architecture `docker info` reports into
@@ -11,6 +14,21 @@
 # the tests, and always collects the logs and removes the container. The
 # release tree install.sh installs from (make nexusd-tree, with the harness
 # nexusd) goes to /harness/release/nexusd.
+#
+# Before integration.test, the NFR-8 parity suites run in the container:
+# `go test -c` binaries of ./internal/detach and ./internal/ops, as root
+# (detach.log, ops.log) and as an unprivileged user (detach-nonroot.log,
+# ops-nonroot.log), with the harness nexusd as their supervisor executable.
+# After it, TestParitySuitesRanAsRoot reads those logs and test.log
+# (parity-check.log). Last, internal/svcctl's TestLiveMatrix drives the
+# container's real nginx through the detected init system as root
+# (NEXUS_SVCCTL_LIVE=1, svcctl-live.log). Both images carry the
+# distribution's nginx and curl for the nginx T1 suite (nginx-provider WI
+# 7.1), whose TC-113 reads internal/svcctl's captures through the svcctltest
+# fake: they are copied to /harness/src/<module path>/internal/svcctl/testdata,
+# where the fake's -trimpath source path resolves from /harness/src.
+# nginx's error.log is collected with the other logs (nginx-error.log).
+# PARITY=0 leaves the parity suites and the live matrix out for a quick run.
 #
 # The self-update fixtures (WI 7.1) go to /harness/selfupdate: one signed
 # nexusd-<v>-linux-<goarch>.tar.gz per fixture version (see build_fixtures),
@@ -33,7 +51,8 @@
 # `systemctl is-active`, which the SysV wrapper keeps active after FTL dies),
 # and pihole_setup runs once before any test.
 #
-# Environment: BASE (image base), RUN (-test.run regex), TESTFLAGS (more
+# Environment: BASE (image base), RUN (-test.run regex), PARITY, NAME_PREFIX
+# (container names), TESTFLAGS (more
 # test binary flags), NEXUS_HARNESS_EXPECT_FAIL (passed to the tests: a
 # deliberate failure that proves logs are collected and the container is
 # removed when a test fails), NEXUS_HARNESS_ALLOW_REMOTE=1 (run on a
@@ -42,8 +61,21 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 ROOT=$(pwd)
-BASE=${BASE:-ubuntu:latest}
+MODE=systemd
+if [ "${1:-}" = alpine ]; then
+	MODE=openrc
+fi
+if [ $MODE = openrc ]; then
+	BASE=${BASE:-alpine:latest}
+else
+	BASE=${BASE:-ubuntu:latest}
+fi
 RUN=${RUN:-}
+PARITY_ARG=${PARITY:-}
+PARITY=${PARITY:-1}
+# Container names start with NAME_PREFIX: when several harness runs share
+# one Docker host, each can sweep only its own.
+NAME_PREFIX=${NAME_PREFIX:-nexus-harness}
 TESTFLAGS=${TESTFLAGS:-}
 OUT=$ROOT/build/harness
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
@@ -105,6 +137,9 @@ PIHOLE=""
 if [ "$(docker image inspect -f '{{index .Config.Labels "org.nexus.harness"}}' "$BASE" 2>/dev/null || true)" = pihole ]; then
 	PIHOLE=1
 	REQUIRED_UNITS="systemd-journald.service dbus.service stub-upstream.service fixture-http.service"
+	# The Pi-hole image has no nginx or nested Engine for the parity suites
+	# and the live matrix; PARITY=1 still runs them on request.
+	PARITY=${PARITY_ARG:-0}
 fi
 
 # Everything from here on is also kept in logs/<stamp>/run.log.
@@ -135,7 +170,7 @@ aarch64 | arm64) goarch=arm64 ;;
 x86_64 | amd64) goarch=amd64 ;;
 *) die "unsupported docker architecture $arch" ;;
 esac
-say "docker context $(docker context show), daemon architecture $arch -> GOARCH=$goarch, BASE=$BASE"
+say "docker context $(docker context show), daemon architecture $arch -> GOARCH=$goarch, BASE=$BASE, init $MODE"
 
 # emu_smoke is TC-184 (T1-emu): the linux/amd64 nexusd from the tarball that
 # `make release` wrote, checked against SHA256SUMS, in a plain $BASE
@@ -335,16 +370,30 @@ mkdir -p "$OUT" "$LOGS"
 if [ -n "$PIHOLE" ]; then
 	tag=$BASE
 	say "Pi-hole harness image $tag (INIT=$(docker image inspect -f '{{index .Config.Labels "org.nexus.harness.init"}}' "$BASE"))"
+	name="$NAME_PREFIX-$STAMP-$$"
+elif [ $MODE = openrc ]; then
+	tag="nexus-harness:alpine-$(echo "$BASE" | tr ':/@' '---')"
+	dockerfile=test/harness/Dockerfile.alpine
+	name="$NAME_PREFIX-alpine-$STAMP-$$"
 else
 	tag="nexus-harness:$(echo "$BASE" | tr ':/@' '---')"
-	say "building image $tag"
-	docker build --quiet --build-arg "BASE=$BASE" -t "$tag" test/harness >/dev/null
+	dockerfile=test/harness/Dockerfile
+	name="$NAME_PREFIX-$STAMP-$$"
+fi
+if [ -z "$PIHOLE" ]; then
+	say "building image $tag from $dockerfile"
+	docker build --quiet --build-arg "BASE=$BASE" -f "$dockerfile" -t "$tag" test/harness >/dev/null
 fi
 say "building linux/$goarch test-only binaries into build/harness/"
 export CGO_ENABLED=0 GOOS=linux GOARCH=$goarch
 go build -trimpath -o "$OUT/nexusd" ./cmd/nexusd
 go build -trimpath -o "$OUT/opsd" ./test/integration/cmd/opsd
 go test -c -trimpath -tags integration -o "$OUT/integration.test" ./test/integration
+if [ "$PARITY" = 1 ]; then
+	go test -c -trimpath -o "$OUT/detach.test" ./internal/detach
+	go test -c -trimpath -o "$OUT/ops.test" ./internal/ops
+	go test -c -trimpath -o "$OUT/svcctl.test" ./internal/svcctl
+fi
 say "building the self-update fixtures ($FIXTURES) into ${FIX#"$ROOT"/}"
 build_fixtures
 unset CGO_ENABLED GOOS GOARCH
@@ -352,7 +401,6 @@ make --no-print-directory -s nexusd-tree TREE_BIN="$OUT/nexusd" TREE_DIR="$OUT/r
 go build -o "$OUT/host/nexus-release" ./cmd/nexus-release
 sign_fixtures "$OUT/host/nexus-release"
 
-name="nexus-harness-$STAMP-$$"
 container=""
 status=1
 
@@ -360,8 +408,23 @@ collect_and_remove() {
 	local rc=$?
 	if [ -n "$container" ]; then
 		say "collecting logs into ${LOGS#"$ROOT"/}"
-		docker exec "$container" journalctl -b --no-pager -o short-precise >"$LOGS/journal.log" 2>&1 || true
-		docker exec "$container" systemctl list-units --all --no-pager --plain >"$LOGS/units.log" 2>&1 || true
+		if [ $MODE = openrc ]; then
+			docker exec "$container" cat /var/log/rc.log >"$LOGS/rc.log" 2>&1 || true
+			docker exec "$container" cat /var/log/messages >"$LOGS/messages.log" 2>&1 || true
+			docker exec "$container" rc-status -a >"$LOGS/rc-status.log" 2>&1 || true
+			for f in rc.log messages.log; do
+				if [ -s "$LOGS/$f" ]; then
+					say "collected $f ($(wc -l <"$LOGS/$f" | tr -d ' ') lines)"
+				else
+					echo "harness: FAIL: $f was not collected" >&2
+					rc=1
+				fi
+			done
+		else
+			docker exec "$container" journalctl -b --no-pager -o short-precise >"$LOGS/journal.log" 2>&1 || true
+			docker exec "$container" systemctl list-units --all --no-pager --plain >"$LOGS/units.log" 2>&1 || true
+		fi
+		docker exec "$container" cat /var/log/nginx/error.log >"$LOGS/nginx-error.log" 2>&1 || true
 		docker logs "$container" >"$LOGS/container.log" 2>&1 || true
 		docker rm -f -v "$container" >/dev/null 2>&1 || true
 		if [ -n "$(docker ps -aq --filter "name=^${name}\$")" ]; then
@@ -555,9 +618,17 @@ pihole_setup() {
 say "starting container $name"
 # Anonymous volumes, not bind mounts, for both stores of the nested Engine:
 # Docker 29 keeps images and snapshots in containerd's store, and overlayfs
-# refuses an upper directory on the container's own overlay root.
-container=$(docker run -d --name "$name" --privileged --cgroupns=host \
-	--tmpfs /run --tmpfs /run/lock -v /var/lib/docker -v /var/lib/containerd "$tag")
+# refuses an upper directory on the container's own overlay root. The
+# Alpine harness has a private cgroup namespace: its cgroup v2 root is the
+# container's own, writable, so OpenRC's openrc.<service> groups and the
+# process backend's nexus-ops groups are real.
+cgroupns=host
+[ $MODE = systemd ] || cgroupns=private
+# /harness-tmp is the parity suites' TMPDIR: they fsync thousands of small
+# records, and on the VM's shared disk one fsync stalled a run for minutes.
+container=$(docker run -d --name "$name" --privileged "--cgroupns=$cgroupns" \
+	--tmpfs /run --tmpfs /run/lock --tmpfs /harness-tmp:rw,exec,nosuid,size=2g,mode=1777 \
+	-v /var/lib/docker -v /var/lib/containerd "$tag")
 
 mounts=$(docker inspect -f '{{range .Mounts}}{{.Type}}:{{.Destination}} {{end}}' "$container")
 say "mounts: ${mounts:-none}"
@@ -565,30 +636,46 @@ case " $mounts" in
 *" bind:"*) die "a bind mount is present: $mounts" ;;
 esac
 
-say "waiting for systemd (running or degraded)"
-deadline=$((SECONDS + READY_TIMEOUT))
-while :; do
-	state=$(docker exec "$container" systemctl is-system-running 2>/dev/null || true)
-	case $state in
-	running | degraded) break ;;
-	esac
-	[ $SECONDS -lt $deadline ] || die "systemd not ready after ${READY_TIMEOUT}s (state '$state')"
-	sleep 1
-done
-say "system state: $state"
-failed=$(docker exec "$container" systemctl --failed --no-legend --plain 2>/dev/null | awk '{print $1}' | xargs)
-say "failed units: ${failed:-none}"
-for u in $REQUIRED_UNITS; do
-	until [ "$(docker exec "$container" systemctl is-active "$u" 2>/dev/null || true)" = active ]; do
-		[ $SECONDS -lt $deadline ] || die "required unit $u is not active"
+if [ $MODE = openrc ]; then
+	say "waiting for OpenRC: docker started in the default runlevel"
+	deadline=$((SECONDS + READY_TIMEOUT))
+	until docker exec "$container" rc-status default 2>/dev/null | grep -Eq '^ docker +\[ +started'; do
+		[ $SECONDS -lt $deadline ] || die "docker not started in the default runlevel after ${READY_TIMEOUT}s"
 		sleep 1
 	done
-	say "required unit $u active"
-done
-if [ -n "$PIHOLE" ]; then
-	pihole_setup
+	until docker exec "$container" docker info >/dev/null 2>&1; do
+		[ $SECONDS -lt $deadline ] || die "the nested Engine does not answer"
+		sleep 1
+	done
+	say "rc-status default: $(docker exec "$container" rc-status default | tr -s ' ' | xargs)"
+	say "PID 1: $(docker exec "$container" cat /proc/1/cmdline | tr '\0' ' ')"
+	say "versions: $(docker exec "$container" sh -c 'openrc --version; nginx -v 2>&1; curl --version | head -1; docker version --format "docker {{.Server.Version}}"; . /etc/os-release; echo "$PRETTY_NAME"' | xargs)"
 else
-	say "versions: $(docker exec "$container" sh -c 'systemctl --version | head -1; needrestart --version 2>&1 | head -1; dpkg-query -W -f="apt \${Version} " apt; dpkg-query -W -f="dpkg \${Version}" dpkg; echo; . /etc/os-release; echo "$PRETTY_NAME"' | xargs)"
+	say "waiting for systemd (running or degraded)"
+	deadline=$((SECONDS + READY_TIMEOUT))
+	while :; do
+		state=$(docker exec "$container" systemctl is-system-running 2>/dev/null || true)
+		case $state in
+		running | degraded) break ;;
+		esac
+		[ $SECONDS -lt $deadline ] || die "systemd not ready after ${READY_TIMEOUT}s (state '$state')"
+		sleep 1
+	done
+	say "system state: $state"
+	failed=$(docker exec "$container" systemctl --failed --no-legend --plain 2>/dev/null | awk '{print $1}' | xargs)
+	say "failed units: ${failed:-none}"
+	for u in $REQUIRED_UNITS; do
+		until [ "$(docker exec "$container" systemctl is-active "$u" 2>/dev/null || true)" = active ]; do
+			[ $SECONDS -lt $deadline ] || die "required unit $u is not active"
+			sleep 1
+		done
+		say "required unit $u active"
+	done
+	if [ -n "$PIHOLE" ]; then
+		pihole_setup
+	else
+		say "versions: $(docker exec "$container" sh -c 'systemctl --version | head -1; needrestart --version 2>&1 | head -1; dpkg-query -W -f="apt \${Version} " apt; dpkg-query -W -f="dpkg \${Version}" dpkg; echo; nginx -v 2>&1; curl --version | head -1; . /etc/os-release; echo "$PRETTY_NAME"' | xargs)"
+	fi
 fi
 
 say "copying binaries, unit, lib.sh and fixtures in with docker cp"
@@ -597,9 +684,13 @@ docker cp "$OUT/nexusd" "$container:/usr/local/bin/nexusd"
 docker cp "$OUT/opsd" "$container:/usr/local/bin/opsd"
 docker cp "$OUT/integration.test" "$container:/harness/integration.test"
 docker cp deploy/nexusd.service "$container:/harness/deploy/nexusd.service"
+docker cp deploy/nexusd.openrc "$container:/harness/deploy/nexusd.openrc"
 docker cp test/harness/lib.sh "$container:/harness/lib.sh"
 # Script fixtures (WI 5.3); tests install them root-owned where they run.
 docker cp test/harness/fixtures "$container:/harness/fixtures"
+# The svcctl captures the svcctltest fake answers with (TC-113).
+docker exec "$container" mkdir -p /harness/src/github.com/mauktik/nexus/internal/svcctl
+docker cp internal/svcctl/testdata "$container:/harness/src/github.com/mauktik/nexus/internal/svcctl/testdata"
 # The release tree install.sh installs from (WI 10.1), root-owned as tar
 # extracts it for root.
 docker cp "$OUT/release" "$container:/harness/release"
@@ -609,12 +700,85 @@ check_host_key
 say "copying the self-update fixtures into /harness/selfupdate"
 docker cp "$FIX/pkg" "$container:/harness/selfupdate"
 docker exec "$container" chown -R root:root /harness/selfupdate
-docker exec "$container" sh -c 'chown root:root /usr/local/bin/nexusd /usr/local/bin/opsd /harness/integration.test /harness/lib.sh /harness/deploy/nexusd.service && chmod 0755 /usr/local/bin/nexusd /usr/local/bin/opsd /harness/integration.test /harness/lib.sh'
+docker exec "$container" sh -c 'chown root:root /usr/local/bin/nexusd /usr/local/bin/opsd /harness/integration.test /harness/lib.sh /harness/deploy/nexusd.service /harness/deploy/nexusd.openrc && chmod 0755 /usr/local/bin/nexusd /usr/local/bin/opsd /harness/integration.test /harness/lib.sh'
+
+# The parity suites (NFR-8, TC-46): as root, then as an unprivileged user,
+# each package's binary in a directory of its own holding its testdata
+# (internal/detach's goldens, internal/ops's test sources).
+# NEXUS_TEST_SUPERVISOR is the supervisor executable of their process
+# backend: the harness has no Go toolchain to build one.
+parity_status=0
+# The one test left out reads the package's API with `go doc`: it needs
+# the Go toolchain, so it runs in T0 only, and the cases it covers are not
+# root, cgroup or init specific.
+parity_skip() {
+	case $1 in
+	detach) echo '^TestSingleConstructorWithTestInjection$' ;;
+	*) echo '^$' ;;
+	esac
+}
+run_parity() {
+	local who=$1 pkg log rc skip
+	for pkg in detach ops; do
+		skip=$(parity_skip "$pkg")
+		log=$pkg.log
+		[ "$who" = root ] || log=$pkg-nonroot.log
+		say "parity suite internal/$pkg as $who -> $log"
+		set +e
+		if [ "$who" = root ]; then
+			docker exec -w "/harness/parity/$pkg" -e NEXUS_TEST_SUPERVISOR=/usr/local/bin/nexusd -e TMPDIR=/harness-tmp/root \
+				"$container" "/harness/parity/$pkg/$pkg.test" -test.v -test.count=1 -test.timeout=20m \
+				-test.skip "$skip" >"$LOGS/$log" 2>&1
+		else
+			docker exec -w "/harness/parity/$pkg" "$container" setpriv --reuid=nexusparity --regid=nexusparity \
+				--clear-groups env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+				HOME=/harness-tmp/nexusparity TMPDIR=/harness-tmp/nexusparity NEXUS_TEST_SUPERVISOR=/usr/local/bin/nexusd \
+				"/harness/parity/$pkg/$pkg.test" -test.v -test.count=1 -test.timeout=20m -test.skip "$skip" \
+				>"$LOGS/$log" 2>&1
+		fi
+		rc=$?
+		set -e
+		say "parity suite internal/$pkg as $who exited $rc: $(grep -c -- '^--- PASS\|^    --- PASS' "$LOGS/$log") PASS, $(grep -c -- '--- SKIP' "$LOGS/$log") SKIP, $(grep -c -- '--- FAIL' "$LOGS/$log") FAIL"
+		if [ $rc -ne 0 ]; then
+			tail -n 40 "$LOGS/$log" >&2
+			parity_status=$rc
+		fi
+	done
+}
+if [ "$PARITY" = 1 ]; then
+	say "copying the parity suites in"
+	docker exec "$container" mkdir -p /harness/parity/detach /harness/parity/ops /harness/logs
+	docker cp "$OUT/detach.test" "$container:/harness/parity/detach/detach.test"
+	docker cp "$OUT/ops.test" "$container:/harness/parity/ops/ops.test"
+	docker cp internal/detach/testdata "$container:/harness/parity/detach/testdata"
+	# TC-25 parses the ops behavioral suites' source to check that each runs
+	# per backend.
+	for f in internal/ops/*_test.go; do
+		docker cp "$f" "$container:/harness/parity/ops/${f##*/}"
+	done
+	if [ $MODE = openrc ]; then
+		docker exec "$container" adduser -D -H -s /sbin/nologin nexusparity
+	else
+		docker exec "$container" useradd -M -s /usr/sbin/nologin nexusparity
+	fi
+	docker exec "$container" sh -c 'chown -R root:root /harness/parity && chmod -R a+rX /harness/parity &&
+		install -d -m 0700 /harness-tmp/root && install -d -o nexusparity -g nexusparity -m 0700 /harness-tmp/nexusparity'
+	run_parity root
+	run_parity nonroot
+fi
 
 say "running tests"
 docker cp "$LOGS/run.log" "$container:/harness/run.log"
-args=(-test.v -test.count=1 -test.timeout=30m)
+# The Ubuntu suite outgrew 30m with the nginx T1 suite (WI 7.1): at 56c8848
+# it reached 1,714 s of finished tests before nginx_test.go ran.
+args=(-test.v -test.count=1 -test.timeout=60m)
 [ -z "$RUN" ] || args+=(-test.run "$RUN")
+# TC-46 reads the whole test.log, so it runs after this, on its own. The
+# Pi-hole tests need the Pi-hole image (make test-harness-pihole), so every
+# other image skips them; -test.skip takes one pattern.
+skip='^TestParitySuitesRanAsRoot$'
+[ -n "$PIHOLE" ] || skip="$skip|^TestPihole"
+args+=(-test.skip "$skip")
 # shellcheck disable=SC2206 # TESTFLAGS is word-split on purpose.
 [ -z "$TESTFLAGS" ] || args+=($TESTFLAGS)
 set +e
@@ -636,3 +800,34 @@ if grep -q '^--- SKIP:' "$LOGS/test.log"; then
 	grep '^--- SKIP:' "$LOGS/test.log" | sed 's/^/    /' >&2
 fi
 say "tests exited $status"
+
+if [ "$PARITY" = 1 ]; then
+	say "checking the parity logs and test.log skips (TC-46)"
+	for f in detach.log ops.log detach-nonroot.log ops-nonroot.log test.log; do
+		docker cp "$LOGS/$f" "$container:/harness/logs/$f"
+	done
+	set +e
+	docker exec -w /harness -e NEXUS_HARNESS=1 -e "NEXUS_HARNESS_ARCH=$goarch" -e NEXUS_HARNESS_LOGS=/harness/logs \
+		"$container" /harness/integration.test -test.v -test.count=1 -test.run '^TestParitySuitesRanAsRoot$' 2>&1 |
+		tee "$LOGS/parity-check.log"
+	check=${PIPESTATUS[0]}
+	set -e
+	say "parity check exited $check, parity suites $parity_status"
+	[ $status -ne 0 ] || status=$check
+	[ $status -ne 0 ] || status=$parity_status
+fi
+
+if [ "$PARITY" = 1 ]; then
+	say "svcctl TestLiveMatrix against the container's nginx ($MODE) -> svcctl-live.log"
+	set +e
+	docker cp "$OUT/svcctl.test" "$container:/harness/parity/svcctl.test"
+	docker exec -w /harness/parity -e NEXUS_SVCCTL_LIVE=1 "$container" /harness/parity/svcctl.test \
+		-test.v -test.count=1 -test.run '^TestLiveMatrix$' >"$LOGS/svcctl-live.log" 2>&1
+	live=$?
+	set -e
+	cat "$LOGS/svcctl-live.log"
+	if [ $live -ne 0 ] || ! grep -q '^--- PASS: TestLiveMatrix' "$LOGS/svcctl-live.log"; then
+		say "svcctl TestLiveMatrix did not pass (exit $live)"
+		[ $status -ne 0 ] || status=1
+	fi
+fi

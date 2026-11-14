@@ -1,0 +1,870 @@
+Nov 14 03:08:14 3a52bb8be6d9 syslog.info syslogd started: BusyBox v1.37.0
+Nov 14 03:08:14 3a52bb8be6d9 daemon.info init: starting pid 208, tty '': '/sbin/openrc default'
+Nov 14 03:08:14 3a52bb8be6d9 daemon.info supervise-daemon[230]: Supervisor command line: supervise-daemon docker --start --retry TERM/60/KILL/10 --stdout-logger log_proxy -m /var/log/docker.log --stderr-logger log_proxy -m /var/log/docker.log --respawn-delay 2 --respawn-max 5 --respawn-period 1800 /usr/bin/dockerd --
+Nov 14 03:08:14 3a52bb8be6d9 daemon.info supervise-daemon[232]: Child command line: /usr/bin/dockerd
+Nov 14 03:11:03 3a52bb8be6d9 authpriv.info useradd[4072]: new group: name=deploy, GID=1001
+Nov 14 03:11:03 3a52bb8be6d9 authpriv.info useradd[4072]: new user: name=deploy, UID=1001, GID=1001, home=/home/deploy, shell=/bin/bash, from=none
+Nov 14 03:11:03 3a52bb8be6d9 authpriv.info useradd[4074]: new group: name=other, GID=1002
+Nov 14 03:11:03 3a52bb8be6d9 authpriv.info useradd[4074]: new user: name=other, UID=1002, GID=1002, home=/home/other, shell=/bin/sh, from=none
+Nov 14 03:11:03 3a52bb8be6d9 authpriv.info usermod[4075]: add 'deploy' to group 'docker'
+Nov 14 03:11:03 3a52bb8be6d9 daemon.warn nexusd[4088]: WARNING: nexusd is already stopped
+Nov 14 03:11:03 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:11:03.985382619Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7463"]}
+Nov 14 03:11:04 3a52bb8be6d9 daemon.debug start-stop-daemon[4373]: Will stop /usr/local/bin/nexusd
+Nov 14 03:11:04 3a52bb8be6d9 daemon.debug start-stop-daemon[4373]: Will stop PID 4282
+Nov 14 03:11:04 3a52bb8be6d9 daemon.debug start-stop-daemon[4373]: Sending signal 15 to PID 4282
+Nov 14 03:11:04 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:11:04.217991515Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:11:04 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:11:04.218139183Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:11:19 3a52bb8be6d9 daemon.warn nexusd[5287]: WARNING: nexusd is already stopped
+Nov 14 03:11:19 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:11:19.749213348Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7467"]}
+Nov 14 03:11:23 3a52bb8be6d9 daemon.debug start-stop-daemon[5834]: Will stop /usr/local/bin/nexusd
+Nov 14 03:11:23 3a52bb8be6d9 daemon.debug start-stop-daemon[5834]: Will stop PID 5481
+Nov 14 03:11:23 3a52bb8be6d9 daemon.debug start-stop-daemon[5834]: Sending signal 15 to PID 5481
+Nov 14 03:11:23 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:11:23.061514245Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:11:23 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:11:23.061653246Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:11:25 3a52bb8be6d9 daemon.warn nexusd[6466]: WARNING: nexusd is already stopped
+Nov 14 03:11:26 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:11:26.082654851Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7468"]}
+Nov 14 03:11:27 3a52bb8be6d9 daemon.debug start-stop-daemon[6855]: Will stop /usr/local/bin/nexusd
+Nov 14 03:11:27 3a52bb8be6d9 daemon.debug start-stop-daemon[6855]: Will stop PID 6661
+Nov 14 03:11:27 3a52bb8be6d9 daemon.debug start-stop-daemon[6855]: Sending signal 15 to PID 6661
+Nov 14 03:11:27 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:11:27.839064396Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:11:27 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:11:27.839359898Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:11:33 3a52bb8be6d9 daemon.warn nexusd[7620]: WARNING: nexusd is already stopped
+Nov 14 03:11:33 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:11:33.353505139Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7469"]}
+Nov 14 03:11:43 3a52bb8be6d9 daemon.debug start-stop-daemon[8357]: Will stop /usr/local/bin/nexusd
+Nov 14 03:11:43 3a52bb8be6d9 daemon.debug start-stop-daemon[8357]: Will stop PID 7815
+Nov 14 03:11:43 3a52bb8be6d9 daemon.debug start-stop-daemon[8357]: Sending signal 15 to PID 7815
+Nov 14 03:11:43 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:11:43.298399726Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:11:43 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:11:43.298566144Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:11:51 3a52bb8be6d9 daemon.warn nexusd[9564]: WARNING: nexusd is already stopped
+Nov 14 03:11:51 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:11:51.686885353Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7470"]}
+Nov 14 03:11:51 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:11:51.798443402Z","level":"INFO","msg":"request refused","op":"docker.containers.update","tokenId":"09a80214a86b","tokenName":"update","surface":"rest","problem":"compose-files-missing"}
+Nov 14 03:11:51 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:11:51.834446065Z","level":"INFO","msg":"request refused","op":"docker.containers.update","tokenId":"09a80214a86b","tokenName":"update","surface":"rest","problem":"compose-files-missing"}
+Nov 14 03:11:51 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:11:51.864686536Z","level":"INFO","msg":"request refused","op":"docker.containers.update","tokenId":"09a80214a86b","tokenName":"update","surface":"rest","problem":"compose-files-missing"}
+Nov 14 03:11:52 3a52bb8be6d9 daemon.debug start-stop-daemon[9911]: Will stop /usr/local/bin/nexusd
+Nov 14 03:11:52 3a52bb8be6d9 daemon.debug start-stop-daemon[9911]: Will stop PID 9762
+Nov 14 03:11:52 3a52bb8be6d9 daemon.debug start-stop-daemon[9911]: Sending signal 15 to PID 9762
+Nov 14 03:11:52 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:11:52.930313085Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:11:52 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:11:52.930631712Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:12:08 3a52bb8be6d9 daemon.warn nexusd[11074]: WARNING: nexusd is already stopped
+Nov 14 03:12:09 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:12:09.193628548Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7471"]}
+Nov 14 03:12:09 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:12:09.507037261Z","level":"INFO","msg":"request refused","op":"docker.containers.update","tokenId":"3e1acabfbbc0","tokenName":"update","surface":"rest","problem":"compose-plugin-missing"}
+Nov 14 03:12:15 3a52bb8be6d9 daemon.debug start-stop-daemon[11664]: Will stop /usr/local/bin/nexusd
+Nov 14 03:12:15 3a52bb8be6d9 daemon.debug start-stop-daemon[11664]: Will stop PID 11269
+Nov 14 03:12:15 3a52bb8be6d9 daemon.debug start-stop-daemon[11664]: Sending signal 15 to PID 11269
+Nov 14 03:12:15 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:12:15.558147305Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:12:15 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:12:15.558318973Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:12:28 3a52bb8be6d9 daemon.warn nexusd[12581]: WARNING: nexusd is already stopped
+Nov 14 03:12:28 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:12:28.410531479Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7472"]}
+Nov 14 03:12:28 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:12:28.895191879Z","level":"INFO","msg":"request refused","op":"docker.containers.update","tokenId":"9f123ded0547","tokenName":"update","surface":"rest","problem":"conflict"}
+Nov 14 03:12:28 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:12:28.927491275Z","level":"INFO","msg":"request refused","op":"docker.containers.update","tokenId":"9f123ded0547","tokenName":"update","surface":"rest","problem":"conflict"}
+Nov 14 03:12:28 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:12:28.944603311Z","level":"INFO","msg":"request refused","op":"docker.containers.stop","tokenId":"9f123ded0547","tokenName":"update","surface":"rest","problem":"conflict"}
+Nov 14 03:12:28 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:12:28.963570563Z","level":"INFO","msg":"request refused","op":"docker.containers.stop","tokenId":"9f123ded0547","tokenName":"update","surface":"rest","problem":"conflict"}
+Nov 14 03:12:33 3a52bb8be6d9 daemon.debug start-stop-daemon[13164]: Will stop /usr/local/bin/nexusd
+Nov 14 03:12:33 3a52bb8be6d9 daemon.debug start-stop-daemon[13164]: Will stop PID 12775
+Nov 14 03:12:33 3a52bb8be6d9 daemon.debug start-stop-daemon[13164]: Sending signal 15 to PID 12775
+Nov 14 03:12:33 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:12:33.928095134Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:12:33 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:12:33.928728512Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:12:43 3a52bb8be6d9 daemon.warn nexusd[13807]: WARNING: nexusd is already stopped
+Nov 14 03:12:43 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:12:43.337376392Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7473"]}
+Nov 14 03:12:45 3a52bb8be6d9 daemon.debug start-stop-daemon[14336]: Will stop /usr/local/bin/nexusd
+Nov 14 03:12:45 3a52bb8be6d9 daemon.debug start-stop-daemon[14336]: Will stop PID 14000
+Nov 14 03:12:45 3a52bb8be6d9 daemon.err nexusd[14336]: start-stop-daemon: no matching processes found
+Nov 14 03:12:45 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:12:45.13045082Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7473"]}
+Nov 14 03:12:45 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:12:45.13072903Z","level":"INFO","msg":"operation reattached","operationId":"01a1d80b-0b22-7066-9f24-97fe3202826b","unit":"nexus-op-01a1d80b-0b22-7066-9f24-97fe3202826b.service"}
+Nov 14 03:12:51 3a52bb8be6d9 daemon.debug start-stop-daemon[15006]: Will stop /usr/local/bin/nexusd
+Nov 14 03:12:51 3a52bb8be6d9 daemon.debug start-stop-daemon[15006]: Will stop PID 14403
+Nov 14 03:12:51 3a52bb8be6d9 daemon.err nexusd[15006]: start-stop-daemon: no matching processes found
+Nov 14 03:12:51 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:12:51.489940894Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7473"]}
+Nov 14 03:12:51 3a52bb8be6d9 daemon.debug start-stop-daemon[15157]: Will stop /usr/local/bin/nexusd
+Nov 14 03:12:51 3a52bb8be6d9 daemon.debug start-stop-daemon[15157]: Will stop PID 15071
+Nov 14 03:12:51 3a52bb8be6d9 daemon.debug start-stop-daemon[15157]: Sending signal 15 to PID 15071
+Nov 14 03:12:51 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:12:51.639666152Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:12:51 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:12:51.639814028Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:12:55 3a52bb8be6d9 daemon.warn nexusd[16222]: WARNING: nexusd is already stopped
+Nov 14 03:12:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:12:55.752304617Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7474"]}
+Nov 14 03:13:04 3a52bb8be6d9 daemon.debug start-stop-daemon[16901]: Will stop /usr/local/bin/nexusd
+Nov 14 03:13:04 3a52bb8be6d9 daemon.debug start-stop-daemon[16901]: Will stop PID 16417
+Nov 14 03:13:04 3a52bb8be6d9 daemon.debug start-stop-daemon[16901]: Sending signal 15 to PID 16417
+Nov 14 03:13:04 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:04.684542205Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:13:04 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:04.684876915Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:13:09 3a52bb8be6d9 daemon.warn nexusd[18004]: WARNING: nexusd is already stopped
+Nov 14 03:13:09 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:09.296817185Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7475"]}
+Nov 14 03:13:16 3a52bb8be6d9 daemon.debug start-stop-daemon[18650]: Will stop /usr/local/bin/nexusd
+Nov 14 03:13:16 3a52bb8be6d9 daemon.debug start-stop-daemon[18650]: Will stop PID 18198
+Nov 14 03:13:16 3a52bb8be6d9 daemon.debug start-stop-daemon[18650]: Sending signal 15 to PID 18198
+Nov 14 03:13:16 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:16.051680545Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:13:16 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:16.052271381Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:13:20 3a52bb8be6d9 daemon.warn nexusd[19468]: WARNING: nexusd is already stopped
+Nov 14 03:13:20 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:20.547535767Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7476"]}
+Nov 14 03:13:21 3a52bb8be6d9 daemon.debug start-stop-daemon[19805]: Will stop /usr/local/bin/nexusd
+Nov 14 03:13:21 3a52bb8be6d9 daemon.debug start-stop-daemon[19805]: Will stop PID 19662
+Nov 14 03:13:21 3a52bb8be6d9 daemon.debug start-stop-daemon[19805]: Sending signal 15 to PID 19662
+Nov 14 03:13:21 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:21.296284676Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:13:21 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:21.296422176Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:13:24 3a52bb8be6d9 daemon.warn nexusd[20435]: WARNING: nexusd is already stopped
+Nov 14 03:13:24 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:24.697389091Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7477"]}
+Nov 14 03:13:24 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:24.779874337Z","level":"INFO","msg":"request refused","op":"docker.containers.update","tokenId":"09d0594bf05c","tokenName":"update","surface":"rest","problem":"compose-files-missing"}
+Nov 14 03:13:24 3a52bb8be6d9 daemon.debug start-stop-daemon[20722]: Will stop /usr/local/bin/nexusd
+Nov 14 03:13:24 3a52bb8be6d9 daemon.debug start-stop-daemon[20722]: Will stop PID 20629
+Nov 14 03:13:24 3a52bb8be6d9 daemon.debug start-stop-daemon[20722]: Sending signal 15 to PID 20629
+Nov 14 03:13:24 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:24.816603711Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:13:24 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:24.816722003Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:13:27 3a52bb8be6d9 daemon.warn nexusd[21348]: WARNING: nexusd is already stopped
+Nov 14 03:13:28 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:28.019246562Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7478"]}
+Nov 14 03:13:28 3a52bb8be6d9 daemon.debug start-stop-daemon[21710]: Will stop /usr/local/bin/nexusd
+Nov 14 03:13:28 3a52bb8be6d9 daemon.debug start-stop-daemon[21710]: Will stop PID 21541
+Nov 14 03:13:28 3a52bb8be6d9 daemon.debug start-stop-daemon[21710]: Sending signal 15 to PID 21541
+Nov 14 03:13:28 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:28.350382092Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:13:28 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:28.350505176Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:13:40 3a52bb8be6d9 daemon.warn nexusd[22352]: WARNING: nexusd is already stopped
+Nov 14 03:13:40 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:40.55068246Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7479"]}
+Nov 14 03:13:42 3a52bb8be6d9 daemon.debug start-stop-daemon[22734]: Will stop /usr/local/bin/nexusd
+Nov 14 03:13:42 3a52bb8be6d9 daemon.debug start-stop-daemon[22734]: Will stop PID 22545
+Nov 14 03:13:42 3a52bb8be6d9 daemon.debug start-stop-daemon[22734]: Sending signal 15 to PID 22545
+Nov 14 03:13:42 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:42.036589545Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:13:42 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:42.036755254Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:13:43 3a52bb8be6d9 daemon.warn nexusd[22854]: WARNING: nexusd is already stopped
+Nov 14 03:13:43 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:43.388534069Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7480"]}
+Nov 14 03:13:43 3a52bb8be6d9 daemon.debug start-stop-daemon[23130]: Will stop /usr/local/bin/nexusd
+Nov 14 03:13:43 3a52bb8be6d9 daemon.debug start-stop-daemon[23130]: Will stop PID 23047
+Nov 14 03:13:43 3a52bb8be6d9 daemon.debug start-stop-daemon[23130]: Sending signal 15 to PID 23047
+Nov 14 03:13:43 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:43.508724274Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:13:43 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:43.508848108Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:13:44 3a52bb8be6d9 daemon.warn nexusd[23228]: WARNING: nexusd is already stopped
+Nov 14 03:13:44 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:44.245501163Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7481"]}
+Nov 14 03:13:44 3a52bb8be6d9 daemon.info supervise-daemon[231]: stopping /usr/bin/dockerd, pid 232
+Nov 14 03:13:44 3a52bb8be6d9 daemon.debug supervise-daemon[231]: Will stop PID 232
+Nov 14 03:13:44 3a52bb8be6d9 daemon.debug supervise-daemon[231]: Sending signal 15 to PID 232
+Nov 14 03:13:56 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:56.525043882Z","level":"WARN","msg":"Docker Engine call failed","provider":"docker","call":"list containers","error":"failed to connect to the docker API at unix:///run/docker.sock; check if the path is correct and if the daemon is running: dial unix /run/docker.sock: connect: no such file or directory"}
+Nov 14 03:13:56 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:13:56.525983511Z","level":"WARN","msg":"provider unavailable","provider":"docker","reason":"the Docker Engine is not reachable at /run/docker.sock: connect: no such file or directory"}
+Nov 14 03:13:56 3a52bb8be6d9 daemon.info supervise-daemon[23652]: Supervisor command line: supervise-daemon docker --start --retry TERM/60/KILL/10 --stdout-logger log_proxy -m /var/log/docker.log --stderr-logger log_proxy -m /var/log/docker.log --respawn-delay 2 --respawn-max 5 --respawn-period 1800 /usr/bin/dockerd --
+Nov 14 03:13:56 3a52bb8be6d9 daemon.info supervise-daemon[23654]: Child command line: /usr/bin/dockerd
+Nov 14 03:14:01 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:01.607986859Z","level":"INFO","msg":"provider available after re-check","provider":"docker"}
+Nov 14 03:14:01 3a52bb8be6d9 daemon.warn docker[23938]: WARNING: docker has already been started
+Nov 14 03:14:01 3a52bb8be6d9 daemon.debug start-stop-daemon[23962]: Will stop /usr/local/bin/nexusd
+Nov 14 03:14:01 3a52bb8be6d9 daemon.debug start-stop-daemon[23962]: Will stop PID 23421
+Nov 14 03:14:01 3a52bb8be6d9 daemon.debug start-stop-daemon[23962]: Sending signal 15 to PID 23421
+Nov 14 03:14:01 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:01.734617342Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:14:01 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:01.735024219Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:14:02 3a52bb8be6d9 daemon.warn nexusd[24135]: WARNING: nexusd is already stopped
+Nov 14 03:14:02 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:02.922532829Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7482"]}
+Nov 14 03:14:12 3a52bb8be6d9 daemon.debug start-stop-daemon[24840]: Will stop /usr/local/bin/nexusd
+Nov 14 03:14:12 3a52bb8be6d9 daemon.debug start-stop-daemon[24840]: Will stop PID 24329
+Nov 14 03:14:12 3a52bb8be6d9 daemon.debug start-stop-daemon[24840]: Sending signal 15 to PID 24329
+Nov 14 03:14:12 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:12.355807924Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:14:12 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:12.356171092Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:14:13 3a52bb8be6d9 daemon.warn nexusd[25122]: WARNING: nexusd is already stopped
+Nov 14 03:14:13 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:13.943268192Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7483"]}
+Nov 14 03:14:14 3a52bb8be6d9 daemon.debug start-stop-daemon[25437]: Will stop /usr/local/bin/nexusd
+Nov 14 03:14:14 3a52bb8be6d9 daemon.debug start-stop-daemon[25437]: Will stop PID 25316
+Nov 14 03:14:14 3a52bb8be6d9 daemon.debug start-stop-daemon[25437]: Sending signal 15 to PID 25316
+Nov 14 03:14:14 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:14.341692974Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:14:14 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:14.341853475Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:14:15 3a52bb8be6d9 daemon.warn nexusd[25750]: WARNING: nexusd is already stopped
+Nov 14 03:14:15 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:15.848068961Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7484"]}
+Nov 14 03:14:16 3a52bb8be6d9 daemon.debug start-stop-daemon[26110]: Will stop /usr/local/bin/nexusd
+Nov 14 03:14:16 3a52bb8be6d9 daemon.debug start-stop-daemon[26110]: Will stop PID 25943
+Nov 14 03:14:16 3a52bb8be6d9 daemon.debug start-stop-daemon[26110]: Sending signal 15 to PID 25943
+Nov 14 03:14:16 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:16.474415929Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:14:16 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:16.474553221Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:14:17 3a52bb8be6d9 daemon.warn nexusd[26394]: WARNING: nexusd is already stopped
+Nov 14 03:14:17 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:17.651868819Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7485"]}
+Nov 14 03:14:17 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:17.761460559Z","level":"INFO","msg":"request refused","op":"docker.containers.restart","tokenId":"00a4d0177173","tokenName":"lifecycle","surface":"rest","problem":"conflict"}
+Nov 14 03:14:18 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:18.094205755Z","level":"INFO","msg":"request refused","op":"docker.containers.restart","tokenId":"00a4d0177173","tokenName":"lifecycle","surface":"rest","problem":"validation-failed"}
+Nov 14 03:14:18 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:18.097115143Z","level":"INFO","msg":"request refused","op":"docker.containers.restart","tokenId":"00a4d0177173","tokenName":"lifecycle","surface":"rest","problem":"validation-failed"}
+Nov 14 03:14:18 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:18.100238782Z","level":"INFO","msg":"request refused","op":"docker.containers.start","tokenId":"00a4d0177173","tokenName":"lifecycle","surface":"rest","problem":"not-found"}
+Nov 14 03:14:18 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:18.101721414Z","level":"INFO","msg":"request refused","op":"docker.containers.stop","tokenId":"00a4d0177173","tokenName":"lifecycle","surface":"rest","problem":"not-found"}
+Nov 14 03:14:18 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:18.103336546Z","level":"INFO","msg":"request refused","op":"docker.containers.restart","tokenId":"00a4d0177173","tokenName":"lifecycle","surface":"rest","problem":"not-found"}
+Nov 14 03:14:18 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:18.104922595Z","level":"INFO","msg":"request refused","op":"docker.containers.remove","tokenId":"00a4d0177173","tokenName":"lifecycle","surface":"rest","problem":"not-found"}
+Nov 14 03:14:32 3a52bb8be6d9 daemon.debug start-stop-daemon[26755]: Will stop /usr/local/bin/nexusd
+Nov 14 03:14:32 3a52bb8be6d9 daemon.debug start-stop-daemon[26755]: Will stop PID 26587
+Nov 14 03:14:32 3a52bb8be6d9 daemon.debug start-stop-daemon[26755]: Sending signal 15 to PID 26587
+Nov 14 03:14:32 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:32.976532542Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:14:32 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:32.976677168Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:14:34 3a52bb8be6d9 daemon.warn nexusd[26936]: WARNING: nexusd is already stopped
+Nov 14 03:14:34 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:34.318686118Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7486"]}
+Nov 14 03:14:34 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:34.429466196Z","level":"INFO","msg":"request refused","op":"docker.containers.stop","tokenId":"419661f12f50","tokenName":"lifecycle","surface":"rest","problem":"conflict"}
+Nov 14 03:14:44 3a52bb8be6d9 daemon.debug start-stop-daemon[27306]: Will stop /usr/local/bin/nexusd
+Nov 14 03:14:44 3a52bb8be6d9 daemon.debug start-stop-daemon[27306]: Will stop PID 27129
+Nov 14 03:14:44 3a52bb8be6d9 daemon.debug start-stop-daemon[27306]: Sending signal 15 to PID 27129
+Nov 14 03:14:44 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:44.609305705Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:14:44 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:44.609408081Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:14:47 3a52bb8be6d9 daemon.warn nexusd[28105]: WARNING: nexusd is already stopped
+Nov 14 03:14:47 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:47.507504464Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7487"]}
+Nov 14 03:14:50 3a52bb8be6d9 daemon.debug start-stop-daemon[28581]: Will stop /usr/local/bin/nexusd
+Nov 14 03:14:50 3a52bb8be6d9 daemon.debug start-stop-daemon[28581]: Will stop PID 28298
+Nov 14 03:14:50 3a52bb8be6d9 daemon.debug start-stop-daemon[28581]: Sending signal 15 to PID 28298
+Nov 14 03:14:50 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:50.840711533Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:14:50 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:50.840842242Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:14:51 3a52bb8be6d9 daemon.warn nexusd[28951]: WARNING: nexusd is already stopped
+Nov 14 03:14:51 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:51.722058378Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7488"]}
+Nov 14 03:14:53 3a52bb8be6d9 daemon.debug start-stop-daemon[29277]: Will stop /usr/local/bin/nexusd
+Nov 14 03:14:53 3a52bb8be6d9 daemon.debug start-stop-daemon[29277]: Will stop PID 29144
+Nov 14 03:14:53 3a52bb8be6d9 daemon.debug start-stop-daemon[29277]: Sending signal 15 to PID 29144
+Nov 14 03:14:53 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:53.401481947Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:14:53 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:53.401753532Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:14:55 3a52bb8be6d9 daemon.warn nexusd[30003]: WARNING: nexusd is already stopped
+Nov 14 03:14:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:14:55.331784091Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7489"]}
+Nov 14 03:15:03 3a52bb8be6d9 daemon.debug start-stop-daemon[30604]: Will stop /usr/local/bin/nexusd
+Nov 14 03:15:03 3a52bb8be6d9 daemon.debug start-stop-daemon[30604]: Will stop PID 30197
+Nov 14 03:15:03 3a52bb8be6d9 daemon.debug start-stop-daemon[30604]: Sending signal 15 to PID 30197
+Nov 14 03:15:03 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:03.12662898Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:15:03 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:03.126789564Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:15:04 3a52bb8be6d9 daemon.warn nexusd[31160]: WARNING: nexusd is already stopped
+Nov 14 03:15:04 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:04.459234539Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7490"]}
+Nov 14 03:15:07 3a52bb8be6d9 daemon.debug start-stop-daemon[31556]: Will stop /usr/local/bin/nexusd
+Nov 14 03:15:07 3a52bb8be6d9 daemon.debug start-stop-daemon[31556]: Will stop PID 31353
+Nov 14 03:15:07 3a52bb8be6d9 daemon.debug start-stop-daemon[31556]: Sending signal 15 to PID 31353
+Nov 14 03:15:07 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:07.248716707Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:15:07 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:07.24888Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:15:08 3a52bb8be6d9 daemon.warn nexusd[32111]: WARNING: nexusd is already stopped
+Nov 14 03:15:08 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:08.469966185Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7491"]}
+Nov 14 03:15:08 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:08.60517487Z","level":"WARN","msg":"registry check failed","provider":"docker","reference":"127.0.0.1:5000/nx/tcerr36-local:dev","authenticated":false,"error":"Error response from daemon: manifest unknown: manifest unknown"}
+Nov 14 03:15:09 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:09.40838207Z","level":"INFO","msg":"request refused","op":"docker.containers.update","tokenId":"43c60f602dd6","tokenName":"update","surface":"rest","problem":"not-updatable"}
+Nov 14 03:15:09 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:09.411072499Z","level":"INFO","msg":"request refused","op":"docker.containers.update","tokenId":"43c60f602dd6","tokenName":"update","surface":"rest","problem":"not-updatable"}
+Nov 14 03:15:09 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:09.413050299Z","level":"INFO","msg":"request refused","op":"docker.containers.update","tokenId":"43c60f602dd6","tokenName":"update","surface":"rest","problem":"not-updatable"}
+Nov 14 03:15:10 3a52bb8be6d9 daemon.debug start-stop-daemon[32425]: Will stop /usr/local/bin/nexusd
+Nov 14 03:15:10 3a52bb8be6d9 daemon.debug start-stop-daemon[32425]: Will stop PID 32304
+Nov 14 03:15:10 3a52bb8be6d9 daemon.debug start-stop-daemon[32425]: Sending signal 15 to PID 32304
+Nov 14 03:15:10 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:10.46064167Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:15:10 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:10.461017671Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:15:10 3a52bb8be6d9 daemon.warn nexusd[32666]: WARNING: nexusd is already stopped
+Nov 14 03:15:11 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:11.060604923Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7492"]}
+Nov 14 03:15:24 3a52bb8be6d9 daemon.debug start-stop-daemon[34201]: Will stop /usr/local/bin/nexusd
+Nov 14 03:15:24 3a52bb8be6d9 daemon.debug start-stop-daemon[34201]: Will stop PID 32859
+Nov 14 03:15:24 3a52bb8be6d9 daemon.debug start-stop-daemon[34201]: Sending signal 15 to PID 32859
+Nov 14 03:15:24 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:24.837856612Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:15:24 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:24.838016571Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:15:26 3a52bb8be6d9 daemon.warn nexusd[34963]: WARNING: nexusd is already stopped
+Nov 14 03:15:27 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:27.049793067Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7493"]}
+Nov 14 03:15:31 3a52bb8be6d9 daemon.debug start-stop-daemon[35445]: Will stop /usr/local/bin/nexusd
+Nov 14 03:15:31 3a52bb8be6d9 daemon.debug start-stop-daemon[35445]: Will stop PID 35156
+Nov 14 03:15:31 3a52bb8be6d9 daemon.debug start-stop-daemon[35445]: Sending signal 15 to PID 35156
+Nov 14 03:15:31 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:31.276265305Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:15:31 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:31.276530723Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:15:32 3a52bb8be6d9 daemon.warn nexusd[35800]: WARNING: nexusd is already stopped
+Nov 14 03:15:32 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:32.159458186Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7494"]}
+Nov 14 03:15:33 3a52bb8be6d9 daemon.debug start-stop-daemon[36507]: Will stop /usr/local/bin/nexusd
+Nov 14 03:15:33 3a52bb8be6d9 daemon.debug start-stop-daemon[36507]: Will stop PID 35993
+Nov 14 03:15:33 3a52bb8be6d9 daemon.debug start-stop-daemon[36507]: Sending signal 15 to PID 35993
+Nov 14 03:15:34 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:34.379308129Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7494"]}
+Nov 14 03:15:34 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:34.379535505Z","level":"INFO","msg":"operation reattached","operationId":"01a1d80d-9c4c-7751-bfed-488b201f36c8","unit":"nexus-op-01a1d80d-9c4c-7751-bfed-488b201f36c8.service"}
+Nov 14 03:15:40 3a52bb8be6d9 daemon.debug start-stop-daemon[37226]: Will stop /usr/local/bin/nexusd
+Nov 14 03:15:40 3a52bb8be6d9 daemon.debug start-stop-daemon[37226]: Will stop PID 36573
+Nov 14 03:15:40 3a52bb8be6d9 daemon.debug start-stop-daemon[37226]: Sending signal 15 to PID 36573
+Nov 14 03:15:40 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:40.920689257Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7494"]}
+Nov 14 03:15:40 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:40.920837716Z","level":"INFO","msg":"operation reattached","operationId":"01a1d80d-b6ac-70c8-85b2-16f8e372734e","unit":"nexus-op-01a1d80d-b6ac-70c8-85b2-16f8e372734e.service"}
+Nov 14 03:15:49 3a52bb8be6d9 daemon.debug start-stop-daemon[37969]: Will stop /usr/local/bin/nexusd
+Nov 14 03:15:49 3a52bb8be6d9 daemon.debug start-stop-daemon[37969]: Will stop PID 37291
+Nov 14 03:15:49 3a52bb8be6d9 daemon.err nexusd[37969]: start-stop-daemon: no matching processes found
+Nov 14 03:15:49 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:49.260436972Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7494"]}
+Nov 14 03:15:50 3a52bb8be6d9 daemon.debug start-stop-daemon[38581]: Will stop /usr/local/bin/nexusd
+Nov 14 03:15:50 3a52bb8be6d9 daemon.debug start-stop-daemon[38581]: Will stop PID 38034
+Nov 14 03:15:50 3a52bb8be6d9 daemon.debug start-stop-daemon[38581]: Sending signal 15 to PID 38034
+Nov 14 03:15:51 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:51.13338653Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7494"]}
+Nov 14 03:15:51 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:15:51.133621864Z","level":"INFO","msg":"operation reattached","operationId":"01a1d80d-df76-7293-bb23-4ed35e967dc4","unit":"nexus-op-01a1d80d-df76-7293-bb23-4ed35e967dc4.service"}
+Nov 14 03:16:06 3a52bb8be6d9 daemon.debug start-stop-daemon[39195]: Will stop /usr/local/bin/nexusd
+Nov 14 03:16:06 3a52bb8be6d9 daemon.debug start-stop-daemon[39195]: Will stop PID 38649
+Nov 14 03:16:06 3a52bb8be6d9 daemon.debug start-stop-daemon[39195]: Sending signal 15 to PID 38649
+Nov 14 03:16:06 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:16:06.339277265Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:16:06 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:16:06.339416182Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:16:07 3a52bb8be6d9 daemon.warn nexusd[39591]: WARNING: nexusd is already stopped
+Nov 14 03:16:07 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:16:07.770162479Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7495"]}
+Nov 14 03:16:07 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:16:07.989347158Z","level":"INFO","msg":"request refused","op":"docker.containers.stop","tokenId":"63991e33a702","tokenName":"update","surface":"rest","problem":"conflict"}
+Nov 14 03:16:18 3a52bb8be6d9 daemon.debug start-stop-daemon[40008]: Will stop /usr/local/bin/nexusd
+Nov 14 03:16:18 3a52bb8be6d9 daemon.debug start-stop-daemon[40008]: Will stop PID 39784
+Nov 14 03:16:18 3a52bb8be6d9 daemon.debug start-stop-daemon[40008]: Sending signal 15 to PID 39784
+Nov 14 03:16:18 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:16:18.513554839Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:16:18 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:16:18.513861007Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:16:18 3a52bb8be6d9 daemon.warn nexusd[40162]: WARNING: nexusd is already stopped
+Nov 14 03:16:18 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:16:18.894984485Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7496"]}
+Nov 14 03:16:26 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:16:26.67437553Z","level":"WARN","msg":"operation supervisor exited with an error; see its log","operationId":"01a1d80e-6beb-71b2-a6dd-87dc1b65ced0","pid":41287,"log":"/var/lib/nexus/nexusd-tcerr70/ops/01a1d80e-6beb-71b2-a6dd-87dc1b65ced0/supervisor.log","error":"signal: killed"}
+Nov 14 03:16:44 3a52bb8be6d9 daemon.debug start-stop-daemon[41857]: Will stop /usr/local/bin/nexusd
+Nov 14 03:16:44 3a52bb8be6d9 daemon.debug start-stop-daemon[41857]: Will stop PID 40355
+Nov 14 03:16:44 3a52bb8be6d9 daemon.debug start-stop-daemon[41857]: Sending signal 15 to PID 40355
+Nov 14 03:16:44 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:16:44.497037894Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:16:44 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:16:44.49724227Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:16:46 3a52bb8be6d9 daemon.warn nexusd[42363]: WARNING: nexusd is already stopped
+Nov 14 03:16:46 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:16:46.586973459Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7497"]}
+Nov 14 03:16:49 3a52bb8be6d9 daemon.debug start-stop-daemon[42684]: Will stop /usr/local/bin/nexusd
+Nov 14 03:16:49 3a52bb8be6d9 daemon.debug start-stop-daemon[42684]: Will stop PID 42556
+Nov 14 03:16:49 3a52bb8be6d9 daemon.debug start-stop-daemon[42684]: Sending signal 15 to PID 42556
+Nov 14 03:16:49 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:16:49.105022621Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:16:49 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:16:49.105368123Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:16:52 3a52bb8be6d9 daemon.warn nexusd[43594]: WARNING: nexusd is already stopped
+Nov 14 03:16:52 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:16:52.330521572Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7498"]}
+Nov 14 03:16:52 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:16:52.45769255Z","level":"WARN","msg":"registry check failed","provider":"docker","reference":"127.0.0.1:5000/nx/tc112-local:dev","authenticated":false,"error":"Error response from daemon: manifest unknown: manifest unknown"}
+Nov 14 03:16:53 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:16:53.045329144Z","level":"WARN","msg":"registry check failed","provider":"docker","reference":"docker.io/nx-local/tc112:dev","authenticated":false,"error":"Error response from daemon: errors: denied: requested access to the resource is denied unauthorized: authentication required"}
+Nov 14 03:16:53 3a52bb8be6d9 daemon.debug start-stop-daemon[43880]: Will stop /usr/local/bin/nexusd
+Nov 14 03:16:53 3a52bb8be6d9 daemon.debug start-stop-daemon[43880]: Will stop PID 43787
+Nov 14 03:16:53 3a52bb8be6d9 daemon.debug start-stop-daemon[43880]: Sending signal 15 to PID 43787
+Nov 14 03:16:53 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:16:53.329650274Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:16:53 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:16:53.329981401Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:16:54 3a52bb8be6d9 daemon.info supervise-daemon[23653]: stopping /usr/bin/dockerd, pid 23654
+Nov 14 03:16:54 3a52bb8be6d9 daemon.debug supervise-daemon[23653]: Will stop PID 23654
+Nov 14 03:16:54 3a52bb8be6d9 daemon.debug supervise-daemon[23653]: Sending signal 15 to PID 23654
+Nov 14 03:16:56 3a52bb8be6d9 daemon.info supervise-daemon[44404]: Supervisor command line: supervise-daemon docker --start --retry TERM/60/KILL/10 --stdout-logger log_proxy -m /var/log/docker.log --stderr-logger log_proxy -m /var/log/docker.log --respawn-delay 2 --respawn-max 5 --respawn-period 1800 /usr/bin/dockerd --
+Nov 14 03:16:56 3a52bb8be6d9 daemon.info supervise-daemon[44406]: Child command line: /usr/bin/dockerd
+Nov 14 03:17:02 3a52bb8be6d9 daemon.warn nexusd[45671]: WARNING: nexusd is already stopped
+Nov 14 03:17:02 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:02.634915799Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7499"]}
+Nov 14 03:17:03 3a52bb8be6d9 daemon.info supervise-daemon[44405]: stopping /usr/bin/dockerd, pid 44406
+Nov 14 03:17:03 3a52bb8be6d9 daemon.debug supervise-daemon[44405]: Will stop PID 44406
+Nov 14 03:17:03 3a52bb8be6d9 daemon.debug supervise-daemon[44405]: Sending signal 15 to PID 44406
+Nov 14 03:17:05 3a52bb8be6d9 daemon.info supervise-daemon[46156]: Supervisor command line: supervise-daemon docker --start --retry TERM/60/KILL/10 --stdout-logger log_proxy -m /var/log/docker.log --stderr-logger log_proxy -m /var/log/docker.log --respawn-delay 2 --respawn-max 5 --respawn-period 1800 /usr/bin/dockerd --
+Nov 14 03:17:05 3a52bb8be6d9 daemon.info supervise-daemon[46158]: Child command line: /usr/bin/dockerd
+Nov 14 03:17:12 3a52bb8be6d9 daemon.debug start-stop-daemon[47403]: Will stop /usr/local/bin/nexusd
+Nov 14 03:17:12 3a52bb8be6d9 daemon.debug start-stop-daemon[47403]: Will stop PID 45864
+Nov 14 03:17:12 3a52bb8be6d9 daemon.debug start-stop-daemon[47403]: Sending signal 15 to PID 45864
+Nov 14 03:17:12 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:12.582330669Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:17:12 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:12.582527503Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:17:12 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:12.787394782Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7500"]}
+Nov 14 03:17:12 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:12.957024529Z","level":"WARN","msg":"registry check failed","provider":"docker","reference":"127.0.0.1:5000/nx/tc113-containerd-local:dev","authenticated":false,"error":"Error response from daemon: manifest unknown: manifest unknown"}
+Nov 14 03:17:14 3a52bb8be6d9 daemon.debug start-stop-daemon[47798]: Will stop /usr/local/bin/nexusd
+Nov 14 03:17:14 3a52bb8be6d9 daemon.debug start-stop-daemon[47798]: Will stop PID 47604
+Nov 14 03:17:14 3a52bb8be6d9 daemon.debug start-stop-daemon[47798]: Sending signal 15 to PID 47604
+Nov 14 03:17:14 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:14.587775385Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:17:14 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:14.588076886Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:17:15 3a52bb8be6d9 daemon.warn nexusd[47854]: WARNING: nexusd is already stopped
+Nov 14 03:17:15 3a52bb8be6d9 daemon.info supervise-daemon[46157]: stopping /usr/bin/dockerd, pid 46158
+Nov 14 03:17:15 3a52bb8be6d9 daemon.debug supervise-daemon[46157]: Will stop PID 46158
+Nov 14 03:17:15 3a52bb8be6d9 daemon.debug supervise-daemon[46157]: Sending signal 15 to PID 46158
+Nov 14 03:17:17 3a52bb8be6d9 daemon.info supervise-daemon[48144]: Supervisor command line: supervise-daemon docker --start --retry TERM/60/KILL/10 --stdout-logger log_proxy -m /var/log/docker.log --stderr-logger log_proxy -m /var/log/docker.log --respawn-delay 2 --respawn-max 5 --respawn-period 1800 /usr/bin/dockerd --
+Nov 14 03:17:17 3a52bb8be6d9 daemon.info supervise-daemon[48146]: Child command line: /usr/bin/dockerd
+Nov 14 03:17:25 3a52bb8be6d9 daemon.warn nexusd[49196]: WARNING: nexusd is already stopped
+Nov 14 03:17:25 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:25.392387163Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7501"]}
+Nov 14 03:17:25 3a52bb8be6d9 daemon.debug start-stop-daemon[49502]: Will stop /usr/local/bin/nexusd
+Nov 14 03:17:25 3a52bb8be6d9 daemon.debug start-stop-daemon[49502]: Will stop PID 49389
+Nov 14 03:17:25 3a52bb8be6d9 daemon.debug start-stop-daemon[49502]: Sending signal 15 to PID 49389
+Nov 14 03:17:25 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:25.905262755Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:17:25 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:25.905402672Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:17:26 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:26.080488652Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7502"]}
+Nov 14 03:17:26 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:26.199810511Z","level":"WARN","msg":"registry check failed","provider":"docker","reference":"127.0.0.1:5001/nx/tc114:moving","authenticated":false,"error":"Error response from daemon: Head \"http://127.0.0.1:5001/v2/nx/tc114/manifests/moving\": no basic auth credentials"}
+Nov 14 03:17:26 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:26.199826011Z","level":"WARN","msg":"registry check failed","provider":"docker","reference":"127.0.0.1:5001/nx/tc114:current","authenticated":false,"error":"Error response from daemon: Head \"http://127.0.0.1:5001/v2/nx/tc114/manifests/current\": no basic auth credentials"}
+Nov 14 03:17:26 3a52bb8be6d9 daemon.debug start-stop-daemon[49667]: Will stop /usr/local/bin/nexusd
+Nov 14 03:17:26 3a52bb8be6d9 daemon.debug start-stop-daemon[49667]: Will stop PID 49578
+Nov 14 03:17:26 3a52bb8be6d9 daemon.debug start-stop-daemon[49667]: Sending signal 15 to PID 49578
+Nov 14 03:17:26 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:26.418361224Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:17:26 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:26.418737559Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:17:27 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:27.12261945Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7503"]}
+Nov 14 03:17:27 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:27.213795769Z","level":"WARN","msg":"registry check failed","provider":"docker","reference":"127.0.0.1:5001/nx/tc114:current","authenticated":false,"error":"Error response from daemon: Head \"http://127.0.0.1:5001/v2/nx/tc114/manifests/current\": no basic auth credentials"}
+Nov 14 03:17:27 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:27.214163645Z","level":"WARN","msg":"registry check failed","provider":"docker","reference":"127.0.0.1:5001/nx/tc114:moving","authenticated":false,"error":"Error response from daemon: Head \"http://127.0.0.1:5001/v2/nx/tc114/manifests/moving\": no basic auth credentials"}
+Nov 14 03:17:27 3a52bb8be6d9 daemon.debug start-stop-daemon[49958]: Will stop /usr/local/bin/nexusd
+Nov 14 03:17:27 3a52bb8be6d9 daemon.debug start-stop-daemon[49958]: Will stop PID 49868
+Nov 14 03:17:27 3a52bb8be6d9 daemon.debug start-stop-daemon[49958]: Sending signal 15 to PID 49868
+Nov 14 03:17:27 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:27.49365796Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:17:27 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:27.493827127Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:17:28 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:28.10873271Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7504"]}
+Nov 14 03:17:28 3a52bb8be6d9 daemon.debug start-stop-daemon[50146]: Will stop /usr/local/bin/nexusd
+Nov 14 03:17:28 3a52bb8be6d9 daemon.debug start-stop-daemon[50146]: Will stop PID 50034
+Nov 14 03:17:28 3a52bb8be6d9 daemon.debug start-stop-daemon[50146]: Sending signal 15 to PID 50034
+Nov 14 03:17:28 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:28.590936251Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:17:28 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:28.591093793Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:17:29 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:29.135428357Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7505"]}
+Nov 14 03:17:29 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:29.350488429Z","level":"WARN","msg":"registry check failed","provider":"docker","reference":"127.0.0.1:5001/nx/tc114:moving","authenticated":false,"error":"Error response from daemon: Head \"http://127.0.0.1:5001/v2/nx/tc114/manifests/moving\": no basic auth credentials"}
+Nov 14 03:17:29 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:29.350488471Z","level":"WARN","msg":"registry check failed","provider":"docker","reference":"127.0.0.1:5001/nx/tc114:current","authenticated":false,"error":"Error response from daemon: Head \"http://127.0.0.1:5001/v2/nx/tc114/manifests/current\": no basic auth credentials"}
+Nov 14 03:17:29 3a52bb8be6d9 daemon.debug start-stop-daemon[50432]: Will stop /usr/local/bin/nexusd
+Nov 14 03:17:29 3a52bb8be6d9 daemon.debug start-stop-daemon[50432]: Will stop PID 50347
+Nov 14 03:17:29 3a52bb8be6d9 daemon.debug start-stop-daemon[50432]: Sending signal 15 to PID 50347
+Nov 14 03:17:29 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:29.567294175Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:17:29 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:29.567702177Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:17:29 3a52bb8be6d9 daemon.warn nexusd[50462]: WARNING: nexusd is already stopped
+Nov 14 03:17:29 3a52bb8be6d9 daemon.warn nexusd[50484]: WARNING: nexusd is already stopped
+Nov 14 03:17:29 3a52bb8be6d9 daemon.warn nexusd[50506]: WARNING: nexusd is already stopped
+Nov 14 03:17:29 3a52bb8be6d9 daemon.warn nexusd[50528]: WARNING: nexusd is already stopped
+Nov 14 03:17:36 3a52bb8be6d9 daemon.warn nexusd[51101]: WARNING: nexusd is already stopped
+Nov 14 03:17:36 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:36.622516904Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7506"]}
+Nov 14 03:17:41 3a52bb8be6d9 daemon.debug start-stop-daemon[51387]: Will stop /usr/local/bin/nexusd
+Nov 14 03:17:41 3a52bb8be6d9 daemon.debug start-stop-daemon[51387]: Will stop PID 51294
+Nov 14 03:17:41 3a52bb8be6d9 daemon.debug start-stop-daemon[51387]: Sending signal 15 to PID 51294
+Nov 14 03:17:41 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:41.922744563Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:17:41 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:41.922899314Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:17:42 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:42.060455586Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7506"]}
+Nov 14 03:17:42 3a52bb8be6d9 daemon.debug start-stop-daemon[51526]: Will stop /usr/local/bin/nexusd
+Nov 14 03:17:42 3a52bb8be6d9 daemon.debug start-stop-daemon[51526]: Will stop PID 51452
+Nov 14 03:17:42 3a52bb8be6d9 daemon.debug start-stop-daemon[51526]: Sending signal 15 to PID 51452
+Nov 14 03:17:42 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:42.161704907Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:17:42 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:42.161884532Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:17:50 3a52bb8be6d9 daemon.warn nexusd[52280]: WARNING: nexusd is already stopped
+Nov 14 03:17:50 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:50.694100898Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7507"]}
+Nov 14 03:17:50 3a52bb8be6d9 daemon.debug start-stop-daemon[52561]: Will stop /usr/local/bin/nexusd
+Nov 14 03:17:50 3a52bb8be6d9 daemon.debug start-stop-daemon[52561]: Will stop PID 52473
+Nov 14 03:17:50 3a52bb8be6d9 daemon.debug start-stop-daemon[52561]: Sending signal 15 to PID 52473
+Nov 14 03:17:50 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:50.886296243Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:17:50 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:50.886806996Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:17:51 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:51.124764584Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7508"]}
+Nov 14 03:17:51 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:51.207206863Z","level":"WARN","msg":"registry check failed","provider":"docker","reference":"127.0.0.1:5098/nx/tcerr34p:v1","authenticated":false,"error":"Error response from daemon: received unexpected HTTP status: 500 Internal Server Error"}
+Nov 14 03:17:51 3a52bb8be6d9 daemon.debug start-stop-daemon[52725]: Will stop /usr/local/bin/nexusd
+Nov 14 03:17:51 3a52bb8be6d9 daemon.debug start-stop-daemon[52725]: Will stop PID 52637
+Nov 14 03:17:51 3a52bb8be6d9 daemon.debug start-stop-daemon[52725]: Sending signal 15 to PID 52637
+Nov 14 03:17:51 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:51.335697011Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:17:51 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:51.336080763Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:17:52 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:52.235743303Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7509"]}
+Nov 14 03:17:52 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:52.319090544Z","level":"WARN","msg":"registry check failed","provider":"docker","reference":"127.0.0.1:5001/nx/tcerr34a:v1","authenticated":false,"error":"Error response from daemon: Head \"http://127.0.0.1:5001/v2/nx/tcerr34a/manifests/v1\": no basic auth credentials"}
+Nov 14 03:17:52 3a52bb8be6d9 daemon.debug start-stop-daemon[53015]: Will stop /usr/local/bin/nexusd
+Nov 14 03:17:52 3a52bb8be6d9 daemon.debug start-stop-daemon[53015]: Will stop PID 52926
+Nov 14 03:17:52 3a52bb8be6d9 daemon.debug start-stop-daemon[53015]: Sending signal 15 to PID 52926
+Nov 14 03:17:52 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:52.557207924Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:17:52 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:52.557584343Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:17:53 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:53.069443052Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7510"]}
+Nov 14 03:17:53 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:53.193005053Z","level":"WARN","msg":"registry check failed","provider":"docker","reference":"127.0.0.1:5001/nx/tcerr34a:v1","authenticated":false,"error":"Error response from daemon: Head \"http://127.0.0.1:5001/v2/nx/tcerr34a/manifests/v1\": no basic auth credentials"}
+Nov 14 03:17:53 3a52bb8be6d9 daemon.debug start-stop-daemon[53228]: Will stop /usr/local/bin/nexusd
+Nov 14 03:17:53 3a52bb8be6d9 daemon.debug start-stop-daemon[53228]: Will stop PID 53091
+Nov 14 03:17:53 3a52bb8be6d9 daemon.debug start-stop-daemon[53228]: Sending signal 15 to PID 53091
+Nov 14 03:17:53 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:53.803038444Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:17:53 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:53.80324782Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:17:54 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:54.21728039Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7511"]}
+Nov 14 03:17:54 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:54.318525419Z","level":"WARN","msg":"registry check failed","provider":"docker","reference":"127.0.0.1:5000/nx/tcerr34:v1","authenticated":false,"error":"Error response from daemon: Get \"http://127.0.0.1:5000/v2/\": dial tcp 127.0.0.1:5000: connect: connection refused"}
+Nov 14 03:17:54 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:54.319724174Z","level":"WARN","msg":"registry check failed","provider":"docker","reference":"127.0.0.1:5098/nx/tcerr34p:v1","authenticated":false,"error":"Error response from daemon: received unexpected HTTP status: 502 Bad Gateway"}
+Nov 14 03:17:55 3a52bb8be6d9 daemon.debug start-stop-daemon[53678]: Will stop /usr/local/bin/nexusd
+Nov 14 03:17:55 3a52bb8be6d9 daemon.debug start-stop-daemon[53678]: Will stop PID 53429
+Nov 14 03:17:55 3a52bb8be6d9 daemon.debug start-stop-daemon[53678]: Sending signal 15 to PID 53429
+Nov 14 03:17:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:55.420428013Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:17:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:55.420624056Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:17:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:55.769765633Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7512"]}
+Nov 14 03:17:56 3a52bb8be6d9 daemon.debug start-stop-daemon[53986]: Will stop /usr/local/bin/nexusd
+Nov 14 03:17:56 3a52bb8be6d9 daemon.debug start-stop-daemon[53986]: Will stop PID 53879
+Nov 14 03:17:56 3a52bb8be6d9 daemon.debug start-stop-daemon[53986]: Sending signal 15 to PID 53879
+Nov 14 03:17:56 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:56.125722364Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:17:56 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:56.125883906Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:17:56 3a52bb8be6d9 daemon.warn nexusd[54016]: WARNING: nexusd is already stopped
+Nov 14 03:17:56 3a52bb8be6d9 daemon.warn nexusd[54038]: WARNING: nexusd is already stopped
+Nov 14 03:17:56 3a52bb8be6d9 daemon.warn nexusd[54060]: WARNING: nexusd is already stopped
+Nov 14 03:17:56 3a52bb8be6d9 daemon.warn nexusd[54082]: WARNING: nexusd is already stopped
+Nov 14 03:17:56 3a52bb8be6d9 daemon.warn nexusd[54104]: WARNING: nexusd is already stopped
+Nov 14 03:17:58 3a52bb8be6d9 daemon.warn nexusd[54508]: WARNING: nexusd is already stopped
+Nov 14 03:17:59 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:17:59.119582149Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7513"]}
+Nov 14 03:18:15 3a52bb8be6d9 daemon.debug start-stop-daemon[54786]: Will stop /usr/local/bin/nexusd
+Nov 14 03:18:15 3a52bb8be6d9 daemon.debug start-stop-daemon[54786]: Will stop PID 54701
+Nov 14 03:18:15 3a52bb8be6d9 daemon.debug start-stop-daemon[54786]: Sending signal 15 to PID 54701
+Nov 14 03:18:15 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:15.360049914Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:18:15 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:15.36039154Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:18:21 3a52bb8be6d9 daemon.warn nexusd[58162]: WARNING: nexusd is already stopped
+Nov 14 03:18:21 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:21.563386772Z","level":"WARN","msg":"provider unavailable","provider":"apt","reason":"/usr/bin/apt-get is missing or not executable; the apt provider needs apt and dpkg"}
+Nov 14 03:18:21 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:21.614899873Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7514"]}
+Nov 14 03:18:21 3a52bb8be6d9 daemon.debug start-stop-daemon[58438]: Will stop /usr/local/bin/nexusd
+Nov 14 03:18:21 3a52bb8be6d9 daemon.debug start-stop-daemon[58438]: Will stop PID 58355
+Nov 14 03:18:21 3a52bb8be6d9 daemon.debug start-stop-daemon[58438]: Sending signal 15 to PID 58355
+Nov 14 03:18:21 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:21.736686366Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:18:21 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:21.736905159Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:18:21 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:21.821314196Z","level":"WARN","msg":"provider unavailable","provider":"apt","reason":"/usr/bin/apt-get is missing or not executable; the apt provider needs apt and dpkg"}
+Nov 14 03:18:21 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:21.84115945Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7514"]}
+Nov 14 03:18:21 3a52bb8be6d9 daemon.debug start-stop-daemon[58587]: Will stop /usr/local/bin/nexusd
+Nov 14 03:18:21 3a52bb8be6d9 daemon.debug start-stop-daemon[58587]: Will stop PID 58503
+Nov 14 03:18:21 3a52bb8be6d9 daemon.debug start-stop-daemon[58587]: Sending signal 15 to PID 58503
+Nov 14 03:18:21 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:21.96505391Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:18:21 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:21.965168119Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:18:22 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:22.82992804Z","level":"WARN","msg":"provider unavailable","provider":"apt","reason":"/usr/bin/apt-get is missing or not executable; the apt provider needs apt and dpkg"}
+Nov 14 03:18:22 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:22.859683004Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7514"]}
+Nov 14 03:18:22 3a52bb8be6d9 daemon.debug start-stop-daemon[58734]: Will stop /usr/local/bin/nexusd
+Nov 14 03:18:22 3a52bb8be6d9 daemon.debug start-stop-daemon[58734]: Will stop PID 58652
+Nov 14 03:18:22 3a52bb8be6d9 daemon.debug start-stop-daemon[58734]: Sending signal 15 to PID 58652
+Nov 14 03:18:22 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:22.967127059Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:18:22 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:22.967237101Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:18:23 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:23.835784621Z","level":"WARN","msg":"provider unavailable","provider":"apt","reason":"/usr/bin/apt-get is missing or not executable; the apt provider needs apt and dpkg"}
+Nov 14 03:18:23 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:23.856047168Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7514"]}
+Nov 14 03:18:23 3a52bb8be6d9 daemon.debug start-stop-daemon[58882]: Will stop /usr/local/bin/nexusd
+Nov 14 03:18:23 3a52bb8be6d9 daemon.debug start-stop-daemon[58882]: Will stop PID 58799
+Nov 14 03:18:23 3a52bb8be6d9 daemon.debug start-stop-daemon[58882]: Sending signal 15 to PID 58799
+Nov 14 03:18:23 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:23.986654866Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:18:23 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:23.986953159Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:18:24 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:24.831356615Z","level":"WARN","msg":"provider unavailable","provider":"apt","reason":"/usr/bin/apt-get is missing or not executable; the apt provider needs apt and dpkg"}
+Nov 14 03:18:24 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:24.851410828Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7514"]}
+Nov 14 03:18:24 3a52bb8be6d9 daemon.debug start-stop-daemon[59029]: Will stop /usr/local/bin/nexusd
+Nov 14 03:18:24 3a52bb8be6d9 daemon.debug start-stop-daemon[59029]: Will stop PID 58947
+Nov 14 03:18:24 3a52bb8be6d9 daemon.debug start-stop-daemon[59029]: Sending signal 15 to PID 58947
+Nov 14 03:18:24 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:24.976699336Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:18:24 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:24.976826837Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:18:25 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:25.832909802Z","level":"WARN","msg":"provider unavailable","provider":"apt","reason":"/usr/bin/apt-get is missing or not executable; the apt provider needs apt and dpkg"}
+Nov 14 03:18:25 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:25.867528121Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7514"]}
+Nov 14 03:18:25 3a52bb8be6d9 daemon.debug start-stop-daemon[59177]: Will stop /usr/local/bin/nexusd
+Nov 14 03:18:25 3a52bb8be6d9 daemon.debug start-stop-daemon[59177]: Will stop PID 59095
+Nov 14 03:18:25 3a52bb8be6d9 daemon.debug start-stop-daemon[59177]: Sending signal 15 to PID 59095
+Nov 14 03:18:25 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:25.981944123Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:18:25 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:25.982415625Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:18:26 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:26.838003338Z","level":"WARN","msg":"provider unavailable","provider":"apt","reason":"/usr/bin/apt-get is missing or not executable; the apt provider needs apt and dpkg"}
+Nov 14 03:18:26 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:26.8694256Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7514"]}
+Nov 14 03:18:26 3a52bb8be6d9 daemon.debug start-stop-daemon[59325]: Will stop /usr/local/bin/nexusd
+Nov 14 03:18:26 3a52bb8be6d9 daemon.debug start-stop-daemon[59325]: Will stop PID 59243
+Nov 14 03:18:26 3a52bb8be6d9 daemon.debug start-stop-daemon[59325]: Sending signal 15 to PID 59243
+Nov 14 03:18:26 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:26.997376912Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:18:26 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:26.997648163Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:18:27 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:27.830358358Z","level":"WARN","msg":"provider unavailable","provider":"apt","reason":"/usr/bin/apt-get is missing or not executable; the apt provider needs apt and dpkg"}
+Nov 14 03:18:27 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:27.863855547Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7514"]}
+Nov 14 03:18:27 3a52bb8be6d9 daemon.debug start-stop-daemon[59473]: Will stop /usr/local/bin/nexusd
+Nov 14 03:18:27 3a52bb8be6d9 daemon.debug start-stop-daemon[59473]: Will stop PID 59391
+Nov 14 03:18:27 3a52bb8be6d9 daemon.debug start-stop-daemon[59473]: Sending signal 15 to PID 59391
+Nov 14 03:18:27 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:27.993679533Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:18:27 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:27.993830951Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:18:28 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:28.846082023Z","level":"WARN","msg":"provider unavailable","provider":"apt","reason":"/usr/bin/apt-get is missing or not executable; the apt provider needs apt and dpkg"}
+Nov 14 03:18:28 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:28.881420178Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7514"]}
+Nov 14 03:18:28 3a52bb8be6d9 daemon.debug start-stop-daemon[59620]: Will stop /usr/local/bin/nexusd
+Nov 14 03:18:28 3a52bb8be6d9 daemon.debug start-stop-daemon[59620]: Will stop PID 59538
+Nov 14 03:18:28 3a52bb8be6d9 daemon.debug start-stop-daemon[59620]: Sending signal 15 to PID 59538
+Nov 14 03:18:28 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:28.988039021Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:18:28 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:28.988142397Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:18:29 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:29.850105803Z","level":"WARN","msg":"provider unavailable","provider":"apt","reason":"/usr/bin/apt-get is missing or not executable; the apt provider needs apt and dpkg"}
+Nov 14 03:18:29 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:29.885515042Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7514"]}
+Nov 14 03:18:29 3a52bb8be6d9 daemon.debug start-stop-daemon[59767]: Will stop /usr/local/bin/nexusd
+Nov 14 03:18:29 3a52bb8be6d9 daemon.debug start-stop-daemon[59767]: Will stop PID 59685
+Nov 14 03:18:29 3a52bb8be6d9 daemon.debug start-stop-daemon[59767]: Sending signal 15 to PID 59685
+Nov 14 03:18:29 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:29.994275311Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:18:29 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:29.994386186Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:18:30 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:30.821353398Z","level":"WARN","msg":"provider unavailable","provider":"apt","reason":"/usr/bin/apt-get is missing or not executable; the apt provider needs apt and dpkg"}
+Nov 14 03:18:30 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:18:30.858356435Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7514"]}
+Nov 14 03:25:02 3a52bb8be6d9 daemon.debug start-stop-daemon[60266]: Will stop /usr/local/bin/nexusd
+Nov 14 03:25:02 3a52bb8be6d9 daemon.debug start-stop-daemon[60266]: Will stop PID 59833
+Nov 14 03:25:02 3a52bb8be6d9 daemon.debug start-stop-daemon[60266]: Sending signal 15 to PID 59833
+Nov 14 03:25:02 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:02.357307414Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:25:02 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:02.357604086Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:25:06 3a52bb8be6d9 daemon.warn nexusd[62272]: WARNING: nexusd is already stopped
+Nov 14 03:25:06 3a52bb8be6d9 daemon.info supervise-daemon[62438]: Supervisor command line: supervise-daemon nexusd --start --retry TERM/15/KILL/5 --stdout-logger logger -t nexusd -p daemon.info --stderr-logger logger -t nexusd -p daemon.err --pidfile /run/nexusd.pid --respawn-delay 2 --respawn-max 5 --respawn-period 60 --user root:root --umask 077 /usr/local/bin/nexusd -- serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:06 3a52bb8be6d9 daemon.info supervise-daemon[62440]: Child command line: /usr/local/bin/nexusd serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:06 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:06.935602606Z","level":"INFO","msg":"generated a self-signed TLS certificate; clients pin its fingerprint","mode":"auto","certFile":"/var/lib/nexus/tls/cert.pem","fingerprint":"AC:A4:32:D8:5E:3B:9D:28:DE:29:E4:DF:6D:F6:A0:44:78:A2:A3:8A:3B:2E:05:1D:6E:F3:A5:02:5C:FE:28:81","generated":true}
+Nov 14 03:25:06 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:06.941716841Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"3a52bb8be6d9","listen":["127.0.0.1:7443"]}
+Nov 14 03:25:07 3a52bb8be6d9 daemon.info supervise-daemon[62439]: stopping /usr/local/bin/nexusd, pid 62440
+Nov 14 03:25:07 3a52bb8be6d9 daemon.debug supervise-daemon[62439]: Will stop PID 62440
+Nov 14 03:25:07 3a52bb8be6d9 daemon.debug supervise-daemon[62439]: Sending signal 15 to PID 62440
+Nov 14 03:25:07 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:07.127338787Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:25:07 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:07.127464331Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:25:07 3a52bb8be6d9 daemon.info supervise-daemon[62714]: Supervisor command line: supervise-daemon nexusd --start --retry TERM/15/KILL/5 --stdout-logger logger -t nexusd -p daemon.info --stderr-logger logger -t nexusd -p daemon.err --pidfile /run/nexusd.pid --respawn-delay 2 --respawn-max 5 --respawn-period 60 --user root:root --umask 077 /usr/local/bin/nexusd -- serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:07 3a52bb8be6d9 daemon.info supervise-daemon[62716]: Child command line: /usr/local/bin/nexusd serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:07 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:07.379126249Z","level":"INFO","msg":"serving TLS certificate","mode":"auto","certFile":"/var/lib/nexus/tls/cert.pem","fingerprint":"AC:A4:32:D8:5E:3B:9D:28:DE:29:E4:DF:6D:F6:A0:44:78:A2:A3:8A:3B:2E:05:1D:6E:F3:A5:02:5C:FE:28:81","generated":false}
+Nov 14 03:25:07 3a52bb8be6d9 daemon.info supervise-daemon[62715]: stopping /usr/local/bin/nexusd, pid 62716
+Nov 14 03:25:07 3a52bb8be6d9 daemon.debug supervise-daemon[62715]: Will stop PID 62716
+Nov 14 03:25:07 3a52bb8be6d9 daemon.debug supervise-daemon[62715]: Sending signal 15 to PID 62716
+Nov 14 03:25:08 3a52bb8be6d9 daemon.warn nexusd[62793]: WARNING: nexusd is already stopped
+Nov 14 03:25:08 3a52bb8be6d9 daemon.warn nexusd[62822]: WARNING: nexusd is already stopped
+Nov 14 03:25:08 3a52bb8be6d9 daemon.info supervise-daemon[63071]: Supervisor command line: supervise-daemon nexusd --start --retry TERM/15/KILL/5 --stdout-logger logger -t nexusd -p daemon.info --stderr-logger logger -t nexusd -p daemon.err --pidfile /run/nexusd.pid --respawn-delay 2 --respawn-max 5 --respawn-period 60 --user root:root --umask 077 /usr/local/bin/nexusd -- serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:08 3a52bb8be6d9 daemon.info supervise-daemon[63073]: Child command line: /usr/local/bin/nexusd serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:08 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:08.532809119Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7443"]}
+Nov 14 03:25:08 3a52bb8be6d9 daemon.info supervise-daemon[63072]: stopping /usr/local/bin/nexusd, pid 63073
+Nov 14 03:25:08 3a52bb8be6d9 daemon.debug supervise-daemon[63072]: Will stop PID 63073
+Nov 14 03:25:08 3a52bb8be6d9 daemon.debug supervise-daemon[63072]: Sending signal 15 to PID 63073
+Nov 14 03:25:08 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:08.767951486Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:25:08 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:08.768082571Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:25:09 3a52bb8be6d9 daemon.warn nexusd[63273]: WARNING: nexusd is already stopped
+Nov 14 03:25:09 3a52bb8be6d9 daemon.info supervise-daemon[63500]: Supervisor command line: supervise-daemon nexusd --start --retry TERM/15/KILL/5 --stdout-logger logger -t nexusd -p daemon.info --stderr-logger logger -t nexusd -p daemon.err --pidfile /run/nexusd.pid --respawn-delay 2 --respawn-max 5 --respawn-period 60 --user root:root --umask 077 /usr/local/bin/nexusd -- serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:09 3a52bb8be6d9 daemon.info supervise-daemon[63502]: Child command line: /usr/local/bin/nexusd serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:09 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:09.612162341Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7443"]}
+Nov 14 03:25:09 3a52bb8be6d9 daemon.info supervise-daemon[63501]: Sending signal 1 to 63502
+Nov 14 03:25:09 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:09.747068914Z","level":"INFO","msg":"reloading configuration","path":"/etc/nexus/nexusd.yaml"}
+Nov 14 03:25:09 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:09.749208869Z","level":"INFO","msg":"configuration reloaded","path":"/etc/nexus/nexusd.yaml"}
+Nov 14 03:25:09 3a52bb8be6d9 daemon.warn supervise-daemon[63501]: /usr/local/bin/nexusd, pid 63502, terminated by signal 9
+Nov 14 03:25:11 3a52bb8be6d9 daemon.info supervise-daemon[63931]: Child command line: /usr/local/bin/nexusd serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:11 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:11.914914266Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7443"]}
+Nov 14 03:25:11 3a52bb8be6d9 daemon.info supervise-daemon[63501]: stopping /usr/local/bin/nexusd, pid 63931
+Nov 14 03:25:11 3a52bb8be6d9 daemon.debug supervise-daemon[63501]: Will stop PID 63931
+Nov 14 03:25:11 3a52bb8be6d9 daemon.debug supervise-daemon[63501]: Sending signal 15 to PID 63931
+Nov 14 03:25:11 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:11.977699425Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:25:11 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:11.977836219Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:25:12 3a52bb8be6d9 daemon.warn nexusd[63987]: WARNING: nexusd is already stopped
+Nov 14 03:25:12 3a52bb8be6d9 daemon.warn nexusd[63990]: WARNING: nexusd is already stopped
+Nov 14 03:25:13 3a52bb8be6d9 daemon.warn nexusd[64019]: WARNING: nexusd is already stopped
+Nov 14 03:25:13 3a52bb8be6d9 daemon.info supervise-daemon[64205]: Supervisor command line: supervise-daemon nexusd --start --retry TERM/15/KILL/5 --stdout-logger logger -t nexusd -p daemon.info --stderr-logger logger -t nexusd -p daemon.err --pidfile /run/nexusd.pid --respawn-delay 2 --respawn-max 5 --respawn-period 60 --user root:root --umask 077 /usr/local/bin/nexusd -- serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:13 3a52bb8be6d9 daemon.info supervise-daemon[64207]: Child command line: /usr/local/bin/nexusd serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:13 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:13.0931897Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7443"]}
+Nov 14 03:25:13 3a52bb8be6d9 daemon.info supervise-daemon[64206]: stopping /usr/local/bin/nexusd, pid 64207
+Nov 14 03:25:13 3a52bb8be6d9 daemon.debug supervise-daemon[64206]: Will stop PID 64207
+Nov 14 03:25:13 3a52bb8be6d9 daemon.debug supervise-daemon[64206]: Sending signal 15 to PID 64207
+Nov 14 03:25:13 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:13.324746809Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:25:13 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:13.324924437Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:25:13 3a52bb8be6d9 daemon.info supervise-daemon[64322]: Supervisor command line: supervise-daemon nexusd --start --retry TERM/15/KILL/5 --stdout-logger logger -t nexusd -p daemon.info --stderr-logger logger -t nexusd -p daemon.err --pidfile /run/nexusd.pid --respawn-delay 2 --respawn-max 5 --respawn-period 60 --user root:root --umask 077 /usr/local/bin/nexusd -- serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:13 3a52bb8be6d9 daemon.info supervise-daemon[64324]: Child command line: /usr/local/bin/nexusd serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:14 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:14.00581681Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7443"]}
+Nov 14 03:25:14 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:14.005980438Z","level":"INFO","msg":"operation reattached","operationId":"01a1d816-766f-702f-856f-ccb2d5b955b2","unit":"nexus-op-01a1d816-766f-702f-856f-ccb2d5b955b2.service"}
+Nov 14 03:25:33 3a52bb8be6d9 daemon.info supervise-daemon[64323]: stopping /usr/local/bin/nexusd, pid 64324
+Nov 14 03:25:33 3a52bb8be6d9 daemon.debug supervise-daemon[64323]: Will stop PID 64324
+Nov 14 03:25:33 3a52bb8be6d9 daemon.debug supervise-daemon[64323]: Sending signal 15 to PID 64324
+Nov 14 03:25:33 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:33.615677553Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:25:33 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:33.61614052Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:25:34 3a52bb8be6d9 daemon.warn nexusd[64429]: WARNING: nexusd is already stopped
+Nov 14 03:25:34 3a52bb8be6d9 daemon.info supervise-daemon[64615]: Supervisor command line: supervise-daemon nexusd --start --retry TERM/15/KILL/5 --stdout-logger logger -t nexusd -p daemon.info --stderr-logger logger -t nexusd -p daemon.err --pidfile /run/nexusd.pid --respawn-delay 2 --respawn-max 5 --respawn-period 60 --user root:root --umask 077 /usr/local/bin/nexusd -- serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:34 3a52bb8be6d9 daemon.info supervise-daemon[64617]: Child command line: /usr/local/bin/nexusd serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:34 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:34.353407589Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7443"]}
+Nov 14 03:25:34 3a52bb8be6d9 daemon.info supervise-daemon[64616]: stopping /usr/local/bin/nexusd, pid 64617
+Nov 14 03:25:34 3a52bb8be6d9 daemon.debug supervise-daemon[64616]: Will stop PID 64617
+Nov 14 03:25:34 3a52bb8be6d9 daemon.debug supervise-daemon[64616]: Sending signal 15 to PID 64617
+Nov 14 03:25:34 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:34.574263027Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:25:34 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:34.574430446Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:25:35 3a52bb8be6d9 daemon.info supervise-daemon[64735]: Supervisor command line: supervise-daemon nexusd --start --retry TERM/15/KILL/5 --stdout-logger logger -t nexusd -p daemon.info --stderr-logger logger -t nexusd -p daemon.err --pidfile /run/nexusd.pid --respawn-delay 2 --respawn-max 5 --respawn-period 60 --user root:root --umask 077 /usr/local/bin/nexusd -- serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:35 3a52bb8be6d9 daemon.info supervise-daemon[64737]: Child command line: /usr/local/bin/nexusd serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:35 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:35.4006712Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7443"]}
+Nov 14 03:25:37 3a52bb8be6d9 daemon.info supervise-daemon[64736]: stopping /usr/local/bin/nexusd, pid 64737
+Nov 14 03:25:37 3a52bb8be6d9 daemon.debug supervise-daemon[64736]: Will stop PID 64737
+Nov 14 03:25:37 3a52bb8be6d9 daemon.debug supervise-daemon[64736]: Sending signal 15 to PID 64737
+Nov 14 03:25:37 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:37.508566871Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:25:37 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:37.5087895Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:25:38 3a52bb8be6d9 daemon.warn nexusd[64831]: WARNING: nexusd is already stopped
+Nov 14 03:25:38 3a52bb8be6d9 daemon.info supervise-daemon[65017]: Supervisor command line: supervise-daemon nexusd --start --retry TERM/15/KILL/5 --stdout-logger logger -t nexusd -p daemon.info --stderr-logger logger -t nexusd -p daemon.err --pidfile /run/nexusd.pid --respawn-delay 2 --respawn-max 5 --respawn-period 60 --user root:root --umask 077 /usr/local/bin/nexusd -- serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:38 3a52bb8be6d9 daemon.info supervise-daemon[65019]: Child command line: /usr/local/bin/nexusd serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:38 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:38.619280249Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7443"]}
+Nov 14 03:25:42 3a52bb8be6d9 daemon.info supervise-daemon[65018]: stopping /usr/local/bin/nexusd, pid 65019
+Nov 14 03:25:42 3a52bb8be6d9 daemon.debug supervise-daemon[65018]: Will stop PID 65019
+Nov 14 03:25:42 3a52bb8be6d9 daemon.debug supervise-daemon[65018]: Sending signal 15 to PID 65019
+Nov 14 03:25:42 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:42.266924444Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:25:42 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:42.267179157Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:25:42 3a52bb8be6d9 daemon.warn nexusd[65134]: WARNING: nexusd is already stopped
+Nov 14 03:25:42 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:42.948838178Z","level":"WARN","msg":"provider unavailable","provider":"apt","reason":"/usr/bin/apt-get is missing or not executable; the apt provider needs apt and dpkg"}
+Nov 14 03:25:42 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:42.961740648Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7515"]}
+Nov 14 03:25:43 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:43.07259625Z","level":"INFO","msg":"request refused","op":"apt.actions.refresh","tokenId":"e7d064012ce3","tokenName":"tc44","surface":"rest","problem":"capability-unavailable"}
+Nov 14 03:25:43 3a52bb8be6d9 daemon.debug start-stop-daemon[65415]: Will stop /usr/local/bin/nexusd
+Nov 14 03:25:43 3a52bb8be6d9 daemon.debug start-stop-daemon[65415]: Will stop PID 65327
+Nov 14 03:25:43 3a52bb8be6d9 daemon.debug start-stop-daemon[65415]: Sending signal 15 to PID 65327
+Nov 14 03:25:43 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:43.09986234Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:25:43 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:43.100023759Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:25:43 3a52bb8be6d9 daemon.warn nexusd[65446]: WARNING: nexusd is already stopped
+Nov 14 03:25:43 3a52bb8be6d9 daemon.info supervise-daemon[65632]: Supervisor command line: supervise-daemon nexusd --start --retry TERM/15/KILL/5 --stdout-logger logger -t nexusd -p daemon.info --stderr-logger logger -t nexusd -p daemon.err --pidfile /run/nexusd.pid --respawn-delay 2 --respawn-max 5 --respawn-period 60 --user root:root --umask 077 /usr/local/bin/nexusd -- serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:43 3a52bb8be6d9 daemon.info supervise-daemon[65634]: Child command line: /usr/local/bin/nexusd serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:44 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:44.009476693Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7443"]}
+Nov 14 03:25:44 3a52bb8be6d9 daemon.info supervise-daemon[65633]: stopping /usr/local/bin/nexusd, pid 65634
+Nov 14 03:25:44 3a52bb8be6d9 daemon.debug supervise-daemon[65633]: Will stop PID 65634
+Nov 14 03:25:44 3a52bb8be6d9 daemon.debug supervise-daemon[65633]: Sending signal 15 to PID 65634
+Nov 14 03:25:44 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:44.13073251Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:25:44 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:44.13083472Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:25:44 3a52bb8be6d9 daemon.info supervise-daemon[65882]: Supervisor command line: supervise-daemon nexusd --start --retry TERM/15/KILL/5 --stdout-logger logger -t nexusd -p daemon.info --stderr-logger logger -t nexusd -p daemon.err --pidfile /run/nexusd.pid --respawn-delay 2 --respawn-max 5 --respawn-period 60 --user root:root --umask 077 /usr/local/bin/nexusd -- serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:44 3a52bb8be6d9 daemon.info supervise-daemon[65884]: Child command line: /usr/local/bin/nexusd serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:44 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:44.92808043Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7443"]}
+Nov 14 03:25:45 3a52bb8be6d9 daemon.info supervise-daemon[65883]: stopping /usr/local/bin/nexusd, pid 65884
+Nov 14 03:25:45 3a52bb8be6d9 daemon.debug supervise-daemon[65883]: Will stop PID 65884
+Nov 14 03:25:45 3a52bb8be6d9 daemon.debug supervise-daemon[65883]: Sending signal 15 to PID 65884
+Nov 14 03:25:45 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:45.158809192Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:25:45 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:45.159000945Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:25:50 3a52bb8be6d9 daemon.warn nexusd[65973]: WARNING: nexusd is already stopped
+Nov 14 03:25:50 3a52bb8be6d9 daemon.warn nexusd[65998]: WARNING: nexusd is already stopped
+Nov 14 03:25:50 3a52bb8be6d9 daemon.info supervise-daemon[66184]: Supervisor command line: supervise-daemon nexusd --start --retry TERM/15/KILL/5 --stdout-logger logger -t nexusd -p daemon.info --stderr-logger logger -t nexusd -p daemon.err --pidfile /run/nexusd.pid --respawn-delay 2 --respawn-max 5 --respawn-period 60 --user root:root --umask 077 /usr/local/bin/nexusd -- serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:50 3a52bb8be6d9 daemon.info supervise-daemon[66186]: Child command line: /usr/local/bin/nexusd serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:50 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:50.982840198Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7443"]}
+Nov 14 03:25:51 3a52bb8be6d9 daemon.info supervise-daemon[66185]: stopping /usr/local/bin/nexusd, pid 66186
+Nov 14 03:25:51 3a52bb8be6d9 daemon.debug supervise-daemon[66185]: Will stop PID 66186
+Nov 14 03:25:51 3a52bb8be6d9 daemon.debug supervise-daemon[66185]: Sending signal 15 to PID 66186
+Nov 14 03:25:51 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:51.226161891Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:25:51 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:51.226392645Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:25:56 3a52bb8be6d9 daemon.info supervise-daemon[66436]: Supervisor command line: supervise-daemon nexusd --start --retry TERM/15/KILL/5 --stdout-logger logger -t nexusd -p daemon.info --stderr-logger logger -t nexusd -p daemon.err --pidfile /run/nexusd.pid --respawn-delay 2 --respawn-max 5 --respawn-period 60 --user root:root --umask 077 /usr/local/bin/nexusd -- serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:56 3a52bb8be6d9 daemon.info supervise-daemon[66438]: Child command line: /usr/local/bin/nexusd serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:56 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:56.975090038Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7443"]}
+Nov 14 03:25:57 3a52bb8be6d9 daemon.info supervise-daemon[66437]: stopping /usr/local/bin/nexusd, pid 66438
+Nov 14 03:25:57 3a52bb8be6d9 daemon.debug supervise-daemon[66437]: Will stop PID 66438
+Nov 14 03:25:57 3a52bb8be6d9 daemon.debug supervise-daemon[66437]: Sending signal 15 to PID 66438
+Nov 14 03:25:57 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:57.357768785Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:25:57 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:57.358378545Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:25:57 3a52bb8be6d9 daemon.info supervise-daemon[66592]: Supervisor command line: supervise-daemon nexusd --start --retry TERM/15/KILL/5 --stdout-logger logger -t nexusd -p daemon.info --stderr-logger logger -t nexusd -p daemon.err --pidfile /run/nexusd.pid --respawn-delay 2 --respawn-max 5 --respawn-period 60 --user root:root --umask 077 /usr/local/bin/nexusd -- serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:57 3a52bb8be6d9 daemon.info supervise-daemon[66594]: Child command line: /usr/local/bin/nexusd serve --config /etc/nexus/nexusd.yaml
+Nov 14 03:25:57 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:57.908179843Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7443"]}
+Nov 14 03:25:57 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:57.908386554Z","level":"INFO","msg":"operation reattached","operationId":"01a1d817-2256-73eb-89f5-f51c3edf8ceb","unit":"nexus-op-01a1d817-2256-73eb-89f5-f51c3edf8ceb.service"}
+Nov 14 03:26:17 3a52bb8be6d9 daemon.info supervise-daemon[66593]: stopping /usr/local/bin/nexusd, pid 66594
+Nov 14 03:26:17 3a52bb8be6d9 daemon.debug supervise-daemon[66593]: Will stop PID 66594
+Nov 14 03:26:17 3a52bb8be6d9 daemon.debug supervise-daemon[66593]: Sending signal 15 to PID 66594
+Nov 14 03:26:17 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:17.61286429Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:26:17 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:17.613001334Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:26:18 3a52bb8be6d9 daemon.warn nexusd[66814]: WARNING: nexusd is already stopped
+Nov 14 03:26:18 3a52bb8be6d9 daemon.warn nexusd[66992]: WARNING: nexusd is already stopped
+Nov 14 03:26:18 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:18.489540937Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7517"]}
+Nov 14 03:26:19 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:19.121140032Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e35a91fcceda","tokenName":"run","surface":"rest","problem":"script-integrity-failed"}
+Nov 14 03:26:19 3a52bb8be6d9 daemon.debug start-stop-daemon[67157]: Will stop /usr/local/bin/nexusd
+Nov 14 03:26:19 3a52bb8be6d9 daemon.debug start-stop-daemon[67157]: Will stop PID 67061
+Nov 14 03:26:19 3a52bb8be6d9 daemon.debug start-stop-daemon[67157]: Sending signal 15 to PID 67061
+Nov 14 03:26:19 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:19.162184242Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:26:19 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:19.1626735Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:26:19 3a52bb8be6d9 daemon.warn nexusd[67197]: WARNING: nexusd is already stopped
+Nov 14 03:26:19 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:19.395492878Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7518"]}
+Nov 14 03:26:21 3a52bb8be6d9 daemon.debug start-stop-daemon[67505]: Will stop /usr/local/bin/nexusd
+Nov 14 03:26:21 3a52bb8be6d9 daemon.debug start-stop-daemon[67505]: Will stop PID 67390
+Nov 14 03:26:21 3a52bb8be6d9 daemon.debug start-stop-daemon[67505]: Sending signal 15 to PID 67390
+Nov 14 03:26:21 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:21.10306089Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:26:21 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:21.103203976Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:26:21 3a52bb8be6d9 daemon.warn nexusd[67545]: WARNING: nexusd is already stopped
+Nov 14 03:26:21 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:21.240081659Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7519"]}
+Nov 14 03:26:23 3a52bb8be6d9 daemon.debug start-stop-daemon[67833]: Will stop /usr/local/bin/nexusd
+Nov 14 03:26:23 3a52bb8be6d9 daemon.debug start-stop-daemon[67833]: Will stop PID 67738
+Nov 14 03:26:23 3a52bb8be6d9 daemon.debug start-stop-daemon[67833]: Sending signal 15 to PID 67738
+Nov 14 03:26:23 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:23.985163556Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:26:23 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:23.985551021Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:26:24 3a52bb8be6d9 daemon.warn nexusd[67878]: WARNING: nexusd is already stopped
+Nov 14 03:26:24 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:24.521281614Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7520"]}
+Nov 14 03:26:26 3a52bb8be6d9 daemon.debug start-stop-daemon[68190]: Will stop /usr/local/bin/nexusd
+Nov 14 03:26:26 3a52bb8be6d9 daemon.debug start-stop-daemon[68190]: Will stop PID 68071
+Nov 14 03:26:26 3a52bb8be6d9 daemon.debug start-stop-daemon[68190]: Sending signal 15 to PID 68071
+Nov 14 03:26:26 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:26.223809865Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:26:26 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:26.223967243Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:26:26 3a52bb8be6d9 daemon.warn nexusd[68230]: WARNING: nexusd is already stopped
+Nov 14 03:26:26 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:26.353318374Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7521"]}
+Nov 14 03:26:27 3a52bb8be6d9 daemon.debug start-stop-daemon[68520]: Will stop /usr/local/bin/nexusd
+Nov 14 03:26:27 3a52bb8be6d9 daemon.debug start-stop-daemon[68520]: Will stop PID 68423
+Nov 14 03:26:27 3a52bb8be6d9 daemon.debug start-stop-daemon[68520]: Sending signal 15 to PID 68423
+Nov 14 03:26:27 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:27.017358309Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:26:27 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:27.017593896Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:26:27 3a52bb8be6d9 daemon.warn nexusd[68561]: WARNING: nexusd is already stopped
+Nov 14 03:26:27 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:27.400441906Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7522"]}
+Nov 14 03:26:28 3a52bb8be6d9 daemon.debug start-stop-daemon[68869]: Will stop /usr/local/bin/nexusd
+Nov 14 03:26:28 3a52bb8be6d9 daemon.debug start-stop-daemon[68869]: Will stop PID 68754
+Nov 14 03:26:28 3a52bb8be6d9 daemon.debug start-stop-daemon[68869]: Sending signal 15 to PID 68754
+Nov 14 03:26:28 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:28.080583795Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:26:28 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:28.08088355Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:26:28 3a52bb8be6d9 daemon.warn nexusd[68929]: WARNING: nexusd is already stopped
+Nov 14 03:26:28 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:28.425661189Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7523"]}
+Nov 14 03:26:29 3a52bb8be6d9 daemon.debug start-stop-daemon[69233]: Will stop /usr/local/bin/nexusd
+Nov 14 03:26:29 3a52bb8be6d9 daemon.debug start-stop-daemon[69233]: Will stop PID 69122
+Nov 14 03:26:29 3a52bb8be6d9 daemon.debug start-stop-daemon[69233]: Sending signal 15 to PID 69122
+Nov 14 03:26:29 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:29.092238428Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:26:29 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:29.092519557Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:26:29 3a52bb8be6d9 daemon.warn nexusd[69273]: WARNING: nexusd is already stopped
+Nov 14 03:26:29 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:29.384666342Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7524"]}
+Nov 14 03:26:29 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:29.497771454Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"c4e4a972d5a3","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:29 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:29.503680216Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"c4e4a972d5a3","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:30 3a52bb8be6d9 daemon.debug start-stop-daemon[69606]: Will stop /usr/local/bin/nexusd
+Nov 14 03:26:30 3a52bb8be6d9 daemon.debug start-stop-daemon[69606]: Will stop PID 69466
+Nov 14 03:26:30 3a52bb8be6d9 daemon.debug start-stop-daemon[69606]: Sending signal 15 to PID 69466
+Nov 14 03:26:30 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:30.574614315Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:26:30 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:30.574883236Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:26:30 3a52bb8be6d9 daemon.warn nexusd[69645]: WARNING: nexusd is already stopped
+Nov 14 03:26:30 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:30.733828915Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7525"]}
+Nov 14 03:26:33 3a52bb8be6d9 daemon.debug start-stop-daemon[69945]: Will stop /usr/local/bin/nexusd
+Nov 14 03:26:33 3a52bb8be6d9 daemon.debug start-stop-daemon[69945]: Will stop PID 69838
+Nov 14 03:26:33 3a52bb8be6d9 daemon.debug start-stop-daemon[69945]: Sending signal 15 to PID 69838
+Nov 14 03:26:33 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:33.982772269Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:26:33 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:33.983098108Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:26:34 3a52bb8be6d9 daemon.warn nexusd[70002]: WARNING: nexusd is already stopped
+Nov 14 03:26:34 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:34.771984725Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7526"]}
+Nov 14 03:26:38 3a52bb8be6d9 daemon.debug start-stop-daemon[70360]: Will stop /usr/local/bin/nexusd
+Nov 14 03:26:38 3a52bb8be6d9 daemon.debug start-stop-daemon[70360]: Will stop PID 70195
+Nov 14 03:26:38 3a52bb8be6d9 daemon.debug start-stop-daemon[70360]: Sending signal 15 to PID 70195
+Nov 14 03:26:38 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:38.565183311Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:26:38 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:38.565369772Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:26:39 3a52bb8be6d9 daemon.warn nexusd[70437]: WARNING: nexusd is already stopped
+Nov 14 03:26:39 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:39.219630346Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7527"]}
+Nov 14 03:26:44 3a52bb8be6d9 daemon.debug start-stop-daemon[70750]: Will stop /usr/local/bin/nexusd
+Nov 14 03:26:44 3a52bb8be6d9 daemon.debug start-stop-daemon[70750]: Will stop PID 70630
+Nov 14 03:26:44 3a52bb8be6d9 daemon.debug start-stop-daemon[70750]: Sending signal 15 to PID 70630
+Nov 14 03:26:44 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:44.889575641Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:26:44 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:44.890365945Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:26:44 3a52bb8be6d9 daemon.warn nexusd[70790]: WARNING: nexusd is already stopped
+Nov 14 03:26:45 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:45.05197058Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7528"]}
+Nov 14 03:26:45 3a52bb8be6d9 daemon.err nexusd[71183]: status: crashed
+Nov 14 03:26:46 3a52bb8be6d9 daemon.err nexusd[71198]: status: crashed
+Nov 14 03:26:46 3a52bb8be6d9 daemon.err nexusd[71216]: status: crashed
+Nov 14 03:26:46 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:46.183052754Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7528"]}
+Nov 14 03:26:46 3a52bb8be6d9 daemon.debug start-stop-daemon[71322]: Will stop /usr/local/bin/nexusd
+Nov 14 03:26:46 3a52bb8be6d9 daemon.debug start-stop-daemon[71322]: Will stop PID 71239
+Nov 14 03:26:46 3a52bb8be6d9 daemon.debug start-stop-daemon[71322]: Sending signal 15 to PID 71239
+Nov 14 03:26:46 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:46.33012253Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:26:46 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:46.330274991Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:26:46 3a52bb8be6d9 daemon.warn nexusd[71362]: WARNING: nexusd is already stopped
+Nov 14 03:26:47 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:47.005489713Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7529"]}
+Nov 14 03:26:47 3a52bb8be6d9 daemon.debug start-stop-daemon[71657]: Will stop /usr/local/bin/nexusd
+Nov 14 03:26:47 3a52bb8be6d9 daemon.debug start-stop-daemon[71657]: Will stop PID 71555
+Nov 14 03:26:47 3a52bb8be6d9 daemon.debug start-stop-daemon[71657]: Sending signal 15 to PID 71555
+Nov 14 03:26:47 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:47.672186122Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:26:47 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:47.672422292Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:26:47 3a52bb8be6d9 daemon.warn nexusd[71684]: WARNING: nexusd is already stopped
+Nov 14 03:26:47 3a52bb8be6d9 daemon.warn nexusd[71717]: WARNING: nexusd is already stopped
+Nov 14 03:26:48 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:48.085149911Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7530"]}
+Nov 14 03:26:53 3a52bb8be6d9 daemon.debug start-stop-daemon[72095]: Will stop /usr/local/bin/nexusd
+Nov 14 03:26:53 3a52bb8be6d9 daemon.debug start-stop-daemon[72095]: Will stop PID 71910
+Nov 14 03:26:53 3a52bb8be6d9 daemon.debug start-stop-daemon[72095]: Sending signal 15 to PID 71910
+Nov 14 03:26:53 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:53.353382115Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:26:53 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:53.353640077Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:26:53 3a52bb8be6d9 daemon.warn nexusd[72136]: WARNING: nexusd is already stopped
+Nov 14 03:26:53 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:53.510078563Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7531"]}
+Nov 14 03:26:53 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:53.728277721Z","level":"INFO","msg":"request denied","op":"system.operations.cancel","tokenId":"b82ea54a405c","tokenName":"other","surface":"rest","problem":"forbidden","requiredScope":"scripts:run:deploy-api"}
+Nov 14 03:26:53 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:53.730297211Z","level":"INFO","msg":"request denied","op":"system.operations.cancel","tokenId":"22447ce6775a","tokenName":"read","surface":"rest","problem":"forbidden","requiredScope":"scripts:run:deploy-api"}
+Nov 14 03:26:53 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:53.732534621Z","level":"INFO","msg":"request denied","op":"system.operations.get","tokenId":"a094c747439f","tokenName":"deployapi","surface":"rest","problem":"forbidden","requiredScope":"scripts:read"}
+Nov 14 03:26:53 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:53.734010019Z","level":"INFO","msg":"request denied","op":"system.operations.logs","tokenId":"a094c747439f","tokenName":"deployapi","surface":"rest","problem":"forbidden","requiredScope":"scripts:read"}
+Nov 14 03:26:54 3a52bb8be6d9 daemon.debug start-stop-daemon[72427]: Will stop /usr/local/bin/nexusd
+Nov 14 03:26:54 3a52bb8be6d9 daemon.debug start-stop-daemon[72427]: Will stop PID 72329
+Nov 14 03:26:54 3a52bb8be6d9 daemon.debug start-stop-daemon[72427]: Sending signal 15 to PID 72329
+Nov 14 03:26:54 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:54.169712947Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:26:54 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:54.169968076Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:26:54 3a52bb8be6d9 daemon.warn nexusd[72467]: WARNING: nexusd is already stopped
+Nov 14 03:26:54 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:54.503755159Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7532"]}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.err nexusd[72879]: status: crashed
+Nov 14 03:26:55 3a52bb8be6d9 daemon.err nexusd[72894]: status: crashed
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.515116095Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7532"]}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.515329765Z","level":"INFO","msg":"operation reattached","operationId":"01a1d818-0296-7275-a32d-155aa5903a9f","unit":"nexus-op-01a1d818-0296-7275-a32d-155aa5903a9f.service"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.525443048Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.527685833Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.529358901Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.53102276Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.532868247Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.534418063Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.535946712Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.537409109Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.538903383Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.540249154Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.541568341Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.543149782Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.544395802Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.545807949Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.547148094Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.548394489Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.549973972Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.551171949Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.552374718Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.553511235Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.554697295Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.555878605Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.55702454Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.5581696Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.559313992Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.560537261Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.561648404Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.56283038Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.564265611Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:55 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:55.565569173Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e4104b62833e","tokenName":"run","surface":"rest","problem":"conflict"}
+Nov 14 03:26:56 3a52bb8be6d9 daemon.debug start-stop-daemon[72966]: Will stop /usr/local/bin/nexusd
+Nov 14 03:26:56 3a52bb8be6d9 daemon.debug start-stop-daemon[72966]: Will stop PID 72914
+Nov 14 03:26:56 3a52bb8be6d9 daemon.debug start-stop-daemon[72966]: Sending signal 15 to PID 72914
+Nov 14 03:26:56 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:56.658843197Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:26:56 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:56.659244954Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:26:57 3a52bb8be6d9 daemon.warn nexusd[73006]: WARNING: nexusd is already stopped
+Nov 14 03:26:57 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:26:57.496039218Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7533"]}
+Nov 14 03:28:00 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:28:00.711079121Z","level":"WARN","msg":"operation supervisor exited with an error; see its log","operationId":"01a1d818-0e4a-721d-aae4-29795ec872a3","pid":73259,"log":"/var/lib/nexus/nxs-tc215/ops/01a1d818-0e4a-721d-aae4-29795ec872a3/supervisor.log","error":"signal: killed"}
+Nov 14 03:28:00 3a52bb8be6d9 daemon.debug start-stop-daemon[73295]: Will stop /usr/local/bin/nexusd
+Nov 14 03:28:00 3a52bb8be6d9 daemon.debug start-stop-daemon[73295]: Will stop PID 73199
+Nov 14 03:28:00 3a52bb8be6d9 daemon.debug start-stop-daemon[73295]: Sending signal 15 to PID 73199
+Nov 14 03:28:00 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:28:00.720146293Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:28:00 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:28:00.720280545Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:28:01 3a52bb8be6d9 daemon.warn nexusd[73335]: WARNING: nexusd is already stopped
+Nov 14 03:28:01 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:28:01.863919432Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7534"]}
+Nov 14 03:28:01 3a52bb8be6d9 daemon.debug start-stop-daemon[73610]: Will stop /usr/local/bin/nexusd
+Nov 14 03:28:01 3a52bb8be6d9 daemon.debug start-stop-daemon[73610]: Will stop PID 73528
+Nov 14 03:28:01 3a52bb8be6d9 daemon.debug start-stop-daemon[73610]: Sending signal 15 to PID 73528
+Nov 14 03:28:01 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:28:01.981451958Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:28:01 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:28:01.98156671Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:28:02 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:28:02.776980607Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7534"]}
+Nov 14 03:28:03 3a52bb8be6d9 daemon.debug start-stop-daemon[73771]: Will stop /usr/local/bin/nexusd
+Nov 14 03:28:03 3a52bb8be6d9 daemon.debug start-stop-daemon[73771]: Will stop PID 73675
+Nov 14 03:28:03 3a52bb8be6d9 daemon.debug start-stop-daemon[73771]: Sending signal 15 to PID 73675
+Nov 14 03:28:03 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:28:03.398928087Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:28:03 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:28:03.399021671Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:28:03 3a52bb8be6d9 auth.notice su: + none root:deploy
+Nov 14 03:28:03 3a52bb8be6d9 daemon.warn nexusd[73832]: WARNING: nexusd is already stopped
+Nov 14 03:28:03 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:28:03.86387714Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7535"]}
+Nov 14 03:28:04 3a52bb8be6d9 authpriv.info usermod[74098]: add 'other' to group 'deploy'
+Nov 14 03:28:04 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:28:04.494644609Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e768ba1d2282","tokenName":"run","surface":"rest","problem":"script-integrity-failed"}
+Nov 14 03:28:04 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:28:04.496344175Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e768ba1d2282","tokenName":"run","surface":"rest","problem":"script-integrity-failed"}
+Nov 14 03:28:04 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:28:04.497413941Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e768ba1d2282","tokenName":"run","surface":"rest","problem":"script-integrity-failed"}
+Nov 14 03:28:04 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:28:04.498580666Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e768ba1d2282","tokenName":"run","surface":"rest","problem":"script-integrity-failed"}
+Nov 14 03:28:04 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:28:04.499921143Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"e768ba1d2282","tokenName":"run","surface":"rest","problem":"script-integrity-failed"}
+Nov 14 03:28:06 3a52bb8be6d9 authpriv.info gpasswd[74129]: user other removed by root from group deploy
+Nov 14 03:28:06 3a52bb8be6d9 daemon.debug start-stop-daemon[74153]: Will stop /usr/local/bin/nexusd
+Nov 14 03:28:06 3a52bb8be6d9 daemon.debug start-stop-daemon[74153]: Will stop PID 74025
+Nov 14 03:28:06 3a52bb8be6d9 daemon.debug start-stop-daemon[74153]: Sending signal 15 to PID 74025
+Nov 14 03:28:06 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:28:06.0989819Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:28:06 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:28:06.099303654Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:28:06 3a52bb8be6d9 daemon.warn nexusd[74193]: WARNING: nexusd is already stopped
+Nov 14 03:28:06 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:28:06.256987078Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7536"]}
+Nov 14 03:28:06 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:28:06.368011Z","level":"INFO","msg":"request refused","op":"scripts.scripts.invoke","tokenId":"2da5bee52924","tokenName":"run","surface":"rest","problem":"script-integrity-failed"}
+Nov 14 03:28:06 3a52bb8be6d9 daemon.debug start-stop-daemon[74469]: Will stop /usr/local/bin/nexusd
+Nov 14 03:28:06 3a52bb8be6d9 daemon.debug start-stop-daemon[74469]: Will stop PID 74386
+Nov 14 03:28:06 3a52bb8be6d9 daemon.debug start-stop-daemon[74469]: Sending signal 15 to PID 74386
+Nov 14 03:28:06 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:28:06.387279901Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 14 03:28:06 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:28:06.387366153Z","level":"INFO","msg":"nexusd stopped"}
+Nov 14 03:28:07 3a52bb8be6d9 daemon.warn nginx[74518]: WARNING: nginx is already stopped
+Nov 14 03:28:07 3a52bb8be6d9 daemon.debug start-stop-daemon[74733]: Will stop PID 74683
+Nov 14 03:28:07 3a52bb8be6d9 daemon.debug start-stop-daemon[74733]: Sending signal 1 to PID 74683
+Nov 14 03:28:07 3a52bb8be6d9 daemon.debug start-stop-daemon[74782]: Will stop /usr/sbin/nginx
+Nov 14 03:28:07 3a52bb8be6d9 daemon.debug start-stop-daemon[74782]: Will stop PID 74683
+Nov 14 03:28:07 3a52bb8be6d9 daemon.debug start-stop-daemon[74782]: Sending signal 15 to PID 74683
+Nov 14 03:28:08 3a52bb8be6d9 daemon.debug start-stop-daemon[74861]: Will stop /usr/sbin/nginx
+Nov 14 03:28:08 3a52bb8be6d9 daemon.debug start-stop-daemon[74861]: Will stop PID 74810
+Nov 14 03:28:08 3a52bb8be6d9 daemon.debug start-stop-daemon[74861]: Sending signal 15 to PID 74810

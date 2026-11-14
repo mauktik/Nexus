@@ -99,6 +99,9 @@ Keep `nexusd` LAN only.
 | `scripts:read` | The script catalog, without environment values |
 | `scripts:run` | Running any cataloged script |
 | `scripts:run:<id>` | Running the one script `<id>` |
+| `nginx:read` | nginx's status and configuration test, and the site list, each site and its configuration text |
+| `nginx:write` | nginx start, stop, restart and reload, and site enable and disable |
+| `nginx:config` | Site add and update: writing a site's configuration text |
 | `pihole:read` | Pi-hole status, summary, blocking state, allow and deny entries, adlists, zones and records |
 | `pihole:dns` | DNS zone and record changes, single or batched: can redirect any name for every LAN client |
 | `pihole:write` | Pi-hole blocking, allow and deny entries, adlists, gravity, DNS restart and cache flush |
@@ -112,7 +115,8 @@ The generated [API reference](api.md) lists the scope of every operation.
 
 Treat any token that holds a mutating scope for `docker`, `apt` or
 `scripts` (`containers:write`, `packages:write`, `packages:install`,
-`scripts:run` or any `scripts:run:<id>`) as potentially root-equivalent:
+`scripts:run` or any `scripts:run:<id>`), or `nginx:config`, as potentially
+root-equivalent:
 
 - Package upgrades and installs run maintainer scripts as root, from
   whatever the configured apt sources serve.
@@ -123,12 +127,29 @@ Treat any token that holds a mutating scope for `docker`, `apt` or
   [Compose projects](#compose-projects-the-files-decide-what-root-creates).
 - A script runs as its run-as user with whatever that user can do, and that
   user can be root.
+- `nginx:config` writes a site's configuration text, and nginx's master
+  process runs as root and reads every included file at `nginx -t` and at
+  reload (CON-6). With a code module such as `ngx_http_perl_module` (`perl`)
+  or njs loaded by `nginx.conf`, configuration text runs code
+  during `nginx -t` or the reload. Without one, a server block can still
+  serve any file the worker user can read through `alias` or `root`, and
+  proxy to any local service. The master also opens the files the text
+  names, such as an `include`, as root while it tests, and `nginx -t`'s
+  error output, which the operation returns as `testOutput`, can quote what
+  it read. Nexus does not parse or sanitize directives: `nginx -t` alone
+  decides what is valid. See [nginx.md](nginx.md#security).
+
+`nginx:write` is not in this list: it starts, stops, reloads and renames
+root-owned files that already exist, so it decides whether sites are served,
+not what they say. It can still take every site offline.
 
 Nexus narrows what callers can ask for: no operation accepts a command,
 shell string, executable path or container specification, every parameter
 is validated, and scripts are defined only in the root-owned configuration
 file. That limits what a token can request, not what the requested work can
-do once it runs.
+do once it runs. For nginx, the service and the include directory come
+only from the configuration file and the binary is fixed at
+`/usr/sbin/nginx`; a request names a site and its content, never a path.
 
 ## nexusd:admin is root-equivalent
 
@@ -232,6 +253,8 @@ boundary. The sandbox described below limits what the `nexusd` process
 itself can do if a bug is exploited. It is defense in depth, **not a
 security boundary**: code running inside `nexusd` can still ask systemd to
 start work outside the sandbox, which is exactly how operations run (D-5).
+On OpenRC hosts, such as Alpine, there is no sandbox at all: see
+[OpenRC hosts](#openrc-hosts-alpine).
 
 ## Scripts: repository write access is code execution
 
@@ -449,6 +472,15 @@ a `count`. Two kinds of flood are collected this way:
   not 429. Read the aggregate as "this token caused `count` more refusals",
   not as a record that its requests were rate-limited.
 
+**nginx content (FR-15).** An nginx site add or update is audited with the
+site's name and its `content` replaced by `"[REDACTED]"`, so configuration
+text never reaches the audit log. The content's size in bytes and its
+SHA-256 digest are in the operation log (`content: <n> bytes, sha256
+<digest>`) and the operation's result (`sizeBytes`, `sha256`), not in the
+audit record. The operation ID and site name link the two. Operation
+retention can delete the operation, and its log, while the audit record is
+kept, so copy the log first if you need the digest for longer.
+
 The limits (OOS-12):
 
 - The log is append-only by convention. It protects against API callers,
@@ -463,7 +495,7 @@ The limits (OOS-12):
 ## Operation units
 
 Long-running work (apt changes, script runs, container updates, Pi-hole
-changes, and `nexusd`'s own restart, update and rollback) runs in a
+and nginx changes, and `nexusd`'s own restart, update and rollback) runs in a
 transient `nexus-op-<id>.service` unit outside the `nexusd` sandbox, so it
 keeps running when `nexusd` restarts or crashes. The units are started with
 `RefuseManualStop=yes`, so `systemctl stop` on one is refused; this is also
@@ -473,30 +505,44 @@ or upgrade when it restarts services after an upgrade (it may restart
 
 Cancel an operation through Nexus with `nexus operation cancel <id>`. An
 operator on the host who must stop one without the API uses `systemctl
-kill`, which sends the cancel signal to the unit's supervisor:
+kill` to send `SIGINT`, the operator's cancel signal, to the unit's
+supervisor:
 
 ```
-sudo systemctl kill --kill-whom=main --signal=SIGTERM nexus-op-<id>.service
+sudo systemctl kill --kill-whom=main --signal=SIGINT nexus-op-<id>.service
 ```
 
-The supervisor then stops the work as a cancel does, SIGTERM and after the
-grace period SIGKILL, and the operation ends `Canceled`.
+The supervisor records the cancel request in
+`/var/lib/nexus/ops/<id>/cancel`, then stops the work as a cancel does,
+SIGTERM to the work's process group and after the grace period SIGKILL, and
+the operation ends `Canceled`.
+
+Do not use `SIGTERM` for this. The supervisor takes a `SIGTERM` as a cancel
+only when Nexus asked for one: `nexus operation cancel` records the request
+before it sends the signal. A `SIGTERM` without that request is what a host
+shutdown sends, systemd to each unit and init to every process. The
+supervisor still stops the work, but reports it interrupted, and the
+operation ends `Failed` with `outcome-unknown`, as an operation running at a
+shutdown or reboot does: its work was cut short, and Nexus cannot know what
+it had done. Neither systemd nor BusyBox init nor OpenRC sends `SIGINT` at
+shutdown, so a `SIGINT` is always an operator's cancel.
 
 ## The nexusd systemd unit
 
-The rest of this page records the hardening of `deploy/nexusd.service`: the
+The next sections record the hardening of `deploy/nexusd.service`: the
 directives it applies, the directives removed since the unit was created,
 and every `systemd-analyze security` check the unit does not meet, with the
-reason.
+reason. [OpenRC hosts](#openrc-hosts-alpine) records what each directive
+becomes on Alpine, where there is no unit.
 
 `nexusd` runs as root under this unit, because Docker socket access and apt
 are root-equivalent anyway. The privileged work (apt changes, script runs,
-container updates, Pi-hole changes, and restarting, updating and rolling
+container updates, Pi-hole and nginx changes, and restarting, updating and rolling
 back `nexusd`) runs in `nexus-op-*` transient units that `nexusd` starts with
 `systemd-run`. Those units are outside this sandbox. The sandbox limits what
 the `nexusd` process itself can do if it is compromised. It is not a boundary
 between a token holder and root: a token with a mutating `docker`, `apt` or
-`scripts` scope is potentially root-equivalent, and `nexusd:admin` is
+`scripts` scope, or `nginx:config`, is potentially root-equivalent, and `nexusd:admin` is
 root-equivalent. Self-update did not relax any directive: everything
 `nexusd` writes for it inside the sandbox (staged uploads, the extracted
 package, the helper's input) is under `/var/lib/nexus`.
@@ -574,3 +620,117 @@ To repeat the review on a host:
 systemd-analyze verify /etc/systemd/system/nexusd.service
 systemd-analyze security nexusd
 ```
+
+## OpenRC hosts (Alpine)
+
+On an OpenRC host, such as Alpine, `nexusd` runs as **unconfined root**
+under `supervise-daemon`, from the service script `/etc/init.d/nexusd`
+(`deploy/nexusd.openrc`). None of the sandbox above applies there
+(ASM-19).
+
+The reason is where the work runs (CON-9). Under systemd, privileged work
+leaves the `nexusd` sandbox because PID 1 starts each `nexus-op-*` unit
+fresh. OpenRC has no transient units: `nexusd` starts each operation's
+supervisor itself, so the supervisor and the work under it inherit
+whatever confines `nexusd`. Apt-equivalent work, Compose updates and
+scripts need full root, so any confinement of `nexusd` would break them,
+unless a privileged broker ran outside it, which this release does not
+add (base ASM-6).
+
+The sandbox was never a security boundary, on either platform: a token
+with a mutating scope is potentially root-equivalent on Ubuntu too. The
+threat model and the scopes are therefore unchanged on OpenRC. Only
+defense in depth is reduced: a bug exploited inside `nexusd` reaches
+everything root can do, without the limits the unit puts on the process
+itself.
+
+Every directive of `deploy/nexusd.service` is **replaced** (with what),
+**lost** (for the reason above), or **not applicable** on OpenRC.
+`deploy/nexusd.service` itself is unchanged.
+
+| Directive | OpenRC | How, or what is lost |
+| --- | --- | --- |
+| `Description` | replaced | The script's `description` |
+| `Documentation` | not applicable | OpenRC scripts have no documentation link |
+| `After` | replaced | `depend()`: `need net` and `after firewall` |
+| `Wants` | replaced | `depend()`: `need net` |
+| `Type` | replaced | Pidfile readiness: `supervise-daemon` writes the pidfile `/run/nexusd.pid`, which names `supervise-daemon` itself; `nexusd`'s own PID is in `/run/openrc/options/nexusd/child_pid`. A start returns once the process is running, not once every listener is open |
+| `ExecStart` | replaced | The script's `command` and `command_args`: the same binary, arguments and configuration file |
+| `ExecReload` | replaced | The script's `reload`, which sends `SIGHUP` through `supervise-daemon` |
+| `Restart` | replaced | `supervise-daemon` respawn: a `nexusd` that exits is started again after 2 s, at most 5 times in 60 s. A stop sends `SIGTERM` and waits up to 15 s, then `SIGKILL` |
+| `StateDirectory` | replaced | `checkpath` in `start_pre` creates `/var/lib/nexus`, owned by root |
+| `StateDirectoryMode` | replaced | `checkpath --mode 0700`, plus the explicit mode of every file `nexusd` creates |
+| `LogsDirectory` | replaced | `checkpath` in `start_pre` creates `/var/log/nexus`, owned by root |
+| `LogsDirectoryMode` | replaced | `checkpath --mode 0700`, plus the explicit mode of the audit log |
+| `NoNewPrivileges` | lost | Set-user-ID and file-capability gains are possible |
+| `ProtectSystem` | lost | The whole file system is writable |
+| `ProtectHome` | lost | Home directories are writable |
+| `PrivateTmp` | lost | `/tmp` and `/var/tmp` are the host's |
+| `ProtectKernelTunables` | lost | `/proc/sys` and `/sys` are writable |
+| `ProtectKernelModules` | lost | Kernel modules can be loaded |
+| `ProtectKernelLogs` | lost | The kernel log is readable |
+| `ProtectControlGroups` | lost | The cgroup hierarchy is writable; `nexusd` uses this to create `nexus-ops/<id>` |
+| `ProtectClock` | lost | The clock can be set |
+| `ProtectHostname` | lost | The hostname can be changed |
+| `RestrictNamespaces` | lost | New namespaces can be created |
+| `RestrictRealtime` | lost | Realtime scheduling is allowed |
+| `RestrictSUIDSGID` | lost | Set-user-ID and set-group-ID files can be created |
+| `LockPersonality` | lost | The execution domain can be changed |
+| `MemoryDenyWriteExecute` | lost | Writable and executable memory is allowed |
+| `SystemCallArchitectures` | lost | Non-native system call ABIs are allowed |
+| `SystemCallFilter` | lost | No system call filter |
+| `RestrictAddressFamilies` | lost | Every socket family is allowed |
+| `CapabilityBoundingSet` | lost | `nexusd` keeps every root capability, not only `CAP_DAC_READ_SEARCH` |
+| `WantedBy` | replaced | `rc-update add nexusd default`, which the operator runs: the installer never adds `nexusd` to a runlevel |
+| `RefuseManualStop` (set on `nexus-op-*` units, not in this unit) | not applicable | There are no transient units, and Alpine has no `needrestart` hook that stops services after an upgrade (ASM-18) |
+
+**Umask.** The unit has no `UMask=` line, so on systemd `nexusd` runs with
+systemd's default umask `0022`. On OpenRC, the script sets `umask=077`,
+which is stricter and applies to `nexusd` only. Every file and directory
+Nexus itself creates has an explicit mode, such as `0600` or `0700`, so the
+difference changes no Nexus file. Detached work (scripts, Compose updates,
+apt changes, the nginx helper, and an nginx that Nexus starts or restarts)
+runs with umask `0022` on both platforms: on systemd because `nexus-op-*`
+units get systemd's default, and on OpenRC because the operation supervisor
+sets `0022` before it starts the work.
+
+**Where operations run.** Each operation runs under a detached supervisor
+process (`op-supervise`) rather than a `nexus-op-*` unit. When the cgroup v2
+hierarchy is mounted and writable, `nexusd` starts each supervisor in its own
+cgroup, `nexus-ops/<id>`, outside `nexusd`'s OpenRC cgroup
+(`openrc.nexusd`). For a script run or a Compose update, cancel and timeout
+kill every process in that cgroup. Without
+writable cgroup v2, supervisors run in process groups only: cancel and
+timeout kill the work's process group, and a descendant that calls `setsid`
+itself escapes (CON-10). The operation log says so.
+
+**`rc_cgroup_cleanup`.** The script defaults it to `NO`, so OpenRC does not
+kill what is left in `openrc.nexusd` when `nexusd` stops, and running
+operations survive `rc-service nexusd stop` and `rc-service nexusd restart`
+(ASM-14). An operator can set `rc_cgroup_cleanup="YES"` in
+`/etc/conf.d/nexusd`:
+
+- With writable cgroup v2, `YES` kills only what is left in
+  `openrc.nexusd`. The supervisors are in `nexus-ops/<id>` and survive.
+- Without writable cgroup v2, the supervisors stay in `openrc.nexusd`, so
+  `YES` kills every running supervisor whenever `nexusd` stops or restarts,
+  and those operations end `outcome-unknown` (CON-10). On such hosts, leave
+  `rc_cgroup_cleanup` at the script's default, `NO`.
+- On stock Alpine 3.21 (OpenRC 0.55.1), `YES` has no effect at all: OpenRC's
+  `rc-cgroup.sh` looks for the service's cgroup at `/sys/fs/cgroup/nexusd`
+  instead of `/sys/fs/cgroup/openrc.nexusd`, finds nothing, and kills
+  nothing. OpenRC fixed this upstream (commit `1cf3944`, issue #910), so
+  check the host's OpenRC version (`openrc --version`) before relying on
+  either behavior.
+
+**Stopping an operation by hand.** Cancel through Nexus with
+`nexus operation cancel <id>`. On the host, the supervisor's PID is in
+`/var/lib/nexus/ops/<id>/supervisor.json`. Check that
+`/proc/<pid>/cmdline` contains `op-supervise`, then send it `SIGINT`
+(`kill -INT <pid>`): it records the cancel request, stops the work as a
+cancel does, and the operation ends `Canceled`. A `SIGTERM` (`kill <pid>`)
+also stops the work, but without a cancel request from Nexus it ends the
+operation `outcome-unknown`, as at a shutdown (see
+[Operation units](#operation-units)). A supervisor killed with `SIGKILL`
+leaves its operation `outcome-unknown`. Its diagnostics are in
+`/var/lib/nexus/ops/<id>/supervisor.log`, not the journal.

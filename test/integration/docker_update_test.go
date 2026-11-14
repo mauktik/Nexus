@@ -26,6 +26,8 @@ import (
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/auth"
+	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/providers/docker/spec"
 )
@@ -267,9 +269,21 @@ func waitHelper(t *testing.T, opDir string) (int, []string) {
 }
 
 // unitStarts counts the journal's start lines for an operation unit: a
-// unit that ran once has one.
+// unit that ran once has one. On OpenRC it counts the process backend's
+// launch records: one supervisor.json, written once by the launcher, with
+// spec.json consumed (a second supervisor of the operation finds no spec
+// and runs nothing: internal/detach TestMissingSpecPreventsAnyRerun).
 func unitStarts(t *testing.T, id string) int {
 	t.Helper()
+	if detectedInit() == platform.OpenRC {
+		dir := opDirOf(id)
+		if dir == "" || !exists(filepath.Join(dir, detach.IdentityFile)) || exists(filepath.Join(dir, detach.SpecFile)) {
+			t.Logf("%s: op dir %q, supervisor.json %v, spec.json %v", id, dir,
+				exists(filepath.Join(dir, detach.IdentityFile)), exists(filepath.Join(dir, detach.SpecFile)))
+			return 0
+		}
+		return 1
+	}
 	out := mustSh(t, "journalctl", "--no-pager", "-o", "cat", "-u", "nexus-op-"+id+".service")
 	return strings.Count(out, "Started nexus-op-"+id+".service")
 }
@@ -503,9 +517,10 @@ func TestDockerUpdateStandaloneAcceptance(t *testing.T) {
 	if !slices.Equal(argv, want) {
 		t.Fatalf("helper argv %q, want %q", argv, want)
 	}
-	if cg := pidCgroup(t, pid); !strings.Contains(cg, "/nexus-op-"+op.ID+".service") {
-		t.Fatalf("helper %d runs in cgroup %s, not nexus-op-%s.service", pid, cg, op.ID)
+	if cg := pidCgroup(t, pid); !inOpCgroup(cg, op.ID) {
+		t.Fatalf("helper %d runs in cgroup %s, not operation %s's", pid, cg, op.ID)
 	}
+	opSupervisor(t, op.ID, opDir, string(detach.KillControlGroup), pid)
 	t.Logf("helper pid %d argv %q in %s", pid, argv, pidCgroup(t, pid))
 	res := wantSucceeded(t, n.waitOp(op.ID, 3*time.Minute))
 	after := inspectRaw(t, name)
@@ -1029,7 +1044,7 @@ func TestDockerUpdateKilledHelperIsOutcomeUnknown(t *testing.T) {
 			}
 		}},
 		{"tcerr70-unit", func(t *testing.T, id string, _ int) {
-			mustSh(t, "systemctl", "kill", "-s", "KILL", "nexus-op-"+id+".service")
+			killOpUnit(t, detach.Unit(id))
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -35,7 +35,8 @@ func (r *Registry) Capabilities(ctx context.Context, refresh bool) apitypes.Capa
 		}
 		out = append(out, c)
 	}
-	return apitypes.NewCapabilities(r.host, r.version, out)
+	hostOS := apitypes.HostOS{ID: r.platform.OS.ID, VersionID: r.platform.OS.VersionID, PrettyName: r.platform.OS.PrettyName}
+	return apitypes.NewCapabilities(r.host, r.version, hostOS, string(r.platform.Init), out)
 }
 
 // resourceTypes lists the distinct resource types of a provider's ops.

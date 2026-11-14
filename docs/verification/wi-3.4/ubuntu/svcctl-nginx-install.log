@@ -1,0 +1,56 @@
+Get:1 http://ports.ubuntu.com/ubuntu-ports resolute InRelease [136 kB]
+Get:2 http://ports.ubuntu.com/ubuntu-ports resolute-updates InRelease [137 kB]
+Get:3 http://ports.ubuntu.com/ubuntu-ports resolute-backports InRelease [137 kB]
+Get:4 http://ports.ubuntu.com/ubuntu-ports resolute-security InRelease [137 kB]
+Get:5 http://ports.ubuntu.com/ubuntu-ports resolute/main arm64 Packages [1860 kB]
+Get:6 http://ports.ubuntu.com/ubuntu-ports resolute/universe arm64 Packages [19.9 MB]
+Get:7 http://ports.ubuntu.com/ubuntu-ports resolute/restricted arm64 Packages [231 kB]
+Get:8 http://ports.ubuntu.com/ubuntu-ports resolute/multiverse arm64 Packages [298 kB]
+Get:9 http://ports.ubuntu.com/ubuntu-ports resolute-updates/multiverse arm64 Packages [26.3 kB]
+Get:10 http://ports.ubuntu.com/ubuntu-ports resolute-updates/main arm64 Packages [1119 kB]
+Get:11 http://ports.ubuntu.com/ubuntu-ports resolute-updates/restricted arm64 Packages [989 kB]
+Get:12 http://ports.ubuntu.com/ubuntu-ports resolute-updates/universe arm64 Packages [473 kB]
+Get:13 http://ports.ubuntu.com/ubuntu-ports resolute-backports/universe arm64 Packages [3309 B]
+Get:14 http://ports.ubuntu.com/ubuntu-ports resolute-security/main arm64 Packages [930 kB]
+Get:15 http://ports.ubuntu.com/ubuntu-ports resolute-security/universe arm64 Packages [262 kB]
+Get:16 http://ports.ubuntu.com/ubuntu-ports resolute-security/restricted arm64 Packages [969 kB]
+Get:17 http://ports.ubuntu.com/ubuntu-ports resolute-security/multiverse arm64 Packages [24.5 kB]
+Fetched 27.6 MB in 4s (6721 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Solving dependencies...
+The following additional packages will be installed:
+  nginx-common
+Suggested packages:
+  fcgiwrap nginx-doc ssl-cert
+The following NEW packages will be installed:
+  nginx nginx-common
+0 upgraded, 2 newly installed, 0 to remove and 11 not upgraded.
+Need to get 649 kB of archives.
+After this operation, 1868 kB of additional disk space will be used.
+Get:1 http://ports.ubuntu.com/ubuntu-ports resolute-updates/main arm64 nginx-common all 1.28.3-2ubuntu1.12 [38.2 kB]
+Get:2 http://ports.ubuntu.com/ubuntu-ports resolute-updates/main arm64 nginx arm64 1.28.3-2ubuntu1.12 [611 kB]
+Preconfiguring packages ...
+Fetched 649 kB in 1s (453 kB/s)
+Selecting previously unselected package nginx-common.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 16343 files and directories currently installed.)
+Preparing to unpack .../nginx-common_1.28.3-2ubuntu1.12_all.deb ...
+Unpacking nginx-common (1.28.3-2ubuntu1.12) ...
+Selecting previously unselected package nginx.
+Preparing to unpack .../nginx_1.28.3-2ubuntu1.12_arm64.deb ...
+Unpacking nginx (1.28.3-2ubuntu1.12) ...
+Setting up nginx-common (1.28.3-2ubuntu1.12) ...
+Created symlink '/etc/systemd/system/multi-user.target.wants/nginx.service' → '/usr/lib/systemd/system/nginx.service'.
+/usr/sbin/policy-rc.d returned 101, not running 'start nginx.service'
+Setting up nginx (1.28.3-2ubuntu1.12) ...
+invoke-rc.d: policy-rc.d denied execution of start.
+
+No services need to be restarted.
+
+No containers need to be restarted.
+
+No user sessions are running outdated binaries.
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.

@@ -4,7 +4,7 @@
 
 Run a cataloged script
 
-Runs a cataloged script as its configured run-as user with the given values of its declared parameters. Side effects: whatever the script does on this host as its run-as user; Nexus neither knows nor limits them. Only declared parameters are accepted, each checked against its declaration first, and each value reaches the script as one argument or environment variable, never through a shell. Long-running: answers 202 with an operation, whose result holds the exit code; a running script can be canceled. Answers 409 when the script's concurrency limit is reached. Requires scripts:run, or scripts:run:<id> for this script.
+Runs a cataloged script as its configured run-as user with the given values of its declared parameters. Side effects: whatever the script does on this host as its run-as user; Nexus neither knows nor limits them. Only declared parameters are accepted, each checked against its declaration first, and each value reaches the script as one argument or environment variable, never through a shell. Long-running: answers 202 with an operation, whose result holds the exit code; it runs detached from nexusd (a systemd unit, or a supervised process on OpenRC), so it survives a restart of nexusd, and a running script can be canceled. Answers 409 when the script's concurrency limit is reached. Requires scripts:run, or scripts:run:<id> for this script.
 
 ## Usage
 

@@ -493,12 +493,13 @@ func TestCatalogReloadSwapsAtomically(t *testing.T) {
 	}
 }
 
-// TC-ERR25: on a host without systemd, the compiled-in scripts provider is
-// unavailable with the reason, invoke answers 503 capability-unavailable,
-// and nothing runs: no child, no operation.
+// TC-ERR25: on a host without detached operations (neither systemd nor
+// OpenRC), the compiled-in scripts provider is unavailable with the reason,
+// invoke answers 503 capability-unavailable, and nothing runs: no child, no
+// operation.
 func TestMissingSystemdMakesScriptsUnavailable(t *testing.T) {
-	if detach.SystemdAvailable().Available {
-		t.Skip("this host runs systemd; the T0 case needs a host without it")
+	if detach.Available().Available {
+		t.Skip("this host has detached operations; the T0 case needs a host without them")
 	}
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "ran")

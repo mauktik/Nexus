@@ -302,8 +302,8 @@ func (m *Manager) classify(ctx context.Context, e *entry) {
 	m.log.Warn("operation not classified by the recovery deadline", "operationId", e.id, "unit", unit,
 		"deadline", m.deadline.String())
 	m.commitEnd(e, apitypes.StatusFailed, nil, problem.New(problem.OutcomeUnknown,
-		fmt.Sprintf("the state of unit %s could not be determined within %v after nexusd restarted; it was not stopped and may still be running",
-			unit, m.deadline)))
+		fmt.Sprintf("the state of %s could not be determined within %v after nexusd restarted; it was not stopped and may still be running",
+			m.detach.Subject(e.id), m.deadline)))
 	m.finish(e)
 }
 
@@ -374,13 +374,16 @@ func (m *Manager) commitRecovered(e *entry, o detach.Outcome) {
 		return
 	}
 	m.dropSpec(e.id)
-	unit := detach.Unit(e.id)
-	detail := fmt.Sprintf("unit %s ended without reporting an outcome", unit)
+	subject := m.detach.Subject(e.id)
+	detail := fmt.Sprintf("%s ended without reporting an outcome", subject)
 	switch {
 	case o.Overran:
-		detail = fmt.Sprintf("the operation passed its maximum runtime; unit %s was not stopped and may still be running", unit)
+		detail = fmt.Sprintf("the operation passed its maximum runtime; %s was not stopped and may still be running", subject)
 	case o.Exit != nil:
 		detail = "the operation ended, but its op is no longer available to report the outcome"
+		if why := m.interruption(e.id, *o.Exit); why != "" {
+			detail = why
+		}
 	}
 	m.commitEnd(e, apitypes.StatusFailed, nil, problem.New(problem.OutcomeUnknown, detail))
 }

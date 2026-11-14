@@ -16,7 +16,7 @@ import (
 
 // handWritten are the documentation pages NFR-9 requires that are written
 // by hand; the generator neither writes nor checks their content.
-var handWritten = []string{"install.md", "security.md", "scripts.md", "mcp.md", "adding-a-provider.md", "pihole.md"}
+var handWritten = []string{"install.md", "security.md", "scripts.md", "mcp.md", "adding-a-provider.md", "nginx.md", "pihole.md"}
 
 // repoDocs is the checked-in docs directory.
 func repoDocs(t *testing.T) string {

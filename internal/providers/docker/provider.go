@@ -49,7 +49,8 @@ type Provider struct {
 	kv        atomic.Pointer[provider.KV] // Stored update checks; memKV until UseKV
 	opsDir    atomic.Pointer[string]      // Operations' directories; set by UseOpsDir
 	// systemd and executable are the update's seams: whether this host can
-	// run a transient unit, and the nexusd binary the unit runs.
+	// run a detached operation (detach.Available: a systemd unit, or a
+	// supervised process on OpenRC), and the nexusd binary it runs.
 	systemd    func() detach.Availability
 	executable func() (string, error)
 	// composeTools finds the docker CLI and Compose plugin that Compose
@@ -70,7 +71,7 @@ type engine struct {
 // New returns the provider; it has no client until Configure.
 func New(opts Options) *Provider {
 	p := &Provider{host: opts.Host, log: opts.Logger, timeout: opts.CallTimeout, preflight: opts.Preflight,
-		systemd: detach.SystemdAvailable, executable: os.Executable, composeTools: findCompose}
+		systemd: detach.Available, executable: os.Executable, composeTools: findCompose}
 	if p.log == nil {
 		p.log = slog.Default()
 	}

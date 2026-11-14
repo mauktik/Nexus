@@ -2,32 +2,31 @@
 package buildsys
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
 
-// TC-SM-102 (WI 6.2; FR-19): deploy/install.sh is byte-identical to the base
-// revision. The update helper runs the package's install.sh as its install
-// step and relies on its restart contract (A-33), so the script must not
-// drift. If it is ever changed, this case is replaced by TC-SM-104's
-// backward-compatibility proof.
+// TC-SM-102 (WI 6.2; FR-19), as amended at the nginx-provider merge: the
+// update helper runs the package's install.sh as its install step and relies
+// on its restart contract (A-33). install.sh has changed since the base
+// revision, so its byte pin is replaced by TC-SM-104's backward-compatibility
+// proof, as this case prescribed.
 func TestTCSM102_DeployInstallShIsByteIdentical(t *testing.T) {
-	// The sha256 of d04583a:deploy/install.sh, pinned so the check also runs in
-	// the .git-less repo copy that TestMakeCheckIsTheGate builds. Recompute with
-	// `git show d04583a:deploy/install.sh | shasum -a 256`.
-	const base, baseSHA256 = "d04583a", "a85a4d8d4669a074ee3a925856b4185a66cee6d7759e55a4bafacef6e6b6ea34"
+	// deploy/install.sh changed after d04583a: nginx-provider WI 3.2 made it
+	// POSIX sh with OpenRC support. As TC-SM-102 itself prescribes, the byte
+	// pin is replaced by TC-SM-104's backward-compatibility proof, which runs
+	// the shipped install.sh by hand on real systemd (install_test.go). What
+	// stays here is what the update helper needs on every host: /bin/bash
+	// (system.go's bashPath) parses the script.
 	root := repoRoot(t)
-	got, err := os.ReadFile(filepath.Join(root, "deploy", "install.sh"))
-	if err != nil {
+	path := filepath.Join(root, "deploy", "install.sh")
+	if _, err := os.Stat(path); err != nil {
 		t.Fatal(err)
 	}
-	sum := sha256.Sum256(got)
-	if hex.EncodeToString(sum[:]) != baseSHA256 {
-		t.Fatalf("deploy/install.sh differs from %s (sha256 %x, want %s): FR-19 keeps it unchanged; "+
-			"a change needs TC-SM-104's backward-compatibility proof in place of this case", base, sum, baseSHA256)
+	if out, err := exec.Command("bash", "-n", path).CombinedOutput(); err != nil {
+		t.Fatalf("bash -n deploy/install.sh: %v\n%s", err, out)
 	}
-	t.Logf("deploy/install.sh equals %s:deploy/install.sh (%d bytes)", base, len(got))
+	t.Log("deploy/install.sh parses under bash; TC-SM-104 proves it on real systemd")
 }

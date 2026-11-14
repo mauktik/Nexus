@@ -15,6 +15,7 @@ import (
 	"github.com/mauktik/nexus/internal/auth"
 	"github.com/mauktik/nexus/internal/core"
 	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/detach/detachtest"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/systemspec"
@@ -226,10 +227,14 @@ func TestCancelRefusalsAndAuthorization(t *testing.T) {
 // CancelRunning op is detached, its child run by detachtest.Local, with a
 // spy as detach.Options.Signal.
 func TestCancelIsRefusedWhenAuditFails(t *testing.T) {
+	perBackend(t, testCancelIsRefusedWhenAuditFails)
+}
+
+func testCancelIsRefusedWhenAuditFails(t *testing.T, backend detachtest.Backend) {
 	signaled := make(chan struct{})
 	var once sync.Once
 	var local detach.Options
-	w := localWorld(t, func(d *detach.Options) {
+	w := backendWorld(t, backend, func(d *detach.Options) {
 		local = *d
 		d.Signal = func(ctx context.Context, unit string, sig syscall.Signal) error {
 			once.Do(func() { close(signaled) })

@@ -1,0 +1,48 @@
+# nginx-check.sh transcript: nginx-provider WI 7.2 (TC-118 Alpine/OpenRC, TC-119 Ubuntu/systemd)
+# started 2026-11-14T09:05:37Z on 964d32b31849, mode cleanup, host this machine, arguments: --transcript 26-ubuntu-sec10-cleanup-no-state.txt --yes --cleanup
+# script sha256 5f1bae798b5f2177b8393009b74437a60a9d75f2eb202b09540858293bbae148
+# CONTAINER DETECTED on the host (/.dockerenv, /run/.containerenv or container= in PID 1's environment):
+# this transcript is a dry run, NOT real-host evidence.
+RESULT token-env: PASS - no child process's environment holds the token (env, run as a child, does not show it)
+$ [host] /usr/local/bin/nexusd tls fingerprint
+F2:BC:31:B4:E8:E1:31:30:F1:29:FD:9F:CF:FB:0E:F5:6A:C4:50:EF:2F:DE:48:0F:FC:47:96:93:71:3D:20:DA
+$ (the token, on stdin) | nexus host add nginx-check --url https://127.0.0.1:7443 --fingerprint F2:BC:31:B4:E8:E1:31:30:F1:29:FD:9F:CF:FB:0E:F5:6A:C4:50:EF:2F:DE:48:0F:FC:47:96:93:71:3D:20:DA --token-stdin
+Server certificate SHA-256 fingerprint:
+  F2:BC:31:B4:E8:E1:31:30:F1:29:FD:9F:CF:FB:0E:F5:6A:C4:50:EF:2F:DE:48:0F:FC:47:96:93:71:3D:20:DA
+It matches --fingerprint; pinning it.
+Added host "nginx-check" (https://127.0.0.1:7443, nexusd dev, trust: pin) to <throwaway client config>
+$ nexus --host nginx-check nginx get -o jsonl
+{"host":"nginx-check","id":"/providers/nginx/service/nginx","name":"nginx","properties":{"disabledSuffix":".disabled","includeDir":"/etc/nginx/conf.d","includeSuffix":".site","initSystem":"systemd","mainPid":67937,"service":"nginx","since":"2026-11-14T09:05:36Z","state":"running","version":"1.28.3"},"type":"service"}
+no state in /var/lib/nexus-nginx-check; a disposable site in /etc/nginx/conf.d: nexus-check-2dbc2b10
+
+== Plan. With --yes the script will, on this host:
+  - wait for (or cancel, if queued) the operation an interrupted run left, kill its
+    holder process, remove /etc/nginx/conf.d/nexus-check-<random>.site (and .site.disabled), run nginx -t,
+    reload nginx through systemd if the site was ever enabled, start nginx if the run
+    stopped it, compare the sha256 of every other file, and remove /var/lib/nexus-nginx-check.
+[09:05:37] == Cleanup
+$ [host] cd /etc/nginx/conf.d && { ls -ln -- nexus-check-2dbc2b10.* .nexus-check-2dbc2b10.* 2>/dev/null; rm -f -- nexus-check-2dbc2b10.site nexus-check-2dbc2b10.site.disabled nexus-check-2dbc2b10.* .nexus-check-2dbc2b10.*; ls -a | grep -F -- nexus-check-2dbc2b10 || echo 'nexus-check-2dbc2b10: no file left'; }
+-rw-r--r-- 1 0 0 172 Nov 14 09:05 nexus-check-2dbc2b10.site
+nexus-check-2dbc2b10: no file left
+$ nexus --host nginx-check operation get --filter provider=nginx --filter status=Queued --filter status=Running -o jsonl
+$ [host] /usr/sbin/nginx -t
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+$ [host] /usr/bin/systemctl is-active -- nginx.service
+active
+[09:05:37] the site was enabled during the run: reloading nginx to drop it
+$ [host] env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/bin/systemctl reload -- nginx.service
+  (/proc) master 67937, workers 72277 72278 72279 72280 -> 72898 72901 72902 72903: the reload was applied
+$ [host] cd /etc/nginx/conf.d || exit 2; ls -a | grep -E '^\.?nexus-check-'
+(exit 1)
+RESULT cleanup-removed: PASS - no nexus-check-* entry is left in /etc/nginx/conf.d
+$ [host] [ ! -f /var/lib/nexus-nginx-check/snap.before ] || { S=nexus-check-2dbc2b10; { for r in /etc/nginx /etc/nginx/conf.d; do [ -e "$r" ] && find -L "$r" -print 2>/dev/null; done; /usr/sbin/nginx -T 2>/dev/null | sed -n "s/^# configuration file \(.*\):\$/\1/p"; cat /var/lib/nexus-nginx-check/conffiles 2>/dev/null; } | sort -u | while IFS= read -r f; do b=${f##*/}; case $b in "$S".* | ."$S".*) continue ;; esac; if [ -L "$f" ]; then echo "L $(stat -c "%a %u %g" "$f") $f -> $(readlink "$f")"; fi; if [ -f "$f" ]; then echo "F $(stat -L -c "%a %u %g %s" "$f") $(sha256sum <"$f" | cut -d" " -f1) $f"; elif [ -d "$f" ]; then echo "D $(stat -L -c "%a %u %g" "$f") $f"; elif [ ! -e "$f" ]; then echo "X missing-or-dangling $f"; else echo "O $(stat -L -c "%a %u %g" "$f") $f"; fi; done; } >/var/lib/nexus-nginx-check/snap.after; [ ! -f /var/lib/nexus-nginx-check/snap.before ] || diff /var/lib/nexus-nginx-check/snap.before /var/lib/nexus-nginx-check/snap.after
+$ [host] rm -rf /var/lib/nexus-nginx-check
+RESULT token-absent: PASS - the token does not appear in the transcript
+
+== Summary (cleanup)
+  token-env  PASS  no child process's environment holds the token (env, run as a child, does not show it)
+  cleanup-removed  PASS  no nexus-check-* entry is left in /etc/nginx/conf.d
+  token-absent  PASS  the token does not appear in the transcript
+  (container: not real-host evidence)
+transcript: 26-ubuntu-sec10-cleanup-no-state.txt

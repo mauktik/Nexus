@@ -25,8 +25,9 @@ type row struct {
 
 // golden is the Operation catalog table, row for row (58 rows: the 25 of
 // the base table, the 7 nexusd rows of the self-management table and the 26
-// pihole rows of the pihole-dns-zones table). Any added op must update it on
-// purpose.
+// pihole rows of the pihole-dns-zones table), then the nginx operations table
+// (planning/nginx-provider/architecture.md, 13 rows). Any added op must update
+// it on purpose.
 var golden = []row{
 	{"system.capabilities.get", "GET /capabilities", "", def.RiskReadOnly, def.ModeSync, "capability get", "get_capabilities"},
 	{"system.operations.list", "GET /operations", "", def.RiskReadOnly, def.ModeSync, "operation get", "list_operations"},
@@ -55,6 +56,19 @@ var golden = []row{
 	{"scripts.scripts.list", "GET /providers/scripts/scripts", "scripts:read", def.RiskReadOnly, def.ModeSync, "script get", "list_scripts"},
 	{"scripts.scripts.get", "GET /providers/scripts/scripts/{name}", "scripts:read", def.RiskReadOnly, def.ModeSync, "script get name", "get_script"},
 	{"scripts.scripts.invoke", "POST /providers/scripts/scripts/{name}/invoke", "scripts:run | scripts:run:{name}", def.RiskDestructive, def.ModeLongRunning, "script invoke name", "run_script"},
+	{"nginx.service.list", "GET /providers/nginx/service", "nginx:read", def.RiskReadOnly, def.ModeSync, "nginx get", "get_nginx_status"},
+	{"nginx.actions.test", "POST /providers/nginx/actions/test", "nginx:read", def.RiskReadOnly, def.ModeLongRunning, "nginxconfig test", "test_nginx_config"},
+	{"nginx.actions.start", "POST /providers/nginx/actions/start", "nginx:write", def.RiskMutating, def.ModeLongRunning, "nginx start", "start_nginx"},
+	{"nginx.actions.stop", "POST /providers/nginx/actions/stop", "nginx:write", def.RiskDestructive, def.ModeLongRunning, "nginx stop", "stop_nginx"},
+	{"nginx.actions.restart", "POST /providers/nginx/actions/restart", "nginx:write", def.RiskMutating, def.ModeLongRunning, "nginx restart", "restart_nginx"},
+	{"nginx.actions.reload", "POST /providers/nginx/actions/reload", "nginx:write", def.RiskMutating, def.ModeLongRunning, "nginx reload", "reload_nginx"},
+	{"nginx.sites.list", "GET /providers/nginx/sites", "nginx:read", def.RiskReadOnly, def.ModeSync, "nginxsite get", "list_nginx_sites"},
+	{"nginx.sites.get", "GET /providers/nginx/sites/{name}", "nginx:read", def.RiskReadOnly, def.ModeSync, "nginxsite get name", "get_nginx_site"},
+	{"nginx.sites.content", "GET /providers/nginx/sites/{name}/content", "nginx:read", def.RiskReadOnly, def.ModeSync, "nginxsitecontent get name", "get_nginx_site_content"},
+	{"nginx.sites.enable", "POST /providers/nginx/sites/{name}/enable", "nginx:write", def.RiskMutating, def.ModeLongRunning, "nginxsite start name", "enable_nginx_site"},
+	{"nginx.sites.disable", "POST /providers/nginx/sites/{name}/disable", "nginx:write", def.RiskDestructive, def.ModeLongRunning, "nginxsite stop name", "disable_nginx_site"},
+	{"nginx.sites.add", "POST /providers/nginx/sites/{name}/add", "nginx:config", def.RiskMutating, def.ModeLongRunning, "nginxsite add name", "add_nginx_site"},
+	{"nginx.sites.update", "POST /providers/nginx/sites/{name}/update", "nginx:config", def.RiskMutating, def.ModeLongRunning, "nginxsite update name", "update_nginx_site"},
 	{"nexusd.daemons.list", "GET /providers/nexusd/daemons", "nexusd:read", def.RiskReadOnly, def.ModeSync, "nexusd get", "get_nexusd"},
 	{"nexusd.actions.validate-config", "POST /providers/nexusd/actions/validate-config", "nexusd:read", def.RiskReadOnly, def.ModeSync, "nexusd validate-config", "validate_nexusd_config"},
 	{"nexusd.actions.reload", "POST /providers/nexusd/actions/reload", "nexusd:admin", def.RiskMutating, def.ModeLongRunning, "nexusd reload", ""},
@@ -120,8 +134,8 @@ func rowOf(t *testing.T, op def.Op) row {
 // TC-146: the catalog matches the Operation catalog table exactly.
 func TestCatalogMatchesGoldenTable(t *testing.T) {
 	ops := catalog.Ops()
-	if len(golden) != 58 {
-		t.Fatalf("golden table has %d rows, the architectures' have 58", len(golden))
+	if len(golden) != 58+13 {
+		t.Fatalf("golden table has %d rows, the architectures' have 58+13", len(golden))
 	}
 	if len(ops) != len(golden) {
 		t.Errorf("catalog has %d ops, the table %d", len(ops), len(golden))

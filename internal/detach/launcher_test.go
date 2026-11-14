@@ -185,3 +185,37 @@ func TestStartLaunchErrorWithoutTimeoutFailsWithoutAsking(t *testing.T) {
 		t.Fatal("Start succeeded after a failed launch")
 	}
 }
+
+// CR-A2: the cancel request is a best-effort record. When it cannot be
+// written the signal still goes out: SIGTERM without the record ends the
+// operation interrupted, which says the request was lost, and the work stops.
+func TestCancelSignalsWhenTheCancelRequestCannotBeRecorded(t *testing.T) {
+	var sent []syscall.Signal
+	signalErr := error(nil)
+	l, err := detach.New(detach.Config{OpsDir: t.TempDir()}, detach.Options{
+		Launch:    func(context.Context, detach.Invocation) error { return nil },
+		UnitState: func(context.Context, string) (detach.UnitState, error) { return detach.UnitState{}, nil },
+		Signal: func(_ context.Context, _ string, s syscall.Signal) error {
+			sent = append(sent, s)
+			return signalErr
+		},
+		ListUnits: func(context.Context) ([]string, error) { return nil, nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The operation's directory does not exist, so the request cannot be written.
+	if err := l.Cancel(context.Background(), "abc-1"); err != nil {
+		t.Fatalf("Cancel: %v, want nil: the signal was delivered", err)
+	}
+	if !slices.Equal(sent, []syscall.Signal{syscall.SIGTERM}) {
+		t.Fatalf("signals sent: %v, want [SIGTERM]", sent)
+	}
+
+	// When the signal fails as well, the error reports both.
+	signalErr = errors.New("no such unit")
+	err = l.Cancel(context.Background(), "abc-1")
+	if err == nil || !errors.Is(err, signalErr) || !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("Cancel: %v, want the signal error joined with the record error", err)
+	}
+}

@@ -1,0 +1,1043 @@
+BASE='' RUN='' test/harness/run.sh alpine
+harness: docker context colima, daemon architecture aarch64 -> GOARCH=arm64, BASE=alpine:latest, init openrc
+harness: building linux/arm64 test-only binaries into build/harness/
+harness: building image nexus-harness:alpine-alpine-latest from test/harness/Dockerfile.alpine
+harness: starting container nx-wi34-alpine-20261114T030744Z-42378
+harness: mounts: volume:/var/lib/containerd volume:/var/lib/docker 
+harness: waiting for OpenRC: docker started in the default runlevel
+harness: rc-status default: Runlevel: default docker [ started 00:00:02 (0) ]
+harness: PID 1: /sbin/init 
+harness: versions: openrc (OpenRC [DOCKER]) 0.63.2 nginx version: nginx/1.30.6 docker 29.9.3 Alpine Linux v3.24
+harness: copying binaries, unit, lib.sh and fixtures in with docker cp
+harness: copying the parity suites in
+harness: parity suite internal/detach as root -> detach.log
+harness: parity suite internal/detach as root exited 0: 44 PASS, 0 SKIP, 0 FAIL
+harness: parity suite internal/ops as root -> ops.log
+harness: parity suite internal/ops as root exited 0: 124 PASS, 0 SKIP, 0 FAIL
+harness: parity suite internal/detach as nonroot -> detach-nonroot.log
+harness: parity suite internal/detach as nonroot exited 0: 40 PASS, 4 SKIP, 0 FAIL
+harness: parity suite internal/ops as nonroot -> ops-nonroot.log
+harness: parity suite internal/ops as nonroot exited 0: 124 PASS, 0 SKIP, 0 FAIL
+harness: running tests
+=== RUN   TestAptMutationsSerializeFIFO
+    apt_install_test.go:153: requires systemd (detected openrc)
+--- SKIP: TestAptMutationsSerializeFIFO (0.00s)
+=== RUN   TestAptQueueSurvivesRestart
+    apt_install_test.go:241: requires systemd (detected openrc)
+--- SKIP: TestAptQueueSurvivesRestart (0.00s)
+=== RUN   TestAptInstallPinAndPlusNames
+    apt_install_test.go:333: requires systemd (detected openrc)
+--- SKIP: TestAptInstallPinAndPlusNames (0.00s)
+=== RUN   TestAptRemovePurgeAndAutoremove
+    apt_install_test.go:394: requires systemd (detected openrc)
+--- SKIP: TestAptRemovePurgeAndAutoremove (0.00s)
+=== RUN   TestAptInstallAndUpgradeScopes
+    apt_install_test.go:467: requires systemd (detected openrc)
+--- SKIP: TestAptInstallAndUpgradeScopes (0.00s)
+=== RUN   TestAptCancellationRules
+    apt_install_test.go:518: requires systemd (detected openrc)
+--- SKIP: TestAptCancellationRules (0.00s)
+=== RUN   TestAptInstallRejectsInjections
+    apt_install_test.go:624: requires systemd (detected openrc)
+--- SKIP: TestAptInstallRejectsInjections (0.00s)
+=== RUN   TestAptInstallNeverRemoves
+    apt_install_test.go:712: requires systemd (detected openrc)
+--- SKIP: TestAptInstallNeverRemoves (0.00s)
+=== RUN   TestAptInstallUnknownNamesAndVersions
+    apt_install_test.go:744: requires systemd (detected openrc)
+--- SKIP: TestAptInstallUnknownNamesAndVersions (0.00s)
+=== RUN   TestAptPlusNamesRemoveAndSubsetUpgrade
+    apt_install_test.go:786: requires systemd (detected openrc)
+--- SKIP: TestAptPlusNamesRemoveAndSubsetUpgrade (0.00s)
+=== RUN   TestAptRefreshSkipsTheLockPath
+    apt_lock_test.go:158: requires systemd (detected openrc)
+--- SKIP: TestAptRefreshSkipsTheLockPath (0.00s)
+=== RUN   TestAptMutationLockAndAuditAgainstRealDpkg
+    apt_lock_test.go:333: requires systemd (detected openrc)
+--- SKIP: TestAptMutationLockAndAuditAgainstRealDpkg (0.00s)
+=== RUN   TestAptSecurityDegradesOnThisBase
+    apt_portability_test.go:71: requires systemd (detected openrc)
+--- SKIP: TestAptSecurityDegradesOnThisBase (0.00s)
+=== RUN   TestAptSuiteHasNoReleaseDependency
+    apt_portability_test.go:185: requires systemd (detected openrc)
+--- SKIP: TestAptSuiteHasNoReleaseDependency (0.00s)
+=== RUN   TestAptReadsMatchIndependentReadback
+    apt_reads_test.go:217: requires systemd (detected openrc)
+--- SKIP: TestAptReadsMatchIndependentReadback (0.00s)
+=== RUN   TestAptUpgradableCacheMeetsTargetAndInvalidates
+    apt_reads_test.go:309: requires systemd (detected openrc)
+--- SKIP: TestAptUpgradableCacheMeetsTargetAndInvalidates (0.00s)
+=== RUN   TestAptRebootRequiredState
+    apt_reads_test.go:396: requires systemd (detected openrc)
+--- SKIP: TestAptRebootRequiredState (0.00s)
+=== RUN   TestAptPreflightAndAbsentPackages
+    apt_reads_test.go:448: requires systemd (detected openrc)
+--- SKIP: TestAptPreflightAndAbsentPackages (0.00s)
+=== RUN   TestAptUpgradeSurvivesNexusdKill9DuringDpkg
+    apt_survival_test.go:138: requires systemd (detected openrc)
+--- SKIP: TestAptUpgradeSurvivesNexusdKill9DuringDpkg (0.00s)
+=== RUN   TestAptSupervisorDeathMidDpkg
+    apt_survival_test.go:241: requires systemd (detected openrc)
+--- SKIP: TestAptSupervisorDeathMidDpkg (0.00s)
+=== RUN   TestAptNeedrestartRestartsNexusdNotScriptUnit
+    apt_survival_test.go:386: requires systemd (detected openrc)
+--- SKIP: TestAptNeedrestartRestartsNexusdNotScriptUnit (0.00s)
+=== RUN   TestAptUpgradePreviewEqualsOutcome
+    apt_upgrade_test.go:210: requires systemd (detected openrc)
+--- SKIP: TestAptUpgradePreviewEqualsOutcome (0.00s)
+=== RUN   TestAptUpgradeSubset
+    apt_upgrade_test.go:302: requires systemd (detected openrc)
+--- SKIP: TestAptUpgradeSubset (0.00s)
+=== RUN   TestAptUpgradeResultAndNoReboot
+    apt_upgrade_test.go:346: requires systemd (detected openrc)
+--- SKIP: TestAptUpgradeResultAndNoReboot (0.00s)
+=== RUN   TestAptUpgradeWaitsForTheLock
+    apt_upgrade_test.go:396: requires systemd (detected openrc)
+--- SKIP: TestAptUpgradeWaitsForTheLock (0.00s)
+=== RUN   TestAptUpgradeExternalHolderIsBusy
+    apt_upgrade_test.go:549: requires systemd (detected openrc)
+--- SKIP: TestAptUpgradeExternalHolderIsBusy (0.00s)
+=== RUN   TestAptUpgradeBrokenStateIsReported
+    apt_upgrade_test.go:628: requires systemd (detected openrc)
+--- SKIP: TestAptUpgradeBrokenStateIsReported (0.00s)
+=== RUN   TestAptUpgradeFailureModes
+    apt_upgrade_test.go:652: requires systemd (detected openrc)
+--- SKIP: TestAptUpgradeFailureModes (0.00s)
+=== RUN   TestAptUpgradeFinalizeAcrossRestartAndRotation
+    apt_upgrade_test.go:689: requires systemd (detected openrc)
+--- SKIP: TestAptUpgradeFinalizeAcrossRestartAndRotation (0.00s)
+=== RUN   TestAptUpgradeRejectsHostileNames
+    apt_upgrade_test.go:770: requires systemd (detected openrc)
+--- SKIP: TestAptUpgradeRejectsHostileNames (0.00s)
+=== RUN   TestFR31ExampleVerbatim
+    cli_fr31_test.go:313: step 1 (terminal, y): exit 0
+        terminal: "Update 2 containers on 2 hosts (alpha, beta)? [y/N] y\r\n\nNX_PROMPTS=1\n"
+        stdout:
+        {"action":"docker.containers.update","created":"2026-11-14T03:10:43.209309184Z","ended":"2026-11-14T03:10:46.767540574Z","error":null,"host":"beta","id":"01a1d809-3009-76f1-90fd-c0cec4a1789c","outputEvicted":false,"provider":"docker","result":{"changed":true,"containerId":"12dbcb1f72e34df4c123fa7d555773d805ffe7616748101dae281049e94c7b1b","newDigest":"sha256:a310c2eda4f62a027f4ac13511a0a35d1146b7b7dae9486d61472e849422c14b","previousContainerId":"c6adb1ff3a3f6c98316c6a5fdce9e23fe7947fa2909b06b699d3d4d25586e2b2","previousDigest":"sha256:5ee4a031e22d270dc147b5ceda320b9bd3ae8057c6184301cc2b65b4515f7e31","rolledBack":false},"started":"2026-11-14T03:10:43.233783921Z","status":"Succeeded","target":"tc170-b","tokenName":"cli"}
+        {"action":"docker.containers.update","created":"2026-11-14T03:10:47.006624628Z","ended":"2026-11-14T03:10:50.098368165Z","error":null,"host":"alpha","id":"01a1d809-3ede-70e5-9f0b-aa05b05af4e6","outputEvicted":false,"provider":"docker","result":{"changed":true,"containerId":"96337e18945d51ac4904716b267685ae51c81ce78e196f6855473364353cbe12","newDigest":"sha256:2b4f0a88b8382eeab760074adab06f7b55bda1d92a23f10168a1a3ea74c85e59","previousContainerId":"494f7d3a608cbafba6ce404a4960ed8b7653fb425322df2a0b2496a524561592","previousDigest":"sha256:a2446511fbc4f787c41940df90822ad940ed1845cbbafabfa06b2f9a7e2d5d09","rolledBack":false},"started":"2026-11-14T03:10:47.051011248Z","status":"Succeeded","target":"tc170-a","tokenName":"cli"}
+        stderr: "{\"elapsedSeconds\":2,\"host\":\"beta\",\"id\":\"01a1d809-3009-76f1-90fd-c0cec4a1789c\",\"level\":\"progress\",\"status\":\"Running\"}\n{\"elapsedSeconds\":2,\"host\":\"alpha\",\"id\":\"01a1d809-3ede-70e5-9f0b-aa05b05af4e6\",\"level\":\"progress\",\"status\":\"Running\"}\n"
+    cli_fr31_test.go:323: step 1: tc170-a runs sha256:2b4f0a88b8382eeab760074adab06f7b55bda1d92a23f10168a1a3ea74c85e59; registry sha256:2b4f0a88b8382eeab760074adab06f7b55bda1d92a23f10168a1a3ea74c85e59
+    cli_fr31_test.go:323: step 1: tc170-b runs sha256:a310c2eda4f62a027f4ac13511a0a35d1146b7b7dae9486d61472e849422c14b; registry sha256:a310c2eda4f62a027f4ac13511a0a35d1146b7b7dae9486d61472e849422c14b
+    cli_fr31_test.go:341: step 3 (no terminal): exit 2
+        stdout: ""
+        stderr: {"exit":2,"host":"","level":"error","message":"update 2 containers on 2 hosts (alpha, beta) needs confirmation and there is no terminal to ask on: pass --yes to proceed; nothing was sent","type":"urn:nexus:cli:usage"}
+    cli_fr31_test.go:348: step 3: tc170-a: update operations 1 -> 1; runs sha256:28e7ee428f736e88ea16e0264902fec3d7f4f1e6505fe141f57800b3161e9d1a (before sha256:28e7ee428f736e88ea16e0264902fec3d7f4f1e6505fe141f57800b3161e9d1a)
+    cli_fr31_test.go:348: step 3: tc170-b: update operations 1 -> 1; runs sha256:1778dcf6bb1fac02d2dea35c870ad3ba6320e3c421ff55c8b17ecc17ffc1c3e2 (before sha256:1778dcf6bb1fac02d2dea35c870ad3ba6320e3c421ff55c8b17ecc17ffc1c3e2)
+    cli_fr31_test.go:356: step 4 (no terminal, --yes): exit 0
+        stdout:
+        {"action":"docker.containers.update","created":"2026-11-14T03:10:55.933376918Z","ended":"2026-11-14T03:10:58.980317608Z","error":null,"host":"beta","id":"01a1d809-61bd-73e8-b07a-d2f8ee85c5b6","outputEvicted":false,"provider":"docker","result":{"changed":true,"containerId":"d25c80a068e2ca878944a7261202ad44c7b4e20754f2bd9e9af47169df673eda","newDigest":"sha256:e4c69875950df75a198a5ad614ac9ba48fb43f443da7669908840cae855beb68","previousContainerId":"a68ede4a469648cb3df2b0250b445cec99ec15f459c7ee57e82a65079a817723","previousDigest":"sha256:1778dcf6bb1fac02d2dea35c870ad3ba6320e3c421ff55c8b17ecc17ffc1c3e2","rolledBack":false},"started":"2026-11-14T03:10:55.950220287Z","status":"Succeeded","target":"tc170-b","tokenName":"cli"}
+        {"action":"docker.containers.update","created":"2026-11-14T03:10:59.724330553Z","ended":"2026-11-14T03:11:02.805294141Z","error":null,"host":"alpha","id":"01a1d809-708c-73a8-a1b0-ab37c54f90a0","outputEvicted":false,"provider":"docker","result":{"changed":true,"containerId":"337944ef1fdfd89528a3777df8535474bc6183cd3b52d73e902988f59a8ecc7e","newDigest":"sha256:a4c3e91aa8f82cde07e60d0a9b397f615536c45ba217c204e751cbb8062e490c","previousContainerId":"e3e9a78ec3aacb47a02e5576d2d50316243365c47d87f1728e7c391e045e0efc","previousDigest":"sha256:28e7ee428f736e88ea16e0264902fec3d7f4f1e6505fe141f57800b3161e9d1a","rolledBack":false},"started":"2026-11-14T03:10:59.764573278Z","status":"Succeeded","target":"tc170-a","tokenName":"cli"}
+        stderr: "{\"elapsedSeconds\":2,\"host\":\"beta\",\"id\":\"01a1d809-61bd-73e8-b07a-d2f8ee85c5b6\",\"level\":\"progress\",\"status\":\"Running\"}\n{\"elapsedSeconds\":2,\"host\":\"alpha\",\"id\":\"01a1d809-708c-73a8-a1b0-ab37c54f90a0\",\"level\":\"progress\",\"status\":\"Running\"}\n"
+    cli_fr31_test.go:361: step 4: tc170-a runs sha256:a4c3e91aa8f82cde07e60d0a9b397f615536c45ba217c204e751cbb8062e490c; registry sha256:a4c3e91aa8f82cde07e60d0a9b397f615536c45ba217c204e751cbb8062e490c
+    cli_fr31_test.go:361: step 4: tc170-b runs sha256:e4c69875950df75a198a5ad614ac9ba48fb43f443da7669908840cae855beb68; registry sha256:e4c69875950df75a198a5ad614ac9ba48fb43f443da7669908840cae855beb68
+    cli_fr31_test.go:113: tc170b output:
+        {"time":"2026-11-14T03:10:35.87852477Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"tc170b","listen":["127.0.0.1:7462"]}
+        {"time":"2026-11-14T03:10:42.191913437Z","level":"WARN","msg":"registry check failed","provider":"docker","reference":"127.0.0.1:39107/nx/tc170a:moving","authenticated":false,"error":"Error response from daemon: Head \"http://127.0.0.1:39107/v2/nx/tc170a/manifests/moving\": no basic auth credentials"}
+        {"time":"2026-11-14T03:10:55.01949282Z","level":"WARN","msg":"registry check failed","provider":"docker","reference":"127.0.0.1:39107/nx/tc170a:moving","authenticated":false,"error":"Error response from daemon: Head \"http://127.0.0.1:39107/v2/nx/tc170a/manifests/moving\": no basic auth credentials"}
+    cli_fr31_test.go:113: tc170a output:
+        {"time":"2026-11-14T03:10:35.79299442Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"tc170a","listen":["127.0.0.1:7461"]}
+        {"time":"2026-11-14T03:10:41.280325257Z","level":"WARN","msg":"registry check failed","provider":"docker","reference":"127.0.0.1:44517/nx/tc170b:moving","authenticated":false,"error":"Error response from daemon: Head \"http://127.0.0.1:44517/v2/nx/tc170b/manifests/moving\": no basic auth credentials"}
+        {"time":"2026-11-14T03:10:54.14568607Z","level":"WARN","msg":"registry check failed","provider":"docker","reference":"127.0.0.1:44517/nx/tc170b:moving","authenticated":false,"error":"Error response from daemon: Head \"http://127.0.0.1:44517/v2/nx/tc170b/manifests/moving\": no basic auth credentials"}
+--- PASS: TestFR31ExampleVerbatim (33.01s)
+=== RUN   TestCLIFanOutAgainstRealDaemons
+    cli_multihost_test.go:136: nexus script get [--host alpha,beta,gamma]: exit 6
+        stdout:
+        {"host":"alpha","id":"/providers/scripts/scripts/hello","name":"hello","properties":{"concurrency":1,"description":"T1 hello","env":[],"parameters":[],"path":"/opt/nxtest/tc168/ok.sh","runAs":"root","terminationGraceSeconds":30,"timeoutSeconds":3600,"workingDirectory":"/opt/nxtest/tc168"},"type":"scripts"}
+        stderr:
+        {"exit":5,"host":"gamma","level":"error","message":"host gamma: connection failed: Get \"http://127.0.0.1:43029/v1/providers/scripts/scripts\": dial tcp 127.0.0.1:43029: connect: connection refused","type":"urn:nexus:cli:connection"}
+        {"detail":"provider scripts is disabled","exit":4,"host":"beta","level":"error","message":"host beta: capability-unavailable: provider scripts is disabled","provider":"scripts","reason":"disabled in configuration (providers.scripts.enabled is false)","status":503,"title":"Capability unavailable","type":"urn:nexus:problem:capability-unavailable"}
+    cli_multihost_test.go:136: nexus script get [--tag fleet]: exit 6
+        stdout:
+        {"host":"alpha","id":"/providers/scripts/scripts/hello","name":"hello","properties":{"concurrency":1,"description":"T1 hello","env":[],"parameters":[],"path":"/opt/nxtest/tc168/ok.sh","runAs":"root","terminationGraceSeconds":30,"timeoutSeconds":3600,"workingDirectory":"/opt/nxtest/tc168"},"type":"scripts"}
+        stderr:
+        {"exit":5,"host":"gamma","level":"error","message":"host gamma: connection failed: Get \"http://127.0.0.1:43029/v1/providers/scripts/scripts\": dial tcp 127.0.0.1:43029: connect: connection refused","type":"urn:nexus:cli:connection"}
+        {"detail":"provider scripts is disabled","exit":4,"host":"beta","level":"error","message":"host beta: capability-unavailable: provider scripts is disabled","provider":"scripts","reason":"disabled in configuration (providers.scripts.enabled is false)","status":503,"title":"Capability unavailable","type":"urn:nexus:problem:capability-unavailable"}
+    cli_multihost_test.go:136: nexus script get [--host all]: exit 6
+        stdout:
+        {"host":"alpha","id":"/providers/scripts/scripts/hello","name":"hello","properties":{"concurrency":1,"description":"T1 hello","env":[],"parameters":[],"path":"/opt/nxtest/tc168/ok.sh","runAs":"root","terminationGraceSeconds":30,"timeoutSeconds":3600,"workingDirectory":"/opt/nxtest/tc168"},"type":"scripts"}
+        stderr:
+        {"exit":5,"host":"gamma","level":"error","message":"host gamma: connection failed: Get \"http://127.0.0.1:43029/v1/providers/scripts/scripts\": dial tcp 127.0.0.1:43029: connect: connection refused","type":"urn:nexus:cli:connection"}
+        {"detail":"provider scripts is disabled","exit":4,"host":"beta","level":"error","message":"host beta: capability-unavailable: provider scripts is disabled","provider":"scripts","reason":"disabled in configuration (providers.scripts.enabled is false)","status":503,"title":"Capability unavailable","type":"urn:nexus:problem:capability-unavailable"}
+    cli_multihost_test.go:160: nexus script get (default host): exit 0
+        stdout:
+        {"host":"alpha","id":"/providers/scripts/scripts/hello","name":"hello","properties":{"concurrency":1,"description":"T1 hello","env":[],"parameters":[],"path":"/opt/nxtest/tc168/ok.sh","runAs":"root","terminationGraceSeconds":30,"timeoutSeconds":3600,"workingDirectory":"/opt/nxtest/tc168"},"type":"scripts"}
+        stderr:
+    cli_multihost_test.go:176: A's token on B: 401 Unauthorized
+    cli_multihost_test.go:57: harness-b output:
+        {"time":"2026-11-14T03:11:04.095745831Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness-b","listen":["127.0.0.1:7464"]}
+        {"time":"2026-11-14T03:11:04.202115443Z","level":"INFO","msg":"authentication failed","source":"127.0.0.1","reason":"invalid token"}
+--- PASS: TestCLIFanOutAgainstRealDaemons (0.83s)
+=== RUN   TestNFRAdditiveCompatibility
+    compat_test.go:303: NFR load at start: VM loadavg 0.39 0.15 0.05 6/252 4400, 4 CPUs
+    compat_test.go:366: nexus capability get --host older -o jsonl -> exit 0
+        stdout: {"apiVersion":"v1","host":"older","id":"/capabilities","initSystem":"openrc","os":{"id":"alpine","prettyName":"Alpine Linux v3.24","versionId":"3.24.4"},"providers":[{"actions":["install","refresh","remove","upgrade"],"name":"apt","reason":"/usr/bin/apt-get is missing or not executable; the apt provider needs apt and dpkg","resourceTypes":["packages"],"status":"unavailable"},{"actions":["check-updates","remove","restart","start","stop","update"],"details":{"apiVersion":"1.56","composePlugin":{"available":true,"path":"/usr/libexec/docker/cli-plugins/docker-compose"},"daemonApiVersion":"1.56","socket":"/run/docker.sock"},"name":"docker","resourceTypes":["containers"],"status":"enabled"},{"actions":["invoke"],"name":"scripts","reason":"disabled in configuration (providers.scripts.enabled is false)","resourceTypes":["scripts"],"status":"disabled"}],"version":"v0.9.0-compat-older"}
+        stderr: 
+    compat_test.go:372: NFR TC-192 older nexusd capabilities: apiVersion v1, version v0.9.0-compat-older
+    compat_test.go:373: nexus container get --host older -o jsonl -> exit 0
+        stdout: {"host":"older","id":"/providers/docker/containers/compat-a","name":"compat-a","properties":{"composeProject":"","composeService":"","containerId":"f1ec900fe802a42a40bb19574c5ac6073666af5c61e72236d5f1c65ff29ec20b","health":"none","imageDigest":"sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4","imageReference":"busybox:latest","ports":[],"restartPolicy":{"maximumRetryCount":0,"name":"no"},"state":"running","update":{"status":"notChecked"}},"type":"containers"}
+        {"host":"older","id":"/providers/docker/containers/compat-b","name":"compat-b","properties":{"composeProject":"","composeService":"","containerId":"cbfd31c369774a10c3ee45a2810668f0e578140e520a523c78e5906e6bfd07d3","health":"none","imageDigest":"sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4","imageReference":"busybox:latest","ports":[],"restartPolicy":{"maximumRetryCount":0,"name":"no"},"state":"running","update":{"status":"notChecked"}},"type":"containers"}
+        {"host":"older","id":"/providers/docker/containers/nx-registry","name":"nx-registry","properties":{"composeProject":"","composeService":"","containerId":"c9340788d0bf756430ae1214c8655b2d0a98a29cf5b184a1d4008b716ee1ae98","health":"none","imageDigest":"sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373","imageReference":"registry:2","ports":[{"containerPort":5000,"hostIp":"127.0.0.1","hostPort":5000,"protocol":"tcp"}],"restartPolicy":{"maximumRetryCount":0,"name":"no"},"state":"running","update":{"status":"notChecked"}},"type":"containers"}
+        {"host":"older","id":"/providers/docker/containers/nx-registry-auth","name":"nx-registry-auth","properties":{"composeProject":"","composeService":"","containerId":"ac0c5feef4b8761a98ff258f4f3199a387b58e877f3d0274a36d1bae57d254e8","health":"none","imageDigest":"sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373","imageReference":"registry:2","ports":[{"containerPort":5000,"hostIp":"127.0.0.1","hostPort":5001,"protocol":"tcp"}],"restartPolicy":{"maximumRetryCount":0,"name":"no"},"state":"running","update":{"status":"notChecked"}},"type":"containers"}
+        stderr: 
+    compat_test.go:378: nexus package get --host older -o jsonl --limit 5 -> exit 4
+        stdout: 
+        stderr: {"detail":"provider apt is unavailable","exit":4,"host":"older","level":"error","message":"host older: capability-unavailable: provider apt is unavailable","provider":"apt","reason":"/usr/bin/apt-get is missing or not executable; the apt provider needs apt and dpkg","status":503,"title":"Capability unavailable","type":"urn:nexus:problem:capability-unavailable"}
+    compat_test.go:382: nexus packageupdate get --host older -> exit 4
+        stdout: 
+        stderr: {"detail":"no route for GET /v1/providers/apt/upgradable","exit":4,"host":"older","level":"error","message":"host older lacks this capability: its nexusd does not serve this operation (route-not-found); upgrade nexusd on that host","status":404,"title":"Route not found","type":"urn:nexus:problem:route-not-found"}
+    compat_test.go:389: NFR TC-192 newer CLI, new op on the older nexusd: exit 4, {"detail":"no route for GET /v1/providers/apt/upgradable","exit":4,"host":"older","level":"error","message":"host older lacks this capability: its nexusd does not serve this operation (route-not-found); upgrade nexusd on that host","status":404,"title":"Route not found","type":"urn:nexus:problem:route-not-found"}
+    compat_test.go:390: nexus packageupdate get --host older -o jsonl -> exit 4
+        stdout: 
+        stderr: {"detail":"no route for GET /v1/providers/apt/upgradable","exit":4,"host":"older","level":"error","message":"host older lacks this capability: its nexusd does not serve this operation (route-not-found); upgrade nexusd on that host","status":404,"title":"Route not found","type":"urn:nexus:problem:route-not-found"}
+    compat_test.go:397: nexus packageupdate get --host current -o jsonl -> exit 4
+        stdout: 
+        stderr: {"detail":"provider apt is unavailable","exit":4,"host":"current","level":"error","message":"host current: capability-unavailable: provider apt is unavailable","provider":"apt","reason":"/usr/bin/apt-get is missing or not executable; the apt provider needs apt and dpkg","status":503,"title":"Capability unavailable","type":"urn:nexus:problem:capability-unavailable"}
+    compat_test.go:402: nexus capability get --host newer -o jsonl -> exit 0
+        stdout: {"addedInNewerServer":"v1-additive","apiVersion":"v1","host":"newer","id":"/capabilities","initSystem":"openrc","os":{"id":"alpine","prettyName":"Alpine Linux v3.24","versionId":"3.24.4"},"providers":[{"actions":["install","refresh","remove","upgrade"],"addedInNewerServer":"v1-additive","name":"apt","reason":"/usr/bin/apt-get is missing or not executable; the apt provider needs apt and dpkg","resourceTypes":["packages","upgradable"],"status":"unavailable"},{"actions":["check-updates","remove","restart","start","stop","update"],"addedInNewerServer":"v1-additive","details":{"apiVersion":"1.56","composePlugin":{"available":true,"path":"/usr/libexec/docker/cli-plugins/docker-compose"},"daemonApiVersion":"1.56","socket":"/run/docker.sock"},"name":"docker","resourceTypes":["containers"],"status":"enabled"},{"actions":["add","disable","enable","reload","restart","start","stop","test","update"],"addedInNewerServer":"v1-additive","name":"nginx","reason":"disabled in configuration (providers.nginx.enabled is false)","resourceTypes":["service","sites"],"status":"disabled"},{"actions":["invoke"],"addedInNewerServer":"v1-additive","name":"scripts","reason":"disabled in configuration (providers.scripts.enabled is false)","resourceTypes":["scripts"],"status":"disabled"},{"actions":["frobnicate"],"addedInNewerServer":"v1-additive","name":"future","resourceTypes":["widgets"],"status":"enabled"}],"version":"dev"}
+        stderr: 
+    compat_test.go:405: NFR TC-192 newer server capabilities: apiVersion v1, version dev
+    compat_test.go:409: nexus container get --host newer -o jsonl -> exit 0
+        stdout: {"addedInNewerServer":"v1-additive","host":"newer","id":"/providers/docker/containers/compat-a","name":"compat-a","properties":{"addedInNewerServer":"v1-additive","composeProject":"","composeService":"","containerId":"f1ec900fe802a42a40bb19574c5ac6073666af5c61e72236d5f1c65ff29ec20b","health":"none","imageDigest":"sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4","imageReference":"busybox:latest","ports":[],"restartPolicy":{"maximumRetryCount":0,"name":"no"},"state":"running","update":{"status":"notChecked"}},"type":"containers"}
+        {"addedInNewerServer":"v1-additive","host":"newer","id":"/providers/docker/containers/compat-b","name":"compat-b","properties":{"addedInNewerServer":"v1-additive","composeProject":"","composeService":"","containerId":"cbfd31c369774a10c3ee45a2810668f0e578140e520a523c78e5906e6bfd07d3","health":"none","imageDigest":"sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4","imageReference":"busybox:latest","ports":[],"restartPolicy":{"maximumRetryCount":0,"name":"no"},"state":"running","update":{"status":"notChecked"}},"type":"containers"}
+        {"addedInNewerServer":"v1-additive","host":"newer","id":"/providers/docker/containers/nx-registry","name":"nx-registry","properties":{"addedInNewerServer":"v1-additive","composeProject":"","composeService":"","containerId":"c9340788d0bf756430ae1214c8655b2d0a98a29cf5b184a1d4008b716ee1ae98","health":"none","imageDigest":"sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373","imageReference":"registry:2","ports":[{"containerPort":5000,"hostIp":"127.0.0.1","hostPort":5000,"protocol":"tcp"}],"restartPolicy":{"maximumRetryCount":0,"name":"no"},"state":"running","update":{"status":"notChecked"}},"type":"containers"}
+        {"addedInNewerServer":"v1-additive","host":"newer","id":"/providers/docker/containers/nx-registry-auth","name":"nx-registry-auth","properties":{"addedInNewerServer":"v1-additive","composeProject":"","composeService":"","containerId":"ac0c5feef4b8761a98ff258f4f3199a387b58e877f3d0274a36d1bae57d254e8","health":"none","imageDigest":"sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373","imageReference":"registry:2","ports":[{"containerPort":5000,"hostIp":"127.0.0.1","hostPort":5001,"protocol":"tcp"}],"restartPolicy":{"maximumRetryCount":0,"name":"no"},"state":"running","update":{"status":"notChecked"}},"type":"containers"}
+        stderr: 
+    compat_test.go:414: NFR TC-192 older CLI json output passes the unknown field through: true
+    compat_test.go:415: nexus container get compat-a --host newer -o jsonl -> exit 0
+        stdout: {"addedInNewerServer":"v1-additive","host":"newer","id":"/providers/docker/containers/compat-a","name":"compat-a","properties":{"composeProject":"","composeService":"","containerId":"f1ec900fe802a42a40bb19574c5ac6073666af5c61e72236d5f1c65ff29ec20b","health":"none","imageDigest":"sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4","imageReference":"busybox:latest","ports":[],"restartPolicy":{"maximumRetryCount":0,"name":"no"},"state":"running","update":{"status":"notChecked"}},"type":"containers"}
+        stderr: 
+    compat_test.go:420: nexus container get --host newer -o table -> exit 0
+        stdout: HOST   NAME              STATE    HEALTH  IMAGEREFERENCE  UPDATE.STATUS
+        newer  compat-a          running  none    busybox:latest  notChecked
+        newer  compat-b          running  none    busybox:latest  notChecked
+        newer  nx-registry       running  none    registry:2      notChecked
+        newer  nx-registry-auth  running  none    registry:2      notChecked
+        stderr: 
+    compat_test.go:425: nexus package get --host newer -o jsonl --limit 5 -> exit 4
+        stdout: 
+        stderr: {"addedInNewerServer":"v1-additive","detail":"provider apt is unavailable","exit":4,"host":"newer","level":"error","message":"host newer: capability-unavailable: provider apt is unavailable","provider":"apt","reason":"/usr/bin/apt-get is missing or not executable; the apt provider needs apt and dpkg","status":503,"title":"Capability unavailable","type":"urn:nexus:problem:capability-unavailable"}
+    compat_test.go:429: nexus container stop compat-b --host newer -o jsonl -> exit 0
+        stdout: {"action":"docker.containers.stop","addedInNewerServer":"v1-additive","created":"2026-11-14T03:11:05.236097085Z","ended":"2026-11-14T03:11:15.441350776Z","error":null,"host":"newer","id":"01a1d809-8614-7564-afb9-110323c88187","outputEvicted":false,"provider":"docker","result":{"changed":true,"containerId":"cbfd31c369774a10c3ee45a2810668f0e578140e520a523c78e5906e6bfd07d3"},"started":"2026-11-14T03:11:05.236984423Z","status":"Succeeded","target":"compat-b","tokenName":"cli"}
+        stderr: {"elapsedSeconds":2,"host":"newer","id":"01a1d809-8614-7564-afb9-110323c88187","level":"progress","status":"Running"}
+    compat_test.go:434: nexus operation get --host newer -o jsonl --limit 5 -> exit 0
+        stdout: {"action":"docker.containers.stop","addedInNewerServer":"v1-additive","created":"2026-11-14T03:11:05.236097085Z","ended":"2026-11-14T03:11:15.441350776Z","error":null,"host":"newer","id":"01a1d809-8614-7564-afb9-110323c88187","outputEvicted":false,"provider":"docker","result":{"changed":true,"containerId":"cbfd31c369774a10c3ee45a2810668f0e578140e520a523c78e5906e6bfd07d3"},"started":"2026-11-14T03:11:05.236984423Z","status":"Succeeded","target":"compat-b","tokenName":"cli"}
+        stderr: 
+    footprint_test.go:911: NFR load at end: VM loadavg 0.31 0.14 0.05 3/253 4641
+--- PASS: TestNFRAdditiveCompatibility (12.57s)
+=== RUN   TestDockerComposeUpdateChangesOneService
+    docker_compose_test.go:316: project nxc118 in "/srv/nx-compose/tc118": app labels {"com.docker.compose.config-hash":"3187753278359406bfa04ce1c361f94ed262b61a246f32a8b30947c44b2fdbeb","com.docker.compose.container-number":"1","com.docker.compose.depends_on":"","com.docker.compose.image":"sha256:a893c822a9e8fbd9607b1a052211cb3ff9fa265aa4ebf5bab4461e943aea3a1a","com.docker.compose.oneoff":"False","com.docker.compose.project":"nxc118","com.docker.compose.project.config_files":"/srv/nx-compose/tc118/compose.yaml","com.docker.compose.project.environment_file":"/srv/nx-compose/tc118/nx.env","com.docker.compose.project.working_dir":"/srv/nx-compose/tc118","com.docker.compose.service":"app","com.docker.compose.version":"5.6.1"}
+    docker_compose_test.go:331: 01a1d809-bf45-771f-bd5f-e88e76d3d346: supervisor 5543 ["/usr/local/bin/nexusd" "op-supervise" "--dir" "/var/lib/nexus/nexusd-tc118/ops/01a1d809-bf45-771f-bd5f-e88e76d3d346" "--process"] in 0::/nexus-ops/01a1d809-bf45-771f-bd5f-e88e76d3d346 (process backend)
+    docker_compose_test.go:332: supervisor 5543; helper 5551 ["/usr/local/bin/nexusd" "docker-update" "--dir" "/var/lib/nexus/nexusd-tc118/ops/01a1d809-bf45-771f-bd5f-e88e76d3d346"]; compose 5585 ["/usr/bin/docker" "compose" "--project-directory" "/srv/nx-compose/tc118" "-f" "/srv/nx-compose/tc118/compose.yaml" "--env-file" "/srv/nx-compose/tc118/nx.env" "-p" "nxc118" "pull" "app"]
+    docker_compose_test.go:342: update 01a1d809-bf45-771f-bd5f-e88e76d3d346: Succeeded in 3.019s, result {"changed":true,"containerId":"3de578d3cb839eb5d56d0d9bb3b5a50963a059201384646d464042f977b1dd1b","previousContainerId":"72bef4eb9e24f76643036999aa3b9baa7c0747280ee77e4e71d26b21d52a75fb","previousDigest":"sha256:a893c822a9e8fbd9607b1a052211cb3ff9fa265aa4ebf5bab4461e943aea3a1a","newDigest":"sha256:13e3e24fd10a46be04c3adc46d7c341070510f98422cd0305496998cee8cd0fe","rolledBack":false}
+    docker_compose_test.go:358: operation output:
+        {"o":0,"t":"2026-11-14T03:11:19.935494698Z","s":"out","d":"checking that the registry 127.0.0.1:5095 serves the running image of 127.0.0.1:5095/nx/nxc118-app\n"}
+        {"o":99,"t":"2026-11-14T03:11:20.003956802Z","s":"out","d":"pulling the image of service app of Compose project nxc118 (127.0.0.1:5095/nx/nxc118-app:moving)\nrunning docker compose pull app: [\"/usr/bin/docker\" \"compose\" \"--project-directory\" \"/srv/nx-compose/tc118\" \"-f\" \"/srv/nx-compose/tc118/compose.yaml\" \"--env-file\" \"/srv/nx-compose/tc118/nx.env\" \"-p\" \"nxc118\" \"pull\" \"app\"]\n"}
+        {"o":418,"t":"2026-11-14T03:11:20.049727094Z","s":"out","d":" Image 127.0.0.1:5095/nx/nxc118-app:moving Pulling \n"}
+        {"o":470,"t":"2026-11-14T03:11:20.101968374Z","s":"out","d":" fc5f1d56e678 Pulling fs layer 0B\n 55d2dadd4bbc Pulling fs layer 0B\n"}
+        {"o":538,"t":"2026-11-14T03:11:20.113426093Z","s":"out","d":" 55d2dadd4bbc Already exists 0B\n"}
+        {"o":570,"t":"2026-11-14T03:11:20.113544219Z","s":"out","d":" fc5f1d56e678 Download complete 0B\n"}
+        {"o":605,"t":"2026-11-14T03:11:20.114006471Z","s":"out","d":" fc5f1d56e678 Pull complete 0B\n"}
+        {"o":636,"t":"2026-11-14T03:11:20.114550556Z","s":"out","d":" Image 127.0.0.1:5095/nx/nxc118-app:moving Pulled \n"}
+        {"o":687,"t":"2026-11-14T03:11:20.121294962Z","s":"out","d":"recreating service app with the pulled image (sha256:13e3e24fd10a46be04c3adc46d7c341070510f98422cd0305496998cee8cd0fe)\nrunning docker compose up -d --no-deps app: [\"/usr/bin/docker\" \"compose\" \"--project-directory\" \"/srv/nx-compose/tc118\" \"-f\" \"/srv/nx-compose/tc118/compose.yaml\" \"--env-file\" \"/srv/nx-compose/tc118/nx.env\" \"-p\" \"nxc118\" \"up\" \"-d\" \"--no-deps\" \"app\"]\n"}
+        {"o":1054,"t":"2026-11-14T03:11:20.166934379Z","s":"out","d":" Container nxc118-app-1 Recreate \n"}
+        {"o":1088,"t":"2026-11-14T03:11:20.317483857Z","s":"out","d":" Container nxc118-app-1 Recreated \n"}
+        {"o":1123,"t":"2026-11-14T03:11:20.320077036Z","s":"out","d":" Container nxc118-app-1 Starting \n"}
+        {"o":1157,"t":"2026-11-14T03:11:20.404908339Z","s":"out","d":" Container nxc118-app-1 Started \n"}
+        {"o":1190,"t":"2026-11-14T03:11:20.412228414Z","s":"out","d":"Compose created container nxc118-app-1 (3de578d3cb83); waiting up to 1m0s for it to be running, and healthy if it has a health check\n"}
+        {"o":1323,"t":"2026-11-14T03:11:22.427746772Z","s":"out","d":"updated service app of Compose project nxc118 to sha256:13e3e24fd10a46be04c3adc46d7c341070510f98422cd0305496998cee8cd0fe\n"}
+--- PASS: TestDockerComposeUpdateChangesOneService (6.26s)
+=== RUN   TestDockerComposeUpdateWhenCurrent
+    docker_compose_test.go:371: project nxce23 in "/srv/nx-compose/tce23": app labels {"com.docker.compose.config-hash":"d247b42c10fb420fe6460b64e70c59357fc8fe95fe28cbb48fec8592b70e4836","com.docker.compose.container-number":"1","com.docker.compose.depends_on":"","com.docker.compose.image":"sha256:c0cb935792cf3b9114fe6a91b0cbf309113028533a90449fce120c5a087e4c31","com.docker.compose.oneoff":"False","com.docker.compose.project":"nxce23","com.docker.compose.project.config_files":"/srv/nx-compose/tce23/compose.yaml","com.docker.compose.project.environment_file":"/srv/nx-compose/tce23/nx.env","com.docker.compose.project.working_dir":"/srv/nx-compose/tce23","com.docker.compose.service":"app","com.docker.compose.version":"5.6.1"}
+    docker_compose_test.go:378: update 01a1d809-d7ef-73d7-8851-d4844416bb77: Succeeded in 517ms, result {"changed":false,"containerId":"5cb9c11216624e207552a2f88f68ff57d52e601ec200961b83deca6c3caa5941","previousContainerId":"5cb9c11216624e207552a2f88f68ff57d52e601ec200961b83deca6c3caa5941","previousDigest":"sha256:c0cb935792cf3b9114fe6a91b0cbf309113028533a90449fce120c5a087e4c31","newDigest":"sha256:c0cb935792cf3b9114fe6a91b0cbf309113028533a90449fce120c5a087e4c31","rolledBack":false}
+    docker_compose_test.go:392: operation output:
+        {"o":0,"t":"2026-11-14T03:11:26.236142092Z","s":"out","d":"checking that the registry 127.0.0.1:5000 serves the running image of 127.0.0.1:5000/nx/nxce23-app\n"}
+        {"o":99,"t":"2026-11-14T03:11:26.332142654Z","s":"out","d":"pulling the image of service app of Compose project nxce23 (127.0.0.1:5000/nx/nxce23-app:moving)\n"}
+        {"o":196,"t":"2026-11-14T03:11:26.332183821Z","s":"out","d":"running docker compose pull app: [\"/usr/bin/docker\" \"compose\" \"--project-directory\" \"/srv/nx-compose/tce23\" \"-f\" \"/srv/nx-compose/tce23/compose.yaml\" \"--env-file\" \"/srv/nx-compose/tce23/nx.env\" \"-p\" \"nxce23\" \"pull\" \"app\"]\n"}
+        {"o":418,"t":"2026-11-14T03:11:26.403226686Z","s":"out","d":" Image 127.0.0.1:5000/nx/nxce23-app:moving Pulling \n"}
+        {"o":470,"t":"2026-11-14T03:11:26.445493337Z","s":"out","d":" Image 127.0.0.1:5000/nx/nxce23-app:moving Pulled \n"}
+        {"o":521,"t":"2026-11-14T03:11:26.45988982Z","s":"out","d":"container nxce23-app-1 already runs the newest image 127.0.0.1:5000/nx/nxce23-app:moving (sha256:c0cb935792cf3b9114fe6a91b0cbf309113028533a90449fce120c5a087e4c31); nothing to do\n"}
+--- PASS: TestDockerComposeUpdateWhenCurrent (4.84s)
+=== RUN   TestDockerComposeHealthFailureNoRollback
+    docker_compose_test.go:399: project nxcerr43 in "/srv/nx-compose/tcerr43": app labels {"com.docker.compose.config-hash":"0a3e1f7c6e389849ecb90cfdeb25d51b734cd28b846fc6be0ba201bfd0b5f7dc","com.docker.compose.container-number":"1","com.docker.compose.depends_on":"","com.docker.compose.image":"sha256:35a1efa130d5dec5aa23019d911fa0b384c15da616b50b49f067746c1b9fa8cc","com.docker.compose.oneoff":"False","com.docker.compose.project":"nxcerr43","com.docker.compose.project.config_files":"/srv/nx-compose/tcerr43/compose.yaml","com.docker.compose.project.environment_file":"/srv/nx-compose/tcerr43/nx.env","com.docker.compose.project.working_dir":"/srv/nx-compose/tcerr43","com.docker.compose.service":"app","com.docker.compose.version":"5.6.1"}
+    docker_compose_test.go:404: update 01a1d809-f461-747b-973a-4d0f7fc3de87: Failed update-health-failed: the new container was not running and healthy within 8s (last seen: health unhealthy); a Compose update is not rolled back: the new container is left in place map[newDigest:sha256:f503d8256e75f1d12c8c45d618cceda81762651201fcaa2259916e0a8bcb4017 previousDigest:sha256:35a1efa130d5dec5aa23019d911fa0b384c15da616b50b49f067746c1b9fa8cc rolledBack:false]
+    docker_compose_test.go:415: app 09c2bc4ab0234ad666b7eb845839884838bfab3334d12b045dd007ebf754dd25 (was c4f600fdce348898fb5adabfce3a64668007915b6c4748928ef1241fd3004edb) health unhealthy
+--- PASS: TestDockerComposeHealthFailureNoRollback (15.53s)
+=== RUN   TestDockerComposeFilesMissing
+    docker_compose_test.go:466: project nxcerr41a in "/srv/nx-compose/tcerr41a": app labels {"com.docker.compose.config-hash":"dece5ff674fd369fec90243b5f1d4e3da1fafaa6ba5cd9d9ee41ac0fad6988e0","com.docker.compose.container-number":"1","com.docker.compose.depends_on":"","com.docker.compose.image":"sha256:496bdc1101ee1adb5385c6cc001d9e93463255758bc58eb72a08873b505a03ab","com.docker.compose.oneoff":"False","com.docker.compose.project":"nxcerr41a","com.docker.compose.project.config_files":"/srv/nx-compose/tcerr41a/compose.yaml","com.docker.compose.project.environment_file":"/srv/nx-compose/tcerr41a/nx.env","com.docker.compose.project.working_dir":"/srv/nx-compose/tcerr41a","com.docker.compose.service":"app","com.docker.compose.version":"5.6.1"}
+    docker_compose_test.go:467: project nxcerr41b in "/srv/nx-compose/tcerr41b": app labels {"com.docker.compose.config-hash":"138b70cacceff245eeb176ed792c541a6091284b986bd0182d3e29bb40df8529","com.docker.compose.container-number":"1","com.docker.compose.depends_on":"","com.docker.compose.image":"sha256:25770b1045226e716b9696c832db2a9980c721c9441021ca54ec91f6433ed257","com.docker.compose.oneoff":"False","com.docker.compose.project":"nxcerr41b","com.docker.compose.project.config_files":"/srv/nx-compose/tcerr41b/compose.yaml","com.docker.compose.project.environment_file":"/srv/nx-compose/tcerr41b/nx.env","com.docker.compose.project.working_dir":"/srv/nx-compose/tcerr41b","com.docker.compose.service":"app","com.docker.compose.version":"5.6.1"}
+    docker_compose_test.go:494: nxcerr41a-app-1: 422 {"type":"urn:nexus:problem:compose-files-missing","title":"Compose files missing","status":422,"detail":"Compose project \"nxcerr41a\"'s working directory /srv/nx-compose/tcerr41a no longer exists; nothing was changed. Nexus updates a Compose service with the project directory and files its containers record; restore them, or update the project with docker compose by hand","path":"/srv/nx-compose/tcerr41a"}
+    docker_compose_test.go:494: nxcerr41b-app-1: 422 {"type":"urn:nexus:problem:compose-files-missing","title":"Compose files missing","status":422,"detail":"Compose project \"nxcerr41b\"'s configuration file /srv/nx-compose/tcerr41b/compose.yaml no longer exists; nothing was changed. Nexus updates a Compose service with the project directory and files its containers record; restore them, or update the project with docker compose by hand","path":"/srv/nx-compose/tcerr41b/compose.yaml"}
+    docker_compose_test.go:494: tcerr41-nolabels: 422 {"type":"urn:nexus:problem:compose-files-missing","title":"Compose files missing","status":422,"detail":"the container's labels do not record Compose project \"nxcerr41c\"'s configuration files (com.docker.compose.project.config_files); nothing was changed. Nexus updates a Compose service with the project directory and files its containers record; restore them, or update the project with docker compose by hand"}
+--- PASS: TestDockerComposeFilesMissing (11.05s)
+=== RUN   TestDockerComposePluginMissing
+    docker_compose_test.go:508: project nxcerr42 in "/srv/nx-compose/tcerr42": app labels {"com.docker.compose.config-hash":"4e3de1ff85c6c1a4027f484055b934eb7fa5304026128a4b0d082abc86179c6d","com.docker.compose.container-number":"1","com.docker.compose.depends_on":"","com.docker.compose.image":"sha256:e4f946111fd04fd1df99645d8c293d103dc6406a1c397c1a90e5d245ad10d8e2","com.docker.compose.oneoff":"False","com.docker.compose.project":"nxcerr42","com.docker.compose.project.config_files":"/srv/nx-compose/tcerr42/compose.yaml","com.docker.compose.project.environment_file":"/srv/nx-compose/tcerr42/nx.env","com.docker.compose.project.working_dir":"/srv/nx-compose/tcerr42","com.docker.compose.service":"app","com.docker.compose.version":"5.6.1"}
+    docker_compose_test.go:537: moved [/usr/libexec/docker/cli-plugins/docker-compose]
+    docker_compose_test.go:542: compose update: 503 {"type":"urn:nexus:problem:compose-plugin-missing","title":"Compose plugin missing","status":503,"detail":"the container is managed by Docker Compose, which Nexus updates through the Compose plugin, and the Docker Compose plugin (docker-compose) is not installed in any of /etc/nexus/dockercfg-tcerr42/cli-plugins, /usr/local/lib/docker/cli-plugins, /usr/local/libexec/docker/cli-plugins, /usr/lib/docker/cli-plugins, /usr/libexec/docker/cli-plugins. Install it (the docker-compose-plugin or docker-compose-v2 package); every other docker function is unaffected","provider":"docker"}
+    docker_compose_test.go:544: update 01a1d80a-8139-70b0-9419-68e906ef7cd1: Succeeded in 4.677s, result {"changed":true,"containerId":"a32cb1e0b3cab3dc3f6b3280da13e2a7ab921694498ba7a6fddde5c214ba60ee","previousContainerId":"f37ba76cc9258729bd7dc6d83d08fdd96db39541ee9bd659e14dcc62147516a3","previousDigest":"sha256:c645379c36dcb3f8ba727f17510646c97e33a71960c554e1226454cc6a5c539e","newDigest":"sha256:ef24148c43579191f93aafd812b58fc4fbedd7cf819162633b578f5768888e17","rolledBack":false}
+    docker_compose_test.go:554: restart nxcerr42-app-1: Succeeded in 951ms, result {"changed":true,"containerId":"c992550f170b54ca87624e36dbb06b9b4681979376dcf0ff7b1853f2d1ffb84e"}
+    docker_compose_test.go:566: docker capability: enabled map[apiVersion:1.56 composePlugin:map[available:false reason:the Docker Compose plugin (docker-compose) is not installed in any of /etc/nexus/dockercfg-tcerr42/cli-plugins, /usr/local/lib/docker/cli-plugins, /usr/local/libexec/docker/cli-plugins, /usr/lib/docker/cli-plugins, /usr/libexec/docker/cli-plugins] daemonApiVersion:1.56 socket:/run/docker.sock]
+--- PASS: TestDockerComposePluginMissing (22.77s)
+=== RUN   TestDockerComposeConflicts
+    docker_compose_test.go:582: project nxcerr44 in "/srv/nx-compose/tcerr44": app labels {"com.docker.compose.config-hash":"65a13c6637b31fa010199c9f1dd5feae85c8c7d8e4e207b8715afadd1218e7f7","com.docker.compose.container-number":"1","com.docker.compose.depends_on":"","com.docker.compose.image":"sha256:8e2486096dfff1d0d6250929bbdcd94a4075243142140a1b69cc35ebda1649ba","com.docker.compose.oneoff":"False","com.docker.compose.project":"nxcerr44","com.docker.compose.project.config_files":"/srv/nx-compose/tcerr44/compose.yaml","com.docker.compose.project.environment_file":"/srv/nx-compose/tcerr44/nx.env","com.docker.compose.project.working_dir":"/srv/nx-compose/tcerr44","com.docker.compose.service":"app","com.docker.compose.version":"5.6.1"}
+    docker_compose_test.go:602: update nxcerr44-other-1: 409 {"type":"urn:nexus:problem:conflict","title":"Conflict","status":409,"detail":"another operation holds this operation's lane","blockingOperationId":"01a1d80a-cb84-7093-a9ed-e13ce400e72c"}
+    docker_compose_test.go:602: update nxcerr44-app-1: 409 {"type":"urn:nexus:problem:conflict","title":"Conflict","status":409,"detail":"another operation holds this operation's lane","blockingOperationId":"01a1d80a-cb84-7093-a9ed-e13ce400e72c"}
+    docker_compose_test.go:602: stop nxcerr44-app-1: 409 {"type":"urn:nexus:problem:conflict","title":"Conflict","status":409,"detail":"another operation holds this operation's lane","blockingOperationId":"01a1d80a-cb84-7093-a9ed-e13ce400e72c"}
+    docker_compose_test.go:602: stop nxcerr44-other-1: 409 {"type":"urn:nexus:problem:conflict","title":"Conflict","status":409,"detail":"another operation holds this operation's lane","blockingOperationId":"01a1d80a-cb84-7093-a9ed-e13ce400e72c"}
+    docker_compose_test.go:607: stop tcerr44-solo: Succeeded in 376ms, result {"changed":true,"containerId":"a7ee8cc618c8d1c48d8482c1fc756561e01d05c367fee60491d0a65b0afcd979"}
+    docker_compose_test.go:612: update 01a1d80a-cb84-7093-a9ed-e13ce400e72c: Succeeded in 5.176s, result {"changed":true,"containerId":"75542d3ece052708fb55b4a0853e0fc711a8900778fbf8ff071b1864c2a0890b","previousContainerId":"655cf4d222108648739c02dcd44b1a121c3c2d2086a7256c618b6f8235ec2540","previousDigest":"sha256:8e2486096dfff1d0d6250929bbdcd94a4075243142140a1b69cc35ebda1649ba","newDigest":"sha256:648d3712e23a46ce8dfc01ed8d6085ff84d012a4da53bc9b198079d948ab16cb","rolledBack":false}
+--- PASS: TestDockerComposeConflicts (19.12s)
+=== RUN   TestDockerComposeSurvivesNexusdRestart
+    docker_compose_test.go:622: project nxc119 in "/srv/nx-compose/tc119": app labels {"com.docker.compose.config-hash":"a16abbe38ec28d11e4bb819cf94777093ce04a5a78cae57fc7c02fb1f94dd9db","com.docker.compose.container-number":"1","com.docker.compose.depends_on":"","com.docker.compose.image":"sha256:7a2e775c1639aa0922b2179b602a0b6a68b994235bbe12ac6212bbfd1d29aa30","com.docker.compose.oneoff":"False","com.docker.compose.project":"nxc119","com.docker.compose.project.config_files":"/srv/nx-compose/tc119/compose.yaml","com.docker.compose.project.environment_file":"/srv/nx-compose/tc119/nx.env","com.docker.compose.project.working_dir":"/srv/nx-compose/tc119","com.docker.compose.service":"app","com.docker.compose.version":"5.6.1"}
+    docker_compose_test.go:674: step 1: restart, then release
+    docker_compose_test.go:658: terminal Succeeded 2.974s after the restart; unit MainPID was 14225
+    docker_compose_test.go:662: update 01a1d80b-0b22-7066-9f24-97fe3202826b: Succeeded in 3.288s, result {"changed":true,"containerId":"6ce013f50bca6de6310f382f00d86681fd0fa7f2c8f142f75d6a4f6a73dc2d7e","previousContainerId":"dee784d1a8703f0ea506c94e0e37b53bfd5bde10584b1b87281f72a7cf3d1f66","previousDigest":"sha256:7a2e775c1639aa0922b2179b602a0b6a68b994235bbe12ac6212bbfd1d29aa30","newDigest":"sha256:4f76bc519f90ec915da704433e2ed78b6db8d565c6a7a9bd7794153a7fedba9c","rolledBack":false}
+    docker_compose_test.go:676: step 2: release while nexusd is down, restart once result.json exists
+    docker_compose_test.go:658: terminal Succeeded 2ms after the restart; unit MainPID was 14761
+    docker_compose_test.go:662: update 01a1d80b-1a70-747a-b624-c970df41214b: Succeeded in 2.729s, result {"changed":true,"containerId":"d70c6d8b312c18bca2c6ef56981d655fe9c870932ec190237a83b7d7f25ac9e0","previousContainerId":"6ce013f50bca6de6310f382f00d86681fd0fa7f2c8f142f75d6a4f6a73dc2d7e","previousDigest":"sha256:4f76bc519f90ec915da704433e2ed78b6db8d565c6a7a9bd7794153a7fedba9c","newDigest":"sha256:e4703cd8689ab61f0d82a8151045a65da11016e5a5b722db296c38219e0c5ba1","rolledBack":false}
+--- PASS: TestDockerComposeSurvivesNexusdRestart (15.96s)
+=== RUN   TestDockerUpdateMaxRuntime
+    docker_compose_test.go:686: project nxc216 in "/srv/nx-compose/tc216": app labels {"com.docker.compose.config-hash":"30fd3c561da56520bd785fa194b5a7baf87cdf91e0fd2ddb9faaa4ff400bf5fc","com.docker.compose.container-number":"1","com.docker.compose.depends_on":"","com.docker.compose.image":"sha256:050f7afddf0c9e470c64ef335c62b50f31bbeb93d479a04185521f2e5af31ad3","com.docker.compose.oneoff":"False","com.docker.compose.project":"nxc216","com.docker.compose.project.config_files":"/srv/nx-compose/tc216/compose.yaml","com.docker.compose.project.environment_file":"/srv/nx-compose/tc216/nx.env","com.docker.compose.project.working_dir":"/srv/nx-compose/tc216","com.docker.compose.service":"app","com.docker.compose.version":"5.6.1"}
+    docker_compose_test.go:725: update 01a1d80b-3634-77c3-9603-d0b7648be11a: Failed outcome-unknown: the operation passed its maximum runtime; unit nexus-op-01a1d80b-3634-77c3-9603-d0b7648be11a.service was not stopped and may still be running map[]
+    docker_compose_test.go:735: 01a1d80b-3634-77c3-9603-d0b7648be11a: Failed after 5.018s; nexus-op-01a1d80b-3634-77c3-9603-d0b7648be11a.service active; pulling process 16523 ["/usr/bin/docker" "compose" "--project-directory" "/srv/nx-compose/tc216" "-f" "/srv/nx-compose/tc216/compose.yaml" "--env-file" "/srv/nx-compose/tc216/nx.env" "-p" "nxc216" "pull" "app"] alive
+    docker_compose_test.go:725: update 01a1d80b-36a3-7489-a457-f2a0ba908192: Failed outcome-unknown: the operation passed its maximum runtime; unit nexus-op-01a1d80b-36a3-7489-a457-f2a0ba908192.service was not stopped and may still be running map[]
+    docker_compose_test.go:735: 01a1d80b-36a3-7489-a457-f2a0ba908192: Failed after 5.396s; nexus-op-01a1d80b-36a3-7489-a457-f2a0ba908192.service active; pulling process 16559 ["/usr/local/bin/nexusd" "docker-update" "--dir" "/var/lib/nexus/nexusd-tc216/ops/01a1d80b-36a3-7489-a457-f2a0ba908192"] alive
+--- PASS: TestDockerUpdateMaxRuntime (12.49s)
+=== RUN   TestDockerUpdateNoShellString
+    docker_compose_test.go:750: project nxc226 in "/srv/nx-compose/nx;touch /tmp/nx-pwned;x y": app labels {"com.docker.compose.config-hash":"895b579d5b24fe612f9e582b02c09d19c581cb64257107030a481ee13bd7e2af","com.docker.compose.container-number":"1","com.docker.compose.depends_on":"","com.docker.compose.image":"sha256:4d7011fc2b2d8d0c983caded1dce6b7fa2099ae1c25f1dd5d28fdfab48cb9a6e","com.docker.compose.oneoff":"False","com.docker.compose.project":"nxc226","com.docker.compose.project.config_files":"/srv/nx-compose/nx;touch /tmp/nx-pwned;x y/compose.yaml","com.docker.compose.project.environment_file":"/srv/nx-compose/nx;touch /tmp/nx-pwned;x y/nx.env","com.docker.compose.project.working_dir":"/srv/nx-compose/nx;touch /tmp/nx-pwned;x y","com.docker.compose.service":"app","com.docker.compose.version":"5.6.1"}
+    docker_compose_test.go:789: compose update
+    docker_compose_test.go:772: 01a1d80b-6b18-718b-aaa4-aebfb75b0aa4: supervisor 18262 ["/usr/local/bin/nexusd" "op-supervise" "--dir" "/var/lib/nexus/nexusd-tc226/ops/01a1d80b-6b18-718b-aaa4-aebfb75b0aa4" "--process"] in 0::/nexus-ops/01a1d80b-6b18-718b-aaa4-aebfb75b0aa4 (process backend)
+    docker_compose_test.go:779:   pid 18262 comm nexusd argv ["/usr/local/bin/nexusd" "op-supervise" "--dir" "/var/lib/nexus/nexusd-tc226/ops/01a1d80b-6b18-718b-aaa4-aebfb75b0aa4" "--process"]
+    docker_compose_test.go:779:   pid 18270 comm nexusd argv ["/usr/local/bin/nexusd" "docker-update" "--dir" "/var/lib/nexus/nexusd-tc226/ops/01a1d80b-6b18-718b-aaa4-aebfb75b0aa4"]
+    docker_compose_test.go:779:   pid 18305 comm docker argv ["/usr/bin/docker" "compose" "--project-directory" "/srv/nx-compose/nx;touch /tmp/nx-pwned;x y" "-f" "/srv/nx-compose/nx;touch /tmp/nx-pwned;x y/compose.yaml" "--env-file" "/srv/nx-compose/nx;touch /tmp/nx-pwned;x y/nx.env" "-p" "nxc226" "pull" "app"]
+    docker_compose_test.go:779:   pid 18324 comm docker-compose argv ["/usr/libexec/docker/cli-plugins/docker-compose" "compose" "--project-directory" "/srv/nx-compose/nx;touch /tmp/nx-pwned;x y" "-f" "/srv/nx-compose/nx;touch /tmp/nx-pwned;x y/compose.yaml" "--env-file" "/srv/nx-compose/nx;touch /tmp/nx-pwned;x y/nx.env" "-p" "nxc226" "pull" "app"]
+    docker_compose_test.go:786: update 01a1d80b-6b18-718b-aaa4-aebfb75b0aa4: Succeeded in 3.038s, result {"changed":true,"containerId":"5280f2f51d35e58d2cd5d85a82a090fd42e55d8cf0885295ea4e1205dec61197","previousContainerId":"e73214abdf9646153162ca1d6c1fa25ecd9d7974830f824c97e56b066597984c","previousDigest":"sha256:4d7011fc2b2d8d0c983caded1dce6b7fa2099ae1c25f1dd5d28fdfab48cb9a6e","newDigest":"sha256:afe630190b6c6170aeae949d3d9d59cb97aa443485450eda87e860a439c611c6","rolledBack":false}
+    docker_compose_test.go:791: standalone update
+    docker_compose_test.go:772: 01a1d80b-7739-7249-999d-d2fad9910849: supervisor 18489 ["/usr/local/bin/nexusd" "op-supervise" "--dir" "/var/lib/nexus/nexusd-tc226/ops/01a1d80b-7739-7249-999d-d2fad9910849" "--process"] in 0::/nexus-ops/01a1d80b-7739-7249-999d-d2fad9910849 (process backend)
+    docker_compose_test.go:779:   pid 18489 comm nexusd argv ["/usr/local/bin/nexusd" "op-supervise" "--dir" "/var/lib/nexus/nexusd-tc226/ops/01a1d80b-7739-7249-999d-d2fad9910849" "--process"]
+    docker_compose_test.go:779:   pid 18497 comm nexusd argv ["/usr/local/bin/nexusd" "docker-update" "--dir" "/var/lib/nexus/nexusd-tc226/ops/01a1d80b-7739-7249-999d-d2fad9910849"]
+    docker_compose_test.go:786: update 01a1d80b-7739-7249-999d-d2fad9910849: Succeeded in 3.41s, result {"changed":true,"containerId":"84afa68987235662ea27ec0e611f52276a2c0def0abc65c75fb4c9be12e26e4a","previousContainerId":"0fa7e98148f3112f25622b7a9083ec14eeec6ed669fffd40c354f2dea2773bad","previousDigest":"sha256:f7fcaa5e3a5629c51f7f4c6a9b5afbbef8b3868243a3a014b6a813cd41465d34","newDigest":"sha256:5fd3eede9a201b88cf954a5944960991b9e4724d500f538b488cffa0fd51f085","rolledBack":false}
+--- PASS: TestDockerUpdateNoShellString (11.48s)
+=== RUN   TestDockerComposeUpdateRefusesAnEditedDefinition
+    docker_compose_test.go:803: project nxcr29 in "/srv/nx-compose/tcr29": app labels {"com.docker.compose.config-hash":"507bea2de1025690f49309b335994a80c52659fe003b183d5412500bc91e8123","com.docker.compose.container-number":"1","com.docker.compose.depends_on":"","com.docker.compose.image":"sha256:5e96dcb34b72f93478a95d9aa52b6ba3320daaf2bccd2ff0408d5f15426a3631","com.docker.compose.oneoff":"False","com.docker.compose.project":"nxcr29","com.docker.compose.project.config_files":"/srv/nx-compose/tcr29/compose.yaml","com.docker.compose.project.environment_file":"/srv/nx-compose/tcr29/nx.env","com.docker.compose.project.working_dir":"/srv/nx-compose/tcr29","com.docker.compose.service":"app","com.docker.compose.version":"5.6.1"}
+    docker_compose_test.go:820: update 01a1d80b-96f4-76f6-9490-a6622313d2f0: Failed not-updatable: the Compose definition of service app changed since container nxcr29-app-1 was created (its hash was 507bea2de102, and is now 04cf9925921a), and an update would deploy the current files, evaluated without the environment of the original deploy, along with the new image. Apply the change with docker compose up -d in /srv/nx-compose/tcr29 first; nothing was changed map[]
+--- PASS: TestDockerComposeUpdateRefusesAnEditedDefinition (5.19s)
+=== RUN   TestDockerComposeRefusesAProjectNotOwnedByRoot
+    docker_compose_test.go:833: project nxsec1 in "/srv/nx-compose/tsec1": app labels {"com.docker.compose.config-hash":"e1658c65e3da811c06c7ba4af1eca6f8f21143627ab9a7eee3abddee3bd5d611","com.docker.compose.container-number":"1","com.docker.compose.depends_on":"","com.docker.compose.image":"sha256:b54b131db3ad394381f81ab5d3e7c2f144ec2dbda0e2c3cbba2ae6e077ccfad3","com.docker.compose.oneoff":"False","com.docker.compose.project":"nxsec1","com.docker.compose.project.config_files":"/srv/nx-compose/tsec1/compose.yaml","com.docker.compose.project.environment_file":"/srv/nx-compose/tsec1/nx.env","com.docker.compose.project.working_dir":"/srv/nx-compose/tsec1","com.docker.compose.service":"app","com.docker.compose.version":"5.6.1"}
+--- PASS: TestDockerComposeRefusesAProjectNotOwnedByRoot (3.91s)
+=== RUN   TestDockerInventoryMatchesInspect
+    docker_inventory_test.go:352: docker capability: enabled map[apiVersion:1.56 composePlugin:map[available:true path:/usr/libexec/docker/cli-plugins/docker-compose] daemonApiVersion:1.56 socket:/run/docker.sock] (daemon API 1.56)
+    docker_inventory_test.go:391: tc107-running: {"id":"/providers/docker/containers/tc107-running","type":"containers","name":"tc107-running","host":"harness","properties":{"containerId":"669d2d7976ecba3e486500497652b8309aefbee6aa34cb11dbfbef7a61a31067","imageReference":"busybox:latest","imageDigest":"sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4","state":"running","health":"none","restartPolicy":{"name":"unless-stopped","maximumRetryCount":0},"ports":[],"composeProject":"","composeService":"","update":{"status":"notChecked"}}}
+    docker_inventory_test.go:391: tc107-stopped: {"id":"/providers/docker/containers/tc107-stopped","type":"containers","name":"tc107-stopped","host":"harness","properties":{"containerId":"d6b2f8225d594dd35e4a170e8951a034fc3d7215effbc4b1ad240a0f6b4e1265","imageReference":"busybox:latest","imageDigest":"sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4","state":"exited","health":"none","restartPolicy":{"name":"on-failure","maximumRetryCount":3},"ports":[],"composeProject":"","composeService":"","update":{"status":"notChecked"}}}
+    docker_inventory_test.go:391: tc107-health: {"id":"/providers/docker/containers/tc107-health","type":"containers","name":"tc107-health","host":"harness","properties":{"containerId":"5cb5b426bb30c24701302d89aa479d964c9cbaff6fa6c2313b819fe327efcc9d","imageReference":"busybox:latest","imageDigest":"sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4","state":"running","health":"healthy","restartPolicy":{"name":"no","maximumRetryCount":0},"ports":[{"containerPort":80,"protocol":"tcp","hostIp":"0.0.0.0","hostPort":18080},{"containerPort":80,"protocol":"tcp","hostIp":"::","hostPort":18080},{"containerPort":443,"protocol":"udp","hostIp":"127.0.0.1","hostPort":18443},{"containerPort":9000,"protocol":"tcp"}],"composeProject":"","composeService":"","update":{"status":"notChecked"}}}
+    docker_inventory_test.go:391: tc107proj-app-1: {"id":"/providers/docker/containers/tc107proj-app-1","type":"containers","name":"tc107proj-app-1","host":"harness","properties":{"containerId":"dec7ed1d1fba89b6864f063eceab66ac869ba5df50e73422a233ddd58f91e258","imageReference":"busybox:latest","imageDigest":"sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4","state":"running","health":"none","restartPolicy":{"name":"no","maximumRetryCount":0},"ports":[],"composeProject":"tc107proj","composeService":"app","update":{"status":"notChecked"}}}
+--- PASS: TestDockerInventoryMatchesInspect (13.35s)
+=== RUN   TestDockerContainerLogs
+    docker_inventory_test.go:529: follow: 12 frames, ended 1.129s after the stop
+--- PASS: TestDockerContainerLogs (4.08s)
+=== RUN   TestDockerNameValidationAndNotFound
+--- PASS: TestDockerNameValidationAndNotFound (0.73s)
+=== RUN   TestDockerOutageIsIsolatedAndSelfHealing
+    docker_inventory_test.go:655: container list with Docker stopped: 503 dependency-unavailable map[provider:docker]
+    docker_inventory_test.go:667: docker capability with Docker stopped: unavailable: the Docker Engine is not reachable at /run/docker.sock: connect: no such file or directory
+    docker_inventory_test.go:703: recovered with the same nexusd PID 23421
+--- PASS: TestDockerOutageIsIsolatedAndSelfHealing (17.82s)
+=== RUN   TestDockerLifecycleChangesState
+    docker_lifecycle_test.go:176: stop tc109: Succeeded in 264ms, result {"changed":true,"containerId":"af843b4df9b8be92d93821b0efeef80c4ef62d36638b1074ce207535acedabfe"}
+    docker_lifecycle_test.go:178: after stop: {Status:exited Running:false StartedAt:2026-11-14 03:14:01.963297575 +0000 UTC FinishedAt:2026-11-14 03:14:03.220176995 +0000 UTC}
+    docker_lifecycle_test.go:187: start tc109: Succeeded in 77ms, result {"changed":true,"containerId":"af843b4df9b8be92d93821b0efeef80c4ef62d36638b1074ce207535acedabfe"}
+    docker_lifecycle_test.go:189: after start: {Status:running Running:true StartedAt:2026-11-14 03:14:03.36461085 +0000 UTC FinishedAt:2026-11-14 03:14:03.220176995 +0000 UTC}
+    docker_lifecycle_test.go:194: restart tc109: Succeeded in 291ms, result {"changed":true,"containerId":"af843b4df9b8be92d93821b0efeef80c4ef62d36638b1074ce207535acedabfe"}
+    docker_lifecycle_test.go:196: after restart: {Status:running Running:true StartedAt:2026-11-14 03:14:03.700054435 +0000 UTC FinishedAt:2026-11-14 03:14:03.63410639 +0000 UTC}
+    docker_lifecycle_test.go:204: stop tc109-stubborn: Succeeded in 4.094s, result {"changed":true,"containerId":"715bd262456b7bcf75da0ce70a27b294ccb9d4aa3cbb371ef60f40b7a4992a7a"}
+    docker_lifecycle_test.go:207: stubborn stop: 4.094159453s, state {Status:exited Running:false StartedAt:2026-11-14 03:14:02.520656987 +0000 UTC FinishedAt:2026-11-14 03:14:07.830700301 +0000 UTC}
+    docker_lifecycle_test.go:211: start tc109-stubborn: Succeeded in 65ms, result {"changed":true,"containerId":"715bd262456b7bcf75da0ce70a27b294ccb9d4aa3cbb371ef60f40b7a4992a7a"}
+    docker_lifecycle_test.go:213: restart tc109-stubborn: Succeeded in 4.21s, result {"changed":true,"containerId":"715bd262456b7bcf75da0ce70a27b294ccb9d4aa3cbb371ef60f40b7a4992a7a"}
+    docker_lifecycle_test.go:216: stubborn restart: 4.209944172s, state {Status:running Running:true StartedAt:2026-11-14 03:14:12.19840747 +0000 UTC FinishedAt:2026-11-14 03:14:12.099923112 +0000 UTC}
+--- PASS: TestDockerLifecycleChangesState (11.53s)
+=== RUN   TestDockerLifecycleIdempotentTargetStates
+    docker_lifecycle_test.go:233: before: up {Status:running Running:true StartedAt:2026-11-14 03:14:13.415208455 +0000 UTC FinishedAt:0001-01-01 00:00:00 +0000 UTC}, down {Status:exited Running:false StartedAt:2026-11-14 03:14:13.51244464 +0000 UTC FinishedAt:2026-11-14 03:14:13.769610165 +0000 UTC}
+    docker_lifecycle_test.go:237: start tc-e19-up: Succeeded in 5ms, result {"changed":false,"containerId":"77d431a4c5da4bdca8bf46b7a7e77efb9cb50d2ff2191de30bd089e794a37f81"}
+    docker_lifecycle_test.go:240: stop tc-e19-down: Succeeded in 4ms, result {"changed":false,"containerId":"508b041e79d8fc8dc67286ac399ba6fa8b4b9b957126d252e90a2e60776dee6a"}
+    docker_lifecycle_test.go:244: after: up {Status:running Running:true StartedAt:2026-11-14 03:14:13.415208455 +0000 UTC FinishedAt:0001-01-01 00:00:00 +0000 UTC}, down {Status:exited Running:false StartedAt:2026-11-14 03:14:13.51244464 +0000 UTC FinishedAt:2026-11-14 03:14:13.769610165 +0000 UTC}
+--- PASS: TestDockerLifecycleIdempotentTargetStates (1.94s)
+=== RUN   TestDockerRemovePreservesNamedVolumes
+    docker_lifecycle_test.go:295: control: docker rm -v kept tc110-ctl-vol and deleted anonymous 1e7103c7ff675bad5e9fee77ccf61f97a5f6475dfe87d920f2a375dabd9a95c5
+    docker_lifecycle_test.go:309: remove tc110-a: Succeeded in 9ms, result {"changed":true,"containerId":"77c98b8beb112df1589fcf894328deaa7aa7b9051f0352885b09ff908ff37507","removedVolumes":[]}
+    docker_lifecycle_test.go:315: remove tc110-b: Succeeded in 13ms, result {"changed":true,"containerId":"258cd0827b4529ba10ce219ed5d5f50974c3f7778b028aff181d19470ea93568","removedVolumes":["979d4087f7ac56a5031a3edd15b70be28ff9ede3238c5df66f6082d554692f45","tc110-b-vol"]}
+    docker_lifecycle_test.go:321: remove tc110-d: Succeeded in 8ms, result {"changed":true,"warnings":["volume tc110-shared is still in use by another container and was kept"],"containerId":"05e447c24bf07c457a9a1ed47b034a48a5aa71a1f235536c5a1e691a752e9b24","removedVolumes":[]}
+    docker_lifecycle_test.go:330: remove tc110-c: Succeeded in 11ms, result {"changed":true,"warnings":["the container belongs to Docker Compose project \"tc110proj\": the next Compose deploy of the project recreates it"],"containerId":"aa36bb8126061aedea9812ed2c49c951f8225b6c5e16f921d91d40dff0347fb7","removedVolumes":[]}
+--- PASS: TestDockerRemovePreservesNamedVolumes (2.04s)
+=== RUN   TestDockerLifecycleConflictsAndBadInput
+    docker_lifecycle_test.go:362: restart during the stop: 409 conflict map[blockingOperationId:01a1d80c-761f-7149-bf3c-e87e00d0fbbb]
+    docker_lifecycle_test.go:367: stop tc-err33-other: Succeeded in 267ms, result {"changed":true,"containerId":"02b371112fd4e11a7161137beaa44db590e6853fc82339893bf4dca28f631dd6"}
+    docker_lifecycle_test.go:374: other container stopped by 01a1d80c-7623-7325-ba11-04e2bcf463c2 while 01a1d80c-761f-7149-bf3c-e87e00d0fbbb still ran
+--- PASS: TestDockerLifecycleConflictsAndBadInput (16.58s)
+=== RUN   TestDockerLifecycleComposeProjectLane
+--- PASS: TestDockerLifecycleComposeProjectLane (11.79s)
+=== RUN   TestDockerUpdateStandaloneAcceptance
+    docker_update_test.go:523: 01a1d80c-eac7-75bc-b2e3-aad8bd26af76: supervisor 28360 ["/usr/local/bin/nexusd" "op-supervise" "--dir" "/var/lib/nexus/nexusd-tc116/ops/01a1d80c-eac7-75bc-b2e3-aad8bd26af76" "--process"] in 0::/nexus-ops/01a1d80c-eac7-75bc-b2e3-aad8bd26af76 (process backend)
+    docker_update_test.go:524: helper pid 28368 argv ["/usr/local/bin/nexusd" "docker-update" "--dir" "/var/lib/nexus/nexusd-tc116/ops/01a1d80c-eac7-75bc-b2e3-aad8bd26af76"] in 0::/nexus-ops/01a1d80c-eac7-75bc-b2e3-aad8bd26af76/work
+    docker_update_test.go:525: update 01a1d80c-eac7-75bc-b2e3-aad8bd26af76: Succeeded in 3.012s, result {"changed":true,"containerId":"2b85b2c70c5657a96f13b0528d1c2c516d1c975b923752810f78bf4d3840a7a1","previousContainerId":"fbc9c5f64503d24e4d389c96d6223025e9e5bc34adda3f67f1cef4df9213ec95","previousDigest":"sha256:3584bf5d3030fe156e80fdb500ff3954556015c12fb660a5b9c043fcdf2d7686","newDigest":"sha256:b8152d80c5898a1466df149cefaefbff80c2def5e8518da38324bb8a59444033","rolledBack":false}
+    docker_update_test.go:560: A-35 observation: HostConfig.Mounts before [], after [volume 3a0d59107b3f345bb1dcbb1a14fc746c5690d4938ce28240647ddf595bbbe0c3 /anon] (anonymous volume remounted by name)
+    docker_update_test.go:568: A-35 observation: mount /anon Mode ""
+    docker_update_test.go:568: A-35 observation: mount /anon Mode "z"
+    docker_update_test.go:597: Config.Hostname: "tc116-host" -> "tc116-host"
+    docker_update_test.go:597: NetworkSettings.Networks.nx-tc116-a.IPAMConfig.IPv4Address: "172.30.116.10" -> "172.30.116.10"
+    docker_update_test.go:597: NetworkSettings.Networks.nx-tc116-a.IPAddress: "172.30.116.10" -> "172.30.116.10"
+--- PASS: TestDockerUpdateStandaloneAcceptance (5.39s)
+=== RUN   TestDockerUpdateAlreadyCurrent
+    docker_update_test.go:636: update 01a1d80c-fb3b-75dd-a716-31ea97f19db1: Succeeded in 506ms, result {"changed":false,"containerId":"52794eddf3a85165e4e1004c0c9f738c3738cc62ce61f8732ae560a2baa12343","previousContainerId":"52794eddf3a85165e4e1004c0c9f738c3738cc62ce61f8732ae560a2baa12343","previousDigest":"sha256:22635ffac525db503054c90f82b19bc936db4f236b07debce73eeb2d8a4bb3de","newDigest":"sha256:22635ffac525db503054c90f82b19bc936db4f236b07debce73eeb2d8a4bb3de","rolledBack":false}
+--- PASS: TestDockerUpdateAlreadyCurrent (2.48s)
+=== RUN   TestDockerUpdateHealthGate
+    docker_update_test.go:661: update 01a1d80d-0966-7455-8ab5-fc7ad176a429: Succeeded in 2.514s, result {"changed":true,"containerId":"bb491e22928e06ad83dd853de73faad559988ed785905f385c237e9b7b60f819","previousContainerId":"a57242e17636b9abecb02b8e6bc607c1ebdc46b28d81f054c48cfa5f3efa75e3","previousDigest":"sha256:3c2d54ad2ef0ffd530f0a1d805ee3bf7c0e68875c0639d34cb7f03fe17cb0b10","newDigest":"sha256:84575b18a69094d22f5c6ce0e559756e066d6a6b6862f0f1f9997007db6e3605","rolledBack":false}
+    docker_update_test.go:670: helper input: {"operationId":"01a1d80d-0966-7455-8ab5-fc7ad176a429","mode":"standalone","name":"tce21-plain","containerId":"a57242e17636b9abecb02b8e6bc607c1ebdc46b28d81f054c48cfa5f3efa75e3","oldName":"tce21-plain-nexus-old-fc7ad176a429","healthTimeout":60000000000,"callTimeout":30000000000,"pullTimeout":1800000000000,"socket":"/run/docker.sock","configDir":"/etc/nexus/dockercfg-tce21"}
+    docker_update_test.go:673: update 01a1d80d-13a2-77a4-a7b2-35bf0563ad35: Succeeded in 4.897s, result {"changed":true,"containerId":"76cfba2572c383d8d43d6ed791977fc40a7b4d15d6a175d86d1f1ae2d2642246","previousContainerId":"407f6f3fa0d8b473c74d95547e5637392182000cc3a0d453b2ce6f6acb7153a2","previousDigest":"sha256:9dd3980fa58b5116b75ee45ea3557df0c2bd09b00ced93dc008c7507f5944e22","newDigest":"sha256:9b99c7289695ee59eb598673abcd7c378214f859fdfa22b128fa9062f986310a","rolledBack":false}
+    docker_update_test.go:698: first healthy probe 2026-11-14 03:15:02.579469502 +0000 UTC, operation ended 2026-11-14 03:15:02.990558416 +0000 UTC (411ms later)
+--- PASS: TestDockerUpdateHealthGate (9.81s)
+=== RUN   TestDockerUpdateGeneratedHostnameAndDependents
+    docker_update_test.go:718: update 01a1d80d-2cf9-749f-8118-7b6266a5d916: Succeeded in 2.508s, result {"changed":true,"warnings":["container tce22-dep uses the network namespace of tce22-web (container:ea7c0438eed5a0707c535bc5ce9162f89ca91a47bf41557b5f99c3b7dd1549b5): it keeps the previous container's namespace until it is restarted"],"containerId":"b8a20dfe062752793885263aea9a783214e1b5cfdc3053a01471c07ebe51ea72","previousContainerId":"ea7c0438eed5a0707c535bc5ce9162f89ca91a47bf41557b5f99c3b7dd1549b5","previousDigest":"sha256:dfa9cb60b266c7d81d17c651832f339df4f485d5374a51b2f3da72ca49409e54","newDigest":"sha256:16f14fa65769c2a4ca41344430f57173e9a01b22dfe9c8e9d952043142dd62a6","rolledBack":false}
+    docker_update_test.go:726: old containers left: []
+--- PASS: TestDockerUpdateGeneratedHostnameAndDependents (4.05s)
+=== RUN   TestDockerUpdateRefusesNotUpdatable
+    docker_update_test.go:769: tcerr36-built: 422 {"type":"urn:nexus:problem:not-updatable","title":"Not updatable","status":422,"detail":"the container cannot be updated: the registry 127.0.0.1:5000 has no image for 127.0.0.1:5000/nx/tcerr36-local:dev (Error response from daemon: manifest unknown: manifest unknown): it was built or retagged on this host and never pushed. Update it with the script that builds it (the scripts provider), then recreate the container","hint":"Update it with the script that builds it (the scripts provider), then recreate the container","reason":"locallyBuilt"}
+    docker_update_test.go:769: tcerr36-pinned: 422 {"type":"urn:nexus:problem:not-updatable","title":"Not updatable","status":422,"detail":"the container cannot be updated: the container was created from a digest-pinned reference (127.0.0.1:5000/nx/tcerr36@sha256:50b77b5dc4f4b9c49992ea69e8dab7ecbae734c69eced7bb2babcc3f2cd944c0), whose image never changes","reason":"digestPinned"}
+    docker_update_test.go:769: tcerr36-rm: 422 {"type":"urn:nexus:problem:not-updatable","title":"Not updatable","status":422,"detail":"the container cannot be updated: the container is removed when it stops (--rm), so it cannot be replaced by an update","reason":"autoRemove"}
+--- PASS: TestDockerUpdateRefusesNotUpdatable (3.38s)
+=== RUN   TestDockerUpdateHealthFailureRollsBack
+    docker_update_test.go:803: update 01a1d80d-49a3-74c7-8e15-8f5201e5cb45: Failed update-health-failed: the new container was not running and healthy within 8s (last seen: health unhealthy); the previous container was restored map[newDigest:sha256:69a2203be3aa4b07fdfe2b307ad9cab0a87f14498fab72b8836d0a6c72206067 previousDigest:sha256:6d983bd95239dfccff5fd3a28906012795e482bbbec2dbc5f8242dc370d18f96 rolledBack:true]
+    docker_update_test.go:803: update 01a1d80d-7412-742d-b2ec-2154c1f87f45: Failed update-health-failed: the new container exited with code 0 and was restarted; the previous container was restored map[newDigest:sha256:9e831933ac5bdcfb12712caab9aa9abd0aa777b9212a20f5f87d8ef5bb741f28 previousDigest:sha256:502d6a9a9a0cada47cabae0437fa6ddcecf0fbd11c27e5f205eba3f21e48bfee rolledBack:true]
+--- PASS: TestDockerUpdateHealthFailureRollsBack (14.51s)
+=== RUN   TestDockerUpdatePullFailureChangesNothing
+    docker_update_test.go:892: update 01a1d80d-8898-773e-8bdd-fb91bed7cb7b: Failed dependency-unavailable: pulling 127.0.0.1:5097/nx/tcerr38b:moving failed: error from registry: injected blob failure; nothing was changed map[newDigest:sha256:8dacb47e593cb78978b1b67c98e9a752b3af4bdd04ec971211e9b0dadbdefaf0 previousDigest:sha256:7f2bbaaacee13cdd580ae6eef02afed2ee68bf3550439e5c16704a2f7747af05 provider:docker rolledBack:false]
+    docker_update_test.go:902: tcerr38-blobs: output
+        {"o":0,"t":"2026-11-14T03:15:28.048011712Z","s":"out","d":"checking 127.0.0.1:5097/nx/tcerr38b:moving for a newer image\n"}
+        {"o":61,"t":"2026-11-14T03:15:28.055890413Z","s":"out","d":"pulling 127.0.0.1:5097/nx/tcerr38b:moving (sha256:8dacb47e593cb78978b1b67c98e9a752b3af4bdd04ec971211e9b0dadbdefaf0)\n"}
+        {"o":177,"t":"2026-11-14T03:15:28.067706591Z","s":"out","d":"update failed: pulling 127.0.0.1:5097/nx/tcerr38b:moving failed: error from registry: injected blob failure; nothing was changed\n"}
+    docker_update_test.go:892: update 01a1d80d-8f3c-7533-8118-189ce4d74a34: Failed dependency-unavailable: the registry check for 127.0.0.1:5000/nx/tcerr38:moving failed: Error response from daemon: Get "http://127.0.0.1:5000/v2/": dial tcp 127.0.0.1:5000: connect: connection refused; nothing was changed map[previousDigest:sha256:61835d43b1815d21043f5a3db27248c2c4fcce7f208d5e89cc51f8814ef64794 provider:docker rolledBack:false]
+    docker_update_test.go:902: tcerr38-down: output
+        {"o":0,"t":"2026-11-14T03:15:29.744484083Z","s":"out","d":"checking 127.0.0.1:5000/nx/tcerr38:moving for a newer image\n"}
+        {"o":60,"t":"2026-11-14T03:15:29.74506996Z","s":"out","d":"update failed: the registry check for 127.0.0.1:5000/nx/tcerr38:moving failed: Error response from daemon: Get \"http://127.0.0.1:5000/v2/\": dial tcp 127.0.0.1:5000: connect: connection refused; nothing was changed\n"}
+--- PASS: TestDockerUpdatePullFailureChangesNothing (6.57s)
+=== RUN   TestDockerUpdateSurvivesNexusdKill
+=== RUN   TestDockerUpdateSurvivesNexusdKill/tcerr39-rename
+    docker_update_test.go:970: tcerr39-rename: nexusd killed; helper 36361 alive true
+    docker_update_test.go:982: tcerr39-rename: terminal Succeeded after 4.431s
+    docker_update_test.go:989: update 01a1d80d-9c4c-7751-bfed-488b201f36c8: Succeeded in 5.801s, result {"changed":true,"containerId":"84002f15bfad1755f2711c271299a3f456c73a4e79a76b6b3bc78a3581e306bb","previousContainerId":"1263e2154856beba4882e2bd20ca4189239905f4b29b48eea856162d7cb0125c","previousDigest":"sha256:ccb280370f6b4a175a86d3fd1670b21e2413b135656921bd17ccc7ffb7e03522","newDigest":"sha256:68af238bea61c8f8568346c66a67025bc45d3080b74037d021beef2c4093c3bd","rolledBack":false}
+=== RUN   TestDockerUpdateSurvivesNexusdKill/tcerr39-create
+    docker_update_test.go:970: tcerr39-create: nexusd killed; helper 37086 alive true
+    docker_update_test.go:982: tcerr39-create: terminal Succeeded after 4.41s
+    docker_update_test.go:989: update 01a1d80d-b6ac-70c8-85b2-16f8e372734e: Succeeded in 5.595s, result {"changed":true,"containerId":"cc83b4dad3922aacc8f172deb0f475e4f169579371e1f53d2d17a79bc3afdc2b","previousContainerId":"1066f86e08062830d268b650af65b9a6e9a9e8029729297e1518f6c9e376ec62","previousDigest":"sha256:b4551f42d641fcf9e344ccb48065c89880eb0403e20d3855117536b076cd1877","newDigest":"sha256:4fc94c47a0de7d37bd6f6dbf6eaa672a1a81c5012dc5cd05a5d946b1a0c5cec9","rolledBack":false}
+=== RUN   TestDockerUpdateSurvivesNexusdKill/tcerr39-healthy
+    docker_update_test.go:970: tcerr39-healthy: nexusd killed; helper 37800 alive false
+    docker_update_test.go:982: tcerr39-healthy: terminal Succeeded after 2ms
+    docker_update_test.go:989: update 01a1d80d-d001-7662-8c41-530b5cbf588d: Succeeded in 2.947s, result {"changed":true,"containerId":"741940789dcd7e25f4218d445ea0dc76566dbde57e3d29536117e75bed69e988","previousContainerId":"91dfc358394583af2063497d62e1a500584c6926398b33bd7aea641cf047f925","previousDigest":"sha256:3a05bbebb53625cca2dff19b2a7af303810a8489c47771b0727b3c9b9e5998f4","newDigest":"sha256:72fa4631b3f654164aaba0f05138e116d577861d405608378d5af92d09787c7e","rolledBack":false}
+=== RUN   TestDockerUpdateSurvivesNexusdKill/tcerr39-unhealthy
+    docker_update_test.go:970: tcerr39-unhealthy: nexusd killed; helper 38441 alive true
+    docker_update_test.go:982: tcerr39-unhealthy: terminal Failed after 14.92s
+    docker_update_test.go:984: update 01a1d80d-df76-7293-bb23-4ed35e967dc4: Failed update-health-failed: the new container was not running and healthy within 15s (last seen: health unhealthy); the previous container was restored map[newDigest:sha256:8b17eb44b5ae2ebbe67ad8de9eae84b691331108baf987c217722320e6bccec7 previousDigest:sha256:522b0dfb7193a977b9f788bb292cdebd042f7ee41f8759a20bb9af2197892a63 rolledBack:true]
+--- PASS: TestDockerUpdateSurvivesNexusdKill (34.92s)
+    --- PASS: TestDockerUpdateSurvivesNexusdKill/tcerr39-rename (6.80s)
+    --- PASS: TestDockerUpdateSurvivesNexusdKill/tcerr39-create (6.51s)
+    --- PASS: TestDockerUpdateSurvivesNexusdKill/tcerr39-healthy (3.94s)
+    --- PASS: TestDockerUpdateSurvivesNexusdKill/tcerr39-unhealthy (16.82s)
+=== RUN   TestDockerUpdateBlocksLifecycle
+    docker_update_test.go:1026: update 01a1d80e-244e-7637-97bb-2d8a565c4d92: Succeeded in 10.516s, result {"changed":true,"containerId":"82f7ebcea317df54137b4196d26306119df15854320f92268f208fc0f2f8da08","previousContainerId":"66210fa1c76f77071abddf6c0ead7f695a9493963f530cddc1191983d0669411","previousDigest":"sha256:2ae54c440a6c157b8cd99454b19b9c45fce0d6dfc176f19170cfb20b04315970","newDigest":"sha256:35f8a541a8585348adecaaeb0f7799b315344218e17b40eda3a2038153a47680","rolledBack":false}
+--- PASS: TestDockerUpdateBlocksLifecycle (11.88s)
+=== RUN   TestDockerUpdateKilledHelperIsOutcomeUnknown
+=== RUN   TestDockerUpdateKilledHelperIsOutcomeUnknown/tcerr70-helper
+    docker_update_test.go:1065: tcerr70-helper: Failed after 101ms
+    docker_update_test.go:1066: update 01a1d80e-529a-7249-a4c0-7db4f2a8ff35: Failed outcome-unknown: the update helper for container tcerr70-helper was killed by SIGKILL without reporting a result; container tcerr70-helper may be partly replaced. If container tcerr70-helper-nexus-old-7db4f2a8ff35 exists, it is the previous container, stopped and renamed: inspect it and restore it by hand (remove any new tcerr70-helper, rename tcerr70-helper-nexus-old-7db4f2a8ff35 back to tcerr70-helper and start it). Nothing was rolled back automatically map[]
+    docker_update_test.go:1073: tcerr70-helper: result.json absent true, exit.json present true
+=== RUN   TestDockerUpdateKilledHelperIsOutcomeUnknown/tcerr70-unit
+    docker_update_test.go:1065: tcerr70-unit: Failed after 12.577s
+    docker_update_test.go:1066: update 01a1d80e-6beb-71b2-a6dd-87dc1b65ced0: Failed outcome-unknown: unit nexus-op-01a1d80e-6beb-71b2-a6dd-87dc1b65ced0.service ended without reporting an outcome; container tcerr70-unit may be partly replaced. If container tcerr70-unit-nexus-old-87dc1b65ced0 exists, it is the previous container, stopped and renamed: inspect it and restore it by hand (remove any new tcerr70-unit, rename tcerr70-unit-nexus-old-87dc1b65ced0 back to tcerr70-unit and start it). Nothing was rolled back automatically map[]
+    docker_update_test.go:1073: tcerr70-unit: result.json absent true, exit.json present false
+--- PASS: TestDockerUpdateKilledHelperIsOutcomeUnknown (26.75s)
+    --- PASS: TestDockerUpdateKilledHelperIsOutcomeUnknown/tcerr70-helper (6.48s)
+    --- PASS: TestDockerUpdateKilledHelperIsOutcomeUnknown/tcerr70-unit (19.00s)
+=== RUN   TestDockerUpdateClassificationFromRealRegistry
+    docker_updatecheck_test.go:292: result: {"checkedAt":"2026-11-14T03:16:48.030549918Z","items":[{"id":"/providers/docker/containers/nx-registry","type":"containers","name":"nx-registry","host":"harness","properties":{"containerId":"1a568a60dd61af31bd402ae67bc8a756ec7ae0d31ecd2915c5dfd97fc49aaaa2","imageReference":"registry:2","update":{"status":"upToDate","currentDigest":"sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373","latestDigest":"sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373","checkedAt":"2026-11-14T03:16:48.030549918Z"}}},{"id":"/providers/docker/containers/nx-registry-auth","type":"containers","name":"nx-registry-auth","host":"harness","properties":{"containerId":"7d06baa224e60341b83586b5b238f5d2cafc448679f3253999096fd0cde33d4b","imageReference":"registry:2","update":{"status":"upToDate","currentDigest":"sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373","latestDigest":"sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373","checkedAt":"2026-11-14T03:16:48.030549918Z"}}},{"id":"/providers/docker/containers/tc111-current","type":"containers","name":"tc111-current","host":"harness","properties":{"containerId":"2217dc867f10c9e8a79b6f61d1b1754d34628b8a00ea050592fb18054e489995","imageReference":"127.0.0.1:5000/nx/tc111:current","update":{"status":"upToDate","currentDigest":"sha256:bbc6f10aceef1465cf21bb3c0fba6dc99e2a28bb2c542c54a55450b8609caba2","latestDigest":"sha256:bbc6f10aceef1465cf21bb3c0fba6dc99e2a28bb2c542c54a55450b8609caba2","checkedAt":"2026-11-14T03:16:48.030549918Z"}}},{"id":"/providers/docker/containers/tc111-stale","type":"containers","name":"tc111-stale","host":"harness","properties":{"containerId":"72b815e25888a6dc6eed3eab8844c0071f02ac172a377adf98cccf5aab70016e","imageReference":"127.0.0.1:5000/nx/tc111:moving","update":{"status":"updateAvailable","currentDigest":"sha256:bbc6f10aceef1465cf21bb3c0fba6dc99e2a28bb2c542c54a55450b8609caba2","latestDigest":"sha256:60d75d7b38e8d36d55c4bf5b34c11d9ebe51e42e4bc85853fed86dd4684cb5b9","checkedAt":"2026-11-14T03:16:48.030549918Z"}}}]}
+--- PASS: TestDockerUpdateClassificationFromRealRegistry (3.90s)
+=== RUN   TestDockerUpdateNotUpdatableReasons
+    docker_updatecheck_test.go:331: image store [["driver-type","io.containerd.snapshotter.v1"]]; the local build's RepoDigests [127.0.0.1:5000/nx/tc112-local@sha256:5e2fd1884ce0737c777b571da07fc74bfc878d6c3abb3908d6b1d5641b38398d]
+    docker_updatecheck_test.go:342: result: {"checkedAt":"2026-11-14T03:16:53.20863974Z","items":[{"id":"/providers/docker/containers/nx-registry","type":"containers","name":"nx-registry","host":"harness","properties":{"containerId":"1a568a60dd61af31bd402ae67bc8a756ec7ae0d31ecd2915c5dfd97fc49aaaa2","imageReference":"registry:2","update":{"status":"upToDate","currentDigest":"sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373","latestDigest":"sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373","checkedAt":"2026-11-14T03:16:53.20863974Z"}}},{"id":"/providers/docker/containers/nx-registry-auth","type":"containers","name":"nx-registry-auth","host":"harness","properties":{"containerId":"7d06baa224e60341b83586b5b238f5d2cafc448679f3253999096fd0cde33d4b","imageReference":"registry:2","update":{"status":"upToDate","currentDigest":"sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373","latestDigest":"sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373","checkedAt":"2026-11-14T03:16:53.20863974Z"}}},{"id":"/providers/docker/containers/tc112-built","type":"containers","name":"tc112-built","host":"harness","properties":{"containerId":"bea9a07406ca07863b41c61db1f42c9052036121fbbd7424e5fad1f0a011b493","imageReference":"127.0.0.1:5000/nx/tc112-local:dev","update":{"status":"notUpdatable","reason":"locallyBuilt","detail":"the registry 127.0.0.1:5000 has no image for 127.0.0.1:5000/nx/tc112-local:dev (Error response from daemon: manifest unknown: manifest unknown): it was built or retagged on this host and never pushed. Update it with the script that builds it (the scripts provider), then recreate the container","checkedAt":"2026-11-14T03:16:53.20863974Z"}}},{"id":"/providers/docker/containers/tc112-byid","type":"containers","name":"tc112-byid","host":"harness","properties":{"containerId":"0421f58b8c81a492687eb7bdb229c55a93dbd90b1fe04b19c7a3e0cb5e2de8b9","imageReference":"sha256:29a8354eeb3b96f339e19b95ecf0b8a25f1a45e90e43a7787c803a884183d17d","update":{"status":"notUpdatable","reason":"noRegistrySource","detail":"the container was created from an image ID, which names no registry to compare with","checkedAt":"2026-11-14T03:16:53.20863974Z"}}},{"id":"/providers/docker/containers/tc112-hubnamed","type":"containers","name":"tc112-hubnamed","host":"harness","properties":{"containerId":"d4b9590fb21b64c3f325b73cc03c4fdf305ae0c31bf825107012dd37788c12ad","imageReference":"nx-local/tc112:dev","update":{"status":"unknown","reason":"authenticationRequired","detail":"the registry docker.io refused anonymous access, and /etc/nexus/dockercfg-tc112/config.json has no credential for it in auths: run docker login docker.io for that configuration, or set providers.docker.configDir to the directory of a config.json that has one. A registry also answers so for a repository that does not exist: if this image was built on this host and never pushed, it cannot be updated from a registry; update it with the script that builds it (the scripts provider), then recreate the container","currentDigest":"sha256:2389984119a2a3af5442b61c68fd7a2e0cef6a12a84e5ae75606cd6d624b8874","checkedAt":"2026-11-14T03:16:53.20863974Z"}}},{"id":"/providers/docker/containers/tc112-pinned","type":"containers","name":"tc112-pinned","host":"harness","properties":{"containerId":"ffeeb8fb4960a1a9163714c3bd0085421997a86370ed110cc19b12c46052b7e8","imageReference":"127.0.0.1:5000/nx/tc112@sha256:29a8354eeb3b96f339e19b95ecf0b8a25f1a45e90e43a7787c803a884183d17d","update":{"status":"notUpdatable","reason":"digestPinned","detail":"the container was created from a digest-pinned reference (127.0.0.1:5000/nx/tc112@sha256:29a8354eeb3b96f339e19b95ecf0b8a25f1a45e90e43a7787c803a884183d17d), whose image never changes","checkedAt":"2026-11-14T03:16:53.20863974Z"}}},{"id":"/providers/docker/containers/tc112-rm","type":"containers","name":"tc112-rm","host":"harness","properties":{"containerId":"a22b85bfd568f34e3c054bcb05da3bd4d19139c3bf4194e462cc034cfca381ac","imageReference":"127.0.0.1:5000/nx/tc112:v1","update":{"status":"notUpdatable","reason":"autoRemove","detail":"the container is removed when it stops (--rm), so it cannot be replaced by an update","checkedAt":"2026-11-14T03:16:53.20863974Z"}}}]}
+    docker_updatecheck_test.go:354: Docker Hub-named local build: unknown authenticationRequired: the registry docker.io refused anonymous access, and /etc/nexus/dockercfg-tc112/config.json has no credential for it in auths: run docker login docker.io for that configuration, or set providers.docker.configDir to the directory of a config.json that has one. A registry also answers so for a repository that does not exist: if this image was built on this host and never pushed, it cannot be updated from a registry; update it with the script that builds it (the scripts provider), then recreate the container
+--- PASS: TestDockerUpdateNotUpdatableReasons (4.78s)
+=== RUN   TestDockerUpdateBothImageStores
+    docker_updatecheck_test.go:404: store classic: docker info DriverStatus [["Backing Filesystem","extfs"],["Supports d_type","true"],["Using metacopy","false"],["Native Overlay Diff","true"],["userxattr","false"]], driver overlay2
+    docker_updatecheck_test.go:421: store classic: .Image of the current container sha256:24fc3d68e24d455a264da010b650dc6322bbf96c2b1834dfe3c93c5bd1b0375f, registry digest sha256:a618b65cd13daa24b6487bfa547054dff56f826ecd1738846802ee949711817c (equal: false)
+    docker_updatecheck_test.go:425: store classic result: {"checkedAt":"2026-11-14T03:17:02.773213617Z","items":[{"id":"/providers/docker/containers/nx-registry","type":"containers","name":"nx-registry","host":"harness","properties":{"containerId":"ad8b8e1554bcda0e53389b586ea21365534987467541b38037d98bc71631a0ec","imageReference":"registry:2","update":{"status":"notUpdatable","reason":"locallyBuilt","detail":"the image has no registry digest for docker.io/library/registry: it was built, loaded or retagged on this host, not pulled from a registry. Update it with the script that builds it (the scripts provider), then recreate the container","checkedAt":"2026-11-14T03:17:02.773213617Z"}}},{"id":"/providers/docker/containers/nx-registry-auth","type":"containers","name":"nx-registry-auth","host":"harness","properties":{"containerId":"ae6d99d0bf4651ccefa099a4c3cbfe25f72550b3119b8b1dbc7d2b78753db61a","imageReference":"registry:2","update":{"status":"notUpdatable","reason":"locallyBuilt","detail":"the image has no registry digest for docker.io/library/registry: it was built, loaded or retagged on this host, not pulled from a registry. Update it with the script that builds it (the scripts provider), then recreate the container","checkedAt":"2026-11-14T03:17:02.773213617Z"}}},{"id":"/providers/docker/containers/tc113-classic-built","type":"containers","name":"tc113-classic-built","host":"harness","properties":{"containerId":"32901833f3b4b7a076e4150e0378a84660e5c777c2086f9d81b7655b23e445bc","imageReference":"127.0.0.1:5000/nx/tc113-classic-local:dev","update":{"status":"notUpdatable","reason":"locallyBuilt","detail":"the image has no registry digest for 127.0.0.1:5000/nx/tc113-classic-local: it was built, loaded or retagged on this host, not pulled from a registry. Update it with the script that builds it (the scripts provider), then recreate the container","checkedAt":"2026-11-14T03:17:02.773213617Z"}}},{"id":"/providers/docker/containers/tc113-classic-current","type":"containers","name":"tc113-classic-current","host":"harness","properties":{"containerId":"b14f7352a98f03836c47cc4b908b3ab321a7aa7c612162f093bbde87322d6bb2","imageReference":"127.0.0.1:5000/nx/tc113-classic:current","update":{"status":"upToDate","currentDigest":"sha256:a618b65cd13daa24b6487bfa547054dff56f826ecd1738846802ee949711817c","latestDigest":"sha256:a618b65cd13daa24b6487bfa547054dff56f826ecd1738846802ee949711817c","checkedAt":"2026-11-14T03:17:02.773213617Z"}}},{"id":"/providers/docker/containers/tc113-classic-stale","type":"containers","name":"tc113-classic-stale","host":"harness","properties":{"containerId":"f876026025453e4fb5034fa95d3c2f7a412f4eb575001f9bb3489270a6287c7c","imageReference":"127.0.0.1:5000/nx/tc113-classic:moving","update":{"status":"updateAvailable","currentDigest":"sha256:a618b65cd13daa24b6487bfa547054dff56f826ecd1738846802ee949711817c","latestDigest":"sha256:d845d9998f1cba6496791b4921c6cc4b696fdccab6c5b7cf0a5ff43a80f0f02a","checkedAt":"2026-11-14T03:17:02.773213617Z"}}}]}
+    docker_updatecheck_test.go:404: store containerd: docker info DriverStatus [["driver-type","io.containerd.snapshotter.v1"]], driver overlayfs
+    docker_updatecheck_test.go:421: store containerd: .Image of the current container sha256:428ac9d9f06c6eae1da93086e1ef341e69a6a89a40e4f38f14092a136e84c9fa, registry digest sha256:428ac9d9f06c6eae1da93086e1ef341e69a6a89a40e4f38f14092a136e84c9fa (equal: true)
+    docker_updatecheck_test.go:425: store containerd result: {"checkedAt":"2026-11-14T03:17:13.715894083Z","items":[{"id":"/providers/docker/containers/nx-registry","type":"containers","name":"nx-registry","host":"harness","properties":{"containerId":"5327d48e7d31551dd5a98574ad39729811d2fcab7ea0a82a6c14234a59295830","imageReference":"registry:2","update":{"status":"upToDate","currentDigest":"sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373","latestDigest":"sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373","checkedAt":"2026-11-14T03:17:13.715894083Z"}}},{"id":"/providers/docker/containers/nx-registry-auth","type":"containers","name":"nx-registry-auth","host":"harness","properties":{"containerId":"31e4c6b07b648ab75879e47a0841bc93b0c35842c9ac9a2b87190b7e7901937f","imageReference":"registry:2","update":{"status":"upToDate","currentDigest":"sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373","latestDigest":"sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373","checkedAt":"2026-11-14T03:17:13.715894083Z"}}},{"id":"/providers/docker/containers/tc113-containerd-built","type":"containers","name":"tc113-containerd-built","host":"harness","properties":{"containerId":"6733cad01e97157f852ac20c7c65e1a69a4bfbeee38e34a4f486559dc0e3c74c","imageReference":"127.0.0.1:5000/nx/tc113-containerd-local:dev","update":{"status":"notUpdatable","reason":"locallyBuilt","detail":"the registry 127.0.0.1:5000 has no image for 127.0.0.1:5000/nx/tc113-containerd-local:dev (Error response from daemon: manifest unknown: manifest unknown): it was built or retagged on this host and never pushed. Update it with the script that builds it (the scripts provider), then recreate the container","checkedAt":"2026-11-14T03:17:13.715894083Z"}}},{"id":"/providers/docker/containers/tc113-containerd-current","type":"containers","name":"tc113-containerd-current","host":"harness","properties":{"containerId":"e3f0a2db5df7c0cbb35b178fa0ee4d817fb20396efed5102a7da68874addf9af","imageReference":"127.0.0.1:5000/nx/tc113-containerd:current","update":{"status":"upToDate","currentDigest":"sha256:428ac9d9f06c6eae1da93086e1ef341e69a6a89a40e4f38f14092a136e84c9fa","latestDigest":"sha256:428ac9d9f06c6eae1da93086e1ef341e69a6a89a40e4f38f14092a136e84c9fa","checkedAt":"2026-11-14T03:17:13.715894083Z"}}},{"id":"/providers/docker/containers/tc113-containerd-stale","type":"containers","name":"tc113-containerd-stale","host":"harness","properties":{"containerId":"06f91d8013129f2bffcea9d9eeb8c12beb9642a42cfc8137b85ce08ff9de2f1e","imageReference":"127.0.0.1:5000/nx/tc113-containerd:moving","update":{"status":"updateAvailable","currentDigest":"sha256:428ac9d9f06c6eae1da93086e1ef341e69a6a89a40e4f38f14092a136e84c9fa","latestDigest":"sha256:4729140b41602fa91015d827e23a8f3c8746a9d856ea059a9c9807e97c87950c","checkedAt":"2026-11-14T03:17:13.715894083Z"}}}]}
+--- PASS: TestDockerUpdateBothImageStores (25.70s)
+=== RUN   TestDockerUpdateRegistryCredentialSources
+    docker_updatecheck_test.go:529: auths: {"checkedAt":"2026-11-14T03:17:25.624505435Z","items":[{"id":"/providers/docker/containers/nx-registry","type":"containers","name":"nx-registry","host":"harness","properties":{"containerId":"077df8fb6227a5459a27f705d73bdb8df827aa6e04907845a4ec0be95bd8699a","imageReference":"registry:2","update":{"status":"notUpdatable","reason":"locallyBuilt","detail":"the image has no registry digest for docker.io/library/registry: it was built, loaded or retagged on this host, not pulled from a registry. Update it with the script that builds it (the scripts provider), then recreate the container","checkedAt":"2026-11-14T03:17:25.624505435Z"}}},{"id":"/providers/docker/containers/nx-registry-auth","type":"containers","name":"nx-registry-auth","host":"harness","properties":{"containerId":"957853fe45eba95b7f5dafd2e7f31c3cf20ee382b415b927b9582e301914e16e","imageReference":"registry:2","update":{"status":"notUpdatable","reason":"locallyBuilt","detail":"the image has no registry digest for docker.io/library/registry: it was built, loaded or retagged on this host, not pulled from a registry. Update it with the script that builds it (the scripts provider), then recreate the container","checkedAt":"2026-11-14T03:17:25.624505435Z"}}},{"id":"/providers/docker/containers/tc114-current","type":"containers","name":"tc114-current","host":"harness","properties":{"containerId":"0e54354c0325209fbd6be23a2bcfecff15fd05b5f1b4640bc7f671c65af34076","imageReference":"127.0.0.1:5001/nx/tc114:current","update":{"status":"upToDate","currentDigest":"sha256:09a91c8148551dc8fd6f1b2c7ba7e892395e5605e526c08bdd1997c97afa8d51","latestDigest":"sha256:09a91c8148551dc8fd6f1b2c7ba7e892395e5605e526c08bdd1997c97afa8d51","checkedAt":"2026-11-14T03:17:25.624505435Z"}}},{"id":"/providers/docker/containers/tc114-stale","type":"containers","name":"tc114-stale","host":"harness","properties":{"containerId":"decb008da6e98a584e5694a1fdbe1d336690d2a5495233ab80072e9682947750","imageReference":"127.0.0.1:5001/nx/tc114:moving","update":{"status":"updateAvailable","currentDigest":"sha256:09a91c8148551dc8fd6f1b2c7ba7e892395e5605e526c08bdd1997c97afa8d51","latestDigest":"sha256:74ec6fa6375da963d396d22bbd1a0c7d2babb24782a2493e28fb4471f332f433","checkedAt":"2026-11-14T03:17:25.624505435Z"}}}]}
+    docker_updatecheck_test.go:544: helpers: {"checkedAt":"2026-11-14T03:17:26.199843386Z","items":[{"id":"/providers/docker/containers/nx-registry","type":"containers","name":"nx-registry","host":"harness","properties":{"containerId":"077df8fb6227a5459a27f705d73bdb8df827aa6e04907845a4ec0be95bd8699a","imageReference":"registry:2","update":{"status":"notUpdatable","reason":"locallyBuilt","detail":"the image has no registry digest for docker.io/library/registry: it was built, loaded or retagged on this host, not pulled from a registry. Update it with the script that builds it (the scripts provider), then recreate the container","checkedAt":"2026-11-14T03:17:26.199843386Z"}}},{"id":"/providers/docker/containers/nx-registry-auth","type":"containers","name":"nx-registry-auth","host":"harness","properties":{"containerId":"957853fe45eba95b7f5dafd2e7f31c3cf20ee382b415b927b9582e301914e16e","imageReference":"registry:2","update":{"status":"notUpdatable","reason":"locallyBuilt","detail":"the image has no registry digest for docker.io/library/registry: it was built, loaded or retagged on this host, not pulled from a registry. Update it with the script that builds it (the scripts provider), then recreate the container","checkedAt":"2026-11-14T03:17:26.199843386Z"}}},{"id":"/providers/docker/containers/tc114-current","type":"containers","name":"tc114-current","host":"harness","properties":{"containerId":"0e54354c0325209fbd6be23a2bcfecff15fd05b5f1b4640bc7f671c65af34076","imageReference":"127.0.0.1:5001/nx/tc114:current","update":{"status":"unknown","reason":"credentialHelper","detail":"the registry 127.0.0.1:5001 refused anonymous access, and its credential is held by the credential helper docker-credential-nx (credHelpers in /etc/nexus/dockercfg-tc114-helpers/config.json), which Nexus never runs. Store the credential in auths instead: run docker login 127.0.0.1:5001 with a configuration that has no credsStore or credHelpers entry for it, or set providers.docker.configDir to a directory whose config.json has it in auths","currentDigest":"sha256:09a91c8148551dc8fd6f1b2c7ba7e892395e5605e526c08bdd1997c97afa8d51","checkedAt":"2026-11-14T03:17:26.199843386Z"}}},{"id":"/providers/docker/containers/tc114-stale","type":"containers","name":"tc114-stale","host":"harness","properties":{"containerId":"decb008da6e98a584e5694a1fdbe1d336690d2a5495233ab80072e9682947750","imageReference":"127.0.0.1:5001/nx/tc114:moving","update":{"status":"unknown","reason":"credentialHelper","detail":"the registry 127.0.0.1:5001 refused anonymous access, and its credential is held by the credential helper docker-credential-nx (credHelpers in /etc/nexus/dockercfg-tc114-helpers/config.json), which Nexus never runs. Store the credential in auths instead: run docker login 127.0.0.1:5001 with a configuration that has no credsStore or credHelpers entry for it, or set providers.docker.configDir to a directory whose config.json has it in auths","currentDigest":"sha256:09a91c8148551dc8fd6f1b2c7ba7e892395e5605e526c08bdd1997c97afa8d51","checkedAt":"2026-11-14T03:17:26.199843386Z"}}}]}
+    docker_updatecheck_test.go:544: store: {"checkedAt":"2026-11-14T03:17:27.214287104Z","items":[{"id":"/providers/docker/containers/nx-registry","type":"containers","name":"nx-registry","host":"harness","properties":{"containerId":"077df8fb6227a5459a27f705d73bdb8df827aa6e04907845a4ec0be95bd8699a","imageReference":"registry:2","update":{"status":"notUpdatable","reason":"locallyBuilt","detail":"the image has no registry digest for docker.io/library/registry: it was built, loaded or retagged on this host, not pulled from a registry. Update it with the script that builds it (the scripts provider), then recreate the container","checkedAt":"2026-11-14T03:17:27.214287104Z"}}},{"id":"/providers/docker/containers/nx-registry-auth","type":"containers","name":"nx-registry-auth","host":"harness","properties":{"containerId":"957853fe45eba95b7f5dafd2e7f31c3cf20ee382b415b927b9582e301914e16e","imageReference":"registry:2","update":{"status":"notUpdatable","reason":"locallyBuilt","detail":"the image has no registry digest for docker.io/library/registry: it was built, loaded or retagged on this host, not pulled from a registry. Update it with the script that builds it (the scripts provider), then recreate the container","checkedAt":"2026-11-14T03:17:27.214287104Z"}}},{"id":"/providers/docker/containers/tc114-current","type":"containers","name":"tc114-current","host":"harness","properties":{"containerId":"0e54354c0325209fbd6be23a2bcfecff15fd05b5f1b4640bc7f671c65af34076","imageReference":"127.0.0.1:5001/nx/tc114:current","update":{"status":"unknown","reason":"credentialHelper","detail":"the registry 127.0.0.1:5001 refused anonymous access, and its credential is held by the credential helper docker-credential-nx (credsStore in /etc/nexus/dockercfg-tc114-store/config.json), which Nexus never runs. Store the credential in auths instead: run docker login 127.0.0.1:5001 with a configuration that has no credsStore or credHelpers entry for it, or set providers.docker.configDir to a directory whose config.json has it in auths","currentDigest":"sha256:09a91c8148551dc8fd6f1b2c7ba7e892395e5605e526c08bdd1997c97afa8d51","checkedAt":"2026-11-14T03:17:27.214287104Z"}}},{"id":"/providers/docker/containers/tc114-stale","type":"containers","name":"tc114-stale","host":"harness","properties":{"containerId":"decb008da6e98a584e5694a1fdbe1d336690d2a5495233ab80072e9682947750","imageReference":"127.0.0.1:5001/nx/tc114:moving","update":{"status":"unknown","reason":"credentialHelper","detail":"the registry 127.0.0.1:5001 refused anonymous access, and its credential is held by the credential helper docker-credential-nx (credsStore in /etc/nexus/dockercfg-tc114-store/config.json), which Nexus never runs. Store the credential in auths instead: run docker login 127.0.0.1:5001 with a configuration that has no credsStore or credHelpers entry for it, or set providers.docker.configDir to a directory whose config.json has it in auths","currentDigest":"sha256:09a91c8148551dc8fd6f1b2c7ba7e892395e5605e526c08bdd1997c97afa8d51","checkedAt":"2026-11-14T03:17:27.214287104Z"}}}]}
+    docker_updatecheck_test.go:572: default: {"checkedAt":"2026-11-14T03:17:28.452691475Z","items":[{"id":"/providers/docker/containers/nx-registry","type":"containers","name":"nx-registry","host":"harness","properties":{"containerId":"077df8fb6227a5459a27f705d73bdb8df827aa6e04907845a4ec0be95bd8699a","imageReference":"registry:2","update":{"status":"notUpdatable","reason":"locallyBuilt","detail":"the image has no registry digest for docker.io/library/registry: it was built, loaded or retagged on this host, not pulled from a registry. Update it with the script that builds it (the scripts provider), then recreate the container","checkedAt":"2026-11-14T03:17:28.452691475Z"}}},{"id":"/providers/docker/containers/nx-registry-auth","type":"containers","name":"nx-registry-auth","host":"harness","properties":{"containerId":"957853fe45eba95b7f5dafd2e7f31c3cf20ee382b415b927b9582e301914e16e","imageReference":"registry:2","update":{"status":"notUpdatable","reason":"locallyBuilt","detail":"the image has no registry digest for docker.io/library/registry: it was built, loaded or retagged on this host, not pulled from a registry. Update it with the script that builds it (the scripts provider), then recreate the container","checkedAt":"2026-11-14T03:17:28.452691475Z"}}},{"id":"/providers/docker/containers/tc114-current","type":"containers","name":"tc114-current","host":"harness","properties":{"containerId":"0e54354c0325209fbd6be23a2bcfecff15fd05b5f1b4640bc7f671c65af34076","imageReference":"127.0.0.1:5001/nx/tc114:current","update":{"status":"upToDate","currentDigest":"sha256:09a91c8148551dc8fd6f1b2c7ba7e892395e5605e526c08bdd1997c97afa8d51","latestDigest":"sha256:09a91c8148551dc8fd6f1b2c7ba7e892395e5605e526c08bdd1997c97afa8d51","checkedAt":"2026-11-14T03:17:28.452691475Z"}}},{"id":"/providers/docker/containers/tc114-stale","type":"containers","name":"tc114-stale","host":"harness","properties":{"containerId":"decb008da6e98a584e5694a1fdbe1d336690d2a5495233ab80072e9682947750","imageReference":"127.0.0.1:5001/nx/tc114:moving","update":{"status":"updateAvailable","currentDigest":"sha256:09a91c8148551dc8fd6f1b2c7ba7e892395e5605e526c08bdd1997c97afa8d51","latestDigest":"sha256:74ec6fa6375da963d396d22bbd1a0c7d2babb24782a2493e28fb4471f332f433","checkedAt":"2026-11-14T03:17:28.452691475Z"}}}]}
+    docker_updatecheck_test.go:579: empty: {"checkedAt":"2026-11-14T03:17:29.350573471Z","items":[{"id":"/providers/docker/containers/nx-registry","type":"containers","name":"nx-registry","host":"harness","properties":{"containerId":"077df8fb6227a5459a27f705d73bdb8df827aa6e04907845a4ec0be95bd8699a","imageReference":"registry:2","update":{"status":"notUpdatable","reason":"locallyBuilt","detail":"the image has no registry digest for docker.io/library/registry: it was built, loaded or retagged on this host, not pulled from a registry. Update it with the script that builds it (the scripts provider), then recreate the container","checkedAt":"2026-11-14T03:17:29.350573471Z"}}},{"id":"/providers/docker/containers/nx-registry-auth","type":"containers","name":"nx-registry-auth","host":"harness","properties":{"containerId":"957853fe45eba95b7f5dafd2e7f31c3cf20ee382b415b927b9582e301914e16e","imageReference":"registry:2","update":{"status":"notUpdatable","reason":"locallyBuilt","detail":"the image has no registry digest for docker.io/library/registry: it was built, loaded or retagged on this host, not pulled from a registry. Update it with the script that builds it (the scripts provider), then recreate the container","checkedAt":"2026-11-14T03:17:29.350573471Z"}}},{"id":"/providers/docker/containers/tc114-current","type":"containers","name":"tc114-current","host":"harness","properties":{"containerId":"0e54354c0325209fbd6be23a2bcfecff15fd05b5f1b4640bc7f671c65af34076","imageReference":"127.0.0.1:5001/nx/tc114:current","update":{"status":"unknown","reason":"authenticationRequired","detail":"the registry 127.0.0.1:5001 refused anonymous access, and /etc/nexus/dockercfg-tc114-empty/config.json has no credential for it in auths: run docker login 127.0.0.1:5001 for that configuration, or set providers.docker.configDir to the directory of a config.json that has one. A registry also answers so for a repository that does not exist: if this image was built on this host and never pushed, it cannot be updated from a registry; update it with the script that builds it (the scripts provider), then recreate the container","currentDigest":"sha256:09a91c8148551dc8fd6f1b2c7ba7e892395e5605e526c08bdd1997c97afa8d51","checkedAt":"2026-11-14T03:17:29.350573471Z"}}},{"id":"/providers/docker/containers/tc114-stale","type":"containers","name":"tc114-stale","host":"harness","properties":{"containerId":"decb008da6e98a584e5694a1fdbe1d336690d2a5495233ab80072e9682947750","imageReference":"127.0.0.1:5001/nx/tc114:moving","update":{"status":"unknown","reason":"authenticationRequired","detail":"the registry 127.0.0.1:5001 refused anonymous access, and /etc/nexus/dockercfg-tc114-empty/config.json has no credential for it in auths: run docker login 127.0.0.1:5001 for that configuration, or set providers.docker.configDir to the directory of a config.json that has one. A registry also answers so for a repository that does not exist: if this image was built on this host and never pushed, it cannot be updated from a registry; update it with the script that builds it (the scripts provider), then recreate the container","currentDigest":"sha256:09a91c8148551dc8fd6f1b2c7ba7e892395e5605e526c08bdd1997c97afa8d51","checkedAt":"2026-11-14T03:17:29.350573471Z"}}}]}
+--- PASS: TestDockerUpdateRegistryCredentialSources (10.75s)
+=== RUN   TestDockerUpdateStoredStatusMerges
+--- PASS: TestDockerUpdateStoredStatusMerges (13.10s)
+=== RUN   TestDockerUpdateErrorsAreUnknown
+    docker_updatecheck_test.go:722: tcerr34-proxy: registryError: the registry check for 127.0.0.1:5098/nx/tcerr34p:v1 failed: Error response from daemon: received unexpected HTTP status: 500 Internal Server Error
+    docker_updatecheck_test.go:727: tcerr34-auth: authenticationRequired: the registry 127.0.0.1:5001 refused anonymous access, and /etc/nexus/dockercfg-tcerr34-noauth/config.json has no credential for it in auths: run docker login 127.0.0.1:5001 for that configuration, or set providers.docker.configDir to the directory of a config.json that has one. A registry also answers so for a repository that does not exist: if this image was built on this host and never pushed, it cannot be updated from a registry; update it with the script that builds it (the scripts provider), then recreate the container
+    docker_updatecheck_test.go:732: tcerr34-auth: credentialHelper: the registry 127.0.0.1:5001 refused anonymous access, and its credential is held by the credential helper docker-credential-nx (credHelpers in /etc/nexus/dockercfg-tcerr34-helper/config.json), which Nexus never runs. Store the credential in auths instead: run docker login 127.0.0.1:5001 with a configuration that has no credsStore or credHelpers entry for it, or set providers.docker.configDir to a directory whose config.json has it in auths
+2026/11/14 03:17:54 http: proxy error: dial tcp 127.0.0.1:5000: connect: connection refused
+2026/11/14 03:17:54 http: proxy error: dial tcp 127.0.0.1:5000: connect: connection refused
+2026/11/14 03:17:54 http: proxy error: dial tcp 127.0.0.1:5000: connect: connection refused
+    docker_updatecheck_test.go:738: tcerr34-open: registryError: the registry check for 127.0.0.1:5000/nx/tcerr34:v1 failed: Error response from daemon: Get "http://127.0.0.1:5000/v2/": dial tcp 127.0.0.1:5000: connect: connection refused
+    docker_updatecheck_test.go:739: tcerr34-proxy: registryError: the registry check for 127.0.0.1:5098/nx/tcerr34p:v1 failed: Error response from daemon: received unexpected HTTP status: 502 Bad Gateway
+--- PASS: TestDockerUpdateErrorsAreUnknown (13.76s)
+=== RUN   TestDockerUpdateSecondCheckConflicts
+    docker_updatecheck_test.go:776: first check took 16.069s
+--- PASS: TestDockerUpdateSecondCheckConflicts (18.09s)
+=== RUN   TestNFRIdleFootprint
+    footprint_test.go:636: NFR load at start: VM loadavg 1.07 0.79 0.39 2/257 54849, 4 CPUs
+    footprint_test.go:643: NFR env: 50 nfr containers running, 52 containers on the Engine in all; nested Engine 29.9.3 (API 1.56, linux/arm64)
+    footprint_test.go:644: NFR env: no apt on Alpine: the apt provider is enabled and reports unavailable
+    footprint_test.go:648: NFR harness binary /usr/local/bin/nexusd: 18315873 bytes (unstripped linux/arm64 build; the release size is make nfr's)
+    footprint_test.go:659: NFR TC-187 startup exec->ready line (OpenRC: process start time to the line's own time) over 10 starts: n=10 p50=40.4ms p95=56.1ms max=56.1ms mean=41.3ms; each [31.214817ms 44.150499ms 27.313091ms 27.226715ms 40.39244ms 39.946644ms 51.508151ms 56.054256ms 46.786802ms 48.790021ms]
+    footprint_test.go:661: NFR TC-187 startup rc-service start + ready line wall time: n=10 p50=162.9ms p95=177.9ms max=177.9ms mean=163.1ms
+    footprint_test.go:676: NFR TC-187 after start (no request yet): RSS 19.7 MiB, threads 8, fds 10
+    footprint_test.go:691: NFR TC-188 control: during the warm-up the Engine logged 59 API calls and nexusd's cminflt grew by 1070 (children reaped)
+    footprint_test.go:779: NFR TC-187 idle window 5m0.002s (300 RSS samples at 1 s)
+    footprint_test.go:780: NFR TC-187 idle RSS: max 21.35 MiB, mean 20.27 MiB, start 21.35 MiB, end 18.68 MiB, VmHWM 20.92 MiB; threads 9 -> 9, fds 10 -> 9
+    footprint_test.go:782: NFR TC-187 idle CPU: cgroup usage 9.47ms over 5m0.002s = 0.0032% of one core; /proc ticks 1 = 0.0033%
+    footprint_test.go:805: NFR TC-188 idle window: 0 Docker API calls, cminflt +0, cutime+cstime +0, 0 other processes in the unit's cgroup, 0 apt/dpkg processes seen (any parent), 0 nexusd journal lines, 0 op-unit journal lines
+    footprint_test.go:823: NFR TC-45 openrc, one op running 30s: nexusd CPU 4 ticks (0.1333% of one core), 505 context switches (16.83/s); idle 30s before: 0 ticks, 8 switches (0.27/s); added 16.57 switches/s = 8.3 per watcher poll (poll rate 2.0/s); RSS 18.68 MiB
+    footprint_test.go:911: NFR load at end: VM loadavg 0.26 0.32 0.31 4/273 62129
+--- PASS: TestNFRIdleFootprint (411.22s)
+=== RUN   TestHarnessBootsArchitectureAware
+    harness_test.go:815: arch arm64 (aarch64), openrc (OpenRC [DOCKER]) 0.63.2
+--- PASS: TestHarnessBootsArchitectureAware (0.04s)
+=== RUN   TestHarnessFailurePathIsCollected
+    harness_test.go:838: set NEXUS_HARNESS_EXPECT_FAIL=1 to prove run.sh collects logs and removes the container on failure
+--- SKIP: TestHarnessFailurePathIsCollected (0.00s)
+=== RUN   TestProductionWiringCreatesRealUnit
+    harness_test.go:846: requires systemd (detected openrc)
+--- SKIP: TestProductionWiringCreatesRealUnit (0.00s)
+=== RUN   TestShippedUnitRunsNexusdAndLaunchesOpUnit
+    harness_test.go:1002: requires systemd (detected openrc)
+--- SKIP: TestShippedUnitRunsNexusdAndLaunchesOpUnit (0.00s)
+=== RUN   TestSystemdInstallUnderDashUnchanged
+    install_openrc_test.go:57: requires systemd (detected openrc)
+--- SKIP: TestSystemdInstallUnderDashUnchanged (0.00s)
+=== RUN   TestOpenRCInstallFirstAndUpgrade
+    install_openrc_test.go:183: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/init.d/nexusd
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd at boot: rc-update add nexusd default
+        install.sh:   start nexusd now: rc-service nexusd start
+    install_openrc_test.go:213: first install: listen: ["127.0.0.1:7443"]; -rwxr-xr-x    1 root     root          1360 Nov 14 03:25 /etc/init.d/nexusd
+        -rw-------    1 root     root          7351 Nov 14 03:25 /etc/nexus/nexusd.yaml
+        -rwxr-xr-x    1 root     root      18315873 Nov 14 03:25 /usr/local/bin/nexusd
+    install_openrc_test.go:227: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/init.d/nexusd
+        install.sh: kept the existing /etc/nexus/nexusd.yaml unchanged
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd at boot: rc-update add nexusd default
+        install.sh:   start nexusd now: rc-service nexusd start
+    install_openrc_test.go:238: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/init.d/nexusd
+        install.sh: kept the existing /etc/nexus/nexusd.yaml unchanged
+        /etc/nexus/nexusd.yaml: configuration is valid
+        Service 'acpid' needs non existent service 'dev'
+        Service 'hwdrivers' needs non existent service 'dev'
+        Service 'machine-id' needs non existent service 'dev'
+        Service 'watchdog' needs non existent service 'dev'
+         * Caching service dependencies ... [ ok ]
+         * Stopping nexusd ... [ ok ]
+         * Starting nexusd ... [ ok ]
+        install.sh: restarted the running nexusd service onto the new binary
+    install_openrc_test.go:247: upgrade restarted nexusd: pid 62440 -> 62716
+--- PASS: TestOpenRCInstallFirstAndUpgrade (1.62s)
+=== RUN   TestOpenRCUninstallAndPurge
+    install_openrc_test.go:272: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/init.d/nexusd
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd at boot: rc-update add nexusd default
+        install.sh:   start nexusd now: rc-service nexusd start
+    install_openrc_test.go:283: invoked sleeper: operation 01a1d816-6498-7071-8727-36c4323cf2e1, unit nexus-op-01a1d816-6498-7071-8727-36c4323cf2e1.service
+    install_openrc_test.go:290: sh uninstall.sh: <nil>
+        uninstall.sh: warning: operation supervisors still running: 01a1d816-6498-7071-8727-36c4323cf2e1
+        uninstall.sh: warning: they are not stopped and run to completion; stop one with: nexus operation cancel ID
+        uninstall.sh: warning: their records stay in /var/lib/nexus, and a reinstalled nexusd reports their outcome
+         * Stopping nexusd ... [ ok ]
+        uninstall.sh: stopped nexusd
+         * service nexusd deleted from runlevel default
+        uninstall.sh: removed nexusd from the default runlevel
+        uninstall.sh: removed /usr/local/bin/nexusd and /etc/init.d/nexusd
+        uninstall.sh: kept the configuration (/etc/nexus), operation history, tokens and TLS key (/var/lib/nexus) and audit log (/var/log/nexus); delete them with --purge
+    install_openrc_test.go:320: after uninstall: supervisor 63116 alive; kept /etc/nexus, /var/lib/nexus, /var/log/nexus
+    install_openrc_test.go:323: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/init.d/nexusd
+        install.sh: kept the existing /etc/nexus/nexusd.yaml unchanged
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd at boot: rc-update add nexusd default
+        install.sh:   start nexusd now: rc-service nexusd start
+    install_openrc_test.go:328: sh uninstall.sh --purge: <nil>
+        uninstall.sh: warning: operation supervisors still running: 01a1d816-6498-7071-8727-36c4323cf2e1
+        uninstall.sh: warning: they are not stopped and run to completion; stop one with: nexus operation cancel ID
+        uninstall.sh: warning: --purge deletes their records and output while they run
+        uninstall.sh: removed /usr/local/bin/nexusd and /etc/init.d/nexusd
+        uninstall.sh: purged /etc/nexus /var/lib/nexus /var/log/nexus /etc/conf.d/nexusd
+--- PASS: TestOpenRCUninstallAndPurge (1.03s)
+=== RUN   TestInstallRefusesUnknownInit
+    install_openrc_test.go:358: openrc: exit status 1
+        stdout: 
+        stderr: install.sh: neither systemd nor OpenRC is running on this host; nexusd runs only as a systemd or OpenRC service. Nothing was changed
+--- PASS: TestInstallRefusesUnknownInit (0.08s)
+=== RUN   TestInstallCleanIsLoopbackOnly
+    install_test.go:299: requires systemd (detected openrc)
+--- SKIP: TestInstallCleanIsLoopbackOnly (0.00s)
+=== RUN   TestInstallNeverOverwritesConfig
+    install_test.go:395: requires systemd (detected openrc)
+--- SKIP: TestInstallNeverOverwritesConfig (0.00s)
+=== RUN   TestUninstallRetentionAndPurge
+    install_test.go:552: requires systemd (detected openrc)
+--- SKIP: TestUninstallRetentionAndPurge (0.00s)
+=== RUN   TestEveryProviderOpUnderExactUnit
+    install_test.go:749: requires systemd (detected openrc)
+--- SKIP: TestEveryProviderOpUnderExactUnit (0.00s)
+=== RUN   TestReloadUnderExactUnitKeepsOperations
+    install_test.go:1057: requires systemd (detected openrc)
+--- SKIP: TestReloadUnderExactUnitKeepsOperations (0.00s)
+=== RUN   TestConfigOwnershipEnforcedAsRoot
+    install_test.go:1147: requires systemd (detected openrc)
+--- SKIP: TestConfigOwnershipEnforcedAsRoot (0.00s)
+=== RUN   TestDiskFullRefusesMutations
+    install_test.go:1282: requires systemd (detected openrc)
+--- SKIP: TestDiskFullRefusesMutations (0.00s)
+=== RUN   TestNFRLatency
+    latency_test.go:134: requires apt (detected alpine)
+--- SKIP: TestNFRLatency (0.00s)
+=== RUN   TestNFRProvidersDoNotBlock
+    latency_test.go:199: requires apt (detected alpine)
+--- SKIP: TestNFRProvidersDoNotBlock (0.00s)
+=== RUN   TestNFRDependencyFailureMatrix
+    latency_test.go:360: requires apt (detected alpine)
+--- SKIP: TestNFRDependencyFailureMatrix (0.00s)
+=== RUN   TestNginxLifecycleObserved
+    nginx_test.go:38: not implemented: nginx-provider TC-106 (WI 7.1)
+--- SKIP: TestNginxLifecycleObserved (0.00s)
+=== RUN   TestNginxToggleObserved
+    nginx_test.go:53: not implemented: nginx-provider TC-107 (WI 7.1)
+--- SKIP: TestNginxToggleObserved (0.00s)
+=== RUN   TestNginxWriteObserved
+    nginx_test.go:69: not implemented: nginx-provider TC-108 (WI 7.1)
+--- SKIP: TestNginxWriteObserved (0.00s)
+=== RUN   TestNginxRollbackObserved
+    nginx_test.go:90: not implemented: nginx-provider TC-109 (WI 7.1)
+--- SKIP: TestNginxRollbackObserved (0.00s)
+=== RUN   TestNginxWriteRestartCases
+    nginx_test.go:113: not implemented: nginx-provider TC-110 (WI 7.1)
+--- SKIP: TestNginxWriteRestartCases (0.00s)
+=== RUN   TestNginxWhatIfObserved
+    nginx_test.go:130: not implemented: nginx-provider TC-111 (WI 7.1)
+--- SKIP: TestNginxWhatIfObserved (0.00s)
+=== RUN   TestNginxUnderExactUnit
+    nginx_test.go:147: not implemented: nginx-provider TC-112 (WI 7.1)
+--- SKIP: TestNginxUnderExactUnit (0.00s)
+=== RUN   TestFakesMatchRealBehavior
+    nginx_test.go:172: not implemented: nginx-provider TC-113 (WI 7.1)
+--- SKIP: TestFakesMatchRealBehavior (0.00s)
+=== RUN   TestNginxLatencyAndFootprint
+    nginx_test.go:189: not implemented: nginx-provider TC-114 (WI 7.1)
+--- SKIP: TestNginxLatencyAndFootprint (0.00s)
+=== RUN   TestNginxIsolation
+    nginx_test.go:212: not implemented: nginx-provider TC-115 (WI 7.1)
+--- SKIP: TestNginxIsolation (0.00s)
+=== RUN   TestNginxSurvivesOpEnd
+    nginx_test.go:237: not implemented: nginx-provider TC-116 (WI 7.1)
+--- SKIP: TestNginxSurvivesOpEnd (0.00s)
+=== RUN   TestNginxManagedRequiresRootOwner
+    nginx_test.go:253: not implemented: nginx-provider TC-117 (WI 7.1)
+--- SKIP: TestNginxManagedRequiresRootOwner (0.00s)
+=== RUN   TestOpenRCServiceLifecycle
+    openrc_survival_test.go:243: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/init.d/nexusd
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd at boot: rc-update add nexusd default
+        install.sh:   start nexusd now: rc-service nexusd start
+    openrc_survival_test.go:267: rc-service nexusd start: /healthz answered after 173ms
+    openrc_survival_test.go:289: pidfile names: supervise-daemon (pid 63501), parent of the answering nexusd 63502
+    openrc_survival_test.go:320: kill -9 63502: nexusd 63931 answered after 2.207s (respawn_delay=2)
+    openrc_survival_test.go:354: /var/log/messages: 6 lines tagged nexusd, e.g. Nov 14 03:25:09 3a52bb8be6d9 daemon.info nexusd: {"time":"2026-11-14T03:25:09.612162341Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7443"]}
+--- PASS: TestOpenRCServiceLifecycle (3.51s)
+=== RUN   TestOpRunsAcrossNexusdRestart
+    openrc_survival_test.go:378: invoked sleeper: operation 01a1d816-766f-702f-856f-ccb2d5b955b2, unit nexus-op-01a1d816-766f-702f-856f-ccb2d5b955b2.service
+    openrc_survival_test.go:383: supervisor 64267 before: session 64267 ppid 64207 startTicks 238286384 cgroup /nexus-ops/01a1d816-766f-702f-856f-ccb2d5b955b2; nexusd 64207 (cgroup /openrc.nexusd)
+    openrc_survival_test.go:392: supervisor 64267 after restart (nexusd 64207 -> 64324): session 64267 ppid 1 startTicks 238286384 cgroup /nexus-ops/01a1d816-766f-702f-856f-ccb2d5b955b2
+    openrc_survival_test.go:417: op 01a1d816-766f-702f-856f-ccb2d5b955b2: Succeeded after 20.309s
+--- PASS: TestOpRunsAcrossNexusdRestart (21.25s)
+=== RUN   TestLostSupervisorWhileDownIsOutcomeUnknown
+    openrc_survival_test.go:428: invoked sleeper: operation 01a1d816-c979-71ec-b362-54ba27b6a47f, unit nexus-op-01a1d816-c979-71ec-b362-54ba27b6a47f.service
+    openrc_survival_test.go:452: killed supervisor 64658 and child [64666] while nexusd was stopped
+    openrc_survival_test.go:456: 01a1d816-c979-71ec-b362-54ba27b6a47f after the start: Failed outcome-unknown: unit nexus-op-01a1d816-c979-71ec-b362-54ba27b6a47f.service ended without reporting an outcome; script sleeper may have run in part; check what it changes before running it again in 1.968837525s
+--- PASS: TestLostSupervisorWhileDownIsOutcomeUnknown (4.27s)
+=== RUN   TestCancelLeavesNoDescendantOnOpenRC
+    openrc_survival_test.go:477: invoked escaper: operation 01a1d816-da22-760d-bc7a-023e81ddfa07, unit nexus-op-01a1d816-da22-760d-bc7a-023e81ddfa07.service
+    openrc_survival_test.go:483: child 65069, setsid grandchild 65071 (cgroup /nexus-ops/01a1d816-da22-760d-bc7a-023e81ddfa07/work)
+    openrc_survival_test.go:489: 01a1d816-da22-760d-bc7a-023e81ddfa07: Canceled after 3.409450858s
+    openrc_survival_test.go:503: /sys/fs/cgroup/nexus-ops/01a1d816-da22-760d-bc7a-023e81ddfa07 is gone
+--- PASS: TestCancelLeavesNoDescendantOnOpenRC (4.32s)
+=== RUN   TestAptUnavailableOnAlpine
+    openrc_survival_test.go:535: nexus capability get --output json: exit 0
+        [
+          {
+            "apiVersion": "v1",
+            "host": "alpine",
+            "id": "/capabilities",
+            "initSystem": "openrc",
+            "os": {
+              "id": "alpine",
+              "prettyName": "Alpine Linux v3.24",
+              "versionId": "3.24.4"
+            },
+            "providers": [
+              {
+                "actions": [
+                  "install",
+                  "refresh",
+                  "remove",
+                  "upgrade"
+                ],
+                "name": "apt",
+                "reason": "/usr/bin/apt-get is missing or not executable; the apt provider needs apt and dpkg",
+                "resourceTypes": [
+                  "packages",
+                  "upgradable"
+                ],
+                "status": "unavailable"
+              },
+              {
+                "actions": [
+                  "check-updates",
+                  "remove",
+                  "restart",
+                  "start",
+                  "stop",
+                  "update"
+                ],
+                "details": {
+                  "apiVersion": "1.56",
+                  "composePlugin": {
+                    "available": true,
+                    "path": "/usr/libexec/docker/cli-plugins/docker-compose"
+                  },
+                  "daemonApiVersion": "1.56",
+                  "socket": "/run/docker.sock"
+                },
+                "name": "docker",
+                "resourceTypes": [
+                  "containers"
+                ],
+                "status": "enabled"
+              },
+              {
+                "actions": [
+                  "add",
+                  "disable",
+                  "enable",
+                  "reload",
+                  "restart",
+                  "start",
+                  "stop",
+                  "test",
+                  "update"
+                ],
+                "name": "nginx",
+                "reason": "disabled in configuration (providers.nginx.enabled is false)",
+                "resourceTypes": [
+                  "service",
+                  "sites"
+                ],
+                "status": "disabled"
+              },
+              {
+                "actions": [
+                  "invoke"
+                ],
+                "name": "scripts",
+                "resourceTypes": [
+                  "scripts"
+                ],
+                "status": "enabled"
+              }
+            ],
+            "version": "dev"
+          }
+        ]
+    openrc_survival_test.go:565: POST apt refresh: 503 {"type":"urn:nexus:problem:capability-unavailable","title":"Capability unavailable","status":503,"detail":"provider apt is unavailable","provider":"apt","reason":"/usr/bin/apt-get is missing or not executable; the apt provider needs apt and dpkg"}
+--- PASS: TestAptUnavailableOnAlpine (1.05s)
+=== RUN   TestCgroupCleanupDoesNotKillSupervisor
+=== RUN   TestCgroupCleanupDoesNotKillSupervisor/stock
+    openrc_survival_test.go:702: canary 65943 in nexusd 65884's cgroup /openrc.nexusd
+    openrc_survival_test.go:706: openrc (OpenRC [DOCKER]) 0.63.2, stock rc-cgroup.sh (issue #910 present: true): canary alive 5 s after the stop with YES: true
+=== RUN   TestCgroupCleanupDoesNotKillSupervisor/1cf3944
+    openrc_survival_test.go:722: canary 66245 in nexusd 66186's cgroup /openrc.nexusd
+    openrc_survival_test.go:728: case A: canary 66245 alive 5 s after the stop (default NO)
+    openrc_survival_test.go:734: canary 66497 in nexusd 66438's cgroup /openrc.nexusd
+    openrc_survival_test.go:736: invoked sleeper: operation 01a1d817-2256-73eb-89f5-f51c3edf8ceb, unit nexus-op-01a1d817-2256-73eb-89f5-f51c3edf8ceb.service
+    openrc_survival_test.go:740: case B: supervisor 66518 startTicks 238290785 cgroup /nexus-ops/01a1d817-2256-73eb-89f5-f51c3edf8ceb; nexusd cgroup /openrc.nexusd
+    openrc_survival_test.go:751: case B: canary 66497 gone after the stop: cleanup in effect
+    openrc_survival_test.go:776: case B: op 01a1d817-2256-73eb-89f5-f51c3edf8ceb Succeeded; the supervisor survived a cleanup that killed the canary
+--- PASS: TestCgroupCleanupDoesNotKillSupervisor (34.37s)
+    --- PASS: TestCgroupCleanupDoesNotKillSupervisor/stock (6.98s)
+    --- PASS: TestCgroupCleanupDoesNotKillSupervisor/1cf3944 (27.38s)
+=== RUN   TestAlpineHarnessSelfCheck
+    platform_test.go:99: PID 1 /sbin/init (BusyBox), docker started, cgroup v2 writable (controllers: cpuset cpu io memory hugetlb pids rdma misc), openrc (OpenRC [DOCKER]) 0.63.2, platform {Init:openrc OS:{ID:alpine VersionID:3.24.4 PrettyName:Alpine Linux v3.24 IDLike:[]}}
+--- PASS: TestAlpineHarnessSelfCheck (0.04s)
+=== RUN   TestReleaseBinaryStaticOnMusl
+    platform_test.go:346: /usr/local/bin/nexusd: no PT_INTERP, no DT_NEEDED; nexusd dev
+    platform_test.go:368: validate-config: /tmp/TestReleaseBinaryStaticOnMusl1123836117/004/nexusd.yaml: configuration is valid
+    platform_test.go:371: invoked known: operation 01a1d817-75e8-734a-b0c0-50953d6baeba, unit nexus-op-01a1d817-75e8-734a-b0c0-50953d6baeba.service
+    platform_test.go:373: runAs nexusrun: Succeeded <nil> "uid=1003\n"
+    platform_test.go:388: runAs nexus-no-such-user: 422 {"type":"urn:nexus:problem:script-integrity-failed","title":"Script integrity check failed","status":422,"detail":"the run-as user nexus-no-such-user cannot be resolved: user: unknown user nexus-no-such-user. Fix: create the user, or correct the catalog's runAs","check":"run-as-user","path":"/opt/nxtest/tc49/id.sh"}
+    cli_multihost_test.go:57: tc49 output:
+        {"time":"2026-11-14T03:26:18.333422597Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"tc49","listen":["127.0.0.1:7516"]}
+--- PASS: TestReleaseBinaryStaticOnMusl (0.97s)
+=== RUN   TestRequireInitGating
+    platform_test.go:399: requires systemd (detected openrc)
+--- SKIP: TestRequireInitGating (0.00s)
+=== RUN   TestScriptOutcomes
+    scripts_test.go:516: invoked ok: operation 01a1d817-7973-72b2-bc7e-096e227be843, unit nexus-op-01a1d817-7973-72b2-bc7e-096e227be843.service
+    scripts_test.go:517: ok: Succeeded result {"changed":true,"exitCode":0,"signal":"","durationSeconds":0.001}
+    scripts_test.go:541: invoked fail: operation 01a1d817-7b7f-7274-ab64-0cc3e99e58a7, unit nexus-op-01a1d817-7b7f-7274-ab64-0cc3e99e58a7.service
+    scripts_test.go:542: fail: Failed error script-failed: script fail exited with code 3 3
+    scripts_test.go:551: invoked liar: operation 01a1d817-7d8b-75da-bfdd-6b90d06db0ca, unit nexus-op-01a1d817-7d8b-75da-bfdd-6b90d06db0ca.service
+    scripts_test.go:552: liar: Succeeded result {"changed":true,"exitCode":0,"signal":"","durationSeconds":0.002}
+--- PASS: TestScriptOutcomes (1.85s)
+=== RUN   TestScriptTimeout
+    scripts_test.go:568: invoked slow: operation 01a1d817-80a2-75c5-ac49-13b49428fbc0, unit nexus-op-01a1d817-80a2-75c5-ac49-13b49428fbc0.service
+    scripts_test.go:571: slow: Failed script-timeout: script slow passed its timeout and was stopped by SIGTERM after 2.493746647s
+--- PASS: TestScriptTimeout (3.26s)
+=== RUN   TestScriptEnvironmentIsExact
+    scripts_test.go:642: invoked env: operation 01a1d817-8d74-75db-99d1-536c4c74da34, unit nexus-op-01a1d817-8d74-75db-99d1-536c4c74da34.service
+    scripts_test.go:642: env environment:
+        HOME=/home/deploy
+        LANG=C.UTF-8
+        LOGNAME=deploy
+        PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
+        SHELL=/bin/bash
+        TERM=dumb
+        USER=deploy
+    scripts_test.go:642: invoked env: operation 01a1d817-8f84-7269-87da-34864cf5f9df, unit nexus-op-01a1d817-8f84-7269-87da-34864cf5f9df.service
+    scripts_test.go:642: env environment:
+        HOME=/home/deploy
+        LANG=C.UTF-8
+        LOGNAME=deploy
+        PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
+        SHELL=/bin/bash
+        TERM=dumb
+        USER=deploy
+        XDG_RUNTIME_DIR=/run/user/1001
+    scripts_test.go:651: invoked env-override: operation 01a1d817-9190-7235-9e2e-86264b023f9d, unit nexus-op-01a1d817-9190-7235-9e2e-86264b023f9d.service
+    scripts_test.go:651: env-override environment:
+        DEPLOY_ENV=production
+        HOME=/home/deploy
+        LANG=C.UTF-8
+        LOGNAME=deploy
+        PATH=/home/deploy/.local/bin:/usr/bin:/bin
+        SHELL=/bin/bash
+        TERM=xterm
+        USER=deploy
+        XDG_RUNTIME_DIR=/run/user/1001
+--- PASS: TestScriptEnvironmentIsExact (1.86s)
+=== RUN   TestScriptHasNoTTY
+    scripts_test.go:689: invoked tty: operation 01a1d817-94a0-761d-afbf-61b113ab0745, unit nexus-op-01a1d817-94a0-761d-afbf-61b113ab0745.service
+    scripts_test.go:691: tty-check in 519.759021ms: Succeeded
+        tty: not a tty
+        fd0: not a terminal
+        fd1: not a terminal
+        fd2: not a terminal
+        ctty: none
+        read: EOF
+--- PASS: TestScriptHasNoTTY (1.02s)
+=== RUN   TestScriptRunsAsNonRootWithUnitUmask
+    scripts_test.go:725: /bin/sh is /bin/busybox
+    scripts_test.go:734: invoked umask: operation 01a1d817-98b7-7289-a8ef-64f692a18b4b, unit nexus-op-01a1d817-98b7-7289-a8ef-64f692a18b4b.service
+    scripts_test.go:742: openrc: output "1003\n", uid of nexusrun 1003; /tmp/nexus-umask-DQD2636UYNFOZMYRCSCKRPDXHS mode 644; nexusd Umask 0077
+--- PASS: TestScriptRunsAsNonRootWithUnitUmask (1.01s)
+=== RUN   TestScriptIdentityAndCredentials
+    scripts_test.go:789: invoked whoami: operation 01a1d817-9cb8-779b-81d0-afe1fd7893f6, unit nexus-op-01a1d817-9cb8-779b-81d0-afe1fd7893f6.service
+    scripts_test.go:791: whoami: Succeeded <nil>
+        id: uid=1001(deploy) gid=1001(deploy) groups=101(docker),1001(deploy)
+        docker: ok
+        fb8f2d4af3bed68db722eb5d68d46d7441fb64fe	refs/heads/main
+        protocol=https
+        host=git.nxtest.invalid
+        username=nxuser
+        password=nxpass
+        ssh-agent: none
+--- PASS: TestScriptIdentityAndCredentials (0.98s)
+=== RUN   TestScriptConcurrencyLimit
+    scripts_test.go:864: start one: 202 {"id":"01a1d817-a078-73b8-8c48-7cea29874528","host":"harness","action":"scripts.scripts.invoke","provider":"scripts","target":"one","tokenName":"run","status":"Queued","created":"2026-11-14T03:26:29.496427391Z","started":null,"ended":null,"result":null,"error":null,"outputEvicted":false}
+    scripts_test.go:865: start one: 409 {"type":"urn:nexus:problem:conflict","title":"Conflict","status":409,"detail":"another operation holds this operation's lane","blockingOperationId":"01a1d817-a078-73b8-8c48-7cea29874528"}
+    scripts_test.go:866: start two: 202 {"id":"01a1d817-a07c-7558-a854-923c2791bff5","host":"harness","action":"scripts.scripts.invoke","provider":"scripts","target":"two","tokenName":"run","status":"Queued","created":"2026-11-14T03:26:29.500144409Z","started":null,"ended":null,"result":null,"error":null,"outputEvicted":false}
+    scripts_test.go:867: start two: 202 {"id":"01a1d817-a07d-74c3-bb07-bf94588b0366","host":"harness","action":"scripts.scripts.invoke","provider":"scripts","target":"two","tokenName":"run","status":"Queued","created":"2026-11-14T03:26:29.501591141Z","started":null,"ended":null,"result":null,"error":null,"outputEvicted":false}
+    scripts_test.go:868: start two: 409 {"type":"urn:nexus:problem:conflict","title":"Conflict","status":409,"detail":"another operation holds this operation's lane","blockingOperationId":"01a1d817-a07c-7558-a854-923c2791bff5"}
+    scripts_test.go:884: start one: 202 {"id":"01a1d817-a285-72ef-bfcf-5c87097a6694","host":"harness","action":"scripts.scripts.invoke","provider":"scripts","target":"one","tokenName":"run","status":"Queued","created":"2026-11-14T03:26:30.02144584Z","started":null,"ended":null,"result":null,"error":null,"outputEvicted":false}
+    scripts_test.go:885: start two: 202 {"id":"01a1d817-a289-77f8-a9d0-c736766469e7","host":"harness","action":"scripts.scripts.invoke","provider":"scripts","target":"two","tokenName":"run","status":"Queued","created":"2026-11-14T03:26:30.025465863Z","started":null,"ended":null,"result":null,"error":null,"outputEvicted":false}
+--- PASS: TestScriptConcurrencyLimit (1.36s)
+=== RUN   TestScriptCancelStopsTreeAndHonorsGrace
+=== RUN   TestScriptCancelStopsTreeAndHonorsGrace/handles
+=== NAME  TestScriptCancelStopsTreeAndHonorsGrace
+    scripts_test.go:914: invoked handles: operation 01a1d817-a5bf-7394-b8d6-099cdf1f0872, unit nexus-op-01a1d817-a5bf-7394-b8d6-099cdf1f0872.service
+=== NAME  TestScriptCancelStopsTreeAndHonorsGrace/handles
+    scripts_test.go:921: handles: Canceled after 412.024741ms; exit.json {ExitCode:143 Signal: Started:2026-11-14 03:26:30.854231976 +0000 UTC Ended:2026-11-14 03:26:30.955641856 +0000 UTC TimedOut:false Canceled:true Error:} (true <nil>)
+=== RUN   TestScriptCancelStopsTreeAndHonorsGrace/ignores
+=== NAME  TestScriptCancelStopsTreeAndHonorsGrace
+    scripts_test.go:914: invoked ignores: operation 01a1d817-a7c8-74eb-8a70-2dd2983ef3d0, unit nexus-op-01a1d817-a7c8-74eb-8a70-2dd2983ef3d0.service
+=== NAME  TestScriptCancelStopsTreeAndHonorsGrace/ignores
+    scripts_test.go:921: ignores: Canceled after 2.479963212s; exit.json {ExitCode:-1 Signal:SIGKILL Started:2026-11-14 03:26:31.377041914 +0000 UTC Ended:2026-11-14 03:26:33.478850991 +0000 UTC TimedOut:false Canceled:true Error:} (true <nil>)
+--- PASS: TestScriptCancelStopsTreeAndHonorsGrace (3.89s)
+    --- PASS: TestScriptCancelStopsTreeAndHonorsGrace/handles (0.52s)
+    --- PASS: TestScriptCancelStopsTreeAndHonorsGrace/ignores (2.59s)
+=== RUN   TestScriptLeftoversStoppedContainersKept
+    scripts_test.go:990: invoked leave: operation 01a1d817-b583-7652-86da-d05f4d0baada, unit nexus-op-01a1d817-b583-7652-86da-d05f4d0baada.service
+    scripts_test.go:992: leave: Succeeded <nil> after 3.618349461s; output "started\n"
+--- PASS: TestScriptLeftoversStoppedContainersKept (4.59s)
+=== RUN   TestScriptLiveOutput
+    scripts_test.go:1016: invoked ticks: operation 01a1d817-c6e3-7366-bcb5-459c637eb93a, unit nexus-op-01a1d817-c6e3-7366-bcb5-459c637eb93a.service
+    scripts_test.go:1042: 25 lines; first at 254.185748ms, last at 5.05911676s, follow ended at 5.514510412s
+--- PASS: TestScriptLiveOutput (5.82s)
+=== RUN   TestScriptSurvivesDaemonKill9
+    scripts_test.go:1063: invoked five: operation 01a1d817-ddae-740d-b433-d197ba44bcaf, unit nexus-op-01a1d817-ddae-740d-b433-d197ba44bcaf.service
+    scripts_test.go:1069: kill -9 nexusd pid 70983
+    scripts_test.go:1080: after restart: Failed script-failed: script five exited with code 5; output "before\nafter\n"
+--- PASS: TestScriptSurvivesDaemonKill9 (1.97s)
+=== RUN   TestScriptSensitiveValuesStayOut
+    scripts_test.go:1115: invoked secret: operation 01a1d817-e549-76bb-8f55-66a37b4bf6ea, unit nexus-op-01a1d817-e549-76bb-8f55-66a37b4bf6ea.service
+    scripts_test.go:1182: persisted input {"name":"secret","parameters":{"apiKey":"[REDACTED]","branch":"main"}}, hasSensitive true
+--- PASS: TestScriptSensitiveValuesStayOut (1.07s)
+=== RUN   TestScriptHostileValuesAreInertArgv
+    scripts_test.go:1221: invoked argv: operation 01a1d817-e985-7036-abba-6c4c9aa16d62, unit nexus-op-01a1d817-e985-7036-abba-6c4c9aa16d62.service
+    scripts_test.go:1221: invoked argv: operation 01a1d817-eb8f-75fd-b1e5-01cb25381eb5, unit nexus-op-01a1d817-eb8f-75fd-b1e5-01cb25381eb5.service
+    scripts_test.go:1221: invoked argv: operation 01a1d817-ed9d-745c-86ca-2e751b2f55ed, unit nexus-op-01a1d817-ed9d-745c-86ca-2e751b2f55ed.service
+    scripts_test.go:1221: invoked argv: operation 01a1d817-efa5-70d9-abea-911a5ea446b2, unit nexus-op-01a1d817-efa5-70d9-abea-911a5ea446b2.service
+    scripts_test.go:1221: invoked argv: operation 01a1d817-f1b1-7392-b7a5-652920081d8d, unit nexus-op-01a1d817-f1b1-7392-b7a5-652920081d8d.service
+    scripts_test.go:1221: invoked argv: operation 01a1d817-f3ba-7202-a826-fb1117e5b22a, unit nexus-op-01a1d817-f3ba-7202-a826-fb1117e5b22a.service
+    scripts_test.go:1221: invoked argv: operation 01a1d817-f55b-7510-ae3f-bb78a47c84ae, unit nexus-op-01a1d817-f55b-7510-ae3f-bb78a47c84ae.service
+    scripts_test.go:1221: invoked argv: operation 01a1d817-f768-72a6-95b2-7a7e3665cbe1, unit nexus-op-01a1d817-f768-72a6-95b2-7a7e3665cbe1.service
+    scripts_test.go:1221: invoked argv: operation 01a1d817-f96d-75da-ab44-fd90eaecce42, unit nexus-op-01a1d817-f96d-75da-ab44-fd90eaecce42.service
+    scripts_test.go:1221: invoked argv: operation 01a1d817-fb79-72b1-a7d4-4cac34cb6551, unit nexus-op-01a1d817-fb79-72b1-a7d4-4cac34cb6551.service
+--- PASS: TestScriptHostileValuesAreInertArgv (5.42s)
+=== RUN   TestScriptCancelScopeFollowsStartScope
+    scripts_test.go:1252: invoked deploy-api: operation 01a1d817-feb6-70b4-8497-3dd82b52ee36, unit nexus-op-01a1d817-feb6-70b4-8497-3dd82b52ee36.service
+    scripts_test.go:1264: cancel with other: 403 {"type":"urn:nexus:problem:forbidden","title":"Forbidden","status":403,"detail":"the token lacks the scope scripts:run:deploy-api","requiredScope":"scripts:run:deploy-api"}
+    scripts_test.go:1264: cancel with read: 403 {"type":"urn:nexus:problem:forbidden","title":"Forbidden","status":403,"detail":"the token lacks the scope scripts:run:deploy-api","requiredScope":"scripts:run:deploy-api"}
+--- PASS: TestScriptCancelScopeFollowsStartScope (0.99s)
+=== RUN   TestScriptRestartAdmitsNoSecondRun
+    scripts_test.go:1297: invoked once: operation 01a1d818-0296-7275-a32d-155aa5903a9f, unit nexus-op-01a1d818-0296-7275-a32d-155aa5903a9f.service
+    scripts_test.go:1312: kill -9 nexusd pid 72660
+    scripts_test.go:1348: 30 starts after the restart, all 409 naming 01a1d818-0296-7275-a32d-155aa5903a9f
+--- PASS: TestScriptRestartAdmitsNoSecondRun (3.00s)
+=== RUN   TestScriptMaxRuntimeUnderStuckSupervisor
+    scripts_test.go:1374: invoked stuck: operation 01a1d818-0e4a-721d-aae4-29795ec872a3, unit nexus-op-01a1d818-0e4a-721d-aae4-29795ec872a3.service
+    scripts_test.go:1392: stuck: Failed outcome-unknown: the operation passed its maximum runtime; unit nexus-op-01a1d818-0e4a-721d-aae4-29795ec872a3.service was not stopped and may still be running after 1m3.013092236s (limit 1m3s)
+--- PASS: TestScriptMaxRuntimeUnderStuckSupervisor (64.34s)
+=== RUN   TestQueuedSensitiveScriptNeverStartsAfterRestart
+    scripts_test.go:1444: sens: Failed outcome-unknown: never started: its sensitive input was not persisted across the nexusd restart; plain: Succeeded <nil>
+--- PASS: TestQueuedSensitiveScriptNeverStartsAfterRestart (2.02s)
+=== RUN   TestScriptIntegrityOwnershipAsRoot
+    scripts_test.go:1527: invoked s6-private-group: operation 01a1d819-1186-73a6-a02f-2d5393da741f, unit nexus-op-01a1d819-1186-73a6-a02f-2d5393da741f.service
+=== RUN   TestScriptIntegrityOwnershipAsRoot/script-other
+    scripts_test.go:1550: script-other: 422 {"type":"urn:nexus:problem:script-integrity-failed","title":"Script integrity check failed","status":422,"detail":"/opt/nxi/a/s.sh is owned by UID 1002, not root or deploy. Fix: chown root /opt/nxi/a/s.sh","check":"script-owner","path":"/opt/nxi/a/s.sh"}
+=== RUN   TestScriptIntegrityOwnershipAsRoot/parent-other
+    scripts_test.go:1550: parent-other: 422 {"type":"urn:nexus:problem:script-integrity-failed","title":"Script integrity check failed","status":422,"detail":"directory /opt/nxi/b is owned by UID 1002, not root or deploy. Fix: chown root /opt/nxi/b","check":"directory-owner","path":"/opt/nxi/b"}
+=== RUN   TestScriptIntegrityOwnershipAsRoot/ancestor-other
+    scripts_test.go:1550: ancestor-other: 422 {"type":"urn:nexus:problem:script-integrity-failed","title":"Script integrity check failed","status":422,"detail":"directory /opt/nxi/c is owned by UID 1002, not root or deploy. Fix: chown root /opt/nxi/c","check":"directory-owner","path":"/opt/nxi/c"}
+=== RUN   TestScriptIntegrityOwnershipAsRoot/group-shared
+    scripts_test.go:1550: group-shared: 422 {"type":"urn:nexus:problem:script-integrity-failed","title":"Script integrity check failed","status":422,"detail":"directory /opt/nxi/d (drwxrwxr-x) is writable by group 1001, and it includes other, not only root or deploy. Fix: chmod g-w /opt/nxi/d","check":"directory-group-writable","path":"/opt/nxi/d"}
+=== RUN   TestScriptIntegrityOwnershipAsRoot/umask-0002
+    scripts_test.go:1550: umask-0002: 422 {"type":"urn:nexus:problem:script-integrity-failed","title":"Script integrity check failed","status":422,"detail":"/opt/nxi/e/s.sh (-rwxrwxr-x) is group-writable. Fix: chmod g-w /opt/nxi/e/s.sh","check":"script-writable","path":"/opt/nxi/e/s.sh"}
+=== RUN   TestScriptIntegrityOwnershipAsRoot/root-script
+    scripts_test.go:1550: root-script: 202 {"id":"01a1d819-1395-77a7-8860-b8707979b3bc","host":"harness","action":"scripts.scripts.invoke","provider":"scripts","target":"root-script","tokenName":"run","status":"Queued","created":"2026-11-14T03:28:04.501816087Z","started":null,"ended":null,"result":null,"error":null,"outputEvicted":false}
+=== RUN   TestScriptIntegrityOwnershipAsRoot/deploy-script
+    scripts_test.go:1550: deploy-script: 202 {"id":"01a1d819-1592-71e9-b430-4f931240893c","host":"harness","action":"scripts.scripts.invoke","provider":"scripts","target":"deploy-script","tokenName":"run","status":"Queued","created":"2026-11-14T03:28:05.010594928Z","started":null,"ended":null,"result":null,"error":null,"outputEvicted":false}
+=== RUN   TestScriptIntegrityOwnershipAsRoot/deploy-parent
+    scripts_test.go:1550: deploy-parent: 202 {"id":"01a1d819-17a1-773d-a90e-b41dc1bb82c6","host":"harness","action":"scripts.scripts.invoke","provider":"scripts","target":"deploy-parent","tokenName":"run","status":"Queued","created":"2026-11-14T03:28:05.537583772Z","started":null,"ended":null,"result":null,"error":null,"outputEvicted":false}
+--- PASS: TestScriptIntegrityOwnershipAsRoot (2.40s)
+    --- PASS: TestScriptIntegrityOwnershipAsRoot/script-other (0.00s)
+    --- PASS: TestScriptIntegrityOwnershipAsRoot/parent-other (0.00s)
+    --- PASS: TestScriptIntegrityOwnershipAsRoot/ancestor-other (0.00s)
+    --- PASS: TestScriptIntegrityOwnershipAsRoot/group-shared (0.00s)
+    --- PASS: TestScriptIntegrityOwnershipAsRoot/umask-0002 (0.00s)
+    --- PASS: TestScriptIntegrityOwnershipAsRoot/root-script (0.51s)
+    --- PASS: TestScriptIntegrityOwnershipAsRoot/deploy-script (0.52s)
+    --- PASS: TestScriptIntegrityOwnershipAsRoot/deploy-parent (0.52s)
+=== RUN   TestScriptUnresolvableRunAsNeverRunsAsRoot
+    scripts_test.go:1587: nouser: 422 {"type":"urn:nexus:problem:script-integrity-failed","title":"Script integrity check failed","status":422,"detail":"the run-as user nosuchuser cannot be resolved: user: unknown user nosuchuser. Fix: create the user, or correct the catalog's runAs","check":"run-as-user","path":"/opt/nxtest/err28/who.sh"}
+    scripts_test.go:1593: invoked nodir: operation 01a1d819-1ae1-750a-8cdd-72114ac31b3e, unit nexus-op-01a1d819-1ae1-750a-8cdd-72114ac31b3e.service
+    scripts_test.go:1594: nodir: Failed script-failed: script nodir was not started: its working directory /opt/nxtest/err28/missing does not exist or is not a directory. Fix: create it, or correct the catalog's workingDirectory
+--- PASS: TestScriptUnresolvableRunAsNeverRunsAsRoot (0.99s)
+=== RUN   TestSetsidChildInDaemonCgroupDies
+    survival_test.go:101: requires systemd (detected openrc)
+--- SKIP: TestSetsidChildInDaemonCgroupDies (0.00s)
+=== RUN   TestKill9LeavesOpRunningAndReportsTruthfully
+    survival_test.go:112: requires systemd (detected openrc)
+--- SKIP: TestKill9LeavesOpRunningAndReportsTruthfully (0.00s)
+=== RUN   TestLostSupervisorWithDaemonDownIsOutcomeUnknown
+    survival_test.go:178: requires systemd (detected openrc)
+--- SKIP: TestLostSupervisorWithDaemonDownIsOutcomeUnknown (0.00s)
+=== RUN   TestSupervisorDeathWithDaemonUp
+    survival_test.go:223: requires systemd (detected openrc)
+--- SKIP: TestSupervisorDeathWithDaemonUp (0.00s)
+=== RUN   TestCancelReachesProcessGroup
+    survival_test.go:276: requires systemd (detected openrc)
+--- SKIP: TestCancelReachesProcessGroup (0.00s)
+=== RUN   TestNeedrestartSkipsOpUnitsWithControl
+    survival_test.go:363: requires systemd (detected openrc)
+--- SKIP: TestNeedrestartSkipsOpUnitsWithControl (0.00s)
+PASS
+harness: tests exited 0
+harness: checking the parity logs and test.log skips (TC-46)
+=== RUN   TestParitySuitesRanAsRoot
+    platform_test.go:239: ops.log: 138 results, 40 process-backend subtests
+    platform_test.go:239: detach.log: 44 results, 1 process-backend subtests
+    platform_test.go:265: ops-nonroot.log: 138 results; skips:
+    platform_test.go:265: detach-nonroot.log: 44 results; skips:
+        TestOperationCgroupContainment: cgroup_linux_test.go:227: needs root
+        TestCancelKillsSetsidGrandchild: cgroup_linux_test.go:272: needs root
+        TestLeftoverSweepOnlyForControlGroup: cgroup_linux_test.go:301: needs root
+        TestCgroupFallbacks: cgroup_linux_test.go:381: needs root
+    platform_test.go:301: test.log: 153 results; 50 gated to systemd or to apt: TestAptMutationsSerializeFIFO, TestAptQueueSurvivesRestart, TestAptInstallPinAndPlusNames, TestAptRemovePurgeAndAutoremove, TestAptInstallAndUpgradeScopes, TestAptCancellationRules, TestAptInstallRejectsInjections, TestAptInstallNeverRemoves, TestAptInstallUnknownNamesAndVersions, TestAptPlusNamesRemoveAndSubsetUpgrade, TestAptRefreshSkipsTheLockPath, TestAptMutationLockAndAuditAgainstRealDpkg, TestAptSecurityDegradesOnThisBase, TestAptSuiteHasNoReleaseDependency, TestAptReadsMatchIndependentReadback, TestAptUpgradableCacheMeetsTargetAndInvalidates, TestAptRebootRequiredState, TestAptPreflightAndAbsentPackages, TestAptUpgradeSurvivesNexusdKill9DuringDpkg, TestAptSupervisorDeathMidDpkg, TestAptNeedrestartRestartsNexusdNotScriptUnit, TestAptUpgradePreviewEqualsOutcome, TestAptUpgradeSubset, TestAptUpgradeResultAndNoReboot, TestAptUpgradeWaitsForTheLock, TestAptUpgradeExternalHolderIsBusy, TestAptUpgradeBrokenStateIsReported, TestAptUpgradeFailureModes, TestAptUpgradeFinalizeAcrossRestartAndRotation, TestAptUpgradeRejectsHostileNames, TestProductionWiringCreatesRealUnit, TestShippedUnitRunsNexusdAndLaunchesOpUnit, TestSystemdInstallUnderDashUnchanged, TestInstallCleanIsLoopbackOnly, TestInstallNeverOverwritesConfig, TestUninstallRetentionAndPurge, TestEveryProviderOpUnderExactUnit, TestReloadUnderExactUnitKeepsOperations, TestConfigOwnershipEnforcedAsRoot, TestDiskFullRefusesMutations, TestNFRLatency, TestNFRProvidersDoNotBlock, TestNFRDependencyFailureMatrix, TestRequireInitGating, TestSetsidChildInDaemonCgroupDies, TestKill9LeavesOpRunningAndReportsTruthfully, TestLostSupervisorWithDaemonDownIsOutcomeUnknown, TestSupervisorDeathWithDaemonUp, TestCancelReachesProcessGroup, TestNeedrestartSkipsOpUnitsWithControl
+--- PASS: TestParitySuitesRanAsRoot (0.00s)
+PASS
+harness: parity check exited 0, parity suites 0
+harness: svcctl TestLiveMatrix against the container's nginx (openrc) -> svcctl-live.log
+=== RUN   TestLiveMatrix
+    svcctl_test.go:846: openrc stop: exit 0, output " * WARNING: nginx is already stopped\n"; Status {Known:true State:stopped Since:<nil> MainPID:0 Raw:* status: stopped}
+    svcctl_test.go:847: openrc start: exit 0, output "Service 'acpid' needs non existent service 'dev'\nService 'hwdrivers' needs non existent service 'dev'\nService 'machine-id' needs non existent service 'dev'\nService 'watchdog' needs non existent service 'dev'\n * Caching service dependencies ... [ ok ]\n * /run/nginx: creating directory\n * /run/nginx: correcting owner\n * Starting nginx ... [ ok ]\n"; Status {Known:true State:running Since:<nil> MainPID:74683 Raw:* status: started}
+    svcctl_test.go:848: openrc reload: exit 0, output " * Reloading nginx configuration ... [ ok ]\n"; Status {Known:true State:running Since:<nil> MainPID:74683 Raw:* status: started}
+    svcctl_test.go:849: openrc restart: exit 0, output " * Stopping nginx ... [ ok ]\n * Starting nginx ... [ ok ]\n"; Status {Known:true State:running Since:<nil> MainPID:74810 Raw:* status: started}
+    svcctl_test.go:850: openrc stop: exit 0, output " * Stopping nginx ... [ ok ]\n"; Status {Known:true State:stopped Since:<nil> MainPID:0 Raw:* status: stopped}
+--- PASS: TestLiveMatrix (1.73s)
+PASS
+harness: collecting logs into build/harness/logs/20261114T030744Z
+harness: collected rc.log (53 lines)
+harness: collected messages.log (870 lines)
+harness: container nx-wi34-alpine-20261114T030744Z-42378 removed
+harness: dist/ untouched
+harness: exit 0

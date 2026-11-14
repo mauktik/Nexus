@@ -13,10 +13,18 @@ STAGE_DIR   := $(BUILD_DIR)/release
 
 VERSION_LDFLAGS := -X $(MODULE)/internal/version.Version=$(VERSION)
 RELEASE_LDFLAGS := -s -w $(VERSION_LDFLAGS)
+# Release binaries are static (FR-38), so the same nexusd runs on glibc and
+# musl (Alpine) hosts. Under CGO_ENABLED=0 the standard library takes its
+# pure-Go paths: os/user parses /etc/passwd and /etc/group itself, and net
+# uses the pure-Go DNS resolver, which reads /etc/resolv.conf, /etc/hosts and
+# /etc/nsswitch.conf. Neither calls libc, so lookups behave the same on musl.
+# build-release checks the linux binaries with STATICCHECK.
 RELEASE_BUILD   := CGO_ENABLED=0 go build -trimpath -ldflags='$(RELEASE_LDFLAGS)'
+# Fails when an ELF has a PT_INTERP program header or any DT_NEEDED entry.
+STATICCHECK     := go run ./test/buildsys/staticcheck
 
 # Everything the nexusd tarball carries besides the binary and the docs.
-NEXUSD_FILES := deploy/nexusd.service deploy/nexusd.default.yaml deploy/install.sh deploy/uninstall.sh
+NEXUSD_FILES := deploy/nexusd.service deploy/nexusd.openrc deploy/nexusd.default.yaml deploy/install.sh deploy/uninstall.sh
 
 # Tarball entries are owned by root, without extended attributes or macOS
 # metadata, whichever tar builds them.
@@ -36,23 +44,32 @@ RELEASE_KEY ?= $(or $(NEXUS_RELEASE_KEY),$(HOME)/.config/nexus/release-signing.k
 # recurses into make.
 export NEXUS_IN_MAKE := 1
 
-.PHONY: build build-release test vet vuln check docs docs-check test-harness test-harness-pihole release release-version release-key release-key-check nexusd-tree nexusd-tarball test-emu nfr nfr-sizes
+.PHONY: build build-release test vet vuln check docs docs-check test-harness test-harness-alpine test-harness-pihole release release-version release-key release-key-check nexusd-tree nexusd-tarball test-emu nfr nfr-sizes
 
 # Host-arch binaries for local use.
 build:
 	go build -ldflags='$(VERSION_LDFLAGS)' -o $(BUILD_DIR)/ ./cmd/nexusd ./cmd/nexus
 
 # Exactly the shipped artifacts: nexusd linux/amd64, nexus darwin/arm64 and
-# linux/amd64. There is deliberately no linux/arm64 artifact.
+# linux/amd64. There is deliberately no linux/arm64 artifact. The linux
+# binaries are built and checked static first, so a dynamically linked one
+# fails the target before anything else is built.
 build-release:
 	rm -rf $(DIST_DIR)
 	mkdir -p $(DIST_DIR)
 	GOOS=linux  GOARCH=amd64 $(RELEASE_BUILD) -o $(DIST_DIR)/nexusd-linux-amd64 ./cmd/nexusd
-	GOOS=darwin GOARCH=arm64 $(RELEASE_BUILD) -o $(DIST_DIR)/nexus-darwin-arm64 ./cmd/nexus
 	GOOS=linux  GOARCH=amd64 $(RELEASE_BUILD) -o $(DIST_DIR)/nexus-linux-amd64  ./cmd/nexus
+	$(STATICCHECK) $(DIST_DIR)/nexusd-linux-amd64 $(DIST_DIR)/nexus-linux-amd64
+	GOOS=darwin GOARCH=arm64 $(RELEASE_BUILD) -o $(DIST_DIR)/nexus-darwin-arm64 ./cmd/nexus
+
+# Go's default per-package timeout is 10m. test/buildsys runs `make check`
+# (which runs this whole suite) inside TestMakeCheckIsTheGate and takes
+# ~7-8 minutes unloaded, so under load it overran the default and panicked
+# "test timed out". 30m leaves headroom without hiding a real hang.
+TEST_TIMEOUT ?= 30m
 
 test:
-	go test -race ./...
+	go test -race -timeout $(TEST_TIMEOUT) ./...
 
 # Linux-only code sits behind build tags, so vet the release target too.
 vet:
@@ -107,8 +124,9 @@ release-version:
 		{ echo "release: VERSION='$(VERSION)' is not vMAJOR.MINOR.PATCH[-PRERELEASE]" >&2; exit 1; }
 
 # nexusd-tree TREE_BIN=<binary> TREE_DIR=<dir>: the nexusd release tree
-# (binary, unit, default config, install and uninstall scripts, docs). The
-# release packs it; the T1 harness installs a harness-arch one with install.sh.
+# (binary, systemd unit, OpenRC script, default config, install and
+# uninstall scripts, docs). The release packs it; the T1 harness installs a
+# harness-arch one with install.sh.
 nexusd-tree:
 	@[ -n '$(TREE_BIN)' ] && [ -n '$(TREE_DIR)' ] || { echo "nexusd-tree: set TREE_BIN and TREE_DIR" >&2; exit 2; }
 	rm -rf $(TREE_DIR)
@@ -117,7 +135,7 @@ nexusd-tree:
 	cp $(NEXUSD_FILES) README.md $(TREE_DIR)/
 	cp -R docs/. $(TREE_DIR)/docs/
 	chmod -R u=rwX,go=rX $(TREE_DIR)
-	chmod 0755 $(TREE_DIR)/nexusd $(TREE_DIR)/install.sh $(TREE_DIR)/uninstall.sh
+	chmod 0755 $(TREE_DIR)/nexusd $(TREE_DIR)/nexusd.openrc $(TREE_DIR)/install.sh $(TREE_DIR)/uninstall.sh
 
 # nexusd-tarball TREE_DIR=<dir> TARBALL=<file>: pack one nexusd tree as the
 # release packs it, with TAR_FLAGS, the tree's directory name as the single
@@ -134,6 +152,11 @@ nexusd-tarball:
 test-harness:
 	BASE='$(BASE)' RUN='$(RUN)' test/harness/run.sh
 
+# T1 Alpine (WI 3.4): the same run on real OpenRC, BusyBox init as PID 1 in
+# a privileged container with a private cgroup namespace (cgroup v2
+# writable). BASE defaults to alpine:latest; RUN narrows the tests.
+test-harness-alpine:
+	BASE='$(BASE)' RUN='$(RUN)' test/harness/run.sh alpine
 # T1 Pi-hole v5 (WI 5.1): the test/harness/pihole image (FTL v5.25.2 under
 # systemd, with the stub upstream and the fixture HTTP server), built with
 # pihole-FTL's native systemd unit or, with INIT=sysv, the SysV script; then

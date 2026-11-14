@@ -1,0 +1,43 @@
+BASE='' RUN='^TestNFRIdleFootprint' test/harness/run.sh
+harness: docker context colima, daemon architecture aarch64 -> GOARCH=arm64, BASE=ubuntu:latest, init systemd
+harness: building linux/arm64 test-only binaries into build/harness/
+harness: building image nexus-harness:ubuntu-latest from test/harness/Dockerfile
+harness: starting container nx-tc45-20261114T043416Z-73774
+harness: mounts: volume:/var/lib/containerd volume:/var/lib/docker 
+harness: waiting for systemd (running or degraded)
+harness: system state: degraded
+harness: failed units: systemd-modules-load.service
+harness: required unit systemd-journald.service active
+harness: required unit dbus.service active
+harness: required unit docker.service active
+harness: versions: systemd 259 (259.9-0ubuntu0.1) apt 3.2.0 dpkg 1.23.7ubuntu1 Ubuntu 26.04.1 LTS
+harness: copying binaries, unit, lib.sh and fixtures in with docker cp
+harness: running tests
+=== RUN   TestNFRIdleFootprint
+    footprint_test.go:637: NFR load at start: VM loadavg 0.72 0.37 0.39 3/192 341, 4 CPUs
+    footprint_test.go:639: NFR DRY RUN: idle window 30s is shorter than NFR-1's 5 minutes; not a measurement
+    footprint_test.go:644: NFR env: 50 nfr containers running, 50 containers on the Engine in all; nested Engine 29.1.3 (API 1.52, linux/arm64)
+    footprint_test.go:649: NFR harness binary /usr/local/bin/nexusd: 18337538 bytes (unstripped linux/arm64 build; the release size is make nfr's)
+    footprint_test.go:664: NFR TC-187 startup exec->READY=1 (systemd monotonic) over 10 starts: n=10 p50=91.3ms p95=149.7ms max=149.7ms mean=98.6ms; each [108.737ms 97.531ms 149.68ms 104.41ms 91.341ms 76.673ms 81.395ms 113.04ms 86.734ms 76.306ms]
+    footprint_test.go:665: NFR TC-187 startup systemctl start wall time: n=10 p50=98.8ms p95=155.9ms max=155.9ms mean=105.1ms
+    footprint_test.go:677: NFR TC-187 after start (no request yet): RSS 21.0 MiB, threads 8, fds 10
+    footprint_test.go:692: NFR TC-188 control: during the warm-up the Engine logged 56 API calls and nexusd's cminflt grew by 11934 (children reaped)
+    footprint_test.go:780: NFR TC-187 idle window 30.011s (30 RSS samples at 1 s)
+    footprint_test.go:781: NFR TC-187 idle RSS: max 20.40 MiB, mean 20.40 MiB, start 20.40 MiB, end 20.40 MiB, VmHWM 20.88 MiB; threads 9 -> 9, fds 10 -> 10
+    footprint_test.go:783: NFR TC-187 idle CPU: cgroup usage 0s over 30.011s = 0.0000% of one core; /proc ticks 0 = 0.0000%
+    footprint_test.go:806: NFR TC-188 idle window: 0 Docker API calls, cminflt +0, cutime+cstime +0, 0 other processes in the unit's cgroup, 0 apt/dpkg processes seen (any parent), 0 nexusd journal lines, 0 op-unit journal lines
+    footprint_test.go:824: NFR TC-45 systemd, 30s windows, watcher poll rate 2.0/s (60 polls); RSS 20.40 MiB
+    footprint_test.go:824: NFR TC-45 nexusd idle: 2 wakeups at a 20ms gap (0.07/s); 5 context switches (0.08 per poll), 5 timeslices; CPU 226µs (3.8 us per poll, 0.0008% of one core); 17717 samples, 3 active; wakeups at 2ms=3 5ms=3 10ms=3 20ms=2 50ms=2 100ms=1 200ms=1; gaps up to 2/5/10/20/50/100/300/450/550/more ms [0 0 0 1 0 1 0 0 0 0]; threads 4068{1 switches, 147µs} 4071{4 switches, 79µs}
+    footprint_test.go:824: NFR TC-45 nexusd one op running: 63 wakeups at a 20ms gap (2.10/s); 634 context switches (10.57 per poll), 634 timeslices; CPU 29.504ms (491.7 us per poll, 0.0983% of one core); 16527 samples, 127 active; wakeups at 2ms=73 5ms=63 10ms=63 20ms=63 50ms=60 100ms=60 200ms=60; gaps up to 2/5/10/20/50/100/300/450/550/more ms [54 10 0 0 3 0 0 0 59 0]; threads 4068{31 switches, 5.926ms} 4071{432 switches, 7.152ms} 4072{72 switches, 6.028ms} 4073{32 switches, 4.219ms} 4083{67 switches, 6.18ms}
+    footprint_test.go:824: NFR TC-45 reference process (ReadExit every 500ms, in the idle window): 60 wakeups at a 20ms gap (2.00/s); 510 context switches (8.50 per poll), 510 timeslices; CPU 9.78ms (163.0 us per poll, 0.0326% of one core); 17729 samples, 115 active; wakeups at 2ms=63 5ms=60 10ms=60 20ms=60 50ms=60 100ms=60 200ms=60; gaps up to 2/5/10/20/50/100/300/450/550/more ms [52 3 0 0 0 0 0 0 59 0]; threads 4128{60 switches, 2.349ms} 4129{296 switches, 3.394ms} 4130{73 switches, 2.05ms} 4132{81 switches, 1.987ms}
+    footprint_test.go:824: NFR TC-45 one op adds 61 wakeups (2.03/s, 1.02 per poll) and 629 context switches (10.48 per poll; the reference 8.50 per poll); CPU over the op window 29.504ms (29.279ms over idle), +18.0% from the systemd launcher's 25ms
+    footprint_test.go:824: TC-45: nexusd's CPU time over the one-op window is 29.504ms, +18.0% from the systemd launcher's 25ms on Ubuntu (-nfr.systemd-op-cpu), want within 10%
+    footprint_test.go:1095: NFR load at end: VM loadavg 0.66 0.47 0.43 4/209 6324
+--- FAIL: TestNFRIdleFootprint (151.26s)
+FAIL
+harness: tests exited 1
+harness: collecting logs into build/harness/logs/20261114T043416Z
+harness: container nx-tc45-20261114T043416Z-73774 removed
+harness: dist/ untouched
+harness: exit 1
+make: *** [test-harness] Error 1

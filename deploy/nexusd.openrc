@@ -1,0 +1,47 @@
+#!/sbin/openrc-run
+# shellcheck shell=sh disable=SC2034
+# OpenRC service script for nexusd, installed as /etc/init.d/nexusd (0755).
+# The systemd unit is deploy/nexusd.service; docs/security.md lists what each
+# of its directives becomes here.
+
+description="Nexus server manager daemon"
+
+supervisor=supervise-daemon
+command=/usr/local/bin/nexusd
+command_args="serve --config /etc/nexus/nexusd.yaml"
+command_user="root:root"
+pidfile="/run/${RC_SVCNAME}.pid"
+# nexusd itself runs with umask 077. Detached operation supervisors reset it
+# to 0022 for the work they start.
+umask=077
+
+# Respawn a crashed nexusd after 2 s; give up after 5 respawns in 60 s.
+respawn_delay=2
+respawn_max=5
+respawn_period=60
+# A stop sends TERM and waits up to 15 s for a graceful shutdown, then KILL.
+retry="TERM/15/KILL/5"
+
+output_logger="logger -t nexusd -p daemon.info"
+error_logger="logger -t nexusd -p daemon.err"
+
+# openrc-run sources /etc/conf.d/nexusd (and /etc/rc.conf) before this
+# script, so a plain assignment would override the operator. Default only.
+rc_cgroup_cleanup="${rc_cgroup_cleanup:-NO}"
+
+extra_started_commands="reload"
+
+depend() {
+	need net
+	after firewall
+}
+
+start_pre() {
+	checkpath --directory --owner root:root --mode 0700 /var/lib/nexus /var/log/nexus
+}
+
+reload() {
+	ebegin "Reloading $RC_SVCNAME"
+	supervise-daemon "$RC_SVCNAME" --signal HUP
+	eend $?
+}

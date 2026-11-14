@@ -94,6 +94,11 @@ func sameDurations(a, b []time.Duration) bool {
 // with its slot held, and the next poll retries. With nothing running, no
 // call is made and no watcher goroutine remains.
 func TestWatcherLivenessPollingWhileTheDaemonIsUp(t *testing.T) {
+	// Step 4 counts every watcher goroutine of the process: the watchers
+	// of earlier tests' operations, outside this test's bubble, must have
+	// ended first (seen on the T1 harnesses, where a whole package runs in
+	// one process).
+	waitNoWatcher(t)
 	synctest.Test(t, func(t *testing.T) {
 		units := &scriptedUnits{answer: map[string]func(context.Context) (detach.UnitState, error){},
 			calls: map[string][]time.Time{}}

@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mauktik/nexus/internal/platform"
 	nrelease "github.com/mauktik/nexus/internal/release"
 )
 
@@ -79,6 +80,9 @@ func tarTops(t *testing.T, file string) []string {
 // `nexus-release verify` passing for each trusted fixture before the
 // copy-in, with the host's real signing key untouched.
 func TestTCSM107_FixtureTarballsAreSignedWithA(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	ents, err := os.ReadDir(fixtureDir)
 	if err != nil {
 		t.Fatal(err)

@@ -203,7 +203,7 @@ const (
 	// other providers' operations.
 	interruptNote = " Restarting nexusd neither waits for nor cancels other operations: in-process operations " +
 		"of other providers end outcome-unknown, and detached operations survive."
-	recordNote = " It runs in a systemd unit outside the sandbox, and the daemon that is running when the " +
+	recordNote = " It runs in a systemd unit (systemd hosts only, not OpenRC) outside the sandbox, and the daemon that is running when the " +
 		"unit ends records the outcome. The CLI keeps reconnecting for up to 60 seconds while nexusd restarts."
 )
 

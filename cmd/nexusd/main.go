@@ -20,6 +20,7 @@ import (
 	"github.com/mauktik/nexus/internal/detach"
 	"github.com/mauktik/nexus/internal/providers/docker"
 	"github.com/mauktik/nexus/internal/providers/nexusd"
+	"github.com/mauktik/nexus/internal/providers/nginx"
 	"github.com/mauktik/nexus/internal/providers/pihole"
 	"github.com/mauktik/nexus/internal/tlsutil"
 	"github.com/mauktik/nexus/internal/version"
@@ -50,6 +51,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 			// operation's unit (D-8). Its progress goes to stdout, which
 			// the supervisor frames into the operation's output.
 			return docker.UpdateHelper(args[1:], stdout, stderr)
+		case nginx.HelperCommand:
+			// Hidden: one nginx operation, run by op-supervise outside
+			// nexusd's sandbox (CON-2). Its progress and nginx's output go
+			// to stdout, which the supervisor frames into the operation's
+			// output.
+			return nginx.Helper(args[1:], stdout, stderr)
 		case nexusd.HelperCommand:
 			// Hidden: a restart, update or rollback of nexusd itself, run by
 			// op-supervise in the operation's unit, outside nexusd.service.
@@ -115,11 +122,13 @@ func validateConfig(args []string, stdout, stderr io.Writer) int {
 }
 
 // opSupervise runs one detached operation from its directory's spec.json.
-// systemd-run starts it as the main process of nexus-op-<id>.service.
+// systemd-run starts it as the main process of nexus-op-<id>.service; the
+// process backend starts it with --process on a host without systemd.
 func opSupervise(args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet(name+" op-supervise", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dir := fs.String("dir", "", "the operation's directory")
+	process := fs.Bool("process", false, "started by the process backend, not as a systemd unit")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -127,10 +136,14 @@ func opSupervise(args []string, stderr io.Writer) int {
 		return 2
 	}
 	if *dir == "" || fs.NArg() > 0 {
-		fmt.Fprintf(stderr, "%s op-supervise: usage: %s op-supervise --dir dir\n", name, name)
+		fmt.Fprintf(stderr, "%s op-supervise: usage: %s op-supervise --dir dir [--process]\n", name, name)
 		return 2
 	}
-	return detach.Supervise(*dir, stderr)
+	mode := detach.ModeUnit
+	if *process {
+		mode = detach.ModeProcess
+	}
+	return detach.Supervise(*dir, stderr, mode)
 }
 
 // serve runs the daemon until SIGTERM. Logs go to stdout as JSON; only

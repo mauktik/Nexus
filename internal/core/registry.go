@@ -20,6 +20,7 @@ import (
 	"github.com/mauktik/nexus/internal/audit"
 	"github.com/mauktik/nexus/internal/def"
 	"github.com/mauktik/nexus/internal/ops"
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/provider"
 )
@@ -69,6 +70,9 @@ type Options struct {
 	// StorageCheck is the storage hook (4.3) at Data Flow step 5: a non-nil
 	// problem refuses a new mutation. Nil means no limit.
 	StorageCheck func() *problem.Error
+	// Platform is the host's init system and OS, reported in capabilities
+	// (FR-18). The zero value means platform.Current().
+	Platform platform.Info
 }
 
 // Entry is one binding and the provider that owns it.
@@ -82,6 +86,7 @@ type Entry struct {
 // atomically, so readers never see half of a refresh or reload.
 type Registry struct {
 	host, version    string
+	platform         platform.Info
 	log              *slog.Logger
 	preflightTimeout time.Duration
 	now              func() time.Time
@@ -124,6 +129,12 @@ func New(providers []provider.Provider, opts Options) (*Registry, error) {
 		audit:            opts.Audit,
 		ops:              opts.Ops,
 		storageCheck:     opts.StorageCheck,
+		platform:         opts.Platform,
+	}
+	// A detected Info always has an Init, Unknown at worst, so an empty one
+	// is the zero value.
+	if r.platform.Init == "" {
+		r.platform = platform.Current()
 	}
 	if r.now == nil {
 		r.now = time.Now

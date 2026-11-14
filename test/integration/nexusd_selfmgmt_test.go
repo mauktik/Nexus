@@ -49,6 +49,7 @@ import (
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/client"
 	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/providers/nexusd/spec"
 	"github.com/mauktik/nexus/internal/systemspec"
@@ -730,6 +731,9 @@ func requireActive(t *testing.T, when string) map[string]string {
 // A-31, A-33): T1 (a): an update from v9.9.1 to v9.9.2 succeeds with
 // exactly one restart.
 func TestTCSM109_T1AAnUpdateFromV9(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	h := newSMHost(t, "tcsm109")
 	unitBefore, err := os.ReadFile(installedUnit)
 	if err != nil {
@@ -840,6 +844,9 @@ func rollbackCase(t *testing.T, name, v string) (*smHost, smUpdate) {
 // TC-SM-110 (WI 7.2; FR-8, FR-9): T1 (b): a failing install.sh is rolled
 // back.
 func TestTCSM110_T1BAFailingInstallSh(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	h, u := rollbackCase(t, "tcsm110", "v9.9.3")
 	// startExact required the installed unit to be the shipped one before
 	// the update; the backup saved that unit.
@@ -866,6 +873,9 @@ func TestTCSM110_T1BAFailingInstallSh(t *testing.T) {
 // TC-SM-111 (WI 7.2; FR-8, FR-9, FR-10): T1 (c): a binary that exits at
 // start is rolled back after reset-failed.
 func TestTCSM111_T1CABinaryThatExits(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	since := smWindow()
 	_, u := rollbackCase(t, "tcsm111", "v9.9.4")
 	p := showUnit(t, nexusdUnit, "ActiveState", "Result", "NRestarts")
@@ -885,6 +895,9 @@ func TestTCSM111_T1CABinaryThatExits(t *testing.T) {
 // TC-SM-112 (WI 7.2; FR-8, FR-9, FR-10; A-17): T1 (d): a healthy binary
 // that reports the wrong version is rolled back.
 func TestTCSM112_T1DAHealthyBinaryThat(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	h := newSMHost(t, "tcsm112")
 	// A-17 directly: once another image is renamed over the binary path,
 	// /proc/<MainPID>/exe still runs the image the process started from.
@@ -926,6 +939,9 @@ func TestTCSM112_T1DAHealthyBinaryThat(t *testing.T) {
 // TC-SM-113 (WI 7.2; FR-7, FR-16, NFR-5): T1 (e): a tarball signed by an
 // untrusted key is refused, with no op and the upload deleted.
 func TestTCSM113_T1EATarballSignedBy(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	h := newSMHost(t, "tcsm113")
 	r := h.cli("nexusd", "update", "--file", smTarball("v9.9.6"), "-o", "json", "--verbose")
 	p := r.problem()
@@ -960,6 +976,9 @@ func TestTCSM113_T1EATarballSignedBy(t *testing.T) {
 // TC-SM-114 (WI 7.2; FR-5, FR-9, FR-10; A-19): T1 (f): restart produces a
 // new MainPID and reports the version.
 func TestTCSM114_T1FRestartProducesANew(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	h := newSMHost(t, "tcsm114")
 	stop := h.observe()
 	r := h.cli("nexusd", "restart", "-o", "json")
@@ -995,6 +1014,9 @@ func TestTCSM114_T1FRestartProducesANew(t *testing.T) {
 // TC-SM-115 (WI 7.2; FR-12, FR-9, ASM-7): T1 (g): rollback after (a), then
 // rollback again.
 func TestTCSM115_T1GRollbackAfterAThen(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	h := newSMHost(t, "tcsm115")
 	if u := h.update("v9.9.2"); u.run.code != 0 || u.op.Status != apitypes.StatusSucceeded {
 		t.Fatalf("setup update to v9.9.2: exit %d, %s", u.run.code, u.op.Status)
@@ -1032,6 +1054,9 @@ func TestTCSM115_T1GRollbackAfterAThen(t *testing.T) {
 // TC-SM-116 (WI 7.2; FR-12): T1 (h): rollback on a fresh install is
 // rollback-unavailable.
 func TestTCSM116_T1HRollbackOnAFresh(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	h := newSMHost(t, "tcsm116")
 	r := h.cli("nexusd", "rollback", "--yes", "-o", "json")
 	p := r.problem()
@@ -1049,6 +1074,9 @@ func TestTCSM116_T1HRollbackOnAFresh(t *testing.T) {
 // TC-SM-117 (WI 7.2; FR-4, FR-3): T1 (i): reload refuses an unknown key,
 // then applies a valid change.
 func TestTCSM117_T1IReloadRefusesAnUnknown(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	h := newSMHost(t, "tcsm117")
 	good := smConfig(h.pub, "")
 	install := func(cfg string) {
@@ -1103,6 +1131,9 @@ func TestTCSM117_T1IReloadRefusesAnUnknown(t *testing.T) {
 // restart admitted after U's end is correct (FR-11 refuses only while U is
 // non-terminal). See tc118Classify.
 func TestTCSM118_T1JAConcurrentRequestDuring(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	h := newSMHost(t, "tcsm118")
 	stop := h.observe()
 	r := h.cli("nexusd", "update", "--file", smTarball("v9.9.2"), "--no-wait", "-o", "json")
@@ -1220,6 +1251,9 @@ type stampedLine struct {
 // TC-SM-119 (WI 7.2; FR-14): T1 (k): --follow prints log output after
 // reconnecting across the restart.
 func TestTCSM119_T1KFollowPrintsLogOutput(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	h := newSMHost(t, "tcsm119")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
@@ -1304,6 +1338,9 @@ func TestTCSM119_T1KFollowPrintsLogOutput(t *testing.T) {
 // TC-SM-120 (WI 7.2; FR-7, ASM-6): T1: updating to the running version
 // changes nothing.
 func TestTCSM120_T1UpdatingToTheRunningVersion(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	h := newSMHost(t, "tcsm120")
 	sum := sha(t, nexusdBin)
 	u := h.update("v9.9.1")
@@ -1326,6 +1363,9 @@ func TestTCSM120_T1UpdatingToTheRunningVersion(t *testing.T) {
 // TC-SM-121 (WI 7.2; FR-7, ASM-6): T1: a downgrade is refused without the
 // flag and installed with it.
 func TestTCSM121_T1ADowngradeIsRefusedWithout(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	h := newSMHost(t, "tcsm121")
 	if u := h.update("v9.9.2"); u.run.code != 0 || u.op.Status != apitypes.StatusSucceeded {
 		t.Fatalf("setup update to v9.9.2: exit %d, %s", u.run.code, u.op.Status)
@@ -1358,6 +1398,9 @@ func TestTCSM121_T1ADowngradeIsRefusedWithout(t *testing.T) {
 // TC-SM-122 (WI 7.2; FR-7, NFR-5): T1: a tarball with one byte flipped
 // after signing is refused.
 func TestTCSM122_T1ATarballWithOneByte(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	h := newSMHost(t, "tcsm122")
 	b, err := os.ReadFile(smTarball("v9.9.2"))
 	if err != nil {
@@ -1388,6 +1431,9 @@ func TestTCSM122_T1ATarballWithOneByte(t *testing.T) {
 // TC-SM-123 (WI 7.2; FR-8, FR-9, FR-18; A-6, A-44): T1 (l):
 // update-rollback-failed is recorded by the next nexusd to start.
 func TestTCSM123_T1UpdateRollbackFailedIsRecorded(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	h := newSMHost(t, "tcsm123")
 	since := smWindow()
 	r := h.cli("nexusd", "update", "--file", smTarball("v9.9.7"), "-o", "json")
@@ -1462,6 +1508,9 @@ func TestTCSM123_T1UpdateRollbackFailedIsRecorded(t *testing.T) {
 // TC-SM-124 (WI 7.2; FR-12; A-31): T1: rollback is refused when the
 // previous binary rejects the current config.
 func TestTCSM124_T1RollbackIsRefusedWhenThe(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	h := newSMHost(t, "tcsm124")
 	stub := "#!/bin/sh\ncase \"$1\" in\n-version) echo 'nexusd v9.9.0' ;;\n" +
 		"validate-config) echo 'tc124 first error line' >&2; echo 'tc124 second error line' >&2; exit 1 ;;\n" +
@@ -1495,6 +1544,9 @@ func TestTCSM124_T1RollbackIsRefusedWhenThe(t *testing.T) {
 // TC-SM-125 (WI 7.2; FR-2, FR-3, FR-1; A-31): T1: get and validate-config
 // read back the real host state.
 func TestTCSM125_T1GetAndValidateConfigRead(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	h := newSMHost(t, "tcsm125")
 	get := func(step string) spec.DaemonProperties {
 		t.Helper()
@@ -1560,6 +1612,9 @@ func p95(ds []time.Duration) time.Duration {
 // TC-SM-126 (WI 7.2; NFR-1): T1: update downtime p95 under 15 s, and
 // rollback within healthTimeout + 20 s.
 func TestTCSM126_T1NFR1UpdateDowntimeP95(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	var ups []time.Duration
 	for i := range 5 {
 		t.Run(fmt.Sprintf("update-%d", i+1), func(t *testing.T) {
@@ -1607,6 +1662,9 @@ const smPrevReal = "/usr/local/bin/nexusd-tc127-real"
 // TC-SM-127 (WI 7.2; NFR-2): T1: get and validate-config p95 under 200 ms,
 // with nexusd.prev executed at most once.
 func TestTCSM127_T1NFR2GetAndValidate(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	h := newSMHost(t, "tcsm127")
 	if u := h.update("v9.9.2"); u.run.code != 0 || u.op.Status != apitypes.StatusSucceeded {
 		t.Fatalf("update to v9.9.2: exit %d, %s", u.run.code, u.op.Status)
@@ -1727,6 +1785,9 @@ func (h *smHost) upload(path, sig string) (int, []byte) {
 // TC-SM-128 (WI 7.2; NFR-4, FR-6): T1: upload RSS bound, and staging
 // cleanup after a refusal and after an expiry sweep.
 func TestTCSM128_T1NFR4UploadRSSBound(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	h := newSMHost(t, "tcsm128")
 	big := filepath.Join(t.TempDir(), "random-64MiB.tar.gz")
 	data := make([]byte, spec.DefaultMaxUploadBytes)
@@ -1907,6 +1968,9 @@ func capture(t *testing.T, name, out string) {
 // differs only in its ExecStart binary. It also captures the
 // testdata/systemctl-show fixtures.
 func TestTCSM129_T1RealSystemdConfirmsTheFake(t *testing.T) {
+	// nexusd self-management is systemd-only: its restart, update and
+	// rollback swap and restart nexusd.service.
+	requireInit(t, platform.Systemd)
 	smWipe(t)
 	t.Cleanup(func() {
 		smWipe(t)

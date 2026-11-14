@@ -84,7 +84,7 @@ an operation:
   `internal/def/verbs.go`: `get`, `start`, `stop`, `restart`, `update`,
   `install`, `remove`, `invoke`, `test`, `add`, `cancel`, `reload`,
   `rollback` and `validate-config`. The last three were added for the
-  `nexusd` provider: `reload` re-reads a configuration, `rollback` returns
+  `nexusd` provider (`reload` also by the nginx provider): `reload` re-reads a configuration, `rollback` returns
   to a previous version, and `validate-config` checks a configuration
   without applying it.
 - `Sensitive` lists input paths that are redacted from audit and never

@@ -33,10 +33,10 @@ func TestDefaultConfigLoads(t *testing.T) {
 	}
 
 	if cfg.Providers.Docker.Settings.Enabled || cfg.Providers.Apt.Settings.Enabled || cfg.Providers.Scripts.Settings.Enabled ||
-		cfg.Providers.Nexusd.Settings.Enabled {
-		t.Errorf("providers enabled: docker=%v apt=%v scripts=%v nexusd=%v, want all false",
+		cfg.Providers.Nginx.Settings.Enabled || cfg.Providers.Nexusd.Settings.Enabled {
+		t.Errorf("providers enabled: docker=%v apt=%v scripts=%v nginx=%v nexusd=%v, want all false",
 			cfg.Providers.Docker.Settings.Enabled, cfg.Providers.Apt.Settings.Enabled, cfg.Providers.Scripts.Settings.Enabled,
-			cfg.Providers.Nexusd.Settings.Enabled)
+			cfg.Providers.Nginx.Settings.Enabled, cfg.Providers.Nexusd.Settings.Enabled)
 	}
 	if cfg.Providers.Pihole.Settings.Enabled {
 		t.Error("providers.pihole.enabled = true, want false")
@@ -362,6 +362,7 @@ func assertSameSettings(t *testing.T, got, want *Config) {
 		{"providers.docker", got.Providers.Docker.Settings, want.Providers.Docker.Settings},
 		{"providers.apt", got.Providers.Apt.Settings, want.Providers.Apt.Settings},
 		{"providers.scripts", got.Providers.Scripts.Settings, want.Providers.Scripts.Settings},
+		{"providers.nginx", got.Providers.Nginx.Settings, want.Providers.Nginx.Settings},
 		{"providers.nexusd", got.Providers.Nexusd.Settings, want.Providers.Nexusd.Settings},
 		{"providers.pihole", got.Providers.Pihole.Settings, want.Providers.Pihole.Settings},
 	}

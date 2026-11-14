@@ -100,8 +100,13 @@ clean up. Cancel a run with `nexus operation cancel <id>`. On the host,
 operator who must stop one without the API uses `systemctl kill`:
 
 ```
-sudo systemctl kill --kill-whom=main --signal=SIGTERM nexus-op-<id>.service
+sudo systemctl kill --kill-whom=main --signal=SIGINT nexus-op-<id>.service
 ```
+
+The run then ends `Canceled`. Use `SIGINT`, not `SIGTERM`: a `SIGTERM` that
+Nexus did not ask for is reported `outcome-unknown`, as at a shutdown (see
+[security.md](security.md#operation-units)). On Alpine, see
+[OpenRC hosts](security.md#openrc-hosts-alpine).
 
 ## What changes from a terminal
 

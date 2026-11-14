@@ -1,0 +1,18 @@
+$ readlink /proc/1707/exe   # master 1707, before
+/usr/sbin/nginx
+$ apk upgrade nginx
+OK: 18 MiB in 30 packages
+exit 0
+$ readlink /proc/1707/exe
+/usr/sbin/nginx
+$ apk fix nginx
+(1/1) Reinstalling nginx (1.26.3-r3)
+Executing nginx-1.26.3-r3.pre-upgrade
+Executing nginx-1.26.3-r3.post-upgrade
+Executing busybox-1.37.0-r14.trigger
+OK: 18 MiB in 30 packages
+exit 0
+$ readlink /proc/1707/exe   # master 1707, after
+/usr/sbin/nginx (deleted)
+$ head -c 64 /proc/1707/cmdline | tr '\0' ' '
+nginx: master process /usr/sbin/nginx -c /etc/nginx/nginx.conf 

@@ -37,6 +37,10 @@ nexus [flags]
 | [`nexus help`](nexus_help.md) | Show usage and examples for a command |
 | [`nexus host`](nexus_host.md) | Configured hosts |
 | [`nexus nexusd`](nexus_nexusd.md) | Verbs: get, validate-config, reload, restart, update, rollback |
+| [`nexus nginx`](nexus_nginx.md) | Verbs: get, start, stop, restart, reload |
+| [`nexus nginxconfig`](nexus_nginxconfig.md) | Verbs: test |
+| [`nexus nginxsite`](nexus_nginxsite.md) | Verbs: get, start, stop, add, update |
+| [`nexus nginxsitecontent`](nexus_nginxsitecontent.md) | Verbs: get |
 | [`nexus operation`](nexus_operation.md) | Verbs: get, cancel |
 | [`nexus operationlog`](nexus_operationlog.md) | Verbs: get |
 | [`nexus package`](nexus_package.md) | Verbs: get, update, install, remove |
@@ -81,6 +85,18 @@ nexus [flags]
 | [`nexus nexusd rollback`](nexus_nexusd_rollback.md) | Roll nexusd back to the previous binary |
 | [`nexus nexusd update`](nexus_nexusd_update.md) | Update nexusd from a signed release |
 | [`nexus nexusd validate-config`](nexus_nexusd_validate-config.md) | Validate the nexusd configuration file |
+| [`nexus nginx get`](nexus_nginx_get.md) | Get nginx's status |
+| [`nexus nginx reload`](nexus_nginx_reload.md) | Reload nginx |
+| [`nexus nginx restart`](nexus_nginx_restart.md) | Restart nginx |
+| [`nexus nginx start`](nexus_nginx_start.md) | Start nginx |
+| [`nexus nginx stop`](nexus_nginx_stop.md) | Stop nginx |
+| [`nexus nginxconfig test`](nexus_nginxconfig_test.md) | Test the nginx configuration |
+| [`nexus nginxsite add`](nexus_nginxsite_add.md) | Add an nginx site |
+| [`nexus nginxsite get`](nexus_nginxsite_get.md) | List nginx sites, or with NAME, get an nginx site |
+| [`nexus nginxsite start`](nexus_nginxsite_start.md) | Enable an nginx site |
+| [`nexus nginxsite stop`](nexus_nginxsite_stop.md) | Disable an nginx site |
+| [`nexus nginxsite update`](nexus_nginxsite_update.md) | Write an nginx site |
+| [`nexus nginxsitecontent get`](nexus_nginxsitecontent_get.md) | Get an nginx site's configuration text |
 | [`nexus operation cancel`](nexus_operation_cancel.md) | Cancel an operation |
 | [`nexus operation get`](nexus_operation_get.md) | List operations, or with ID, get one operation |
 | [`nexus operationlog get`](nexus_operationlog_get.md) | Read an operation's output |

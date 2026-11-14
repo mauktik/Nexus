@@ -76,7 +76,7 @@ func fixtureFor(t *testing.T, op def.Op) (status int, contentType string, body [
 	out := op.OutputType()
 	if out == reflect.TypeFor[apitypes.Capabilities]() {
 		return http.StatusOK, "application/json", marshal(apitypes.NewCapabilities(fixtureHost, "1.0.0",
-			[]apitypes.ProviderCapability{{Name: "docker", Status: apitypes.ProviderEnabled}}))
+			apitypes.HostOS{ID: "ubuntu", VersionID: "24.04"}, "systemd", []apitypes.ProviderCapability{{Name: "docker", Status: apitypes.ProviderEnabled}}))
 	}
 	v := reflect.New(out).Elem()
 	if items := v.FieldByName("Items"); items.IsValid() && items.Kind() == reflect.Slice {
@@ -193,8 +193,19 @@ func argsFor(c *opCommand, op def.Op) []string {
 		}
 	}
 	args = append(args, sample.flags...)
-	if b, _ := newBinding(c); b != nil && b.variadic && b.required {
+	b, _ := newBinding(c)
+	if b != nil && b.variadic && b.required {
 		args = append(args, "curl")
+	}
+	// A required string input bound to a flag gets a value, unless the
+	// sample already gives that flag a valid one.
+	if r, err := op.InputSchema(); b != nil && err == nil {
+		for _, f := range b.fields {
+			if f.kind == kindString && b.opFields[op.ID][f.name] && slices.Contains(r.Schema().Required, f.name) &&
+				!slices.Contains(sample.flags, "--"+f.flag) {
+				args = append(args, "--"+f.flag, "x")
+			}
+		}
 	}
 	// The fixture server answers with an operation as accepted: print it
 	// without waiting (FR-33), and confirm a destructive op.

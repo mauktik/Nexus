@@ -1,0 +1,69 @@
+# nginx-check.sh transcript: nginx-provider WI 7.2 (TC-118 Alpine/OpenRC, TC-119 Ubuntu/systemd)
+# started 2026-11-14T09:02:25Z on Devuser-Macbook-Pro.local, mode cleanup, host root@127.0.0.1, arguments: --ssh root@127.0.0.1 --transcript 06-alpine-cleanup.txt --yes --cleanup
+# script sha256 5f1bae798b5f2177b8393009b74437a60a9d75f2eb202b09540858293bbae148
+# CONTAINER DETECTED on the host (/.dockerenv, /run/.containerenv or container= in PID 1's environment):
+# this transcript is a dry run, NOT real-host evidence.
+RESULT token-env: PASS - no child process's environment holds the token (env, run as a child, does not show it)
+state of the interrupted run (/var/lib/nexus-nginx-check/state):
+  site=nexus-check-e4bdab30
+  port=18826
+  cport=18442
+  incdir=/etc/nginx/http.d
+  suffix=.conf
+  dsuffix=.disabled
+  init=openrc
+  svc=nginx
+  enabled_ever=1
+  stopped_by_us=0
+  lifecycle=0
+  holder_pid=13710
+  inflight=
+  nxhost=nginx-check
+[09:02:25] nexus CLI: the configured host nginx-check (your client config)
+
+== Plan. With --yes the script will, on root@127.0.0.1:
+  - wait for (or cancel, if queued) the operation an interrupted run left, kill its
+    holder process, remove /etc/nginx/http.d/nexus-check-<random>.conf (and .conf.disabled), run nginx -t,
+    reload nginx through openrc if the site was ever enabled, start nginx if the run
+    stopped it, compare the sha256 of every other file, and remove /var/lib/nexus-nginx-check.
+[09:02:25] == Cleanup
+$ [host] P=18442 H=13710; n=0; for d in /proc/[0-9]*; do p=${d#/proc/}; c=$(tr "\0" " " 2>/dev/null <$d/cmdline) || continue; h=; case $c in "busybox nc -l -s 127.0.0.1 -p $P "* | "timeout 600 busybox nc -l -s 127.0.0.1 -p $P "* | "perl -MSocket -e "*" $P " | "python3 -c import socket"*" $P ") h=1 ;; *"$P"*) [ "$p" != "$H" ] || h=1 ;; esac; [ -z "$h" ] || { kill $p && echo "killed holder $p: $c" && n=$((n + 1)); }; done; echo "holders of port $P killed: $n"
+killed holder 13710: busybox nc -l -s 127.0.0.1 -p 18442 
+killed holder 13712: timeout 600 busybox nc -l -s 127.0.0.1 -p 18442 
+holders of port 18442 killed: 2
+$ [host] cd /etc/nginx/http.d && { ls -ln -- nexus-check-e4bdab30.* .nexus-check-e4bdab30.* 2>/dev/null; rm -f -- nexus-check-e4bdab30.conf nexus-check-e4bdab30.conf.disabled nexus-check-e4bdab30.* .nexus-check-e4bdab30.*; ls -a | grep -F -- nexus-check-e4bdab30 || echo 'nexus-check-e4bdab30: no file left'; }
+-rw-r--r--    1 0        0              172 Nov 14 09:02 nexus-check-e4bdab30.conf
+nexus-check-e4bdab30: no file left
+$ nexus --host nginx-check operation get --filter provider=nginx --filter status=Queued --filter status=Running -o jsonl
+(stderr) {"exit":2,"host":"nginx-check","level":"error","message":"unknown host \"nginx-check\": see `nexus host get`","type":"urn:nexus:cli:usage"}
+(exit 2)
+$ [host] /usr/sbin/nginx -t
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+$ [host] env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /sbin/rc-service -C nginx status
+ * status: started
+[09:02:26] the site was enabled during the run: reloading nginx to drop it
+$ [host] env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /sbin/rc-service -C nginx reload
+ * Reloading nginx configuration ... [ ok ]
+  (/proc) master 3081, workers 13415 13416 13417 13418 -> 14004 14005 14006 14007: the reload was applied
+$ [host] curl -sS -m 5 http://127.0.0.1:18826/
+curl: (7) Failed to connect to 127.0.0.1:18826 after 0 ms: Could not connect to server
+(exit 7)
+  127.0.0.1:18826: refused
+$ [host] cd /etc/nginx/http.d || exit 2; ls -a | grep -E '^\.?nexus-check-'
+(exit 1)
+RESULT cleanup-removed: PASS - no nexus-check-* entry is left in /etc/nginx/http.d
+$ [host] [ ! -f /var/lib/nexus-nginx-check/snap.before ] || { S=nexus-check-e4bdab30; { for r in /etc/nginx /etc/nginx/http.d; do [ -e "$r" ] && find -L "$r" -print 2>/dev/null; done; /usr/sbin/nginx -T 2>/dev/null | sed -n "s/^# configuration file \(.*\):\$/\1/p"; cat /var/lib/nexus-nginx-check/conffiles 2>/dev/null; } | sort -u | while IFS= read -r f; do b=${f##*/}; case $b in "$S".* | ."$S".*) continue ;; esac; if [ -L "$f" ]; then echo "L $(stat -c "%a %u %g" "$f") $f -> $(readlink "$f")"; fi; if [ -f "$f" ]; then echo "F $(stat -L -c "%a %u %g %s" "$f") $(sha256sum <"$f" | cut -d" " -f1) $f"; elif [ -d "$f" ]; then echo "D $(stat -L -c "%a %u %g" "$f") $f"; elif [ ! -e "$f" ]; then echo "X missing-or-dangling $f"; else echo "O $(stat -L -c "%a %u %g" "$f") $f"; fi; done; } >/var/lib/nexus-nginx-check/snap.after; [ ! -f /var/lib/nexus-nginx-check/snap.before ] || diff /var/lib/nexus-nginx-check/snap.before /var/lib/nexus-nginx-check/snap.after
+$ [host] rm -rf /var/lib/nexus-nginx-check
+RESULT untouched: PASS - every other file under /etc/nginx and /etc/nginx/http.d, and every file nginx -T names, is byte-identical to the snapshot (type, mode, owner, size, sha256; symlinks followed)
+RESULT nginx-conf: PASS - /etc/nginx/nginx.conf unchanged: F 644 0 0 3203 dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd /etc/nginx/nginx.conf
+RESULT token-absent: PASS - the token does not appear in the transcript
+
+== Summary (cleanup)
+  token-env  PASS  no child process's environment holds the token (env, run as a child, does not show it)
+  cleanup-removed  PASS  no nexus-check-* entry is left in /etc/nginx/http.d
+  untouched  PASS  every other file under /etc/nginx and /etc/nginx/http.d, and every file nginx -T names, is byte-identical to the snapshot (type, mode, owner, size, sha256; symlinks followed)
+  nginx-conf  PASS  /etc/nginx/nginx.conf unchanged: F 644 0 0 3203 dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd /etc/nginx/nginx.conf
+  token-absent  PASS  the token does not appear in the transcript
+  (container: not real-host evidence)
+transcript: 06-alpine-cleanup.txt

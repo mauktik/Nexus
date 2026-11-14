@@ -18,6 +18,7 @@ import (
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/auth"
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/providers/apt"
 	"github.com/mauktik/nexus/internal/providers/apt/spec"
@@ -213,6 +214,7 @@ func aptListAll[T any](t *testing.T, n *nexusdInstance, at string, limit int) []
 // TC-123: refresh is 202 and terminal and changes no package; upgradable,
 // installed (paged) and get match apt-cache policy and dpkg-query run here.
 func TestAptReadsMatchIndependentReadback(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	aptFixture(t, true)
 	n := aptd(t, "apt-reads")
 
@@ -304,6 +306,7 @@ func aptUpgradableNamed(t *testing.T, n *nexusdInstance, name string) (spec.Upgr
 // refresh, a pin, and an install outside Nexus each show on the first read
 // after them.
 func TestAptUpgradableCacheMeetsTargetAndInvalidates(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	aptFixture(t, true)
 	n := aptd(t, "apt-cache")
 
@@ -390,6 +393,7 @@ func aptMoveAside(t *testing.T, path string) (restore func()) {
 // TC-125: false with no marker, true with the packages named, unknown once
 // the marker writers the provider names in its source are gone.
 func TestAptRebootRequiredState(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	clear := func() {
 		_ = os.Remove(apt.RebootMarker)
 		_ = os.Remove(apt.RebootPackagesFile)
@@ -441,6 +445,7 @@ func TestAptRebootRequiredState(t *testing.T) {
 // items: [], and a missing apt-get makes apt unavailable naming it while
 // nexusd stays up.
 func TestAptPreflightAndAbsentPackages(t *testing.T) {
+	requireInit(t, platform.Systemd)
 	aptFixture(t, false)
 	n := aptd(t, "apt-err")
 

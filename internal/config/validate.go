@@ -21,6 +21,7 @@ import (
 	nexusdspec "github.com/mauktik/nexus/internal/providers/nexusd/spec"
 	"github.com/mauktik/nexus/internal/providers/scripts/spec"
 	"github.com/mauktik/nexus/internal/release"
+	"github.com/mauktik/nexus/internal/svcctl"
 )
 
 // validate checks values after decoding. Each problem is located at the
@@ -101,8 +102,61 @@ func (c *Config) validate(errs *collector) {
 
 	v.catalog(c.Providers.Scripts.Settings.Catalog)
 
+	v.nginx(c.Providers.Nginx.Settings, c.Limits.MaxBodyBytes)
 	v.nexusd(c.Providers.Nexusd.Settings)
 	v.piholeDNSFile("providers.pihole.dnsFile", c.Providers.Pihole.Settings.DNSFile)
+}
+
+// NginxSuffixPattern is what includeSuffix and disabledSuffix must match: a
+// dot then letters or digits, so neither can carry a path separator or a
+// glob character.
+const NginxSuffixPattern = `^\.[A-Za-z0-9]+$`
+
+var (
+	nginxSuffixRE = regexp.MustCompile(NginxSuffixPattern)
+	// The service controller refuses any other name, so validate-config
+	// applies its pattern rather than a copy that could drift.
+	nginxServiceRE = regexp.MustCompile(svcctl.ServiceNamePattern)
+)
+
+// nginx applies the FR-2 rules for the nginx section. A disabled site is
+// <name><includeSuffix><disabledSuffix>, so a disabledSuffix ending in
+// includeSuffix would leave the disabled file matched by the include glob.
+func (v validator) nginx(n NginxConfig, maxBodyBytes int64) {
+	const p = "providers.nginx."
+	if n.IncludeDir != "" {
+		v.absolute(p+"includeDir", n.IncludeDir)
+	}
+	v.nginxSuffix(p+"includeSuffix", n.IncludeSuffix)
+	if v.nginxSuffix(p+"disabledSuffix", n.DisabledSuffix) && n.IncludeSuffix != "" &&
+		strings.HasSuffix(n.DisabledSuffix, n.IncludeSuffix) {
+		v.failf(p+"disabledSuffix", "must not end in includeSuffix %q, or a disabled file would still match the "+
+			"include glob, got %q", n.IncludeSuffix, n.DisabledSuffix)
+	}
+	if !nginxServiceRE.MatchString(n.Service) {
+		v.failf(p+"service", "must match %s, got %q", svcctl.ServiceNamePattern, n.Service)
+	}
+	v.positiveDuration(p+"testTimeout", n.TestTimeout)
+	v.positiveDuration(p+"stateTimeout", n.StateTimeout)
+	v.positiveDuration(p+"reloadVerifyTimeout", n.ReloadVerifyTimeout)
+	v.positive(p+"maxConfigBytes", n.MaxConfigBytes)
+	// A non-positive limits.maxBodyBytes is already reported on its own.
+	if maxBodyBytes > 0 && n.MaxConfigBytes > maxBodyBytes {
+		v.failf(p+"maxConfigBytes", "must be at most limits.maxBodyBytes (%d), got %d", maxBodyBytes, n.MaxConfigBytes)
+	}
+}
+
+// nginxSuffix reports whether suffix is non-empty, failing path when it is
+// empty or not of the NginxSuffixPattern form.
+func (v validator) nginxSuffix(path, suffix string) bool {
+	switch {
+	case suffix == "":
+		v.failf(path, "required: a dot then letters or digits, matching %s", NginxSuffixPattern)
+		return false
+	case !nginxSuffixRE.MatchString(suffix):
+		v.failf(path, "must match %s, got %q", NginxSuffixPattern, suffix)
+	}
+	return true
 }
 
 // nexusd checks the nexusd section. A trusted key is never quoted: the

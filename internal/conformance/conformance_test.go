@@ -40,6 +40,7 @@ import (
 	apt "github.com/mauktik/nexus/internal/providers/apt/spec"
 	docker "github.com/mauktik/nexus/internal/providers/docker/spec"
 	nexusd "github.com/mauktik/nexus/internal/providers/nexusd/spec"
+	nginx "github.com/mauktik/nexus/internal/providers/nginx/spec"
 	pihole "github.com/mauktik/nexus/internal/providers/pihole/spec"
 	scripts "github.com/mauktik/nexus/internal/providers/scripts/spec"
 	"github.com/mauktik/nexus/internal/server"
@@ -83,6 +84,23 @@ var catalogStubs = map[string]func(*testprovider.Spy) provider.Provider{
 			testprovider.Sync(s, scripts.List),
 			testprovider.Sync(s, scripts.Get),
 			testprovider.InProcess(s, scripts.Invoke),
+		)
+	},
+	nginx.Name: func(s *testprovider.Spy) provider.Provider {
+		return testprovider.NewStub(nginx.Spec(),
+			testprovider.Sync(s, nginx.Status),
+			testprovider.InProcess(s, nginx.Test),
+			testprovider.InProcess(s, nginx.Start),
+			testprovider.InProcess(s, nginx.Stop),
+			testprovider.InProcess(s, nginx.Restart),
+			testprovider.InProcess(s, nginx.Reload),
+			testprovider.Sync(s, nginx.List),
+			testprovider.Sync(s, nginx.Get),
+			testprovider.Sync(s, nginx.Content),
+			testprovider.InProcess(s, nginx.Enable),
+			testprovider.InProcess(s, nginx.Disable),
+			testprovider.InProcess(s, nginx.Add),
+			testprovider.InProcess(s, nginx.Update),
 		)
 	},
 	// reload is InProcess and restart, update and rollback Detached in the
@@ -202,12 +220,12 @@ func newStack(t *testing.T) *stack {
 	}
 
 	// The walks over every op make one denial per scoped op with the same
-	// token, and with the docker, apt, scripts, nexusd and pihole catalogs
+	// token, and with the docker, apt, scripts, nexusd, pihole and nginx catalogs
 	// that is more than core.DefaultNoteLimitPerMinute (60) in one minute;
 	// past it the dispatcher collapses denials into a rate-limited aggregate
 	// and the per-op denial records the tests count are not written.
 	srv, err := server.New(reg, server.Options{Logger: log, Auth: auth.New(stateDir, auth.Options{Logger: log}),
-		NoteLimitPerMinute: 1000})
+		NoteLimitPerMinute: 10000})
 	if err != nil {
 		t.Fatalf("server.New: %v", err)
 	}

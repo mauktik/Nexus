@@ -29,6 +29,7 @@ import (
 	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/daemon"
 	"github.com/mauktik/nexus/internal/def"
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/providers/apt"
 	aptspec "github.com/mauktik/nexus/internal/providers/apt/spec"
@@ -347,6 +348,19 @@ func TestNFRAdditiveCompatibility(t *testing.T) {
 			t.Fatalf("%s: exit %d, want %d\nstdout: %s\nstderr: %s", what, r.code, code, r.stdout, r.stderr)
 		}
 	}
+	// mustAptRead is an apt read that works where apt does; on Alpine,
+	// which has none, every server answers capability-unavailable, exit 4.
+	mustAptRead := func(r cliResult, what string) {
+		t.Helper()
+		if detectedInit() != platform.OpenRC {
+			mustExit(r, 0, what)
+			return
+		}
+		mustExit(r, 4, what+" (no apt on this host)")
+		if !strings.Contains(r.stderr, "capability-unavailable") || strings.Contains(r.stderr, "route-not-found") {
+			t.Fatalf("%s: stderr %q, want capability-unavailable", what, r.stderr)
+		}
+	}
 
 	// The newer CLI against the older nexusd: existing commands work.
 	r := compatCLI(t, home, "capability", "get", "--host", "older", "-o", "jsonl")
@@ -362,7 +376,7 @@ func TestNFRAdditiveCompatibility(t *testing.T) {
 		t.Fatalf("container get on older: %v lacks %s and %s", got, a, b)
 	}
 	r = compatCLI(t, home, "package", "get", "--host", "older", "-o", "jsonl", "--limit", "5")
-	mustExit(r, 0, "package get on older")
+	mustAptRead(r, "package get on older")
 
 	// The new op: a clear capability error, exit 4.
 	r = compatCLI(t, home, "packageupdate", "get", "--host", "older")
@@ -381,7 +395,7 @@ func TestNFRAdditiveCompatibility(t *testing.T) {
 	// Control: the same command against the current nexusd, which serves
 	// the op, succeeds.
 	r = compatCLI(t, home, "packageupdate", "get", "--host", "current", "-o", "jsonl")
-	mustExit(r, 0, "packageupdate get on current")
+	mustAptRead(r, "packageupdate get on current")
 
 	// The older CLI against the newer server: existing commands work and
 	// the unknown fields and provider are tolerated.
@@ -409,7 +423,7 @@ func TestNFRAdditiveCompatibility(t *testing.T) {
 		t.Fatalf("table on newer: lacks %s or shows the unknown field:\n%s", a, r.stdout)
 	}
 	r = compatCLI(t, home, "package", "get", "--host", "newer", "-o", "jsonl", "--limit", "5")
-	mustExit(r, 0, "package get on newer")
+	mustAptRead(r, "package get on newer")
 	// A long-running op: the 202 and every poll of the operation carry the
 	// new field.
 	r = compatCLI(t, home, "container", "stop", b, "--host", "newer", "-o", "jsonl")

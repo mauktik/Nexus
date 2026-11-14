@@ -24,6 +24,7 @@ import (
 	"github.com/mauktik/nexus/internal/core"
 	"github.com/mauktik/nexus/internal/detach"
 	"github.com/mauktik/nexus/internal/ops"
+	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/server"
 	"github.com/mauktik/nexus/internal/storage"
@@ -56,8 +57,14 @@ type Options struct {
 	TLS *tls.Config
 	// Detach is passed to detach.New: its nil fields select the real
 	// systemd-run, systemctl show and systemctl kill. Daemon-level T0 tests
-	// set it from detachtest.Local.
+	// set it from detachtest.Local. When Launch is nil, New first selects
+	// the seams for Platform: none on systemd and on an unknown init system,
+	// so the real systemd seams stay; the process backend on OpenRC.
 	Detach detach.Options
+	// Process configures the process backend New selects on OpenRC. Tests
+	// set Executable and CgroupRoot; New sets OpsDir and Logger. Zero in
+	// production.
+	Process detach.ProcessConfig
 	// Now is the clock of state.db, the audit log, the operation manager
 	// and retention: it drives timestamps, idempotency expiry and the
 	// retention of records and audit files. Nil means time.Now.
@@ -68,6 +75,9 @@ type Options struct {
 	// StorageObserve, when non-nil, receives the report of every storage
 	// accounting pass.
 	StorageObserve func(storage.Report)
+	// Platform is the host's init system and OS. Nil means
+	// platform.Current().
+	Platform *platform.Info
 	// Signals, when non-nil, replaces the process's SIGHUP, SIGTERM and
 	// SIGINT: Run handles each value received as that signal and does not
 	// subscribe to real signals, so in-process tests deliver signals without
@@ -123,6 +133,12 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 	if path == "" {
 		path = config.DefaultPath
 	}
+	var plat platform.Info
+	if opts.Platform != nil {
+		plat = *opts.Platform
+	} else {
+		plat = platform.Current()
+	}
 	providers := opts.Providers
 	if providers == nil {
 		providers = builtinProviders(cfg.Host.Name, log)
@@ -174,6 +190,15 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 			u.UseOpsDir(opsDir)
 		}
 	}
+	if opts.Detach.Launch == nil {
+		pc := opts.Process
+		pc.OpsDir, pc.Logger = opsDir, log
+		// Zero on systemd and unknown hosts: opts.Detach stays as it was.
+		if sel := detach.PlatformOptions(plat, pc); sel.Launch != nil {
+			sel.Now = opts.Detach.Now
+			opts.Detach = sel
+		}
+	}
 	launcher, err := detach.New(detach.Config{OpsDir: opsDir, Logger: log}, opts.Detach)
 	if err != nil {
 		return fail(fmt.Errorf("operations: %w", err))
@@ -220,6 +245,7 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 		Ops:       mgr,
 		// Data Flow step 5: the limit flag refuses new mutations.
 		StorageCheck: acct.Check,
+		Platform:     plat,
 	})
 	if err != nil {
 		return fail(fmt.Errorf("providers: %w", err))
