@@ -192,7 +192,10 @@ func (s *Server) opHandler(disp *core.Dispatcher, op def.Op, names []string, fie
 		var body *provider.UploadBody
 		if upload != nil {
 			body = &provider.UploadBody{
-				Reader:      &uploadReader{body: r.Body, extend: func() { s.extendUploadDeadlines(w, r, op, uploadWindowBytes(r.ContentLength, upload())) }},
+				Reader: &uploadReader{body: r.Body, chunked: r.ContentLength < 0, rc: http.NewResponseController(w),
+					extend: func() time.Time {
+						return s.extendUploadDeadlines(w, r, op, uploadWindowBytes(r.ContentLength, upload()))
+					}},
 				ContentType: r.Header.Get("Content-Type"), ContentLength: r.ContentLength,
 			}
 		}
@@ -218,27 +221,51 @@ func (s *Server) opHandler(disp *core.Dispatcher, op def.Op, names []string, fie
 
 // uploadReader is an upload's body as Receive reads it. Its first read
 // extends the request's deadlines, so a request refused before Receive
-// reads (scope, Admit, a declared oversize) keeps the base timeouts. A read
-// past the route's cap fails with an error wrapping core.ErrUploadTooLarge,
-// which the Dispatcher answers as upload-too-large. Reads come from one
-// goroutine at a time, as io.Reader requires of its callers.
+// reads (scope, Admit, a declared oversize) keeps the base timeouts. A
+// chunked body is then paced: before each read the read deadline is set to
+// when the next byte is due at chunkedMinRate after chunkedGrace, at most the
+// window's end (SEC-2). A read past the route's cap fails with an error
+// wrapping core.ErrUploadTooLarge, which the Dispatcher answers as
+// upload-too-large. Reads come from one goroutine at a time, as io.Reader
+// requires of its callers.
 type uploadReader struct {
 	body     io.Reader
-	extend   func()
+	extend   func() time.Time // Extends the deadlines, and returns the read window's end
+	chunked  bool
+	rc       *http.ResponseController
 	extended bool
+	start    time.Time // The first read
+	end      time.Time // The read window's end
+	received int64
 }
 
 func (u *uploadReader) Read(p []byte) (int, error) {
 	if !u.extended {
 		u.extended = true
-		u.extend()
+		u.start, u.end = time.Now(), u.extend()
+	}
+	if u.chunked && !u.end.IsZero() {
+		// A writer without deadlines fails here too, and extend has logged it.
+		_ = u.rc.SetReadDeadline(pacedDeadline(u.start, u.end, u.received))
 	}
 	n, err := u.body.Read(p)
+	u.received += int64(n)
 	var mbe *http.MaxBytesError
 	if err != nil && errors.As(err, &mbe) {
 		err = fmt.Errorf("%w: %w", core.ErrUploadTooLarge, err)
 	}
 	return n, err
+}
+
+// pacedDeadline is when byte received+1 of a chunked body is due: the grace
+// after start plus the time the bytes so far, and one more, take at the floor
+// rate, but never later than end.
+func pacedDeadline(start, end time.Time, received int64) time.Time {
+	due := start.Add(chunkedGrace + time.Duration(float64(received+1)/float64(chunkedMinRate)*float64(time.Second)))
+	if due.After(end) {
+		return end
+	}
+	return due
 }
 
 // uploadWindowBytes is the size an upload's deadlines are computed for: the
@@ -254,15 +281,19 @@ func uploadWindowBytes(declared, maxBytes int64) int64 {
 // extendUploadDeadlines moves the read deadline of an upload to allow its
 // declared length, at most the cap, at UploadMinRate, and the write deadline past that (A-5). A
 // writer without deadlines keeps the server's; the upload may then be cut.
-func (s *Server) extendUploadDeadlines(w http.ResponseWriter, r *http.Request, op def.Op, maxBytes int64) {
+// It returns the read deadline it set, or the zero time when that failed.
+func (s *Server) extendUploadDeadlines(w http.ResponseWriter, r *http.Request, op def.Op, maxBytes int64) time.Time {
 	read := time.Now().Add(uploadReadWindow(maxBytes))
 	rc := http.NewResponseController(w)
+	set := read
 	if err := rc.SetReadDeadline(read); err != nil {
 		s.log.Warn("cannot extend the upload read deadline", "op", op.ID, "path", r.URL.Path, "error", err.Error())
+		set = time.Time{}
 	}
 	if err := rc.SetWriteDeadline(read.Add(UploadDeadlineGrace)); err != nil {
 		s.log.Warn("cannot extend the upload write deadline", "op", op.ID, "path", r.URL.Path, "error", err.Error())
 	}
+	return set
 }
 
 // uploadReadWindow is UploadDeadlineGrace plus the time maxBytes takes at
