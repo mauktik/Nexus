@@ -175,8 +175,15 @@ if [ -z "$TRANSCRIPT" ]; then
 	[ -z "$SSH_TARGET" ] || _h=${SSH_TARGET#*@}
 	TRANSCRIPT=./nginx-check-$_h-$(date -u +%Y%m%dT%H%M%SZ).txt
 fi
-if ! : >>"$TRANSCRIPT"; then
-	echo "$PROG: cannot write the transcript $TRANSCRIPT" >&2
+# Create the transcript exclusively and private (SEC-12): a name that already
+# exists, including a symlink planted at it, is refused rather than appended
+# to, and the file is 0600 because it records the host's files and listeners.
+if [ -e "$TRANSCRIPT" ] || [ -L "$TRANSCRIPT" ]; then
+	echo "$PROG: the transcript $TRANSCRIPT already exists; choose another --transcript or remove it" >&2
+	exit 2
+fi
+if ! (umask 077; set -C; : >"$TRANSCRIPT") 2>/dev/null; then
+	echo "$PROG: cannot create the transcript $TRANSCRIPT" >&2
 	exit 2
 fi
 TMPD=$(mktemp -d "${TMPDIR:-/tmp}/nginx-check.XXXXXX") || { echo "$PROG: mktemp failed" >&2; exit 2; }
