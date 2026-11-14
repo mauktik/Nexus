@@ -156,10 +156,12 @@ func runStart(ctx context.Context, e env, in helperInput) (any, *helperError) {
 	if herr != nil {
 		return nil, herr
 	}
-	return converge(ctx, e, in, svcctl.Start, svcctl.Running, t.Output)
+	return converge(ctx, e, in, svcctl.Start, svcctl.Running, st.State, t.Output)
 }
 
-// runStop is the stop action.
+// runStop is the stop action. A failed nginx has no main process, and
+// systemd's stop leaves such a unit failed: it ends as stopped, unchanged,
+// not as an error.
 func runStop(ctx context.Context, e env, in helperInput) (any, *helperError) {
 	service := in.Settings.Service
 	st, herr := serviceStatus(ctx, e, service)
@@ -170,7 +172,7 @@ func runStop(ctx context.Context, e env, in helperInput) (any, *helperError) {
 		say(e.out, "nginx-op: %s is already stopped; nothing to do", service)
 		return serviceResult(false, st, "", nil), nil
 	}
-	return converge(ctx, e, in, svcctl.Stop, svcctl.Stopped, "")
+	return converge(ctx, e, in, svcctl.Stop, svcctl.Stopped, st.State, "")
 }
 
 // runRestart is the restart action: it tests first, so a running nginx is
@@ -181,11 +183,12 @@ func runRestart(ctx context.Context, e env, in helperInput) (any, *helperError) 
 	if herr != nil {
 		return nil, herr
 	}
-	return converge(ctx, e, in, svcctl.Restart, svcctl.Running, t.Output)
+	return converge(ctx, e, in, svcctl.Restart, svcctl.Running, "", t.Output)
 }
 
-// converge runs action through the init system and waits for want.
-func converge(ctx context.Context, e env, in helperInput, action svcctl.Action, want svcctl.State,
+// converge runs action through the init system and waits for want. was is
+// the state read before it, or "" when none was.
+func converge(ctx context.Context, e env, in helperInput, action svcctl.Action, want, was svcctl.State,
 	testOutput string) (any, *helperError) {
 	service := in.Settings.Service
 	say(e.out, "nginx-op: %s %s through %s", action, service, e.svc.Init())
@@ -206,7 +209,9 @@ func converge(ctx context.Context, e env, in helperInput, action svcctl.Action, 
 	if herr != nil {
 		return nil, herr
 	}
-	return serviceResult(true, st, testOutput, nil), nil
+	// A stop of a failed unit that leaves it failed changed nothing.
+	changed := !(want == svcctl.Stopped && was == svcctl.Failed && st.State == svcctl.Failed)
+	return serviceResult(changed, st, testOutput, nil), nil
 }
 
 // awaitState reads the service's state at once and then every statePoll
@@ -227,7 +232,12 @@ func awaitState(ctx context.Context, e env, in helperInput, action svcctl.Action
 		case st.State == want:
 			say(e.out, "nginx-op: %s is %s", service, want)
 			return st, nil
-		case definite(st, want):
+		case want == svcctl.Stopped && st.State == svcctl.Failed && st.MainPID == 0:
+			// systemd's stop leaves a failed unit failed (stop-failed.txt); with
+			// no main process nginx is not running, which is what stop is for.
+			say(e.out, "nginx-op: %s is %s, with no main process: it is not running", service, st.State)
+			return st, nil
+		case definite(st, want, res):
 			return st, failure(problem.DependencyUnavailable, "nginx is %s after %s, not %s (%s: %s)%s", st.State,
 				action, want, e.svc.Init(), st.Raw, initClause(e, action, res))
 		default:
@@ -251,15 +261,17 @@ func awaitState(ctx context.Context, e env, in helperInput, action svcctl.Action
 
 // definite reports whether st is an end state other than want, which
 // waiting will not change: an unknown service, failed, or the opposite of
-// want.
-func definite(st svcctl.Status, want svcctl.State) bool {
+// want. A running nginx after a stop whose tool exited 0 is not definite: it
+// may be a stale read, so the wait goes on to its bound. After a tool that
+// exited non-zero it is.
+func definite(st svcctl.Status, want svcctl.State, res svcctl.Result) bool {
 	switch {
 	case !st.Known, st.State == svcctl.Failed:
 		return true
 	case want == svcctl.Running:
 		return st.State == svcctl.Stopped
 	case want == svcctl.Stopped:
-		return st.State == svcctl.Running
+		return st.State == svcctl.Running && res.ExitCode > 0
 	}
 	return false
 }

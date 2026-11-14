@@ -74,3 +74,17 @@ func TestStopStillRunningKeepsPolling(t *testing.T) {
 		})
 	}
 }
+
+// nginx-provider CR-B2 C: a stop whose tool exited non-zero while nginx still runs is a definite failure at once
+func TestDefiniteStopFailure(t *testing.T) {
+	running := svcctl.Status{Known: true, State: svcctl.Running, MainPID: 7}
+	if !definite(running, svcctl.Stopped, svcctl.Result{ExitCode: 1}) {
+		t.Error("a running nginx after a stop that exited 1 is not definite")
+	}
+	if definite(running, svcctl.Stopped, svcctl.Result{ExitCode: 0}) {
+		t.Error("a running nginx after a stop that exited 0 is definite: it may be a stale read")
+	}
+	if !definite(svcctl.Status{Known: true, State: svcctl.Stopped}, svcctl.Running, svcctl.Result{}) {
+		t.Error("a stopped nginx after a start is not definite")
+	}
+}
