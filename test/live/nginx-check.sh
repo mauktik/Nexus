@@ -1060,10 +1060,16 @@ cleanup() {
 		hrun "cd $(shown "$INCDIR") || exit 2; ls -a | grep -E '^\\.?nexus-check-'"
 		case $HX_RC in
 		1) result cleanup-removed PASS "no nexus-check-* entry is left in $INCDIR" ;;
+		0)
+			KEEP_STATE=1
+			_left=$(printf '%s\n' "$HX_OUT" | tr '\n' ' ')
+			loud "nexus-check-* entries are STILL in $INCDIR: $_left- remove them by hand (rm, as root), test with nginx -t and reload"
+			result cleanup-removed FAIL "left in $INCDIR: $_left"
+			;;
 		*)
 			KEEP_STATE=1
-			loud "nexus-check-* entries are STILL in $INCDIR (or it could not be listed, exit $HX_RC): $(printf '%s\n' "$HX_OUT" | tr '\n' ' ')- remove them by hand (rm, as root), test with nginx -t and reload"
-			result cleanup-removed FAIL "left in $INCDIR: $(printf '%s\n' "$HX_OUT" | tr '\n' ' ')(exit $HX_RC)"
+			loud "$INCDIR could not be listed (exit $HX_RC): whether a nexus-check-* entry is left is unknown - look at it by hand"
+			result cleanup-removed FAIL "$INCDIR could not be listed (exit $HX_RC)"
 			;;
 		esac
 	fi
