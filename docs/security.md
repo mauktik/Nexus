@@ -99,6 +99,9 @@ Keep `nexusd` LAN only.
 | `scripts:read` | The script catalog, without environment values |
 | `scripts:run` | Running any cataloged script |
 | `scripts:run:<id>` | Running the one script `<id>` |
+| `nginx:read` | nginx's status and configuration test, and the site list, each site and its configuration text |
+| `nginx:write` | nginx start, stop, restart and reload, and site enable and disable |
+| `nginx:config` | Site add and update: writing a site's configuration text |
 | `audit:read` | Querying the audit log |
 
 The generated [API reference](api.md) lists the scope of every operation.
@@ -107,7 +110,8 @@ The generated [API reference](api.md) lists the scope of every operation.
 
 Treat any token that holds a mutating scope for `docker`, `apt` or
 `scripts` (`containers:write`, `packages:write`, `packages:install`,
-`scripts:run` or any `scripts:run:<id>`) as potentially root-equivalent:
+`scripts:run` or any `scripts:run:<id>`), or `nginx:config`, as potentially
+root-equivalent:
 
 - Package upgrades and installs run maintainer scripts as root, from
   whatever the configured apt sources serve.
@@ -118,12 +122,29 @@ Treat any token that holds a mutating scope for `docker`, `apt` or
   [Compose projects](#compose-projects-the-files-decide-what-root-creates).
 - A script runs as its run-as user with whatever that user can do, and that
   user can be root.
+- `nginx:config` writes a site's configuration text, and nginx's master
+  process runs as root and reads every included file at `nginx -t` and at
+  reload (CON-6). With a code module such as `ngx_http_perl_module` (`perl`)
+  or njs loaded by `nginx.conf`, configuration text runs code
+  during `nginx -t` or the reload. Without one, a server block can still
+  serve any file the worker user can read through `alias` or `root`, and
+  proxy to any local service. The master also opens the files the text
+  names, such as an `include`, as root while it tests, and `nginx -t`'s
+  error output, which the operation returns as `testOutput`, can quote what
+  it read. Nexus does not parse or sanitize directives: `nginx -t` alone
+  decides what is valid. See [nginx.md](nginx.md#security).
+
+`nginx:write` is not in this list: it starts, stops, reloads and renames
+root-owned files that already exist, so it decides whether sites are served,
+not what they say. It can still take every site offline.
 
 Nexus narrows what callers can ask for: no operation accepts a command,
 shell string, executable path or container specification, every parameter
 is validated, and scripts are defined only in the root-owned configuration
 file. That limits what a token can request, not what the requested work can
-do once it runs.
+do once it runs. For nginx, the service, the binary and the include
+directory come only from the configuration file; a request names a site and
+its content, never a path.
 
 ## nexusd runs as root; the sandbox is not a security boundary
 
@@ -255,6 +276,15 @@ a `count`. Two kinds of flood are collected this way:
   not 429. Read the aggregate as "this token caused `count` more refusals",
   not as a record that its requests were rate-limited.
 
+**nginx content (FR-15).** An nginx site add or update is audited with the
+site's name and its `content` replaced by `"[REDACTED]"`, so configuration
+text never reaches the audit log. The content's size in bytes and its
+SHA-256 digest are in the operation log (`content: <n> bytes, sha256
+<digest>`) and the operation's result (`sizeBytes`, `sha256`), not in the
+audit record. The operation ID and site name link the two. Operation
+retention can delete the operation, and its log, while the audit record is
+kept, so copy the log first if you need the digest for longer.
+
 The limits (OOS-12):
 
 - The log is append-only by convention. It protects against API callers,
@@ -268,8 +298,8 @@ The limits (OOS-12):
 
 ## Operation units
 
-Long-running work (apt changes, script runs, container updates) runs in a
-transient `nexus-op-<id>.service` unit outside the `nexusd` sandbox, so it
+Long-running work (apt changes, script runs, container updates, nginx
+changes) runs in a transient `nexus-op-<id>.service` unit outside the `nexusd` sandbox, so it
 keeps running when `nexusd` restarts or crashes. The units are started with
 `RefuseManualStop=yes`, so `systemctl stop` on one is refused; this is also
 what keeps `needrestart`, Ubuntu's apt hook, from stopping a running script
@@ -297,11 +327,11 @@ becomes on Alpine, where there is no unit.
 
 `nexusd` runs as root under this unit, because Docker socket access and apt
 are root-equivalent anyway. The privileged work (apt changes, script runs,
-container updates) runs in `nexus-op-*` transient units that `nexusd` starts
+container updates, nginx changes) runs in `nexus-op-*` transient units that `nexusd` starts
 with `systemd-run`. Those units are outside this sandbox. The sandbox limits
 what the `nexusd` process itself can do if it is compromised. It is not a
 boundary between a token holder and root: a token with a mutating `docker`,
-`apt` or `scripts` scope is potentially root-equivalent.
+`apt` or `scripts` scope, or `nginx:config`, is potentially root-equivalent.
 
 ## Directives in force
 

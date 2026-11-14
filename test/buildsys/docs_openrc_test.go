@@ -181,8 +181,6 @@ func TestInstallDocCoversAlpine(t *testing.T) {
 // root-equivalence of nginx:config. Owner WI 6.4. Requirements: FR-14,
 // CON-6, FR-15.
 func TestSecurityDocNginxScopes(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-104 (WI 6.4)")
-
 	doc := readDoc(t, "docs/security.md")
 	for _, s := range []string{"nginx:read", "nginx:write", "nginx:config"} {
 		if !regexp.MustCompile(`(?m)^\|.*` + "`" + regexp.QuoteMeta(s) + "`").MatchString(doc) {
@@ -204,8 +202,6 @@ func TestSecurityDocNginxScopes(t *testing.T) {
 // nginx-provider TC-105: docs/nginx.md documents the provider. Owner WI 6.4.
 // Requirements: FR-16, ASM-12, CON-5.
 func TestNginxDoc(t *testing.T) {
-	t.Skip("not implemented: nginx-provider TC-105 (WI 6.4)")
-
 	doc := readDoc(t, "docs/nginx.md")
 	for _, s := range []string{"http.d", "conf.d", "include", ".conf.disabled", "ifMatch", "none", "whatIf",
 		"outcome-unknown", "previous/content", "128 KiB", "root-equivalent"} {

@@ -5,7 +5,7 @@ Nexus is a lightweight server manager for a home Ubuntu host: a server daemon wi
 - `nexusd`, the server daemon, built for linux/amd64.
 - `nexus`, the command-line client, built for darwin/arm64 and linux/amd64.
 
-Each host runs its own `nexusd`, as root: under a hardened systemd unit on Ubuntu, or as an OpenRC service under `supervise-daemon` on Alpine, where it has no sandbox. It manages existing Docker containers (Compose and standalone), apt packages, and scripts cataloged in its configuration, and serves them three ways from one set of operation declarations: a REST API described by OpenAPI 3.1 under `/v1`, MCP tools at `/mcp` for agents, and the `nexus` CLI, whose commands are noun first (`nexus container get`) and can fan out across several hosts. A token's scopes alone decide what it may do. Nexus is for the home LAN only, with a pinned self-signed certificate.
+Each host runs its own `nexusd`, as root: under a hardened systemd unit on Ubuntu, or as an OpenRC service under `supervise-daemon` on Alpine, where it has no sandbox. It manages existing Docker containers (Compose and standalone), apt packages, scripts cataloged in its configuration, and the host's nginx service and site configurations, and serves them three ways from one set of operation declarations: a REST API described by OpenAPI 3.1 under `/v1`, MCP tools at `/mcp` for agents, and the `nexus` CLI, whose commands are noun first (`nexus container get`) and can fan out across several hosts. A token's scopes alone decide what it may do. Nexus is for the home LAN only, with a pinned self-signed certificate.
 
 Module path: `github.com/mauktik/nexus`. Go 1.26 is required.
 
@@ -17,6 +17,7 @@ Module path: `github.com/mauktik/nexus`. Go 1.26 is required.
 | [docs/security.md](docs/security.md) | The security model: threat assumptions, LAN-only exposure, tokens and scopes, the systemd unit and OpenRC hosts |
 | [docs/scripts.md](docs/scripts.md) | Cataloging and running scripts: what changes from a terminal, integrity checks, the onboarding checklist |
 | [docs/mcp.md](docs/mcp.md) | MCP client setup, tool semantics and the tool budget |
+| [docs/nginx.md](docs/nginx.md) | The nginx provider: configuration, the include line, sites and the rename model, writes with backup and rollback, reload verification, the CLI's `--content` limit |
 | [docs/cli/nexus.md](docs/cli/nexus.md) | The CLI reference, generated from the command definitions |
 | [docs/api.md](docs/api.md) | The REST API reference, generated from the OpenAPI document |
 | [docs/adding-a-provider.md](docs/adding-a-provider.md) | Adding a provider: spec, binding, the two composition lines |
