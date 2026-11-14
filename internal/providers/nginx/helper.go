@@ -88,6 +88,8 @@ var actions = map[string]action{
 	actionStop:    runStop,
 	actionRestart: runRestart,
 	actionReload:  runReload,
+	actionEnable:  runEnable,
+	actionDisable: runDisable,
 }
 
 // Helper is `nexusd nginx-op`. `run --dir D` reads D/input.json, runs its

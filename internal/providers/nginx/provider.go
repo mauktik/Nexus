@@ -218,5 +218,7 @@ func (p *Provider) Bindings() []provider.Binding {
 		p.lifecycleBinding(spec.Stop, actionStop, nil),
 		p.lifecycleBinding(spec.Restart, actionRestart, nil),
 		p.lifecycleBinding(spec.Reload, actionReload, p.admitReload),
+		p.toggleBinding(spec.Enable, actionEnable),
+		p.toggleBinding(spec.Disable, actionDisable),
 	}
 }

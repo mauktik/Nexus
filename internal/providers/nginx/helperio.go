@@ -66,7 +66,8 @@ type helperInput struct {
 	Action      string           `json:"action"`
 	Settings    settingsSnapshot `json:"settings"`
 	InitSystem  string           `json:"initSystem"`
-	Nginx       string           `json:"nginx"` // The nginx binary's absolute path
+	Nginx       string           `json:"nginx"`          // The nginx binary's absolute path
+	Name        string           `json:"name,omitempty"` // The site of enable and disable
 }
 
 // helperResult is result.json: the action's result, or the problem it
