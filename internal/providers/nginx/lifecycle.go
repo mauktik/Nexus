@@ -191,8 +191,15 @@ func converge(ctx context.Context, e env, in helperInput, action svcctl.Action, 
 	say(e.out, "nginx-op: %s %s through %s", action, service, e.svc.Init())
 	res, err := e.svc.Do(ctx, action, service)
 	if err != nil {
-		return nil, failure(problem.DependencyUnavailable, "%s of %s through %s did not complete: %v", action,
-			service, e.svc.Init(), err)
+		if errors.Is(err, svcctl.ErrNotStarted) || errors.Is(err, context.DeadlineExceeded) ||
+			errors.Is(err, context.Canceled) {
+			return nil, failure(problem.DependencyUnavailable, "%s of %s through %s did not complete: %v", action,
+				service, e.svc.Init(), err)
+		}
+		// The tool started and then ended without an exit status: it may have
+		// acted before it died, so the state it left decides, as for a reload.
+		say(e.out, "nginx-op: %s %s failed after it started: %v; waiting for the state", e.svc.Init(), action, err)
+		res = svcctl.Result{ExitCode: noExitStatus, Output: []byte(err.Error())}
 	}
 	logInit(e, action, res)
 	st, herr := awaitState(ctx, e, in, action, want, res)

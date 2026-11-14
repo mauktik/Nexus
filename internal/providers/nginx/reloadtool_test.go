@@ -247,3 +247,22 @@ func TestStateChangeToolDiedAfterActing(t *testing.T) {
 		}
 	}
 }
+
+// nginx-provider CR-B1 I: a start tool that never started changed nothing and is a failure at once
+func TestStateChangeToolNeverStarted(t *testing.T) {
+	fakeNginxBinary(t)
+	h := newLC(t, ubuntu, svcctltest.Model{State: svcctl.Stopped})
+	writeTree(t, h.f.dir, map[string]string{"a.conf": validSite})
+	h.set(func(h *lcHarness) {
+		h.reloadFault = reloadFault{verb: "start", n: 1, before: true,
+			err: errors.Join(svcctl.ErrNotStarted, errors.New("fork/exec /usr/bin/systemctl: no such file or directory"))}
+	})
+
+	d := h.op(spec.Start.Op()).failed(t, problem.DependencyUnavailable)
+	if !strings.Contains(d, "did not complete") {
+		t.Errorf("detail %q, want it to say the start did not complete", d)
+	}
+	if got, want := h.calls(), []string{"status", "nginx -t", "start"}; !slices.Equal(got, want) {
+		t.Errorf("calls %q, want %q: no state polling after a tool that never started", got, want)
+	}
+}
