@@ -1,0 +1,53 @@
++ git rev-parse HEAD: ba56e70d862013de52033fd739c4d161e2d80e9a
++ git status --short -- internal/detach internal/ops: 
++ docker daemon architecture aarch64 -> GOARCH=arm64
++ nexusd sha256 0dd68bc0a6a5d45a5ebc91cffcc18aa0a426d9ca08fca2ca78759262a01984e6
++ docker build -f test/harness/Dockerfile.alpine -t nexus-harness:alpine-alpine-latest test/harness
+sha256:6a08f5848e4c33b303f1aaf9e235e6ad89911841753bae30281ab7c9a19f1caa
++ docker run -d --name nx-reboot-alpine-20261114T063129Z --privileged --cgroupns=private --tmpfs /run --tmpfs /run/lock -v /var/lib/docker -v /var/lib/containerd nexus-harness:alpine-alpine-latest
+4b88a2c033538a8b2804c14af8ee17a9ee634f1bbb60bbbe2b127607f0a09fa4
++ PID 1: /sbin/init 
++ 3.24.4 openrc (OpenRC [DOCKER]) 0.63.2 aarch64
+install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/init.d/nexusd
+install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+/etc/nexus/nexusd.yaml: configuration is valid
+install.sh: next steps:
+install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+install.sh:   start nexusd at boot: rc-update add nexusd default
+install.sh:   start nexusd now: rc-service nexusd start
+ * service nginx added to runlevel default
+Service 'acpid' needs non existent service 'dev'
+Service 'hwdrivers' needs non existent service 'dev'
+Service 'machine-id' needs non existent service 'dev'
+Service 'watchdog' needs non existent service 'dev'
+ * Caching service dependencies ... [ ok ]
+ * /run/nginx: creating directory
+ * /run/nginx: correcting owner
+ * Starting nginx ... [ ok ]
+ * service nexusd added to runlevel default
+ * /var/lib/nexus: creating directory
+ * /var/log/nexus: creating directory
+ * Starting nexusd ... [ ok ]
+Created token "alpine-check" (id 647b6350baf0). It is shown only this once; store it now.
++ token created (value withheld)
++ == round 1
++ round 1 phase 1 exit 1
++ round 1 op 01a1d8c1-3113-77ac-98bb-7a9d395b44bb; 06:31:42 docker restart -t 60 nx-reboot-alpine-20261114T063129Z (simulated reboot)
++ round 1 back 06:31:47: Runlevel: default nginx [ started ] nexusd [ started 00:00:01 (0) ] docker [ started 00:00:01 (0) ]
++ round 1 phase 2 exit 1
++ round 1:   5a  PASS  operation 01a1d8c1-3113-77ac-98bb-7a9d395b44bb Failed outcome-unknown, 0 s after nexusd answered
++ == round 2
++ round 2 phase 1 exit 1
++ round 2 op 01a1d8c1-47f4-753e-a2f5-0cb4e702cbcf; 06:31:48 docker restart -t 60 nx-reboot-alpine-20261114T063129Z (simulated reboot)
++ round 2 back 06:31:52: Runlevel: default nginx [ started ] nexusd [ started 00:00:01 (0) ] docker [ started 00:00:01 (0) ]
++ round 2 phase 2 exit 1
++ round 2:   5a  PASS  operation 01a1d8c1-47f4-753e-a2f5-0cb4e702cbcf Failed outcome-unknown, 1 s after nexusd answered
++ == round 3
++ round 3 phase 1 exit 1
++ round 3 op 01a1d8c1-6103-738e-84e6-efe32a22a97d; 06:31:54 docker restart -t 60 nx-reboot-alpine-20261114T063129Z (simulated reboot)
++ round 3 back 06:31:59: Runlevel: default nginx [ started ] nexusd [ started 00:00:01 (0) ] docker [ started 00:00:01 (0) ]
++ round 3 phase 2 exit 1
++ round 3:   5a  PASS  operation 01a1d8c1-6103-738e-84e6-efe32a22a97d Failed outcome-unknown, 1 s after nexusd answered
++ token absent from every collected file (grep -F)
+container nx-reboot-alpine-20261114T063129Z removed

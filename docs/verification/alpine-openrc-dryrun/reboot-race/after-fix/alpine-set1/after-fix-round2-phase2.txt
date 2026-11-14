@@ -1,0 +1,62 @@
+# alpine-check.sh transcript: nginx-provider WI 3.5 (TC-51, TC-52)
+# started 2026-11-14T06:31:52Z on host 4b88a2c03353, mode reboot2, arguments: --yes --reboot-phase2 --transcript /root/r2-phase2.txt
+# script sha256 b77bdb0e75d221bf16dfa7bc226821b3b600457b70f6cbfd5c8aa860db7ca8c3
+# CONTAINER DETECTED (/.dockerenv, /run/.containerenv or container= in PID 1's environment):
+# this transcript is a dry run, NOT real-host evidence.
+
+
+== Plan (reboot2). With --yes the script will:
+  - read boot_id, start nexusd if it did not start at boot, check the phase 1
+    operation ended outcome-unknown, then clean up as a full run does.
+  It never edits nginx's configuration or touches the nginx service, and never reboots.
+
+[06:31:52] == Step 5, phase 2: after the reboot (TC-51 step 5)
+$ cat /var/lib/nexus-alpine-check/reboot.state
+op=01a1d8c1-47f4-753e-a2f5-0cb4e702cbcf
+boot=a2e5b43d-6ecf-4b62-bbde-f26dfa9c7fcf
+sup_pid=1455
+sup_ticks=239405860
+tag=s5-20261114063147
+run_id=20261114063147
+runlevel=yes
+config_sha=84a6f51f6bdd5317988bfe3a724c5a6671a25fd0dc23ec8469e4e4249157d205
+nginx_digest=e9161a0dfd3aba938ba3fe81d0318fc5c2c029e900fc1d58d220d0f0f483acb6
+$ cat /proc/sys/kernel/random/boot_id
+a2e5b43d-6ecf-4b62-bbde-f26dfa9c7fcf
+$ cat /proc/uptime
+2394063.44 9517370.55
+[06:31:52] API: https://localhost:7443 (curl -sS --connect-to localhost:7443:127.0.0.1:7443 --cacert /var/lib/nexus/tls/cert.pem)
+[06:31:52] nexusd pid 398 answers https://localhost:7443/healthz
+supervisor 1455 with startTicks 239405860 is not running ()
+[06:31:52] operation 01a1d8c1-47f4-753e-a2f5-0cb4e702cbcf: Running
+[06:31:53] operation 01a1d8c1-47f4-753e-a2f5-0cb4e702cbcf: Failed
+$ curl -sS --connect-to localhost:7443:127.0.0.1:7443 --cacert /var/lib/nexus/tls/cert.pem -X GET -H 'Authorization: Bearer <NEXUS_TOKEN>' https://localhost:7443/v1/operations/01a1d8c1-47f4-753e-a2f5-0cb4e702cbcf
+HTTP 200 {"id":"01a1d8c1-47f4-753e-a2f5-0cb4e702cbcf","host":"4b88a2c03353","action":"scripts.scripts.invoke","provider":"scripts","target":"nexus-alpine-check","tokenName":"alpine-check","status":"Failed","created":"2026-11-14T06:31:47.956667418Z","started":"2026-11-14T06:31:47.958170889Z","ended":"2026-11-14T06:31:53.711462402Z","result":null,"error":{"type":"urn:nexus:problem:outcome-unknown","title":"Outcome unknown","detail":"the supervisor process of operation 01a1d8c1-47f4-753e-a2f5-0cb4e702cbcf ended without reporting an outcome; script nexus-alpine-check may have run in part; check what it changes before running it again"},"outputEvicted":false}
+$ ls -l /var/lib/nexus/ops/01a1d8c1-47f4-753e-a2f5-0cb4e702cbcf
+total 12
+-rw-------    1 root     root             6 Nov 14 06:31 max-runtime
+drwx------    2 root     root          4096 Nov 14 06:31 output
+-rw-------    1 root     root            83 Nov 14 06:31 supervisor.json
+-rw-------    1 root     root             0 Nov 14 06:31 supervisor.log
+RESULT 5a: PASS - operation 01a1d8c1-47f4-753e-a2f5-0cb4e702cbcf Failed outcome-unknown, 1 s after nexusd answered
+RESULT 5b: FAIL - boot_id unchanged (a2e5b43d-6ecf-4b62-bbde-f26dfa9c7fcf): the host did not reboot (a container restart keeps the host kernel's boot_id)
+[06:31:53] == Cleanup
+[06:31:53] restoring /etc/nexus/nexusd.yaml from /var/lib/nexus-alpine-check/nexusd.yaml.orig
+$ sha256sum /var/lib/nexus-alpine-check/nexusd.yaml.orig /etc/nexus/nexusd.yaml
+84a6f51f6bdd5317988bfe3a724c5a6671a25fd0dc23ec8469e4e4249157d205  /var/lib/nexus-alpine-check/nexusd.yaml.orig
+84a6f51f6bdd5317988bfe3a724c5a6671a25fd0dc23ec8469e4e4249157d205  /etc/nexus/nexusd.yaml
+$ rc-service nexusd reload
+ * Reloading nexusd ... [ ok ]
+$ curl -sS --connect-to localhost:7443:127.0.0.1:7443 --cacert /var/lib/nexus/tls/cert.pem -X GET -H 'Authorization: Bearer <NEXUS_TOKEN>' https://localhost:7443/v1/providers/scripts/scripts/nexus-alpine-check
+HTTP 503 {"type":"urn:nexus:problem:capability-unavailable","title":"Capability unavailable","status":503,"detail":"provider scripts is disabled","provider":"scripts","reason":"disabled in configuration (providers.scripts.enabled is false)"}
+$ rm -rf /usr/local/libexec/nexus-alpine-check /var/lib/nexus-alpine-check
+RESULT config-restored: PASS - /etc/nexus/nexusd.yaml sha256 84a6f51f6bdd5317988bfe3a724c5a6671a25fd0dc23ec8469e4e4249157d205, as before the run
+RESULT nginx-untouched: PASS - digest of every file under /etc/nginx unchanged (e9161a0dfd3aba938ba3fe81d0318fc5c2c029e900fc1d58d220d0f0f483acb6)
+
+== Summary (reboot2)
+  5a  PASS  operation 01a1d8c1-47f4-753e-a2f5-0cb4e702cbcf Failed outcome-unknown, 1 s after nexusd answered
+  5b  FAIL  boot_id unchanged (a2e5b43d-6ecf-4b62-bbde-f26dfa9c7fcf): the host did not reboot (a container restart keeps the host kernel's boot_id)
+  config-restored  PASS  /etc/nexus/nexusd.yaml sha256 84a6f51f6bdd5317988bfe3a724c5a6671a25fd0dc23ec8469e4e4249157d205, as before the run
+  nginx-untouched  PASS  digest of every file under /etc/nginx unchanged (e9161a0dfd3aba938ba3fe81d0318fc5c2c029e900fc1d58d220d0f0f483acb6)
+  (container: not real-host evidence)
+transcript: /root/r2-phase2.txt

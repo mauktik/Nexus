@@ -1,0 +1,62 @@
+# CONTAINER DRY RUN, NOT real-host evidence. Ubuntu systemd harness, simulated reboot by docker restart.
+# git HEAD ba56e70d862013de52033fd739c4d161e2d80e9a, GOARCH=arm64
++ docker run -d --name nx-reboot-ubuntu-20261114T063437Z --privileged --cgroupns=host --tmpfs /run --tmpfs /run/lock -v /var/lib/docker -v /var/lib/containerd nexus-harness:ubuntu-latest
+install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+/etc/nexus/nexusd.yaml: configuration is valid
+install.sh: next steps:
+install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+install.sh:   start nexusd: systemctl enable --now nexusd.service
+/etc/nexus/nexusd.yaml: configuration is valid
+Created symlink '/etc/systemd/system/multi-user.target.wants/nexusd.service' → '/etc/systemd/system/nexusd.service'.
+== round 1
+invoke: {"id":"01a1d8c3-f93c-73ec-8e9d-39b95a3e5bd5","host":"18f84ed68dc9","action":"scripts.scripts.invoke","provider":"scripts","target":"nx-reboot","tokenName":"nx-reboot","status":"Queued","created":"2026-11-14T06:34:44.41283953Z","started":null,"ended":null,"result":null,"error":null,"outputEvicted":false}
+before: {"id":"01a1d8c3-f93c-73ec-8e9d-39b95a3e5bd5","host":"18f84ed68dc9","action":"scripts.scripts.invoke","provider":"scripts","target":"nx-reboot","tokenName":"nx-reboot","status":"Running","created":"2026-11-14T06:34:44.41283953Z","started":"2026-11-14T06:34:44.429437122Z","ended":null,"result":null,"error":null,"outputEvicted":false}
+unit: ActiveState=active MainPID=414 KillMode=control-group
++ 06:34:44 docker restart -t 60 nx-reboot-ubuntu-20261114T063437Z
+after: {"id":"01a1d8c3-f93c-73ec-8e9d-39b95a3e5bd5","host":"18f84ed68dc9","action":"scripts.scripts.invoke","provider":"scripts","target":"nx-reboot","tokenName":"nx-reboot","status":"Failed","created":"2026-11-14T06:34:44.41283953Z","started":"2026-11-14T06:34:44.429437122Z","ended":"2026-11-14T06:34:45.270478579Z","result":null,"error":{"type":"urn:nexus:problem:outcome-unknown","title":"Outcome unknown","detail":"unit nexus-op-01a1d8c3-f93c-73ec-8e9d-39b95a3e5bd5.service was stopped by a SIGTERM that nexusd did not send, such as a host shutdown's, before the operation reported an outcome; script nx-reboot may have run in part; check what it changes before running it again"},"outputEvicted":false}
+exit.json: {"exitCode":-1,"signal":"SIGTERM","started":"2026-11-14T06:34:44.481962668Z","ended":"2026-11-14T06:34:44.658691545Z","timedOut":false,"canceled":false,"interrupted":true,"bootId":"a2e5b43d-6ecf-4b62-bbde-f26dfa9c7fcf"}
+cancel marker: ls: cannot access '/var/lib/nexus/ops/01a1d8c3-f93c-73ec-8e9d-39b95a3e5bd5/cancel': No such file or directory
+journal (op unit, previous boot):
+Nov 14 06:34:44.468675 18f84ed68dc9 systemd[1]: Starting nexus-op-01a1d8c3-f93c-73ec-8e9d-39b95a3e5bd5.service - Nexus operation 01a1d8c3-f93c-73ec-8e9d-39b95a3e5bd5...
+Nov 14 06:34:44.476880 18f84ed68dc9 systemd[1]: Started nexus-op-01a1d8c3-f93c-73ec-8e9d-39b95a3e5bd5.service - Nexus operation 01a1d8c3-f93c-73ec-8e9d-39b95a3e5bd5.
+Nov 14 06:34:44.658003 18f84ed68dc9 systemd[1]: Stopping nexus-op-01a1d8c3-f93c-73ec-8e9d-39b95a3e5bd5.service - Nexus operation 01a1d8c3-f93c-73ec-8e9d-39b95a3e5bd5...
+Nov 14 06:34:44.710678 18f84ed68dc9 nexusd[414]: op-supervise: SIGTERM without a cancel request from nexusd (a host shutdown, or a signal sent by hand): the operation is reported interrupted
+Nov 14 06:34:44.713155 18f84ed68dc9 systemd[1]: nexus-op-01a1d8c3-f93c-73ec-8e9d-39b95a3e5bd5.service: Deactivated successfully.
+Nov 14 06:34:44.713348 18f84ed68dc9 systemd[1]: Stopped nexus-op-01a1d8c3-f93c-73ec-8e9d-39b95a3e5bd5.service - Nexus operation 01a1d8c3-f93c-73ec-8e9d-39b95a3e5bd5.
+RESULT round 1: PASS Failed outcome-unknown
+== round 2
+invoke: {"id":"01a1d8c4-011b-71ba-abb5-d3cdbc79ea15","host":"18f84ed68dc9","action":"scripts.scripts.invoke","provider":"scripts","target":"nx-reboot","tokenName":"nx-reboot","status":"Queued","created":"2026-11-14T06:34:46.427769365Z","started":null,"ended":null,"result":null,"error":null,"outputEvicted":false}
+before: {"id":"01a1d8c4-011b-71ba-abb5-d3cdbc79ea15","host":"18f84ed68dc9","action":"scripts.scripts.invoke","provider":"scripts","target":"nx-reboot","tokenName":"nx-reboot","status":"Running","created":"2026-11-14T06:34:46.427769365Z","started":"2026-11-14T06:34:46.43490038Z","ended":null,"result":null,"error":null,"outputEvicted":false}
+unit: ActiveState=active MainPID=356 KillMode=control-group
++ 06:34:46 docker restart -t 60 nx-reboot-ubuntu-20261114T063437Z
+after: {"id":"01a1d8c4-011b-71ba-abb5-d3cdbc79ea15","host":"18f84ed68dc9","action":"scripts.scripts.invoke","provider":"scripts","target":"nx-reboot","tokenName":"nx-reboot","status":"Failed","created":"2026-11-14T06:34:46.427769365Z","started":"2026-11-14T06:34:46.43490038Z","ended":"2026-11-14T06:34:47.377664026Z","result":null,"error":{"type":"urn:nexus:problem:outcome-unknown","title":"Outcome unknown","detail":"unit nexus-op-01a1d8c4-011b-71ba-abb5-d3cdbc79ea15.service was stopped by a SIGTERM that nexusd did not send, such as a host shutdown's, before the operation reported an outcome; script nx-reboot may have run in part; check what it changes before running it again"},"outputEvicted":false}
+exit.json: {"exitCode":-1,"signal":"SIGTERM","started":"2026-11-14T06:34:46.528870301Z","ended":"2026-11-14T06:34:46.721558472Z","timedOut":false,"canceled":false,"interrupted":true,"bootId":"a2e5b43d-6ecf-4b62-bbde-f26dfa9c7fcf"}
+cancel marker: ls: cannot access '/var/lib/nexus/ops/01a1d8c4-011b-71ba-abb5-d3cdbc79ea15/cancel': No such file or directory
+journal (op unit, previous boot):
+Nov 14 06:34:46.504916 18f84ed68dc9 systemd[1]: Starting nexus-op-01a1d8c4-011b-71ba-abb5-d3cdbc79ea15.service - Nexus operation 01a1d8c4-011b-71ba-abb5-d3cdbc79ea15...
+Nov 14 06:34:46.515449 18f84ed68dc9 systemd[1]: Started nexus-op-01a1d8c4-011b-71ba-abb5-d3cdbc79ea15.service - Nexus operation 01a1d8c4-011b-71ba-abb5-d3cdbc79ea15.
+Nov 14 06:34:46.721642 18f84ed68dc9 systemd[1]: Stopping nexus-op-01a1d8c4-011b-71ba-abb5-d3cdbc79ea15.service - Nexus operation 01a1d8c4-011b-71ba-abb5-d3cdbc79ea15...
+Nov 14 06:34:46.778426 18f84ed68dc9 nexusd[356]: op-supervise: SIGTERM without a cancel request from nexusd (a host shutdown, or a signal sent by hand): the operation is reported interrupted
+Nov 14 06:34:46.805642 18f84ed68dc9 systemd[1]: nexus-op-01a1d8c4-011b-71ba-abb5-d3cdbc79ea15.service: Deactivated successfully.
+Nov 14 06:34:46.805814 18f84ed68dc9 systemd[1]: Stopped nexus-op-01a1d8c4-011b-71ba-abb5-d3cdbc79ea15.service - Nexus operation 01a1d8c4-011b-71ba-abb5-d3cdbc79ea15.
+RESULT round 2: PASS Failed outcome-unknown
+== round 3
+invoke: {"id":"01a1d8c4-0988-75c4-812d-f3f417509483","host":"18f84ed68dc9","action":"scripts.scripts.invoke","provider":"scripts","target":"nx-reboot","tokenName":"nx-reboot","status":"Queued","created":"2026-11-14T06:34:48.584470414Z","started":null,"ended":null,"result":null,"error":null,"outputEvicted":false}
+before: {"id":"01a1d8c4-0988-75c4-812d-f3f417509483","host":"18f84ed68dc9","action":"scripts.scripts.invoke","provider":"scripts","target":"nx-reboot","tokenName":"nx-reboot","status":"Running","created":"2026-11-14T06:34:48.584470414Z","started":"2026-11-14T06:34:48.606991095Z","ended":null,"result":null,"error":null,"outputEvicted":false}
+unit: ActiveState=active MainPID=357 KillMode=control-group
++ 06:34:48 docker restart -t 60 nx-reboot-ubuntu-20261114T063437Z
+after: {"id":"01a1d8c4-0988-75c4-812d-f3f417509483","host":"18f84ed68dc9","action":"scripts.scripts.invoke","provider":"scripts","target":"nx-reboot","tokenName":"nx-reboot","status":"Failed","created":"2026-11-14T06:34:48.584470414Z","started":"2026-11-14T06:34:48.606991095Z","ended":"2026-11-14T06:34:49.439442687Z","result":null,"error":{"type":"urn:nexus:problem:outcome-unknown","title":"Outcome unknown","detail":"unit nexus-op-01a1d8c4-0988-75c4-812d-f3f417509483.service was stopped by a SIGTERM that nexusd did not send, such as a host shutdown's, before the operation reported an outcome; script nx-reboot may have run in part; check what it changes before running it again"},"outputEvicted":false}
+exit.json: {"exitCode":-1,"signal":"SIGTERM","started":"2026-11-14T06:34:48.646984957Z","ended":"2026-11-14T06:34:48.870976712Z","timedOut":false,"canceled":false,"interrupted":true,"bootId":"a2e5b43d-6ecf-4b62-bbde-f26dfa9c7fcf"}
+cancel marker: ls: cannot access '/var/lib/nexus/ops/01a1d8c4-0988-75c4-812d-f3f417509483/cancel': No such file or directory
+journal (op unit, previous boot):
+Nov 14 06:34:48.634239 18f84ed68dc9 systemd[1]: Starting nexus-op-01a1d8c4-0988-75c4-812d-f3f417509483.service - Nexus operation 01a1d8c4-0988-75c4-812d-f3f417509483...
+Nov 14 06:34:48.643168 18f84ed68dc9 systemd[1]: Started nexus-op-01a1d8c4-0988-75c4-812d-f3f417509483.service - Nexus operation 01a1d8c4-0988-75c4-812d-f3f417509483.
+Nov 14 06:34:48.870492 18f84ed68dc9 systemd[1]: Stopping nexus-op-01a1d8c4-0988-75c4-812d-f3f417509483.service - Nexus operation 01a1d8c4-0988-75c4-812d-f3f417509483...
+Nov 14 06:34:48.926747 18f84ed68dc9 nexusd[357]: op-supervise: SIGTERM without a cancel request from nexusd (a host shutdown, or a signal sent by hand): the operation is reported interrupted
+Nov 14 06:34:48.934858 18f84ed68dc9 systemd[1]: nexus-op-01a1d8c4-0988-75c4-812d-f3f417509483.service: Deactivated successfully.
+Nov 14 06:34:48.935035 18f84ed68dc9 systemd[1]: Stopped nexus-op-01a1d8c4-0988-75c4-812d-f3f417509483.service - Nexus operation 01a1d8c4-0988-75c4-812d-f3f417509483.
+RESULT round 3: PASS Failed outcome-unknown
+token absent from the transcript (grep -F)
+container nx-reboot-ubuntu-20261114T063437Z removed
