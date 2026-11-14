@@ -1,18 +1,19 @@
 # nginx-check.sh transcript: nginx-provider WI 7.2 (TC-118 Alpine/OpenRC, TC-119 Ubuntu/systemd)
-# started 2026-11-14T08:00:18Z on Devuser-Macbook-Pro.local, mode main, host root@127.0.0.1, arguments: --ssh root@127.0.0.1 --transcript 08-alpine-refuse-invalid-config.txt --yes
-# script sha256 dab9e551c6c9889275a5f631fca05d06b465a56fa5e6e49ed5895cbf0ba6d14e
+# started 2026-11-14T09:02:28Z on Devuser-Macbook-Pro.local, mode main, host root@127.0.0.1, arguments: --ssh root@127.0.0.1 --transcript 08-alpine-refuse-invalid-config.txt --yes
+# script sha256 5f1bae798b5f2177b8393009b74437a60a9d75f2eb202b09540858293bbae148
 # CONTAINER DETECTED on the host (/.dockerenv, /run/.containerenv or container= in PID 1's environment):
 # this transcript is a dry run, NOT real-host evidence.
 $ [host] /usr/local/bin/nexusd tls fingerprint
-01:F8:0D:FB:01:2C:BC:BD:51:1B:A2:D6:94:1E:A5:2B:08:4F:B6:AE:42:EF:CF:D8:21:3D:55:4E:00:C8:47:C5
-$ printf '%s\n' "$NEXUS_TOKEN" | nexus host add nginx-check --url https://localhost:17443 --fingerprint 01:F8:0D:FB:01:2C:BC:BD:51:1B:A2:D6:94:1E:A5:2B:08:4F:B6:AE:42:EF:CF:D8:21:3D:55:4E:00:C8:47:C5 --token-stdin
+80:30:9A:4B:F7:E9:EB:A4:BE:8E:B7:DE:5A:CD:7D:F3:8C:00:0B:0A:BB:45:2E:F8:13:5D:A6:0D:94:2E:26:34
+$ (the token, on stdin) | nexus host add nginx-check --url https://localhost:17443 --fingerprint 80:30:9A:4B:F7:E9:EB:A4:BE:8E:B7:DE:5A:CD:7D:F3:8C:00:0B:0A:BB:45:2E:F8:13:5D:A6:0D:94:2E:26:34 --token-stdin
 Server certificate SHA-256 fingerprint:
-  01:F8:0D:FB:01:2C:BC:BD:51:1B:A2:D6:94:1E:A5:2B:08:4F:B6:AE:42:EF:CF:D8:21:3D:55:4E:00:C8:47:C5
+  80:30:9A:4B:F7:E9:EB:A4:BE:8E:B7:DE:5A:CD:7D:F3:8C:00:0B:0A:BB:45:2E:F8:13:5D:A6:0D:94:2E:26:34
 It matches --fingerprint; pinning it.
 Added host "nginx-check" (https://localhost:17443, nexusd dev, trust: pin) to <throwaway client config>
-[08:00:18] == Step 1: facts, the include line (ASM-12, ASM-3) and nginx -t
+RESULT token-env: PASS - no child process's environment holds the token (env, run as a child, does not show it)
+[09:02:29] == Step 1: facts, the include line (ASM-12, ASM-3) and nginx -t
 $ [host] uname -a; [ ! -r /etc/alpine-release ] || echo "Alpine $(cat /etc/alpine-release)"; [ ! -r /etc/debian_version ] || echo "Debian base $(cat /etc/debian_version)"; tr "\0" " " </proc/1/cmdline; echo
-Linux 387da97cc800 6.8.0-100-generic #100-Ubuntu SMP PREEMPT_DYNAMIC Tue Jan 13 16:39:21 UTC 2026 aarch64 Linux
+Linux 8bb37b5a97cd 6.8.0-100-generic #100-Ubuntu SMP PREEMPT_DYNAMIC Tue Jan 13 16:39:21 UTC 2026 aarch64 Linux
 Alpine 3.24.4
 /sbin/init 
 $ [host] openrc --version
@@ -25,7 +26,7 @@ $ nexus --version
 nexus dev
   readback of the test port with: curl
 $ nexus --host nginx-check nginx get -o jsonl
-{"host":"nginx-check","id":"/providers/nginx/service/nginx","name":"nginx","properties":{"disabledSuffix":".disabled","includeDir":"/etc/nginx/http.d","includeSuffix":".conf","initSystem":"openrc","mainPid":3118,"service":"nginx","since":null,"state":"running","version":"1.30.6"},"type":"service"}
+{"host":"nginx-check","id":"/providers/nginx/service/nginx","name":"nginx","properties":{"disabledSuffix":".disabled","includeDir":"/etc/nginx/http.d","includeSuffix":".conf","initSystem":"openrc","mainPid":3081,"service":"nginx","since":null,"state":"running","version":"1.30.6"},"type":"service"}
 RESULT 1-provider: PASS - nexus nginx get: running, initSystem openrc, includeDir /etc/nginx/http.d, service nginx
   nginx pid file: /run/nginx/nginx.pid
 $ [host] grep -n include /etc/nginx/nginx.conf

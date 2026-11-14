@@ -1,341 +1,746 @@
 
-== Alpine baseline, before any run (nx-wi72-alpine-20261114T075727Z, 07:57:33Z)
+== Alpine baseline, before any run (nx-wi72-alpine-20261114T085925Z, 08:59:31Z)
 $ ls -la /etc/nginx/http.d
 total 36
-drwxr-xr-x    1 root     root          4096 Nov 14 07:57 .
-drwxr-xr-x    1 root     root          4096 Nov 14 07:57 ..
--rw-r--r--    1 root     root             6 Nov 14 07:57 README.local
+drwxr-xr-x    1 root     root          4096 Nov 14 08:59 .
+drwxr-xr-x    1 root     root          4096 Nov 14 08:59 ..
+-rw-r--r--    1 root     root             6 Nov 14 08:59 README.local
 -rw-r--r--    1 root     root           342 Nov 13 19:29 default.conf
-drwxr-xr-x    2 root     root          4096 Nov 14 07:57 snippets
--rw-r--r--    1 root     root           132 Nov 14 07:57 user-api.conf
--rw-r--r--    1 root     root           130 Nov 14 07:57 user-app.conf
--rw-r--r--    1 root     root            75 Nov 14 07:57 user-old.conf.disabled
-$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf
-536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/http.d/user-api.conf
+drwxr-xr-x    2 root     root          4096 Nov 14 08:59 snippets
+-rw-r--r--    1 root     root           133 Nov 14 08:59 user-api.conf
+-rw-r--r--    1 root     root           130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx    1 root     root            28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r--    1 root     root            75 Nov 14 08:59 user-old.conf.disabled
+$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5  /etc/nginx/http.d/user-api.conf
 5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/http.d/user-app.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /etc/nginx/http.d/user-linked.conf
 4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/http.d/user-old.conf.disabled
 dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd  /etc/nginx/nginx.conf
+dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7  /srv/nginx-extra/locations.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /srv/nginx-sites/linked.conf
 $ ls -la /var/lib/nexus-nginx-check
 ls: /var/lib/nexus-nginx-check: No such file or directory
 $ curl -sS http://127.0.0.1:18301/
 user-app
 $ curl -sS http://127.0.0.1:18302/
 user-api
+$ curl -sS http://127.0.0.1:18304/
+user-linked
 $ rc-service nginx status
  * status: started
 (holder processes: none unless listed above)
 
-== Ubuntu baseline, before any run (nx-wi72-ubuntu-20261114T075727Z, 07:57:33Z)
+== Ubuntu baseline, before any run (nx-wi72-ubuntu-20261114T085925Z, 08:59:31Z)
 $ ls -la /etc/nginx/conf.d
 total 32
-drwxr-xr-x 1 root root 4096 Nov 14 07:57 .
+drwxr-xr-x 1 root root 4096 Nov 14 08:59 .
 drwxr-xr-x 1 root root 4096 Nov 14 04:44 ..
--rw-r--r-- 1 root root    6 Nov 14 07:57 README.local
-drwxr-xr-x 2 root root 4096 Nov 14 07:57 snippets
--rw-r--r-- 1 root root  132 Nov 14 07:57 user-api.conf
--rw-r--r-- 1 root root  130 Nov 14 07:57 user-app.conf
--rw-r--r-- 1 root root   75 Nov 14 07:57 user-old.conf.disabled
-$ sha256sum /etc/nginx/conf.d/user-* /etc/nginx/nginx.conf
-536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/conf.d/user-api.conf
+-rw-r--r-- 1 root root    6 Nov 14 08:59 README.local
+drwxr-xr-x 2 root root 4096 Nov 14 08:59 snippets
+-rw-r--r-- 1 root root  133 Nov 14 08:59 user-api.conf
+-rw-r--r-- 1 root root  130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx 1 root root   28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r-- 1 root root   75 Nov 14 08:59 user-old.conf.disabled
+$ sha256sum /etc/nginx/conf.d/user-* /etc/nginx/nginx.conf /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5  /etc/nginx/conf.d/user-api.conf
 5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/conf.d/user-app.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /etc/nginx/conf.d/user-linked.conf
 4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/conf.d/user-old.conf.disabled
 d7be180d12cb332090cf4a0e8de780bd30e7f59fd0ffa4ad42be0e70e6bc6348  /etc/nginx/nginx.conf
+dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7  /srv/nginx-extra/locations.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /srv/nginx-sites/linked.conf
 $ ls -la /var/lib/nexus-nginx-check
 ls: cannot access '/var/lib/nexus-nginx-check': No such file or directory
 $ curl -sS http://127.0.0.1:18301/
 user-app
 $ curl -sS http://127.0.0.1:18302/
 user-api
+$ curl -sS http://127.0.0.1:18304/
+user-linked
 $ systemctl is-active nginx
 active
 (holder processes: none unless listed above)
 
-== after 01 (full run with --with-lifecycle) (nx-wi72-alpine-20261114T075727Z, 07:58:19Z)
+== after 01 (full run with --with-lifecycle) (nx-wi72-alpine-20261114T085925Z, 09:00:21Z)
 $ ls -la /etc/nginx/http.d
 total 36
-drwxr-xr-x    1 root     root          4096 Nov 14 07:58 .
-drwxr-xr-x    1 root     root          4096 Nov 14 07:57 ..
--rw-r--r--    1 root     root             6 Nov 14 07:57 README.local
+drwxr-xr-x    1 root     root          4096 Nov 14 09:00 .
+drwxr-xr-x    1 root     root          4096 Nov 14 08:59 ..
+-rw-r--r--    1 root     root             6 Nov 14 08:59 README.local
 -rw-r--r--    1 root     root           342 Nov 13 19:29 default.conf
-drwxr-xr-x    2 root     root          4096 Nov 14 07:57 snippets
--rw-r--r--    1 root     root           132 Nov 14 07:57 user-api.conf
--rw-r--r--    1 root     root           130 Nov 14 07:57 user-app.conf
--rw-r--r--    1 root     root            75 Nov 14 07:57 user-old.conf.disabled
-$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf
-536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/http.d/user-api.conf
+drwxr-xr-x    2 root     root          4096 Nov 14 08:59 snippets
+-rw-r--r--    1 root     root           133 Nov 14 08:59 user-api.conf
+-rw-r--r--    1 root     root           130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx    1 root     root            28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r--    1 root     root            75 Nov 14 08:59 user-old.conf.disabled
+$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5  /etc/nginx/http.d/user-api.conf
 5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/http.d/user-app.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /etc/nginx/http.d/user-linked.conf
 4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/http.d/user-old.conf.disabled
 dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd  /etc/nginx/nginx.conf
+dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7  /srv/nginx-extra/locations.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /srv/nginx-sites/linked.conf
 $ ls -la /var/lib/nexus-nginx-check
 ls: /var/lib/nexus-nginx-check: No such file or directory
 $ curl -sS http://127.0.0.1:18301/
 user-app
 $ curl -sS http://127.0.0.1:18302/
 user-api
+$ curl -sS http://127.0.0.1:18304/
+user-linked
 $ rc-service nginx status
  * status: started
 (holder processes: none unless listed above)
 
-== after 02 (default run) (nx-wi72-alpine-20261114T075727Z, 07:58:59Z)
+== after 02 (default run) (nx-wi72-alpine-20261114T085925Z, 09:01:04Z)
 $ ls -la /etc/nginx/http.d
 total 36
-drwxr-xr-x    1 root     root          4096 Nov 14 07:58 .
-drwxr-xr-x    1 root     root          4096 Nov 14 07:57 ..
--rw-r--r--    1 root     root             6 Nov 14 07:57 README.local
+drwxr-xr-x    1 root     root          4096 Nov 14 09:01 .
+drwxr-xr-x    1 root     root          4096 Nov 14 08:59 ..
+-rw-r--r--    1 root     root             6 Nov 14 08:59 README.local
 -rw-r--r--    1 root     root           342 Nov 13 19:29 default.conf
-drwxr-xr-x    2 root     root          4096 Nov 14 07:57 snippets
--rw-r--r--    1 root     root           132 Nov 14 07:57 user-api.conf
--rw-r--r--    1 root     root           130 Nov 14 07:57 user-app.conf
--rw-r--r--    1 root     root            75 Nov 14 07:57 user-old.conf.disabled
-$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf
-536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/http.d/user-api.conf
+drwxr-xr-x    2 root     root          4096 Nov 14 08:59 snippets
+-rw-r--r--    1 root     root           133 Nov 14 08:59 user-api.conf
+-rw-r--r--    1 root     root           130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx    1 root     root            28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r--    1 root     root            75 Nov 14 08:59 user-old.conf.disabled
+$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5  /etc/nginx/http.d/user-api.conf
 5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/http.d/user-app.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /etc/nginx/http.d/user-linked.conf
 4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/http.d/user-old.conf.disabled
 dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd  /etc/nginx/nginx.conf
+dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7  /srv/nginx-extra/locations.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /srv/nginx-sites/linked.conf
 $ ls -la /var/lib/nexus-nginx-check
 ls: /var/lib/nexus-nginx-check: No such file or directory
 $ curl -sS http://127.0.0.1:18301/
 user-app
 $ curl -sS http://127.0.0.1:18302/
 user-api
+$ curl -sS http://127.0.0.1:18304/
+user-linked
 $ rc-service nginx status
  * status: started
 (holder processes: none unless listed above)
 
-== after 03 (Ctrl-C at step 5b) (nx-wi72-alpine-20261114T075727Z, 07:59:38Z)
+== after 03 (Ctrl-C at step 5b) (nx-wi72-alpine-20261114T085925Z, 09:01:46Z)
 $ ls -la /etc/nginx/http.d
 total 36
-drwxr-xr-x    1 root     root          4096 Nov 14 07:59 .
-drwxr-xr-x    1 root     root          4096 Nov 14 07:57 ..
--rw-r--r--    1 root     root             6 Nov 14 07:57 README.local
+drwxr-xr-x    1 root     root          4096 Nov 14 09:01 .
+drwxr-xr-x    1 root     root          4096 Nov 14 08:59 ..
+-rw-r--r--    1 root     root             6 Nov 14 08:59 README.local
 -rw-r--r--    1 root     root           342 Nov 13 19:29 default.conf
-drwxr-xr-x    2 root     root          4096 Nov 14 07:57 snippets
--rw-r--r--    1 root     root           132 Nov 14 07:57 user-api.conf
--rw-r--r--    1 root     root           130 Nov 14 07:57 user-app.conf
--rw-r--r--    1 root     root            75 Nov 14 07:57 user-old.conf.disabled
-$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf
-536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/http.d/user-api.conf
+drwxr-xr-x    2 root     root          4096 Nov 14 08:59 snippets
+-rw-r--r--    1 root     root           133 Nov 14 08:59 user-api.conf
+-rw-r--r--    1 root     root           130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx    1 root     root            28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r--    1 root     root            75 Nov 14 08:59 user-old.conf.disabled
+$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5  /etc/nginx/http.d/user-api.conf
 5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/http.d/user-app.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /etc/nginx/http.d/user-linked.conf
 4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/http.d/user-old.conf.disabled
 dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd  /etc/nginx/nginx.conf
+dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7  /srv/nginx-extra/locations.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /srv/nginx-sites/linked.conf
 $ ls -la /var/lib/nexus-nginx-check
 ls: /var/lib/nexus-nginx-check: No such file or directory
 $ curl -sS http://127.0.0.1:18301/
 user-app
 $ curl -sS http://127.0.0.1:18302/
 user-api
+$ curl -sS http://127.0.0.1:18304/
+user-linked
 $ rc-service nginx status
  * status: started
 (holder processes: none unless listed above)
 
-== after 04 (SIGKILL at step 5b: what is left) (nx-wi72-alpine-20261114T075727Z, 08:00:15Z)
+== after 04 (SIGKILL at step 5b: what is left) (nx-wi72-alpine-20261114T085925Z, 09:02:25Z)
 $ ls -la /etc/nginx/http.d
 total 40
-drwxr-xr-x    1 root     root          4096 Nov 14 08:00 .
-drwxr-xr-x    1 root     root          4096 Nov 14 07:57 ..
--rw-r--r--    1 root     root             6 Nov 14 07:57 README.local
+drwxr-xr-x    1 root     root          4096 Nov 14 09:02 .
+drwxr-xr-x    1 root     root          4096 Nov 14 08:59 ..
+-rw-r--r--    1 root     root             6 Nov 14 08:59 README.local
 -rw-r--r--    1 root     root           342 Nov 13 19:29 default.conf
--rw-r--r--    1 root     root           200 Nov 14 08:00 nexus-check-5476fbfc.conf
-drwxr-xr-x    2 root     root          4096 Nov 14 07:57 snippets
--rw-r--r--    1 root     root           132 Nov 14 07:57 user-api.conf
--rw-r--r--    1 root     root           130 Nov 14 07:57 user-app.conf
--rw-r--r--    1 root     root            75 Nov 14 07:57 user-old.conf.disabled
-$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf
-536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/http.d/user-api.conf
+-rw-r--r--    1 root     root           172 Nov 14 09:02 nexus-check-e4bdab30.conf
+drwxr-xr-x    2 root     root          4096 Nov 14 08:59 snippets
+-rw-r--r--    1 root     root           133 Nov 14 08:59 user-api.conf
+-rw-r--r--    1 root     root           130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx    1 root     root            28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r--    1 root     root            75 Nov 14 08:59 user-old.conf.disabled
+$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5  /etc/nginx/http.d/user-api.conf
 5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/http.d/user-app.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /etc/nginx/http.d/user-linked.conf
 4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/http.d/user-old.conf.disabled
 dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd  /etc/nginx/nginx.conf
+dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7  /srv/nginx-extra/locations.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /srv/nginx-sites/linked.conf
 $ ls -la /var/lib/nexus-nginx-check
-total 20
-drwx------    2 root     root          4096 Nov 14 08:00 .
-drwxr-xr-x    1 root     root          4096 Nov 14 07:59 ..
--rw-r--r--    1 root     root          1409 Nov 14 07:59 snap.before
--rw-------    1 root     root           173 Nov 14 08:00 state
+total 24
+drwx------    2 root     root          4096 Nov 14 09:02 .
+drwxr-xr-x    1 root     root          4096 Nov 14 09:01 ..
+-rw-r--r--    1 root     root           206 Nov 14 09:01 conffiles
+-rw-r--r--    1 root     root          1709 Nov 14 09:01 snap.before
+-rw-------    1 root     root           216 Nov 14 09:02 state
 $ curl -sS http://127.0.0.1:18301/
 user-app
 $ curl -sS http://127.0.0.1:18302/
 user-api
+$ curl -sS http://127.0.0.1:18304/
+user-linked
 $ rc-service nginx status
  * status: started
-holder process still running: 13422 busybox nc -l -s 127.0.0.1 -p 18284 
-holder process still running: 13424 timeout 600 busybox nc -l -s 127.0.0.1 -p 18284 
+holder process still running: 13710 busybox nc -l -s 127.0.0.1 -p 18442 
+holder process still running: 13712 timeout 600 busybox nc -l -s 127.0.0.1 -p 18442 
 (holder processes: none unless listed above)
 
-== after 06 (--cleanup) (nx-wi72-alpine-20261114T075727Z, 08:00:17Z)
+== after 06 (--cleanup) (nx-wi72-alpine-20261114T085925Z, 09:02:27Z)
 $ ls -la /etc/nginx/http.d
 total 36
-drwxr-xr-x    1 root     root          4096 Nov 14 08:00 .
-drwxr-xr-x    1 root     root          4096 Nov 14 07:57 ..
--rw-r--r--    1 root     root             6 Nov 14 07:57 README.local
+drwxr-xr-x    1 root     root          4096 Nov 14 09:02 .
+drwxr-xr-x    1 root     root          4096 Nov 14 08:59 ..
+-rw-r--r--    1 root     root             6 Nov 14 08:59 README.local
 -rw-r--r--    1 root     root           342 Nov 13 19:29 default.conf
-drwxr-xr-x    2 root     root          4096 Nov 14 07:57 snippets
--rw-r--r--    1 root     root           132 Nov 14 07:57 user-api.conf
--rw-r--r--    1 root     root           130 Nov 14 07:57 user-app.conf
--rw-r--r--    1 root     root            75 Nov 14 07:57 user-old.conf.disabled
-$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf
-536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/http.d/user-api.conf
+drwxr-xr-x    2 root     root          4096 Nov 14 08:59 snippets
+-rw-r--r--    1 root     root           133 Nov 14 08:59 user-api.conf
+-rw-r--r--    1 root     root           130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx    1 root     root            28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r--    1 root     root            75 Nov 14 08:59 user-old.conf.disabled
+$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5  /etc/nginx/http.d/user-api.conf
 5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/http.d/user-app.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /etc/nginx/http.d/user-linked.conf
 4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/http.d/user-old.conf.disabled
 dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd  /etc/nginx/nginx.conf
+dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7  /srv/nginx-extra/locations.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /srv/nginx-sites/linked.conf
 $ ls -la /var/lib/nexus-nginx-check
 ls: /var/lib/nexus-nginx-check: No such file or directory
 $ curl -sS http://127.0.0.1:18301/
 user-app
 $ curl -sS http://127.0.0.1:18302/
 user-api
+$ curl -sS http://127.0.0.1:18304/
+user-linked
 $ rc-service nginx status
  * status: started
 (holder processes: none unless listed above)
 
-== after 08 (refused: nothing of the script may exist) (nx-wi72-alpine-20261114T075727Z, 08:00:19Z)
+== after 08 (refused: nothing of the script may exist) (nx-wi72-alpine-20261114T085925Z, 09:02:29Z)
 $ ls -la /etc/nginx/http.d
 total 40
-drwxr-xr-x    1 root     root          4096 Nov 14 08:00 .
-drwxr-xr-x    1 root     root          4096 Nov 14 07:57 ..
--rw-r--r--    1 root     root             6 Nov 14 07:57 README.local
+drwxr-xr-x    1 root     root          4096 Nov 14 09:02 .
+drwxr-xr-x    1 root     root          4096 Nov 14 08:59 ..
+-rw-r--r--    1 root     root             6 Nov 14 08:59 README.local
 -rw-r--r--    1 root     root           342 Nov 13 19:29 default.conf
-drwxr-xr-x    2 root     root          4096 Nov 14 07:57 snippets
--rw-r--r--    1 root     root           132 Nov 14 07:57 user-api.conf
--rw-r--r--    1 root     root           130 Nov 14 07:57 user-app.conf
--rw-r--r--    1 root     root            75 Nov 14 07:57 user-old.conf.disabled
--rw-r--r--    1 root     root            26 Nov 14 08:00 zz-user-broken.conf
-$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf
-536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/http.d/user-api.conf
+drwxr-xr-x    2 root     root          4096 Nov 14 08:59 snippets
+-rw-r--r--    1 root     root           133 Nov 14 08:59 user-api.conf
+-rw-r--r--    1 root     root           130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx    1 root     root            28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r--    1 root     root            75 Nov 14 08:59 user-old.conf.disabled
+-rw-r--r--    1 root     root            26 Nov 14 09:02 zz-user-broken.conf
+$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5  /etc/nginx/http.d/user-api.conf
 5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/http.d/user-app.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /etc/nginx/http.d/user-linked.conf
 4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/http.d/user-old.conf.disabled
 dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd  /etc/nginx/nginx.conf
+dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7  /srv/nginx-extra/locations.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /srv/nginx-sites/linked.conf
 $ ls -la /var/lib/nexus-nginx-check
 ls: /var/lib/nexus-nginx-check: No such file or directory
 $ curl -sS http://127.0.0.1:18301/
 user-app
 $ curl -sS http://127.0.0.1:18302/
 user-api
+$ curl -sS http://127.0.0.1:18304/
+user-linked
 $ rc-service nginx status
  * status: started
 (holder processes: none unless listed above)
 
-== after 10 (user-app.conf put back by the dry-run driver) (nx-wi72-alpine-20261114T075727Z, 08:01:01Z)
+== after 10 (user-app.conf put back by the driver) (nx-wi72-alpine-20261114T085925Z, 09:03:15Z)
 $ ls -la /etc/nginx/http.d
 total 36
-drwxr-xr-x    1 root     root          4096 Nov 14 08:01 .
-drwxr-xr-x    1 root     root          4096 Nov 14 08:00 ..
--rw-r--r--    1 root     root             6 Nov 14 07:57 README.local
+drwxr-xr-x    1 root     root          4096 Nov 14 09:03 .
+drwxr-xr-x    1 root     root          4096 Nov 14 09:02 ..
+-rw-r--r--    1 root     root             6 Nov 14 08:59 README.local
 -rw-r--r--    1 root     root           342 Nov 13 19:29 default.conf
-drwxr-xr-x    2 root     root          4096 Nov 14 07:57 snippets
--rw-r--r--    1 root     root           132 Nov 14 07:57 user-api.conf
--rw-r--r--    1 root     root           130 Nov 14 07:57 user-app.conf
--rw-r--r--    1 root     root            75 Nov 14 07:57 user-old.conf.disabled
-$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf
-536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/http.d/user-api.conf
+drwxr-xr-x    2 root     root          4096 Nov 14 08:59 snippets
+-rw-r--r--    1 root     root           133 Nov 14 08:59 user-api.conf
+-rw-r--r--    1 root     root           130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx    1 root     root            28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r--    1 root     root            75 Nov 14 08:59 user-old.conf.disabled
+$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5  /etc/nginx/http.d/user-api.conf
 5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/http.d/user-app.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /etc/nginx/http.d/user-linked.conf
 4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/http.d/user-old.conf.disabled
 dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd  /etc/nginx/nginx.conf
+dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7  /srv/nginx-extra/locations.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /srv/nginx-sites/linked.conf
 $ ls -la /var/lib/nexus-nginx-check
 ls: /var/lib/nexus-nginx-check: No such file or directory
 $ curl -sS http://127.0.0.1:18301/
 user-app
 $ curl -sS http://127.0.0.1:18302/
 user-api
+$ curl -sS http://127.0.0.1:18304/
+user-linked
 $ rc-service nginx status
  * status: started
 (holder processes: none unless listed above)
 
-== after 12 (full run with --with-lifecycle) (nx-wi72-ubuntu-20261114T075727Z, 08:01:42Z)
+== after 11 (refused: nothing of the script may exist) (nx-wi72-alpine-20261114T085925Z, 09:03:17Z)
+$ ls -la /etc/nginx/http.d
+total 36
+drwxr-xr-x    1 root     root          4096 Nov 14 09:03 .
+drwxr-xr-x    1 root     root          4096 Nov 14 09:02 ..
+-rw-r--r--    1 root     root             6 Nov 14 08:59 README.local
+-rw-r--r--    1 root     root           342 Nov 13 19:29 default.conf
+drwxr-xr-x    2 root     root          4096 Nov 14 08:59 snippets
+-rw-r--r--    1 root     root           133 Nov 14 08:59 user-api.conf
+-rw-r--r--    1 root     root           130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx    1 root     root            28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r--    1 root     root            75 Nov 14 08:59 user-old.conf.disabled
+$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5  /etc/nginx/http.d/user-api.conf
+5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/http.d/user-app.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /etc/nginx/http.d/user-linked.conf
+4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/http.d/user-old.conf.disabled
+dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd  /etc/nginx/nginx.conf
+dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7  /srv/nginx-extra/locations.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /srv/nginx-sites/linked.conf
+$ ls -la /var/lib/nexus-nginx-check
+ls: /var/lib/nexus-nginx-check: No such file or directory
+$ curl -sS http://127.0.0.1:18301/
+user-app
+$ curl -sS http://127.0.0.1:18302/
+user-api
+$ curl -sS http://127.0.0.1:18304/
+user-linked
+$ rc-service nginx status
+ * status: started
+(holder processes: none unless listed above)
+
+== after 12 (locations.conf put back by the driver) (nx-wi72-alpine-20261114T085925Z, 09:04:00Z)
+$ ls -la /etc/nginx/http.d
+total 36
+drwxr-xr-x    1 root     root          4096 Nov 14 09:03 .
+drwxr-xr-x    1 root     root          4096 Nov 14 09:02 ..
+-rw-r--r--    1 root     root             6 Nov 14 08:59 README.local
+-rw-r--r--    1 root     root           342 Nov 13 19:29 default.conf
+drwxr-xr-x    2 root     root          4096 Nov 14 08:59 snippets
+-rw-r--r--    1 root     root           133 Nov 14 08:59 user-api.conf
+-rw-r--r--    1 root     root           130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx    1 root     root            28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r--    1 root     root            75 Nov 14 08:59 user-old.conf.disabled
+$ sha256sum /etc/nginx/http.d/user-* /etc/nginx/nginx.conf /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5  /etc/nginx/http.d/user-api.conf
+5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/http.d/user-app.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /etc/nginx/http.d/user-linked.conf
+4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/http.d/user-old.conf.disabled
+dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd  /etc/nginx/nginx.conf
+dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7  /srv/nginx-extra/locations.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /srv/nginx-sites/linked.conf
+$ ls -la /var/lib/nexus-nginx-check
+ls: /var/lib/nexus-nginx-check: No such file or directory
+$ curl -sS http://127.0.0.1:18301/
+user-app
+$ curl -sS http://127.0.0.1:18302/
+user-api
+$ curl -sS http://127.0.0.1:18304/
+user-linked
+$ rc-service nginx status
+ * status: started
+(holder processes: none unless listed above)
+
+== after 14 (full run with --with-lifecycle) (nx-wi72-ubuntu-20261114T085925Z, 09:04:41Z)
 $ ls -la /etc/nginx/conf.d
 total 32
-drwxr-xr-x 1 root root 4096 Nov 14 08:01 .
+drwxr-xr-x 1 root root 4096 Nov 14 09:04 .
 drwxr-xr-x 1 root root 4096 Nov 14 04:44 ..
--rw-r--r-- 1 root root    6 Nov 14 07:57 README.local
-drwxr-xr-x 2 root root 4096 Nov 14 07:57 snippets
--rw-r--r-- 1 root root  132 Nov 14 07:57 user-api.conf
--rw-r--r-- 1 root root  130 Nov 14 07:57 user-app.conf
--rw-r--r-- 1 root root   75 Nov 14 07:57 user-old.conf.disabled
-$ sha256sum /etc/nginx/conf.d/user-* /etc/nginx/nginx.conf
-536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/conf.d/user-api.conf
+-rw-r--r-- 1 root root    6 Nov 14 08:59 README.local
+drwxr-xr-x 2 root root 4096 Nov 14 08:59 snippets
+-rw-r--r-- 1 root root  133 Nov 14 08:59 user-api.conf
+-rw-r--r-- 1 root root  130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx 1 root root   28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r-- 1 root root   75 Nov 14 08:59 user-old.conf.disabled
+$ sha256sum /etc/nginx/conf.d/user-* /etc/nginx/nginx.conf /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5  /etc/nginx/conf.d/user-api.conf
 5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/conf.d/user-app.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /etc/nginx/conf.d/user-linked.conf
 4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/conf.d/user-old.conf.disabled
 d7be180d12cb332090cf4a0e8de780bd30e7f59fd0ffa4ad42be0e70e6bc6348  /etc/nginx/nginx.conf
+dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7  /srv/nginx-extra/locations.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /srv/nginx-sites/linked.conf
 $ ls -la /var/lib/nexus-nginx-check
 ls: cannot access '/var/lib/nexus-nginx-check': No such file or directory
 $ curl -sS http://127.0.0.1:18301/
 user-app
 $ curl -sS http://127.0.0.1:18302/
 user-api
+$ curl -sS http://127.0.0.1:18304/
+user-linked
 $ systemctl is-active nginx
 active
 (holder processes: none unless listed above)
 
-== after 13 (SIGINT with the add in flight) (nx-wi72-ubuntu-20261114T075727Z, 08:01:45Z)
+== after 15 (SIGINT with an operation in flight) (nx-wi72-ubuntu-20261114T085925Z, 09:04:43Z)
 $ ls -la /etc/nginx/conf.d
 total 32
-drwxr-xr-x 1 root root 4096 Nov 14 08:01 .
+drwxr-xr-x 1 root root 4096 Nov 14 09:04 .
 drwxr-xr-x 1 root root 4096 Nov 14 04:44 ..
--rw-r--r-- 1 root root    6 Nov 14 07:57 README.local
-drwxr-xr-x 2 root root 4096 Nov 14 07:57 snippets
--rw-r--r-- 1 root root  132 Nov 14 07:57 user-api.conf
--rw-r--r-- 1 root root  130 Nov 14 07:57 user-app.conf
--rw-r--r-- 1 root root   75 Nov 14 07:57 user-old.conf.disabled
-$ sha256sum /etc/nginx/conf.d/user-* /etc/nginx/nginx.conf
-536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/conf.d/user-api.conf
+-rw-r--r-- 1 root root    6 Nov 14 08:59 README.local
+drwxr-xr-x 2 root root 4096 Nov 14 08:59 snippets
+-rw-r--r-- 1 root root  133 Nov 14 08:59 user-api.conf
+-rw-r--r-- 1 root root  130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx 1 root root   28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r-- 1 root root   75 Nov 14 08:59 user-old.conf.disabled
+$ sha256sum /etc/nginx/conf.d/user-* /etc/nginx/nginx.conf /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5  /etc/nginx/conf.d/user-api.conf
 5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/conf.d/user-app.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /etc/nginx/conf.d/user-linked.conf
 4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/conf.d/user-old.conf.disabled
 d7be180d12cb332090cf4a0e8de780bd30e7f59fd0ffa4ad42be0e70e6bc6348  /etc/nginx/nginx.conf
+dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7  /srv/nginx-extra/locations.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /srv/nginx-sites/linked.conf
 $ ls -la /var/lib/nexus-nginx-check
 ls: cannot access '/var/lib/nexus-nginx-check': No such file or directory
 $ curl -sS http://127.0.0.1:18301/
 user-app
 $ curl -sS http://127.0.0.1:18302/
 user-api
+$ curl -sS http://127.0.0.1:18304/
+user-linked
 $ systemctl is-active nginx
 active
 (holder processes: none unless listed above)
 
-== after 14 (SIGTERM with the nginx stop in flight) (nx-wi72-ubuntu-20261114T075727Z, 08:01:55Z)
+== after 16 (SIGTERM with the stop in flight) (nx-wi72-ubuntu-20261114T085925Z, 09:04:52Z)
 $ ls -la /etc/nginx/conf.d
 total 32
-drwxr-xr-x 1 root root 4096 Nov 14 08:01 .
+drwxr-xr-x 1 root root 4096 Nov 14 09:04 .
 drwxr-xr-x 1 root root 4096 Nov 14 04:44 ..
--rw-r--r-- 1 root root    6 Nov 14 07:57 README.local
-drwxr-xr-x 2 root root 4096 Nov 14 07:57 snippets
--rw-r--r-- 1 root root  132 Nov 14 07:57 user-api.conf
--rw-r--r-- 1 root root  130 Nov 14 07:57 user-app.conf
--rw-r--r-- 1 root root   75 Nov 14 07:57 user-old.conf.disabled
-$ sha256sum /etc/nginx/conf.d/user-* /etc/nginx/nginx.conf
-536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/conf.d/user-api.conf
+-rw-r--r-- 1 root root    6 Nov 14 08:59 README.local
+drwxr-xr-x 2 root root 4096 Nov 14 08:59 snippets
+-rw-r--r-- 1 root root  133 Nov 14 08:59 user-api.conf
+-rw-r--r-- 1 root root  130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx 1 root root   28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r-- 1 root root   75 Nov 14 08:59 user-old.conf.disabled
+$ sha256sum /etc/nginx/conf.d/user-* /etc/nginx/nginx.conf /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5  /etc/nginx/conf.d/user-api.conf
 5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/conf.d/user-app.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /etc/nginx/conf.d/user-linked.conf
 4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/conf.d/user-old.conf.disabled
 d7be180d12cb332090cf4a0e8de780bd30e7f59fd0ffa4ad42be0e70e6bc6348  /etc/nginx/nginx.conf
+dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7  /srv/nginx-extra/locations.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /srv/nginx-sites/linked.conf
 $ ls -la /var/lib/nexus-nginx-check
 ls: cannot access '/var/lib/nexus-nginx-check': No such file or directory
 $ curl -sS http://127.0.0.1:18301/
 user-app
 $ curl -sS http://127.0.0.1:18302/
 user-api
+$ curl -sS http://127.0.0.1:18304/
+user-linked
 $ systemctl is-active nginx
 active
 (holder processes: none unless listed above)
 
-== after 15 (SIGTERM after the stop) (nx-wi72-ubuntu-20261114T075727Z, 08:02:36Z)
+== after 17 (SIGTERM while nginx was stopped) (nx-wi72-ubuntu-20261114T085925Z, 09:05:01Z)
 $ ls -la /etc/nginx/conf.d
 total 32
-drwxr-xr-x 1 root root 4096 Nov 14 08:02 .
+drwxr-xr-x 1 root root 4096 Nov 14 09:05 .
 drwxr-xr-x 1 root root 4096 Nov 14 04:44 ..
--rw-r--r-- 1 root root    6 Nov 14 07:57 README.local
-drwxr-xr-x 2 root root 4096 Nov 14 07:57 snippets
--rw-r--r-- 1 root root  132 Nov 14 07:57 user-api.conf
--rw-r--r-- 1 root root  130 Nov 14 07:57 user-app.conf
--rw-r--r-- 1 root root   75 Nov 14 07:57 user-old.conf.disabled
-$ sha256sum /etc/nginx/conf.d/user-* /etc/nginx/nginx.conf
-536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf  /etc/nginx/conf.d/user-api.conf
+-rw-r--r-- 1 root root    6 Nov 14 08:59 README.local
+drwxr-xr-x 2 root root 4096 Nov 14 08:59 snippets
+-rw-r--r-- 1 root root  133 Nov 14 08:59 user-api.conf
+-rw-r--r-- 1 root root  130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx 1 root root   28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r-- 1 root root   75 Nov 14 08:59 user-old.conf.disabled
+$ sha256sum /etc/nginx/conf.d/user-* /etc/nginx/nginx.conf /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5  /etc/nginx/conf.d/user-api.conf
 5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/conf.d/user-app.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /etc/nginx/conf.d/user-linked.conf
 4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/conf.d/user-old.conf.disabled
 d7be180d12cb332090cf4a0e8de780bd30e7f59fd0ffa4ad42be0e70e6bc6348  /etc/nginx/nginx.conf
+dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7  /srv/nginx-extra/locations.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /srv/nginx-sites/linked.conf
 $ ls -la /var/lib/nexus-nginx-check
 ls: cannot access '/var/lib/nexus-nginx-check': No such file or directory
 $ curl -sS http://127.0.0.1:18301/
 user-app
 $ curl -sS http://127.0.0.1:18302/
 user-api
+$ curl -sS http://127.0.0.1:18304/
+user-linked
+$ systemctl is-active nginx
+active
+(holder processes: none unless listed above)
+
+== after 18 (restart failed midway, then SIGTERM) (nx-wi72-ubuntu-20261114T085925Z, 09:05:17Z)
+$ ls -la /etc/nginx/conf.d
+total 32
+drwxr-xr-x 1 root root 4096 Nov 14 09:05 .
+drwxr-xr-x 1 root root 4096 Nov 14 04:44 ..
+-rw-r--r-- 1 root root    6 Nov 14 08:59 README.local
+drwxr-xr-x 2 root root 4096 Nov 14 08:59 snippets
+-rw-r--r-- 1 root root  133 Nov 14 08:59 user-api.conf
+-rw-r--r-- 1 root root  130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx 1 root root   28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r-- 1 root root   75 Nov 14 08:59 user-old.conf.disabled
+$ sha256sum /etc/nginx/conf.d/user-* /etc/nginx/nginx.conf /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5  /etc/nginx/conf.d/user-api.conf
+5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/conf.d/user-app.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /etc/nginx/conf.d/user-linked.conf
+4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/conf.d/user-old.conf.disabled
+d7be180d12cb332090cf4a0e8de780bd30e7f59fd0ffa4ad42be0e70e6bc6348  /etc/nginx/nginx.conf
+dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7  /srv/nginx-extra/locations.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /srv/nginx-sites/linked.conf
+$ ls -la /var/lib/nexus-nginx-check
+ls: cannot access '/var/lib/nexus-nginx-check': No such file or directory
+$ curl -sS http://127.0.0.1:18301/
+user-app
+$ curl -sS http://127.0.0.1:18302/
+user-api
+$ curl -sS http://127.0.0.1:18304/
+user-linked
+$ systemctl is-active nginx
+active
+(holder processes: none unless listed above)
+
+== after 20-23 (SEC-9 probes; nexusd running again) (nx-wi72-ubuntu-20261114T085925Z, 09:05:32Z)
+$ ls -la /etc/nginx/conf.d
+total 32
+drwxr-xr-x 1 root root 4096 Nov 14 09:05 .
+drwxr-xr-x 1 root root 4096 Nov 14 04:44 ..
+-rw-r--r-- 1 root root    6 Nov 14 08:59 README.local
+drwxr-xr-x 2 root root 4096 Nov 14 08:59 snippets
+-rw-r--r-- 1 root root  133 Nov 14 08:59 user-api.conf
+-rw-r--r-- 1 root root  130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx 1 root root   28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r-- 1 root root   75 Nov 14 08:59 user-old.conf.disabled
+$ sha256sum /etc/nginx/conf.d/user-* /etc/nginx/nginx.conf /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5  /etc/nginx/conf.d/user-api.conf
+5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/conf.d/user-app.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /etc/nginx/conf.d/user-linked.conf
+4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/conf.d/user-old.conf.disabled
+d7be180d12cb332090cf4a0e8de780bd30e7f59fd0ffa4ad42be0e70e6bc6348  /etc/nginx/nginx.conf
+dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7  /srv/nginx-extra/locations.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /srv/nginx-sites/linked.conf
+$ ls -la /var/lib/nexus-nginx-check
+ls: cannot access '/var/lib/nexus-nginx-check': No such file or directory
+$ curl -sS http://127.0.0.1:18301/
+user-app
+$ curl -sS http://127.0.0.1:18302/
+user-api
+$ curl -sS http://127.0.0.1:18304/
+user-linked
+$ systemctl is-active nginx
+active
+(holder processes: none unless listed above)
+
+== SEC-10 baseline (includeSuffix .site; nginx.conf has the extra include) (nx-wi72-ubuntu-20261114T085925Z, 09:05:33Z)
+$ ls -la /etc/nginx/conf.d
+total 32
+drwxr-xr-x 1 root root 4096 Nov 14 09:05 .
+drwxr-xr-x 1 root root 4096 Nov 14 09:05 ..
+-rw-r--r-- 1 root root    6 Nov 14 08:59 README.local
+drwxr-xr-x 2 root root 4096 Nov 14 08:59 snippets
+-rw-r--r-- 1 root root  133 Nov 14 08:59 user-api.conf
+-rw-r--r-- 1 root root  130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx 1 root root   28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r-- 1 root root   75 Nov 14 08:59 user-old.conf.disabled
+$ sha256sum /etc/nginx/conf.d/user-* /etc/nginx/nginx.conf /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5  /etc/nginx/conf.d/user-api.conf
+5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/conf.d/user-app.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /etc/nginx/conf.d/user-linked.conf
+4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/conf.d/user-old.conf.disabled
+f04bb701dd45adc2e10cd77fe11cb68e05fa89d81b55be81c2971042d50fe9aa  /etc/nginx/nginx.conf
+dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7  /srv/nginx-extra/locations.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /srv/nginx-sites/linked.conf
+$ ls -la /var/lib/nexus-nginx-check
+ls: cannot access '/var/lib/nexus-nginx-check': No such file or directory
+$ curl -sS http://127.0.0.1:18301/
+user-app
+$ curl -sS http://127.0.0.1:18302/
+user-api
+$ curl -sS http://127.0.0.1:18304/
+user-linked
+$ systemctl is-active nginx
+active
+(holder processes: none unless listed above)
+
+== after 24 (SIGKILL once the .site file was added and enabled) (nx-wi72-ubuntu-20261114T085925Z, 09:05:36Z)
+$ ls -la /etc/nginx/conf.d
+total 36
+drwxr-xr-x 1 root root 4096 Nov 14 09:05 .
+drwxr-xr-x 1 root root 4096 Nov 14 09:05 ..
+-rw-r--r-- 1 root root    6 Nov 14 08:59 README.local
+-rw-r--r-- 1 root root  172 Nov 14 09:05 nexus-check-2dbc2b10.site
+drwxr-xr-x 2 root root 4096 Nov 14 08:59 snippets
+-rw-r--r-- 1 root root  133 Nov 14 08:59 user-api.conf
+-rw-r--r-- 1 root root  130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx 1 root root   28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r-- 1 root root   75 Nov 14 08:59 user-old.conf.disabled
+$ sha256sum /etc/nginx/conf.d/user-* /etc/nginx/nginx.conf /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5  /etc/nginx/conf.d/user-api.conf
+5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/conf.d/user-app.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /etc/nginx/conf.d/user-linked.conf
+4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/conf.d/user-old.conf.disabled
+f04bb701dd45adc2e10cd77fe11cb68e05fa89d81b55be81c2971042d50fe9aa  /etc/nginx/nginx.conf
+dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7  /srv/nginx-extra/locations.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /srv/nginx-sites/linked.conf
+$ ls -la /var/lib/nexus-nginx-check
+total 24
+drwx------ 2 root root 4096 Nov 14 09:05 .
+drwxr-xr-x 1 root root 4096 Nov 14 09:05 ..
+-rw-r--r-- 1 root root  208 Nov 14 09:05 conffiles
+-rw-r--r-- 1 root root 2686 Nov 14 09:05 snap.before
+-rw------- 1 root root  212 Nov 14 09:05 state
+$ curl -sS http://127.0.0.1:18301/
+user-app
+$ curl -sS http://127.0.0.1:18302/
+user-api
+$ curl -sS http://127.0.0.1:18304/
+user-linked
+$ systemctl is-active nginx
+active
+(holder processes: none unless listed above)
+
+== after 25 (--cleanup of the script before the fix, 34e1c70) (nx-wi72-ubuntu-20261114T085925Z, 09:05:37Z)
+$ ls -la /etc/nginx/conf.d
+total 36
+drwxr-xr-x 1 root root 4096 Nov 14 09:05 .
+drwxr-xr-x 1 root root 4096 Nov 14 09:05 ..
+-rw-r--r-- 1 root root    6 Nov 14 08:59 README.local
+-rw-r--r-- 1 root root  172 Nov 14 09:05 nexus-check-2dbc2b10.site
+drwxr-xr-x 2 root root 4096 Nov 14 08:59 snippets
+-rw-r--r-- 1 root root  133 Nov 14 08:59 user-api.conf
+-rw-r--r-- 1 root root  130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx 1 root root   28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r-- 1 root root   75 Nov 14 08:59 user-old.conf.disabled
+$ sha256sum /etc/nginx/conf.d/user-* /etc/nginx/nginx.conf /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5  /etc/nginx/conf.d/user-api.conf
+5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/conf.d/user-app.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /etc/nginx/conf.d/user-linked.conf
+4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/conf.d/user-old.conf.disabled
+f04bb701dd45adc2e10cd77fe11cb68e05fa89d81b55be81c2971042d50fe9aa  /etc/nginx/nginx.conf
+dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7  /srv/nginx-extra/locations.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /srv/nginx-sites/linked.conf
+$ ls -la /var/lib/nexus-nginx-check
+ls: cannot access '/var/lib/nexus-nginx-check': No such file or directory
+$ curl -sS http://127.0.0.1:18301/
+user-app
+$ curl -sS http://127.0.0.1:18302/
+user-api
+$ curl -sS http://127.0.0.1:18304/
+user-linked
+$ systemctl is-active nginx
+active
+(holder processes: none unless listed above)
+
+== after 26 (--cleanup, no state left by 25) (nx-wi72-ubuntu-20261114T085925Z, 09:05:38Z)
+$ ls -la /etc/nginx/conf.d
+total 32
+drwxr-xr-x 1 root root 4096 Nov 14 09:05 .
+drwxr-xr-x 1 root root 4096 Nov 14 09:05 ..
+-rw-r--r-- 1 root root    6 Nov 14 08:59 README.local
+drwxr-xr-x 2 root root 4096 Nov 14 08:59 snippets
+-rw-r--r-- 1 root root  133 Nov 14 08:59 user-api.conf
+-rw-r--r-- 1 root root  130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx 1 root root   28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r-- 1 root root   75 Nov 14 08:59 user-old.conf.disabled
+$ sha256sum /etc/nginx/conf.d/user-* /etc/nginx/nginx.conf /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5  /etc/nginx/conf.d/user-api.conf
+5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/conf.d/user-app.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /etc/nginx/conf.d/user-linked.conf
+4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/conf.d/user-old.conf.disabled
+f04bb701dd45adc2e10cd77fe11cb68e05fa89d81b55be81c2971042d50fe9aa  /etc/nginx/nginx.conf
+dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7  /srv/nginx-extra/locations.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /srv/nginx-sites/linked.conf
+$ ls -la /var/lib/nexus-nginx-check
+ls: cannot access '/var/lib/nexus-nginx-check': No such file or directory
+$ curl -sS http://127.0.0.1:18301/
+user-app
+$ curl -sS http://127.0.0.1:18302/
+user-api
+$ curl -sS http://127.0.0.1:18304/
+user-linked
+$ systemctl is-active nginx
+active
+(holder processes: none unless listed above)
+
+== after 28 (--cleanup with state; another nexus-check entry left) (nx-wi72-ubuntu-20261114T085925Z, 09:05:42Z)
+$ ls -la /etc/nginx/conf.d
+total 36
+drwxr-xr-x 1 root root 4096 Nov 14 09:05 .
+drwxr-xr-x 1 root root 4096 Nov 14 09:05 ..
+-rw-r--r-- 1 root root    6 Nov 14 08:59 README.local
+-rw-r--r-- 1 root root   22 Nov 14 09:05 nexus-check-0badc0de.site
+drwxr-xr-x 2 root root 4096 Nov 14 08:59 snippets
+-rw-r--r-- 1 root root  133 Nov 14 08:59 user-api.conf
+-rw-r--r-- 1 root root  130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx 1 root root   28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r-- 1 root root   75 Nov 14 08:59 user-old.conf.disabled
+$ sha256sum /etc/nginx/conf.d/user-* /etc/nginx/nginx.conf /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5  /etc/nginx/conf.d/user-api.conf
+5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/conf.d/user-app.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /etc/nginx/conf.d/user-linked.conf
+4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/conf.d/user-old.conf.disabled
+f04bb701dd45adc2e10cd77fe11cb68e05fa89d81b55be81c2971042d50fe9aa  /etc/nginx/nginx.conf
+dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7  /srv/nginx-extra/locations.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /srv/nginx-sites/linked.conf
+$ ls -la /var/lib/nexus-nginx-check
+total 28
+drwx------ 2 root root 4096 Nov 14 09:05 .
+drwxr-xr-x 1 root root 4096 Nov 14 09:05 ..
+-rw-r--r-- 1 root root  208 Nov 14 09:05 conffiles
+-rw-r--r-- 1 root root 2808 Nov 14 09:05 snap.after
+-rw-r--r-- 1 root root 2686 Nov 14 09:05 snap.before
+-rw------- 1 root root  212 Nov 14 09:05 state
+$ curl -sS http://127.0.0.1:18301/
+user-app
+$ curl -sS http://127.0.0.1:18302/
+user-api
+$ curl -sS http://127.0.0.1:18304/
+user-linked
+$ systemctl is-active nginx
+active
+(holder processes: none unless listed above)
+
+== after 29 (--cleanup again) (nx-wi72-ubuntu-20261114T085925Z, 09:05:43Z)
+$ ls -la /etc/nginx/conf.d
+total 32
+drwxr-xr-x 1 root root 4096 Nov 14 09:05 .
+drwxr-xr-x 1 root root 4096 Nov 14 09:05 ..
+-rw-r--r-- 1 root root    6 Nov 14 08:59 README.local
+drwxr-xr-x 2 root root 4096 Nov 14 08:59 snippets
+-rw-r--r-- 1 root root  133 Nov 14 08:59 user-api.conf
+-rw-r--r-- 1 root root  130 Nov 14 08:59 user-app.conf
+lrwxrwxrwx 1 root root   28 Nov 14 08:59 user-linked.conf -> /srv/nginx-sites/linked.conf
+-rw-r--r-- 1 root root   75 Nov 14 08:59 user-old.conf.disabled
+$ sha256sum /etc/nginx/conf.d/user-* /etc/nginx/nginx.conf /srv/nginx-extra/locations.conf /srv/nginx-sites/linked.conf
+19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5  /etc/nginx/conf.d/user-api.conf
+5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838  /etc/nginx/conf.d/user-app.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /etc/nginx/conf.d/user-linked.conf
+4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da  /etc/nginx/conf.d/user-old.conf.disabled
+f04bb701dd45adc2e10cd77fe11cb68e05fa89d81b55be81c2971042d50fe9aa  /etc/nginx/nginx.conf
+dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7  /srv/nginx-extra/locations.conf
+df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7  /srv/nginx-sites/linked.conf
+$ ls -la /var/lib/nexus-nginx-check
+ls: cannot access '/var/lib/nexus-nginx-check': No such file or directory
+$ curl -sS http://127.0.0.1:18301/
+user-app
+$ curl -sS http://127.0.0.1:18302/
+user-api
+$ curl -sS http://127.0.0.1:18304/
+user-linked
 $ systemctl is-active nginx
 active
 (holder processes: none unless listed above)

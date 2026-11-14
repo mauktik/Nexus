@@ -1,0 +1,45 @@
+# nginx-check.sh transcript: nginx-provider WI 7.2 (TC-118 Alpine/OpenRC, TC-119 Ubuntu/systemd)
+# started 2026-11-14T09:05:19Z on 964d32b31849, mode main, host this machine, arguments: --transcript 20-ubuntu-sec9-fake-http-before-fix.txt
+# script sha256 7d63e99c323a1b1239c97a03914830970dff8838a6df72df63492b6a9f0c9bf1
+# CONTAINER DETECTED on the host (/.dockerenv, /run/.containerenv or container= in PID 1's environment):
+# this transcript is a dry run, NOT real-host evidence.
+$ (the token, on stdin) | nexus host add nginx-check --url http://127.0.0.1:7443 --token-stdin
+Added host "nginx-check" (http://127.0.0.1:7443, nexusd dev, trust: plain-loopback) to <throwaway client config>
+RESULT token-env: PASS - no child process's environment holds the token (env, run as a child, does not show it)
+[09:05:19] == Step 1: facts, the include line (ASM-12, ASM-3) and nginx -t
+$ [host] uname -a; [ ! -r /etc/alpine-release ] || echo "Alpine $(cat /etc/alpine-release)"; [ ! -r /etc/debian_version ] || echo "Debian base $(cat /etc/debian_version)"; tr "\0" " " </proc/1/cmdline; echo
+Linux 964d32b31849 6.8.0-100-generic #100-Ubuntu SMP PREEMPT_DYNAMIC Tue Jan 13 16:39:21 UTC 2026 aarch64 GNU/Linux
+Debian base forky/sid
+/sbin/init 
+$ [host] systemctl --version | head -n 1
+systemd 259 (259.9-0ubuntu0.1)
+$ [host] /usr/sbin/nginx -v
+nginx version: nginx/1.28.3 (Ubuntu)
+$ [host] /usr/local/bin/nexusd -version
+nexusd dev
+$ nexus --version
+nexus dev
+  readback of the test port with: curl
+$ nexus --host nginx-check nginx get -o jsonl
+{"host":"nginx-check","id":"/providers/nginx/service/nginx","name":"nginx","properties":{"disabledSuffix":".disabled","includeDir":"/etc/nginx/conf.d","includeSuffix":".conf","initSystem":"systemd","mainPid":1,"service":"x;touch /tmp/pwned-sec9;#","since":"2026-11-14T00:00:00Z","state":"running","version":"1.28.3"},"type":"service"}
+RESULT 1-provider: PASS - nexus nginx get: running, initSystem systemd, includeDir /etc/nginx/conf.d, service x;touch /tmp/pwned-sec9;#
+  nginx pid file: /run/nginx.pid
+$ [host] grep -n include /etc/nginx/nginx.conf
+6:include /etc/nginx/modules-enabled/*.conf;
+27:	include /etc/nginx/mime.types;
+60:	include /etc/nginx/conf.d/*.conf;
+61:	include /etc/nginx/sites-enabled/*;
+  include statements (line|context|argument):
+    6|main|/etc/nginx/modules-enabled/*.conf
+    27|main/http|/etc/nginx/mime.types
+    60|main/http|/etc/nginx/conf.d/*.conf
+    61|main/http|/etc/nginx/sites-enabled/*
+RESULT 1-include: PASS - /etc/nginx/nginx.conf line 60: include /etc/nginx/conf.d/*.conf; (in http) names /etc/nginx/conf.d/*.conf
+$ [host] /usr/sbin/nginx -t
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+RESULT 1-nginx-t: PASS - nginx -t passes on the host's configuration before any change
+$ [host] /usr/bin/systemctl is-active -- x;touch /tmp/pwned-sec9;#.service
+inactive
+  (/proc) nginx master 67937, workers 67938 67939 67940 67941
+REFUSED: nginx is not running (systemd: stopped, master 67937): this check needs it running, and does not start it

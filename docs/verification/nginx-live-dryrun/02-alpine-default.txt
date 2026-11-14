@@ -1,18 +1,19 @@
 # nginx-check.sh transcript: nginx-provider WI 7.2 (TC-118 Alpine/OpenRC, TC-119 Ubuntu/systemd)
-# started 2026-11-14T07:58:19Z on Devuser-Macbook-Pro.local, mode main, host root@127.0.0.1, arguments: --ssh root@127.0.0.1 --transcript 02-alpine-default.txt --yes
-# script sha256 dab9e551c6c9889275a5f631fca05d06b465a56fa5e6e49ed5895cbf0ba6d14e
+# started 2026-11-14T09:00:21Z on Devuser-Macbook-Pro.local, mode main, host root@127.0.0.1, arguments: --ssh root@127.0.0.1 --transcript 02-alpine-default.txt --yes
+# script sha256 5f1bae798b5f2177b8393009b74437a60a9d75f2eb202b09540858293bbae148
 # CONTAINER DETECTED on the host (/.dockerenv, /run/.containerenv or container= in PID 1's environment):
 # this transcript is a dry run, NOT real-host evidence.
 $ [host] /usr/local/bin/nexusd tls fingerprint
-01:F8:0D:FB:01:2C:BC:BD:51:1B:A2:D6:94:1E:A5:2B:08:4F:B6:AE:42:EF:CF:D8:21:3D:55:4E:00:C8:47:C5
-$ printf '%s\n' "$NEXUS_TOKEN" | nexus host add nginx-check --url https://localhost:17443 --fingerprint 01:F8:0D:FB:01:2C:BC:BD:51:1B:A2:D6:94:1E:A5:2B:08:4F:B6:AE:42:EF:CF:D8:21:3D:55:4E:00:C8:47:C5 --token-stdin
+80:30:9A:4B:F7:E9:EB:A4:BE:8E:B7:DE:5A:CD:7D:F3:8C:00:0B:0A:BB:45:2E:F8:13:5D:A6:0D:94:2E:26:34
+$ (the token, on stdin) | nexus host add nginx-check --url https://localhost:17443 --fingerprint 80:30:9A:4B:F7:E9:EB:A4:BE:8E:B7:DE:5A:CD:7D:F3:8C:00:0B:0A:BB:45:2E:F8:13:5D:A6:0D:94:2E:26:34 --token-stdin
 Server certificate SHA-256 fingerprint:
-  01:F8:0D:FB:01:2C:BC:BD:51:1B:A2:D6:94:1E:A5:2B:08:4F:B6:AE:42:EF:CF:D8:21:3D:55:4E:00:C8:47:C5
+  80:30:9A:4B:F7:E9:EB:A4:BE:8E:B7:DE:5A:CD:7D:F3:8C:00:0B:0A:BB:45:2E:F8:13:5D:A6:0D:94:2E:26:34
 It matches --fingerprint; pinning it.
 Added host "nginx-check" (https://localhost:17443, nexusd dev, trust: pin) to <throwaway client config>
-[07:58:19] == Step 1: facts, the include line (ASM-12, ASM-3) and nginx -t
+RESULT token-env: PASS - no child process's environment holds the token (env, run as a child, does not show it)
+[09:00:21] == Step 1: facts, the include line (ASM-12, ASM-3) and nginx -t
 $ [host] uname -a; [ ! -r /etc/alpine-release ] || echo "Alpine $(cat /etc/alpine-release)"; [ ! -r /etc/debian_version ] || echo "Debian base $(cat /etc/debian_version)"; tr "\0" " " </proc/1/cmdline; echo
-Linux 387da97cc800 6.8.0-100-generic #100-Ubuntu SMP PREEMPT_DYNAMIC Tue Jan 13 16:39:21 UTC 2026 aarch64 Linux
+Linux 8bb37b5a97cd 6.8.0-100-generic #100-Ubuntu SMP PREEMPT_DYNAMIC Tue Jan 13 16:39:21 UTC 2026 aarch64 Linux
 Alpine 3.24.4
 /sbin/init 
 $ [host] openrc --version
@@ -25,7 +26,7 @@ $ nexus --version
 nexus dev
   readback of the test port with: curl
 $ nexus --host nginx-check nginx get -o jsonl
-{"host":"nginx-check","id":"/providers/nginx/service/nginx","name":"nginx","properties":{"disabledSuffix":".disabled","includeDir":"/etc/nginx/http.d","includeSuffix":".conf","initSystem":"openrc","mainPid":3118,"service":"nginx","since":null,"state":"running","version":"1.30.6"},"type":"service"}
+{"host":"nginx-check","id":"/providers/nginx/service/nginx","name":"nginx","properties":{"disabledSuffix":".disabled","includeDir":"/etc/nginx/http.d","includeSuffix":".conf","initSystem":"openrc","mainPid":3081,"service":"nginx","since":null,"state":"running","version":"1.30.6"},"type":"service"}
 RESULT 1-provider: PASS - nexus nginx get: running, initSystem openrc, includeDir /etc/nginx/http.d, service nginx
   nginx pid file: /run/nginx/nginx.pid
 $ [host] grep -n include /etc/nginx/nginx.conf
@@ -45,16 +46,26 @@ nginx: configuration file /etc/nginx/nginx.conf test is successful
 RESULT 1-nginx-t: PASS - nginx -t passes on the host's configuration before any change
 $ [host] env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /sbin/rc-service -C nginx status
  * status: started
-  (/proc) nginx master 3118, workers 4788 4789 4790 4792
-$ [host] for d in /proc/[0-9]*; do case $(tr "\0" " " <$d/cmdline 2>/dev/null) in "/usr/local/bin/nexusd serve "*) echo "nexusd pid ${d#/proc/} uid $(sed -n "s/^Uid:[[:space:]]*\([0-9]*\).*/\1/p" $d/status)" ;; esac; done
-nexusd pid 917 uid 0
-RESULT 1-asm1: PASS - nexusd runs as uid 0 on the host, and the provider's mainPid 3118 is the host's nginx master
+  (/proc) nginx master 3081, workers 4818 4819 4820 4821
+$ [host] for d in /proc/[0-9]*; do case $(tr "\0" " " 2>/dev/null <$d/cmdline) in "/usr/local/bin/nexusd serve "*) echo "nexusd pid ${d#/proc/} uid $(sed -n "s/^Uid:[[:space:]]*\([0-9]*\).*/\1/p" $d/status)" ;; esac; done
+nexusd pid 952 uid 0
+RESULT 1-asm1: PASS - nexusd runs as uid 0 on the host, and the provider's mainPid 3081 is the host's nginx master
   nginx.conf sha256: dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd
 RESULT 1-host: FAIL - running in a container: not a real host
-$ [host] (ss -Htln 2>/dev/null || netstat -tln 2>/dev/null) | awk '{ print $4 }' | grep -E ':(18532|18940)$'; grep -rsEn 'listen[[:space:]]([^;]*[^0-9])?(18532|18940)([^0-9]|$)' /etc/nginx /etc/nginx/http.d; echo 'no listener and no listen directive on either port'
-no listener and no listen directive on either port
-  disposable site nexus-check-8357074f, port 18532, conflict port 18940
-  snapshot: 16 entries under /etc/nginx and /etc/nginx/http.d, every other file's sha256:
+  listening TCP sockets on the host (ss):
+    127.0.0.1:18304
+    127.0.0.1:18301
+    127.0.0.1:18302
+    0.0.0.0:80
+    0.0.0.0:22
+    [::]:80
+    [::]:22
+    *:7443
+$ [host] grep -rsEn 'listen[[:space:]]([^;]*[^0-9])?(18948|18617)([^0-9]|$)' /etc/nginx /etc/nginx/http.d; echo 'no listen directive names either port'
+no listen directive names either port
+  neither 18948 nor 18617 is among the listeners
+  disposable site nexus-check-fcf675f1, port 18948, conflict port 18617
+  snapshot: 19 entries under /etc/nginx and /etc/nginx/http.d, every other file's sha256:
     D 755 0 0 /etc/nginx
     F 644 0 0 1077 b2c3d480a58f61f3a7dc61850b461e892e36f236317765a4f2f6d558c928fa57 /etc/nginx/fastcgi.conf
     F 644 0 0 1007 f37852d0113de30fa6bfc3d9b180ef99383c06739530dd482a8538503afd5a58 /etc/nginx/fastcgi_params
@@ -63,355 +74,388 @@ no listener and no listen directive on either port
     F 644 0 0 342 f53fd49af9b4bc308653abb85d9989879ce1fb48e43c508f5f45c84f74513865 /etc/nginx/http.d/default.conf
     D 755 0 0 /etc/nginx/http.d/snippets
     F 644 0 0 10 4ada1bb11eb6946114d758e2a4f879569faccf502216e34444255e4e81730849 /etc/nginx/http.d/snippets/common.inc
-    F 644 0 0 132 536fb23176632bc6d4253a41d7e24eb1b461a9dc6fa66e3b58743f2c3bb1dcbf /etc/nginx/http.d/user-api.conf
+    F 644 0 0 133 19f4bcd665bf8797db93d899186222669b022d34d629b443da2f079305d79bd5 /etc/nginx/http.d/user-api.conf
     F 644 0 0 130 5ee1b2768443a308beec0efde62469fce61ee3a59a9b8726a57b05caffd67838 /etc/nginx/http.d/user-app.conf
+    L 777 0 0 /etc/nginx/http.d/user-linked.conf -> /srv/nginx-sites/linked.conf
+    F 644 0 0 77 df2b04889663f5f0f6bc2d507b46e6d28d13ca2e3949f829de4993a40bb421b7 /etc/nginx/http.d/user-linked.conf
     F 644 0 0 75 4365c0df62e9d7792638fe120f5c34f67fc51df0b0e747fbbd8bf6900c9264da /etc/nginx/http.d/user-old.conf.disabled
     F 644 0 0 5349 6f95d1d7d75e3c072907d845622a69d23110d1266c16ff122b3109b8b21f3ae9 /etc/nginx/mime.types
     D 755 0 0 /etc/nginx/modules
     F 644 0 0 3203 dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd /etc/nginx/nginx.conf
     F 644 0 0 636 f27b2027c571ccafcfb0fbb3f54d7aeee11a984e3a0f5a1fdf14629030fc9011 /etc/nginx/scgi_params
     F 644 0 0 664 015cb581c2eb84b1a1ac9b575521d5881f791f632bfa62f34b26ba97d70c0d4f /etc/nginx/uwsgi_params
+    F 644 0 0 39 dd08e66a4ee337cff22494cf1625eb2b6d95fe00cf69d51a868d23e2f970c9e7 /srv/nginx-extra/locations.conf
 
 == Plan. With --yes the script will, on root@127.0.0.1:
-  - use one disposable site, nexus-check-8357074f (/etc/nginx/http.d/nexus-check-8357074f.conf), serving
-    "nexus-check 8357074f M1" on 127.0.0.1:18532, a port nothing listens on or names;
+  - use one disposable site, nexus-check-fcf675f1 (/etc/nginx/http.d/nexus-check-fcf675f1.conf), serving
+    "nexus-check fcf675f1 M1" on 127.0.0.1:18948, a port nothing listens on or names;
   - through nexus: whatIf, add, update, disable, update while disabled, whatIf an invalid
     text, enable, config test, start (a no-op, nginx is running) and reload, each read back
-    with openrc, /proc, ls -ln, sha256sum and curl on 127.0.0.1:18532;
-  - an invalid write and a write whose port, 127.0.0.1:18940, a holder process
+    with openrc, /proc, ls -ln, sha256sum and curl on 127.0.0.1:18948;
+  - an invalid write and a write whose port, 127.0.0.1:18617, a holder process
     (self-ending after 600 s) has taken: both must be rolled back;
-  - ASM-7: write an invalid text, then a bind-conflict text, to nexus-check-8357074f.conf directly
+  - ASM-7: write an invalid text, then a bind-conflict text, to nexus-check-fcf675f1.conf directly
     and run env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /sbin/rc-service -C nginx reload after each, recording the exit codes; the
     valid text goes back at once, and nginx keeps its running configuration;
   - not stop, start or restart nginx (they interrupt production traffic; opt in with
     --with-lifecycle; without it those results are NOT-RUN and the exit status is 3);
-  - remove nexus-check-8357074f's file (rm, as root on the host: the provider cannot delete, OOS-4),
+  - remove nexus-check-fcf675f1's file (rm, as root on the host: the provider cannot delete, OOS-4),
     run nginx -t, reload, and check that every other file under /etc/nginx and
-    /etc/nginx/http.d is byte-identical to the snapshot taken first.
+    /etc/nginx/http.d, and every file nginx -T names (symlinks followed), is
+    byte-identical to the snapshot taken first.
   It never edits nginx.conf or any other site. If it is interrupted (Ctrl-C once, or
   SIGTERM), its EXIT trap waits for a running operation, removes the site, runs nginx -t,
   reloads only if the site was ever enabled, and starts nginx if it had stopped it.
   If even that is cut short: sh nginx-check.sh --yes --cleanup --ssh root@127.0.0.1
-$ [host] { S=nexus-check-8357074f; for r in /etc/nginx /etc/nginx/http.d; do [ -e "$r" ] && find "$r" -print; done | sort -u | while IFS= read -r f; do b=${f##*/}; case $b in "$S".* | ."$S".*) continue ;; esac; if [ -L "$f" ]; then echo "L $(stat -c "%a %u %g" "$f") $f -> $(readlink "$f")"; elif [ -f "$f" ]; then echo "F $(stat -c "%a %u %g %s" "$f") $(sha256sum <"$f" | cut -d" " -f1) $f"; elif [ -d "$f" ]; then echo "D $(stat -c "%a %u %g" "$f") $f"; else echo "O $(stat -c "%a %u %g" "$f") $f"; fi; done; } >/var/lib/nexus-nginx-check/snap.before && wc -l </var/lib/nexus-nginx-check/snap.before
-16
+$ [host] /usr/sbin/nginx -T 2>/dev/null | sed -n "s/^# configuration file \(.*\):\$/\1/p" >/var/lib/nexus-nginx-check/conffiles && echo "nginx -T names $(wc -l </var/lib/nexus-nginx-check/conffiles) files:" && cat /var/lib/nexus-nginx-check/conffiles && { S=nexus-check-fcf675f1; { for r in /etc/nginx /etc/nginx/http.d; do [ -e "$r" ] && find -L "$r" -print 2>/dev/null; done; /usr/sbin/nginx -T 2>/dev/null | sed -n "s/^# configuration file \(.*\):\$/\1/p"; cat /var/lib/nexus-nginx-check/conffiles 2>/dev/null; } | sort -u | while IFS= read -r f; do b=${f##*/}; case $b in "$S".* | ."$S".*) continue ;; esac; if [ -L "$f" ]; then echo "L $(stat -c "%a %u %g" "$f") $f -> $(readlink "$f")"; fi; if [ -f "$f" ]; then echo "F $(stat -L -c "%a %u %g %s" "$f") $(sha256sum <"$f" | cut -d" " -f1) $f"; elif [ -d "$f" ]; then echo "D $(stat -L -c "%a %u %g" "$f") $f"; elif [ ! -e "$f" ]; then echo "X missing-or-dangling $f"; else echo "O $(stat -L -c "%a %u %g" "$f") $f"; fi; done; } >/var/lib/nexus-nginx-check/snap.before && wc -l </var/lib/nexus-nginx-check/snap.before
+nginx -T names 7 files:
+/etc/nginx/nginx.conf
+/etc/nginx/mime.types
+/etc/nginx/http.d/default.conf
+/etc/nginx/http.d/user-api.conf
+/srv/nginx-extra/locations.conf
+/etc/nginx/http.d/user-app.conf
+/etc/nginx/http.d/user-linked.conf
+19
 
-[07:58:21] == Step 3: add, update with readback (TC-118 step 3)
-  M1 (sha256 5cecbc427e8e3538ab2e758782342fac6343e81e3f8696f2e92afa5e8af03c57):
+[09:00:23] == Step 3: add, update with readback (TC-118 step 3)
+  M1 (sha256 500976d99d723f4b41b446f8bebf888699ff74ff15bf1a394b8ad639bd6dd5e9):
     | server {
-    |     listen 127.0.0.1:18532;
-    |     server_name nexus-check-8357074f.invalid;
+    |     listen 127.0.0.1:18948;
+    |     server_name nexus-check-fcf675f1.invalid;
     |     default_type text/plain;
-    |     location / { return 200 "nexus-check 8357074f M1\n"; }
+    |     location / { return 200 "nexus-check fcf675f1 M1\n"; }
     | }
-  M2 sha256 6edb3a269e7d487edaf2ef25c26c091d8d483416c2c467b6d95a9b1c2deaa854, M3 sha256 7628610b9bca578f0c4af8147e03c0251435610b33182bee93ef3da9422ac75c: the same with M2 and M3 as the mark
-$ nexus --host nginx-check nginxsite add nexus-check-8357074f --content 'server {
-    listen 127.0.0.1:18532;
-    server_name nexus-check-8357074f.invalid;
+  M2 sha256 6e8a1c6f0a1a7167cc3d8498244719dc405bb6272c242e24e405fd28dc3fb832, M3 sha256 85f9b0f366f423642c9b13cb39c2179426f19d711525da13c3eed1cec1f9ca17: the same with M2 and M3 as the mark
+$ nexus --host nginx-check nginxsite add nexus-check-fcf675f1 --content 'server {
+    listen 127.0.0.1:18948;
+    server_name nexus-check-fcf675f1.invalid;
     default_type text/plain;
-    location / { return 200 "nexus-check 8357074f M1\n"; }
+    location / { return 200 "nexus-check fcf675f1 M1\n"; }
 }' --what-if --no-wait -o jsonl
-{"action":"nginx.sites.add","created":"2026-11-14T07:58:21.514383066Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d910-874a-7087-a79b-78016c9bcc69","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"nexus-check-8357074f","tokenName":"nginx-check"}
-$ nexus --host nginx-check operation get 01a1d910-874a-7087-a79b-78016c9bcc69 -o jsonl
-{"action":"nginx.sites.add","created":"2026-11-14T07:58:21.514383066Z","ended":"2026-11-14T07:58:22.029378837Z","error":null,"host":"nginx-check","id":"01a1d910-874a-7087-a79b-78016c9bcc69","outputEvicted":false,"provider":"nginx","result":{"changed":false,"created":false,"enabled":true,"fileName":"nexus-check-8357074f.conf","name":"nexus-check-8357074f","reloaded":false,"sha256":"5cecbc427e8e3538ab2e758782342fac6343e81e3f8696f2e92afa5e8af03c57","sizeBytes":172,"testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n","valid":true,"whatIf":true},"started":"2026-11-14T07:58:21.517185848Z","status":"Succeeded","target":"nexus-check-8357074f","tokenName":"nginx-check"}
-[07:58:22] operation 01a1d910-874a-7087-a79b-78016c9bcc69: Succeeded
-$ [host] cd /etc/nginx/http.d && ls -ln nexus-check-8357074f.conf nexus-check-8357074f.conf.disabled 2>&1; sha256sum nexus-check-8357074f.conf nexus-check-8357074f.conf.disabled 2>/dev/null; true
-ls: nexus-check-8357074f.conf: No such file or directory
-ls: nexus-check-8357074f.conf.disabled: No such file or directory
-$ [host] curl -sS -m 5 http://127.0.0.1:18532/
-curl: (7) Failed to connect to 127.0.0.1:18532 after 0 ms: Could not connect to server
+{"action":"nginx.sites.add","created":"2026-11-14T09:00:23.795334546Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d949-5373-7333-8a67-b173647a6407","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"nexus-check-fcf675f1","tokenName":"nginx-check"}
+$ nexus --host nginx-check operation get 01a1d949-5373-7333-8a67-b173647a6407 -o jsonl
+{"action":"nginx.sites.add","created":"2026-11-14T09:00:23.795334546Z","ended":"2026-11-14T09:00:24.317155736Z","error":null,"host":"nginx-check","id":"01a1d949-5373-7333-8a67-b173647a6407","outputEvicted":false,"provider":"nginx","result":{"changed":false,"created":false,"enabled":true,"fileName":"nexus-check-fcf675f1.conf","name":"nexus-check-fcf675f1","reloaded":false,"sha256":"500976d99d723f4b41b446f8bebf888699ff74ff15bf1a394b8ad639bd6dd5e9","sizeBytes":172,"testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n","valid":true,"whatIf":true},"started":"2026-11-14T09:00:23.800649541Z","status":"Succeeded","target":"nexus-check-fcf675f1","tokenName":"nginx-check"}
+[09:00:24] operation 01a1d949-5373-7333-8a67-b173647a6407: Succeeded
+$ [host] cd /etc/nginx/http.d && ls -ln nexus-check-fcf675f1.conf nexus-check-fcf675f1.conf.disabled 2>&1; sha256sum nexus-check-fcf675f1.conf nexus-check-fcf675f1.conf.disabled 2>/dev/null; true
+ls: nexus-check-fcf675f1.conf: No such file or directory
+ls: nexus-check-fcf675f1.conf.disabled: No such file or directory
+$ [host] curl -sS -m 5 http://127.0.0.1:18948/
+curl: (7) Failed to connect to 127.0.0.1:18948 after 0 ms: Could not connect to server
 (exit 7)
-  (/proc) nginx master 3118, workers 4788 4789 4790 4792
-RESULT 3a-whatif: PASS - add --what-if: Succeeded, valid true; no file, 18532 refused, workers unchanged
-$ nexus --host nginx-check nginxsite add nexus-check-8357074f --content 'server {
-    listen 127.0.0.1:18532;
-    server_name nexus-check-8357074f.invalid;
+  (/proc) nginx master 3081, workers 4818 4819 4820 4821
+RESULT 3a-whatif: PASS - add --what-if: Succeeded, valid true; no file, 18948 refused, workers unchanged
+$ nexus --host nginx-check nginxsite add nexus-check-fcf675f1 --content 'server {
+    listen 127.0.0.1:18948;
+    server_name nexus-check-fcf675f1.invalid;
     default_type text/plain;
-    location / { return 200 "nexus-check 8357074f M1\n"; }
+    location / { return 200 "nexus-check fcf675f1 M1\n"; }
 }' --no-wait -o jsonl
-{"action":"nginx.sites.add","created":"2026-11-14T07:58:23.057899489Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d910-8d51-7443-b4c8-c0e95e6ad1e4","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"nexus-check-8357074f","tokenName":"nginx-check"}
-$ nexus --host nginx-check operation get 01a1d910-8d51-7443-b4c8-c0e95e6ad1e4 -o jsonl
-{"action":"nginx.sites.add","created":"2026-11-14T07:58:23.057899489Z","ended":"2026-11-14T07:58:23.5667453Z","error":null,"host":"nginx-check","id":"01a1d910-8d51-7443-b4c8-c0e95e6ad1e4","outputEvicted":false,"provider":"nginx","result":{"changed":true,"created":true,"enabled":true,"fileName":"nexus-check-8357074f.conf","name":"nexus-check-8357074f","reload":{"initExitCode":0,"masterPid":3118,"newWorkers":[5675,5676,5677,5678],"oldWorkers":[4788,4789,4790,4792],"verdict":"confirmed"},"reloaded":true,"sha256":"5cecbc427e8e3538ab2e758782342fac6343e81e3f8696f2e92afa5e8af03c57","sizeBytes":172,"testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n","whatIf":false},"started":"2026-11-14T07:58:23.059957649Z","status":"Succeeded","target":"nexus-check-8357074f","tokenName":"nginx-check"}
-[07:58:24] operation 01a1d910-8d51-7443-b4c8-c0e95e6ad1e4: Succeeded
-$ [host] cd /etc/nginx/http.d && ls -ln nexus-check-8357074f.conf nexus-check-8357074f.conf.disabled 2>&1; sha256sum nexus-check-8357074f.conf nexus-check-8357074f.conf.disabled 2>/dev/null; true
-ls: nexus-check-8357074f.conf.disabled: No such file or directory
--rw-r--r--    1 0        0              172 Nov 14 07:58 nexus-check-8357074f.conf
-5cecbc427e8e3538ab2e758782342fac6343e81e3f8696f2e92afa5e8af03c57  nexus-check-8357074f.conf
-$ [host] curl -sS -m 5 http://127.0.0.1:18532/
-nexus-check 8357074f M1
-  (/proc) nginx master 3118, workers 5675 5676 5677 5678
-RESULT 3b-add: PASS - add: Succeeded; result sha256 = sha256 of M1 = sha256sum on the host (5cecbc427e8e3538ab2e758782342fac6343e81e3f8696f2e92afa5e8af03c57); root 0644; 18532 serves M1; reload confirmed, workers 4788 4789 4790 4792 -> 5675 5676 5677 5678, master 3118 unchanged
-$ nexus --host nginx-check nginxsite update nexus-check-8357074f --content 'server {
-    listen 127.0.0.1:18532;
-    server_name nexus-check-8357074f.invalid;
+{"action":"nginx.sites.add","created":"2026-11-14T09:00:25.432486689Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d949-59d8-734f-a4a2-ea53a0d30d4a","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"nexus-check-fcf675f1","tokenName":"nginx-check"}
+$ nexus --host nginx-check operation get 01a1d949-59d8-734f-a4a2-ea53a0d30d4a -o jsonl
+{"action":"nginx.sites.add","created":"2026-11-14T09:00:25.432486689Z","ended":"2026-11-14T09:00:25.944012642Z","error":null,"host":"nginx-check","id":"01a1d949-59d8-734f-a4a2-ea53a0d30d4a","outputEvicted":false,"provider":"nginx","result":{"changed":true,"created":true,"enabled":true,"fileName":"nexus-check-fcf675f1.conf","name":"nexus-check-fcf675f1","reload":{"initExitCode":0,"masterPid":3081,"newWorkers":[5760,5761,5762,5763],"oldWorkers":[4818,4819,4820,4821],"verdict":"confirmed"},"reloaded":true,"sha256":"500976d99d723f4b41b446f8bebf888699ff74ff15bf1a394b8ad639bd6dd5e9","sizeBytes":172,"testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n","whatIf":false},"started":"2026-11-14T09:00:25.434794705Z","status":"Succeeded","target":"nexus-check-fcf675f1","tokenName":"nginx-check"}
+[09:00:26] operation 01a1d949-59d8-734f-a4a2-ea53a0d30d4a: Succeeded
+$ [host] cd /etc/nginx/http.d && ls -ln nexus-check-fcf675f1.conf nexus-check-fcf675f1.conf.disabled 2>&1; sha256sum nexus-check-fcf675f1.conf nexus-check-fcf675f1.conf.disabled 2>/dev/null; true
+ls: nexus-check-fcf675f1.conf.disabled: No such file or directory
+-rw-r--r--    1 0        0              172 Nov 14 09:00 nexus-check-fcf675f1.conf
+500976d99d723f4b41b446f8bebf888699ff74ff15bf1a394b8ad639bd6dd5e9  nexus-check-fcf675f1.conf
+$ [host] curl -sS -m 5 http://127.0.0.1:18948/
+nexus-check fcf675f1 M1
+  (/proc) nginx master 3081, workers 5760 5761 5762 5763
+RESULT 3b-add: PASS - add: Succeeded; result sha256 = sha256 of M1 = sha256sum on the host (500976d99d723f4b41b446f8bebf888699ff74ff15bf1a394b8ad639bd6dd5e9); root 0644; 18948 serves M1; reload confirmed, workers 4818 4819 4820 4821 -> 5760 5761 5762 5763, master 3081 unchanged
+$ nexus --host nginx-check nginxsite update nexus-check-fcf675f1 --content 'server {
+    listen 127.0.0.1:18948;
+    server_name nexus-check-fcf675f1.invalid;
     default_type text/plain;
-    location / { return 200 "nexus-check 8357074f M2\n"; }
-}' --if-match 5cecbc427e8e3538ab2e758782342fac6343e81e3f8696f2e92afa5e8af03c57 --no-wait -o jsonl
-{"action":"nginx.sites.update","created":"2026-11-14T07:58:24.564710913Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d910-9334-726b-ba31-50da64ebb1e6","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"nexus-check-8357074f","tokenName":"nginx-check"}
-$ nexus --host nginx-check operation get 01a1d910-9334-726b-ba31-50da64ebb1e6 -o jsonl
-{"action":"nginx.sites.update","created":"2026-11-14T07:58:24.564710913Z","ended":"2026-11-14T07:58:25.074817023Z","error":null,"host":"nginx-check","id":"01a1d910-9334-726b-ba31-50da64ebb1e6","outputEvicted":false,"provider":"nginx","result":{"changed":true,"created":false,"enabled":true,"fileName":"nexus-check-8357074f.conf","name":"nexus-check-8357074f","previousSha256":"5cecbc427e8e3538ab2e758782342fac6343e81e3f8696f2e92afa5e8af03c57","reload":{"initExitCode":0,"masterPid":3118,"newWorkers":[5854,5856,5857,5858],"oldWorkers":[5675,5676,5677,5678],"verdict":"confirmed"},"reloaded":true,"sha256":"6edb3a269e7d487edaf2ef25c26c091d8d483416c2c467b6d95a9b1c2deaa854","sizeBytes":172,"testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n","whatIf":false},"started":"2026-11-14T07:58:24.566941614Z","status":"Succeeded","target":"nexus-check-8357074f","tokenName":"nginx-check"}
-[07:58:25] operation 01a1d910-9334-726b-ba31-50da64ebb1e6: Succeeded
-$ [host] cd /etc/nginx/http.d && ls -ln nexus-check-8357074f.conf nexus-check-8357074f.conf.disabled 2>&1; sha256sum nexus-check-8357074f.conf nexus-check-8357074f.conf.disabled 2>/dev/null; true
-ls: nexus-check-8357074f.conf.disabled: No such file or directory
--rw-r--r--    1 0        0              172 Nov 14 07:58 nexus-check-8357074f.conf
-6edb3a269e7d487edaf2ef25c26c091d8d483416c2c467b6d95a9b1c2deaa854  nexus-check-8357074f.conf
-$ [host] curl -sS -m 5 http://127.0.0.1:18532/
-nexus-check 8357074f M2
-  (/proc) nginx master 3118, workers 5854 5856 5857 5858
-RESULT 3c-update: PASS - update --if-match: Succeeded; sha256 6edb3a269e7d487edaf2ef25c26c091d8d483416c2c467b6d95a9b1c2deaa854 on the host and in the result, previousSha256 5cecbc427e8e3538ab2e758782342fac6343e81e3f8696f2e92afa5e8af03c57; 18532 serves M2
+    location / { return 200 "nexus-check fcf675f1 M2\n"; }
+}' --if-match 500976d99d723f4b41b446f8bebf888699ff74ff15bf1a394b8ad639bd6dd5e9 --no-wait -o jsonl
+{"action":"nginx.sites.update","created":"2026-11-14T09:00:26.991782217Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d949-5fef-732a-8cd1-6c169f849d19","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"nexus-check-fcf675f1","tokenName":"nginx-check"}
+$ nexus --host nginx-check operation get 01a1d949-5fef-732a-8cd1-6c169f849d19 -o jsonl
+{"action":"nginx.sites.update","created":"2026-11-14T09:00:26.991782217Z","ended":"2026-11-14T09:00:27.505567686Z","error":null,"host":"nginx-check","id":"01a1d949-5fef-732a-8cd1-6c169f849d19","outputEvicted":false,"provider":"nginx","result":{"changed":true,"created":false,"enabled":true,"fileName":"nexus-check-fcf675f1.conf","name":"nexus-check-fcf675f1","previousSha256":"500976d99d723f4b41b446f8bebf888699ff74ff15bf1a394b8ad639bd6dd5e9","reload":{"initExitCode":0,"masterPid":3081,"newWorkers":[5931,5933,5934,5936],"oldWorkers":[5760,5761,5762,5763],"verdict":"confirmed"},"reloaded":true,"sha256":"6e8a1c6f0a1a7167cc3d8498244719dc405bb6272c242e24e405fd28dc3fb832","sizeBytes":172,"testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n","whatIf":false},"started":"2026-11-14T09:00:26.994172983Z","status":"Succeeded","target":"nexus-check-fcf675f1","tokenName":"nginx-check"}
+[09:00:28] operation 01a1d949-5fef-732a-8cd1-6c169f849d19: Succeeded
+$ [host] cd /etc/nginx/http.d && ls -ln nexus-check-fcf675f1.conf nexus-check-fcf675f1.conf.disabled 2>&1; sha256sum nexus-check-fcf675f1.conf nexus-check-fcf675f1.conf.disabled 2>/dev/null; true
+ls: nexus-check-fcf675f1.conf.disabled: No such file or directory
+-rw-r--r--    1 0        0              172 Nov 14 09:00 nexus-check-fcf675f1.conf
+6e8a1c6f0a1a7167cc3d8498244719dc405bb6272c242e24e405fd28dc3fb832  nexus-check-fcf675f1.conf
+$ [host] curl -sS -m 5 http://127.0.0.1:18948/
+nexus-check fcf675f1 M2
+  (/proc) nginx master 3081, workers 5931 5933 5934 5936
+RESULT 3c-update: PASS - update --if-match: Succeeded; sha256 6e8a1c6f0a1a7167cc3d8498244719dc405bb6272c242e24e405fd28dc3fb832 on the host and in the result, previousSha256 500976d99d723f4b41b446f8bebf888699ff74ff15bf1a394b8ad639bd6dd5e9; 18948 serves M2
 
-[07:58:25] == Step 2: lifecycle with openrc readback (TC-118 step 2); the site serves M2
+[09:00:28] == Step 2: lifecycle with openrc readback (TC-118 step 2); the site serves M2
 $ nexus --host nginx-check nginxconfig test --no-wait -o jsonl
-{"action":"nginx.actions.test","created":"2026-11-14T07:58:26.021978406Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d910-98e5-72c5-9b5f-c9d39ed09aa4","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"","tokenName":"nginx-check"}
-$ nexus --host nginx-check operation get 01a1d910-98e5-72c5-9b5f-c9d39ed09aa4 -o jsonl
-{"action":"nginx.actions.test","created":"2026-11-14T07:58:26.021978406Z","ended":"2026-11-14T07:58:26.531865536Z","error":null,"host":"nginx-check","id":"01a1d910-98e5-72c5-9b5f-c9d39ed09aa4","outputEvicted":false,"provider":"nginx","result":{"changed":false,"output":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n","outputTruncated":false,"valid":true},"started":"2026-11-14T07:58:26.024323857Z","status":"Succeeded","target":"","tokenName":"nginx-check"}
-[07:58:27] operation 01a1d910-98e5-72c5-9b5f-c9d39ed09aa4: Succeeded
+{"action":"nginx.actions.test","created":"2026-11-14T09:00:28.495643533Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d949-65cf-7191-9cb9-d6fcb256bd6e","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"","tokenName":"nginx-check"}
+$ nexus --host nginx-check operation get 01a1d949-65cf-7191-9cb9-d6fcb256bd6e -o jsonl
+{"action":"nginx.actions.test","created":"2026-11-14T09:00:28.495643533Z","ended":"2026-11-14T09:00:29.020277868Z","error":null,"host":"nginx-check","id":"01a1d949-65cf-7191-9cb9-d6fcb256bd6e","outputEvicted":false,"provider":"nginx","result":{"changed":false,"output":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n","outputTruncated":false,"valid":true},"started":"2026-11-14T09:00:28.501322405Z","status":"Succeeded","target":"","tokenName":"nginx-check"}
+[09:00:29] operation 01a1d949-65cf-7191-9cb9-d6fcb256bd6e: Succeeded
 $ [host] /usr/sbin/nginx -t
 nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
 nginx: configuration file /etc/nginx/nginx.conf test is successful
 RESULT 2a-test: PASS - nginxconfig test: valid true; nginx -t on the host exits 0
 $ nexus --host nginx-check nginx start --no-wait -o jsonl
-{"action":"nginx.actions.start","created":"2026-11-14T07:58:27.288016159Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d910-9dd8-74a4-b3b1-662d05274630","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"","tokenName":"nginx-check"}
-$ nexus --host nginx-check operation get 01a1d910-9dd8-74a4-b3b1-662d05274630 -o jsonl
-{"action":"nginx.actions.start","created":"2026-11-14T07:58:27.288016159Z","ended":"2026-11-14T07:58:27.801325539Z","error":null,"host":"nginx-check","id":"01a1d910-9dd8-74a4-b3b1-662d05274630","outputEvicted":false,"provider":"nginx","result":{"changed":false,"mainPid":3118,"state":"running","testOutput":""},"started":"2026-11-14T07:58:27.291586857Z","status":"Succeeded","target":"","tokenName":"nginx-check"}
-[07:58:28] operation 01a1d910-9dd8-74a4-b3b1-662d05274630: Succeeded
+{"action":"nginx.actions.start","created":"2026-11-14T09:00:29.816855852Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d949-6af8-72d0-aa1c-2a068e04f8a3","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"","tokenName":"nginx-check"}
+$ nexus --host nginx-check operation get 01a1d949-6af8-72d0-aa1c-2a068e04f8a3 -o jsonl
+{"action":"nginx.actions.start","created":"2026-11-14T09:00:29.816855852Z","ended":"2026-11-14T09:00:30.330548111Z","error":null,"host":"nginx-check","id":"01a1d949-6af8-72d0-aa1c-2a068e04f8a3","outputEvicted":false,"provider":"nginx","result":{"changed":false,"mainPid":3081,"state":"running","testOutput":""},"started":"2026-11-14T09:00:29.819214284Z","status":"Succeeded","target":"","tokenName":"nginx-check"}
+[09:00:30] operation 01a1d949-6af8-72d0-aa1c-2a068e04f8a3: Succeeded
 $ [host] env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /sbin/rc-service -C nginx status
  * status: started
-  (/proc) nginx master 3118, workers 5854 5856 5857 5858
-RESULT 2b-start-running: PASS - start of a running nginx: Succeeded, changed false; openrc says started; master 3118 unchanged
+  (/proc) nginx master 3081, workers 5931 5933 5934 5936
+RESULT 2b-start-running: PASS - start of a running nginx: Succeeded, changed false; openrc says started; master 3081 unchanged
 $ nexus --host nginx-check nginx reload --no-wait -o jsonl
-{"action":"nginx.actions.reload","created":"2026-11-14T07:58:28.706773727Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d910-a362-75f5-b1fe-72735c347ca1","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"","tokenName":"nginx-check"}
-$ nexus --host nginx-check operation get 01a1d910-a362-75f5-b1fe-72735c347ca1 -o jsonl
-{"action":"nginx.actions.reload","created":"2026-11-14T07:58:28.706773727Z","ended":"2026-11-14T07:58:29.217507962Z","error":null,"host":"nginx-check","id":"01a1d910-a362-75f5-b1fe-72735c347ca1","outputEvicted":false,"provider":"nginx","result":{"changed":true,"mainPid":3118,"reload":{"initExitCode":0,"masterPid":3118,"newWorkers":[6203,6204,6205,6206],"oldWorkers":[5854,5856,5857,5858],"verdict":"confirmed"},"state":"running","testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n"},"started":"2026-11-14T07:58:28.708942678Z","status":"Succeeded","target":"","tokenName":"nginx-check"}
-[07:58:29] operation 01a1d910-a362-75f5-b1fe-72735c347ca1: Succeeded
+{"action":"nginx.actions.reload","created":"2026-11-14T09:00:31.242674301Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d949-708a-7661-8a31-e0b9bf790dfc","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"","tokenName":"nginx-check"}
+$ nexus --host nginx-check operation get 01a1d949-708a-7661-8a31-e0b9bf790dfc -o jsonl
+{"action":"nginx.actions.reload","created":"2026-11-14T09:00:31.242674301Z","ended":"2026-11-14T09:00:31.755294971Z","error":null,"host":"nginx-check","id":"01a1d949-708a-7661-8a31-e0b9bf790dfc","outputEvicted":false,"provider":"nginx","result":{"changed":true,"mainPid":3081,"reload":{"initExitCode":0,"masterPid":3081,"newWorkers":[6280,6281,6282,6283],"oldWorkers":[5931,5933,5934,5936],"verdict":"confirmed"},"state":"running","testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n"},"started":"2026-11-14T09:00:31.2448844Z","status":"Succeeded","target":"","tokenName":"nginx-check"}
+[09:00:32] operation 01a1d949-708a-7661-8a31-e0b9bf790dfc: Succeeded
 $ [host] env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /sbin/rc-service -C nginx status
  * status: started
-$ [host] curl -sS -m 5 http://127.0.0.1:18532/
-nexus-check 8357074f M2
-  (/proc) master 3118, workers 5854 5856 5857 5858 -> 6203 6204 6205 6206; result masterPid 3118, initExitCode 0, verdict confirmed
-RESULT 2c-reload: PASS - reload: Succeeded, verdict confirmed, initExitCode 0; same master 3118, every worker replaced (5854 5856 5857 5858 -> 6203 6204 6205 6206); 18532 serves M2
+$ [host] curl -sS -m 5 http://127.0.0.1:18948/
+nexus-check fcf675f1 M2
+  (/proc) master 3081, workers 5931 5933 5934 5936 -> 6280 6281 6282 6283; result masterPid 3081, initExitCode 0, verdict confirmed
+RESULT 2c-reload: PASS - reload: Succeeded, verdict confirmed, initExitCode 0; same master 3081, every worker replaced (5931 5933 5934 5936 -> 6280 6281 6282 6283); 18948 serves M2
 RESULT 2d-stop: NOT-RUN - opt-in: --with-lifecycle (interrupts production traffic)
 RESULT 2e-start: NOT-RUN - opt-in: --with-lifecycle (interrupts production traffic)
 RESULT 2f-restart: NOT-RUN - opt-in: --with-lifecycle (interrupts production traffic)
 
-[07:58:30] == Step 3 (continued): disable, update while disabled, whatIf invalid, enable
-$ nexus --host nginx-check nginxsite stop nexus-check-8357074f --yes --no-wait -o jsonl
-{"action":"nginx.sites.disable","created":"2026-11-14T07:58:30.223032413Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d910-a94f-7431-b565-eb439f0cc35a","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"nexus-check-8357074f","tokenName":"nginx-check"}
-$ nexus --host nginx-check operation get 01a1d910-a94f-7431-b565-eb439f0cc35a -o jsonl
-{"action":"nginx.sites.disable","created":"2026-11-14T07:58:30.223032413Z","ended":"2026-11-14T07:58:30.732891667Z","error":null,"host":"nginx-check","id":"01a1d910-a94f-7431-b565-eb439f0cc35a","outputEvicted":false,"provider":"nginx","result":{"changed":true,"enabled":false,"fileName":"nexus-check-8357074f.conf.disabled","name":"nexus-check-8357074f","reload":{"initExitCode":0,"masterPid":3118,"newWorkers":[6395,6396,6397,6398],"oldWorkers":[6203,6204,6205,6206],"verdict":"confirmed"},"reloaded":true,"testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n"},"started":"2026-11-14T07:58:30.224792117Z","status":"Succeeded","target":"nexus-check-8357074f","tokenName":"nginx-check"}
-[07:58:31] operation 01a1d910-a94f-7431-b565-eb439f0cc35a: Succeeded
-$ [host] cd /etc/nginx/http.d && ls -ln nexus-check-8357074f.conf nexus-check-8357074f.conf.disabled 2>&1; sha256sum nexus-check-8357074f.conf nexus-check-8357074f.conf.disabled 2>/dev/null; true
-ls: nexus-check-8357074f.conf: No such file or directory
--rw-r--r--    1 0        0              172 Nov 14 07:58 nexus-check-8357074f.conf.disabled
-6edb3a269e7d487edaf2ef25c26c091d8d483416c2c467b6d95a9b1c2deaa854  nexus-check-8357074f.conf.disabled
-$ [host] curl -sS -m 5 http://127.0.0.1:18532/
-curl: (7) Failed to connect to 127.0.0.1:18532 after 0 ms: Could not connect to server
+[09:00:32] == Step 3 (continued): disable, update while disabled, whatIf invalid, enable
+$ nexus --host nginx-check nginxsite stop nexus-check-fcf675f1 --yes --no-wait -o jsonl
+{"action":"nginx.sites.disable","created":"2026-11-14T09:00:32.80054432Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d949-76a0-74a0-9eda-663ef46771b1","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"nexus-check-fcf675f1","tokenName":"nginx-check"}
+$ nexus --host nginx-check operation get 01a1d949-76a0-74a0-9eda-663ef46771b1 -o jsonl
+{"action":"nginx.sites.disable","created":"2026-11-14T09:00:32.80054432Z","ended":"2026-11-14T09:00:33.31885707Z","error":null,"host":"nginx-check","id":"01a1d949-76a0-74a0-9eda-663ef46771b1","outputEvicted":false,"provider":"nginx","result":{"changed":true,"enabled":false,"fileName":"nexus-check-fcf675f1.conf.disabled","name":"nexus-check-fcf675f1","reload":{"initExitCode":0,"masterPid":3081,"newWorkers":[6469,6471,6472,6474],"oldWorkers":[6280,6281,6282,6283],"verdict":"confirmed"},"reloaded":true,"testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n"},"started":"2026-11-14T09:00:32.802535751Z","status":"Succeeded","target":"nexus-check-fcf675f1","tokenName":"nginx-check"}
+[09:00:33] operation 01a1d949-76a0-74a0-9eda-663ef46771b1: Succeeded
+$ [host] cd /etc/nginx/http.d && ls -ln nexus-check-fcf675f1.conf nexus-check-fcf675f1.conf.disabled 2>&1; sha256sum nexus-check-fcf675f1.conf nexus-check-fcf675f1.conf.disabled 2>/dev/null; true
+ls: nexus-check-fcf675f1.conf: No such file or directory
+-rw-r--r--    1 0        0              172 Nov 14 09:00 nexus-check-fcf675f1.conf.disabled
+6e8a1c6f0a1a7167cc3d8498244719dc405bb6272c242e24e405fd28dc3fb832  nexus-check-fcf675f1.conf.disabled
+$ [host] curl -sS -m 5 http://127.0.0.1:18948/
+curl: (7) Failed to connect to 127.0.0.1:18948 after 0 ms: Could not connect to server
 (exit 7)
-  (/proc) nginx master 3118, workers 6395 6396 6397 6398
-RESULT 3d-disable: PASS - disable: Succeeded; only nexus-check-8357074f.conf.disabled on disk (sha256 6edb3a269e7d487edaf2ef25c26c091d8d483416c2c467b6d95a9b1c2deaa854, unchanged); 18532 refused; reloaded
-$ nexus --host nginx-check nginxsite update nexus-check-8357074f --content 'server {
-    listen 127.0.0.1:18532;
-    server_name nexus-check-8357074f.invalid;
+  (/proc) nginx master 3081, workers 6469 6471 6472 6474
+RESULT 3d-disable: PASS - disable: Succeeded; only nexus-check-fcf675f1.conf.disabled on disk (sha256 6e8a1c6f0a1a7167cc3d8498244719dc405bb6272c242e24e405fd28dc3fb832, unchanged); 18948 refused; reloaded
+$ nexus --host nginx-check nginxsite update nexus-check-fcf675f1 --content 'server {
+    listen 127.0.0.1:18948;
+    server_name nexus-check-fcf675f1.invalid;
     default_type text/plain;
-    location / { return 200 "nexus-check 8357074f M3\n"; }
-}' --if-match 6edb3a269e7d487edaf2ef25c26c091d8d483416c2c467b6d95a9b1c2deaa854 --no-wait -o jsonl
-{"action":"nginx.sites.update","created":"2026-11-14T07:58:31.677111666Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d910-aefd-7031-9c27-f0068487bfd0","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"nexus-check-8357074f","tokenName":"nginx-check"}
-$ nexus --host nginx-check operation get 01a1d910-aefd-7031-9c27-f0068487bfd0 -o jsonl
-{"action":"nginx.sites.update","created":"2026-11-14T07:58:31.677111666Z","ended":"2026-11-14T07:58:32.191913336Z","error":null,"host":"nginx-check","id":"01a1d910-aefd-7031-9c27-f0068487bfd0","outputEvicted":false,"provider":"nginx","result":{"changed":true,"created":false,"enabled":false,"fileName":"nexus-check-8357074f.conf.disabled","name":"nexus-check-8357074f","previousSha256":"6edb3a269e7d487edaf2ef25c26c091d8d483416c2c467b6d95a9b1c2deaa854","reloaded":false,"sha256":"7628610b9bca578f0c4af8147e03c0251435610b33182bee93ef3da9422ac75c","sizeBytes":172,"testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n","whatIf":false},"started":"2026-11-14T07:58:31.679618575Z","status":"Succeeded","target":"nexus-check-8357074f","tokenName":"nginx-check"}
-[07:58:32] operation 01a1d910-aefd-7031-9c27-f0068487bfd0: Succeeded
-$ [host] cd /etc/nginx/http.d && ls -ln nexus-check-8357074f.conf nexus-check-8357074f.conf.disabled 2>&1; sha256sum nexus-check-8357074f.conf nexus-check-8357074f.conf.disabled 2>/dev/null; true
-ls: nexus-check-8357074f.conf: No such file or directory
--rw-r--r--    1 0        0              172 Nov 14 07:58 nexus-check-8357074f.conf.disabled
-7628610b9bca578f0c4af8147e03c0251435610b33182bee93ef3da9422ac75c  nexus-check-8357074f.conf.disabled
-$ [host] curl -sS -m 5 http://127.0.0.1:18532/
-curl: (7) Failed to connect to 127.0.0.1:18532 after 0 ms: Could not connect to server
+    location / { return 200 "nexus-check fcf675f1 M3\n"; }
+}' --if-match 6e8a1c6f0a1a7167cc3d8498244719dc405bb6272c242e24e405fd28dc3fb832 --no-wait -o jsonl
+{"action":"nginx.sites.update","created":"2026-11-14T09:00:34.301818911Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d949-7c7d-77d9-84a1-044131240a7d","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"nexus-check-fcf675f1","tokenName":"nginx-check"}
+$ nexus --host nginx-check operation get 01a1d949-7c7d-77d9-84a1-044131240a7d -o jsonl
+{"action":"nginx.sites.update","created":"2026-11-14T09:00:34.301818911Z","ended":"2026-11-14T09:00:34.812800278Z","error":null,"host":"nginx-check","id":"01a1d949-7c7d-77d9-84a1-044131240a7d","outputEvicted":false,"provider":"nginx","result":{"changed":true,"created":false,"enabled":false,"fileName":"nexus-check-fcf675f1.conf.disabled","name":"nexus-check-fcf675f1","previousSha256":"6e8a1c6f0a1a7167cc3d8498244719dc405bb6272c242e24e405fd28dc3fb832","reloaded":false,"sha256":"85f9b0f366f423642c9b13cb39c2179426f19d711525da13c3eed1cec1f9ca17","sizeBytes":172,"testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n","whatIf":false},"started":"2026-11-14T09:00:34.303905634Z","status":"Succeeded","target":"nexus-check-fcf675f1","tokenName":"nginx-check"}
+[09:00:35] operation 01a1d949-7c7d-77d9-84a1-044131240a7d: Succeeded
+$ [host] cd /etc/nginx/http.d && ls -ln nexus-check-fcf675f1.conf nexus-check-fcf675f1.conf.disabled 2>&1; sha256sum nexus-check-fcf675f1.conf nexus-check-fcf675f1.conf.disabled 2>/dev/null; true
+ls: nexus-check-fcf675f1.conf: No such file or directory
+-rw-r--r--    1 0        0              172 Nov 14 09:00 nexus-check-fcf675f1.conf.disabled
+85f9b0f366f423642c9b13cb39c2179426f19d711525da13c3eed1cec1f9ca17  nexus-check-fcf675f1.conf.disabled
+$ [host] curl -sS -m 5 http://127.0.0.1:18948/
+curl: (7) Failed to connect to 127.0.0.1:18948 after 0 ms: Could not connect to server
 (exit 7)
-  (/proc) nginx master 3118, workers 6395 6396 6397 6398
-RESULT 3e-update-disabled: PASS - update of the disabled site: Succeeded, reloaded false; nexus-check-8357074f.conf.disabled sha256 7628610b9bca578f0c4af8147e03c0251435610b33182bee93ef3da9422ac75c; 18532 still refused; workers unchanged
-$ nexus --host nginx-check nginxsite update nexus-check-8357074f --content 'nexus_check_unknown_directive on;' --what-if --no-wait -o jsonl
-{"action":"nginx.sites.update","created":"2026-11-14T07:58:33.127170262Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d910-b4a7-74ff-8c5f-8f93e862adc1","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"nexus-check-8357074f","tokenName":"nginx-check"}
-$ nexus --host nginx-check operation get 01a1d910-b4a7-74ff-8c5f-8f93e862adc1 -o jsonl
-{"action":"nginx.sites.update","created":"2026-11-14T07:58:33.127170262Z","ended":"2026-11-14T07:58:33.646239644Z","error":null,"host":"nginx-check","id":"01a1d910-b4a7-74ff-8c5f-8f93e862adc1","outputEvicted":false,"provider":"nginx","result":{"changed":false,"created":false,"enabled":false,"fileName":"nexus-check-8357074f.conf.disabled","name":"nexus-check-8357074f","reloaded":false,"sha256":"7d27730ce2ce857b8045ce498b9da49b9a1f03749070932c0ad9e80480bcc653","sizeBytes":34,"testOutput":"nginx: [emerg] unknown directive \"nexus_check_unknown_directive\" in /etc/nginx/http.d/nexus-check-8357074f.conf:1\nnginx: configuration file /etc/nginx/nginx.conf test failed\n","valid":false,"whatIf":true},"started":"2026-11-14T07:58:33.131211667Z","status":"Succeeded","target":"nexus-check-8357074f","tokenName":"nginx-check"}
-[07:58:34] operation 01a1d910-b4a7-74ff-8c5f-8f93e862adc1: Succeeded
-$ [host] cd /etc/nginx/http.d && ls -ln nexus-check-8357074f.conf nexus-check-8357074f.conf.disabled 2>&1; sha256sum nexus-check-8357074f.conf nexus-check-8357074f.conf.disabled 2>/dev/null; true
-ls: nexus-check-8357074f.conf: No such file or directory
--rw-r--r--    1 0        0              172 Nov 14 07:58 nexus-check-8357074f.conf.disabled
-7628610b9bca578f0c4af8147e03c0251435610b33182bee93ef3da9422ac75c  nexus-check-8357074f.conf.disabled
-$ [host] curl -sS -m 5 http://127.0.0.1:18532/
-curl: (7) Failed to connect to 127.0.0.1:18532 after 0 ms: Could not connect to server
+  (/proc) nginx master 3081, workers 6469 6471 6472 6474
+RESULT 3e-update-disabled: PASS - update of the disabled site: Succeeded, reloaded false; nexus-check-fcf675f1.conf.disabled sha256 85f9b0f366f423642c9b13cb39c2179426f19d711525da13c3eed1cec1f9ca17; 18948 still refused; workers unchanged
+$ nexus --host nginx-check nginxsite update nexus-check-fcf675f1 --content 'nexus_check_unknown_directive on;' --what-if --no-wait -o jsonl
+{"action":"nginx.sites.update","created":"2026-11-14T09:00:35.762294307Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d949-8232-77c2-8d04-a0c2663dfe19","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"nexus-check-fcf675f1","tokenName":"nginx-check"}
+$ nexus --host nginx-check operation get 01a1d949-8232-77c2-8d04-a0c2663dfe19 -o jsonl
+{"action":"nginx.sites.update","created":"2026-11-14T09:00:35.762294307Z","ended":"2026-11-14T09:00:36.276181735Z","error":null,"host":"nginx-check","id":"01a1d949-8232-77c2-8d04-a0c2663dfe19","outputEvicted":false,"provider":"nginx","result":{"changed":false,"created":false,"enabled":false,"fileName":"nexus-check-fcf675f1.conf.disabled","name":"nexus-check-fcf675f1","reloaded":false,"sha256":"7d27730ce2ce857b8045ce498b9da49b9a1f03749070932c0ad9e80480bcc653","sizeBytes":34,"testOutput":"nginx: [emerg] unknown directive \"nexus_check_unknown_directive\" in /etc/nginx/http.d/nexus-check-fcf675f1.conf:1\nnginx: configuration file /etc/nginx/nginx.conf test failed\n","valid":false,"whatIf":true},"started":"2026-11-14T09:00:35.767668093Z","status":"Succeeded","target":"nexus-check-fcf675f1","tokenName":"nginx-check"}
+[09:00:36] operation 01a1d949-8232-77c2-8d04-a0c2663dfe19: Succeeded
+$ [host] cd /etc/nginx/http.d && ls -ln nexus-check-fcf675f1.conf nexus-check-fcf675f1.conf.disabled 2>&1; sha256sum nexus-check-fcf675f1.conf nexus-check-fcf675f1.conf.disabled 2>/dev/null; true
+ls: nexus-check-fcf675f1.conf: No such file or directory
+-rw-r--r--    1 0        0              172 Nov 14 09:00 nexus-check-fcf675f1.conf.disabled
+85f9b0f366f423642c9b13cb39c2179426f19d711525da13c3eed1cec1f9ca17  nexus-check-fcf675f1.conf.disabled
+$ [host] curl -sS -m 5 http://127.0.0.1:18948/
+curl: (7) Failed to connect to 127.0.0.1:18948 after 0 ms: Could not connect to server
 (exit 7)
-  (/proc) nginx master 3118, workers 6395 6396 6397 6398
+  (/proc) nginx master 3081, workers 6469 6471 6472 6474
 RESULT 3f-whatif-invalid: PASS - update --what-if of an invalid text: Succeeded, valid false; nothing changed
-$ nexus --host nginx-check nginxsite start nexus-check-8357074f --no-wait -o jsonl
-{"action":"nginx.sites.enable","created":"2026-11-14T07:58:34.645776117Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d910-ba95-7479-bfde-9ccf3fbce0de","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"nexus-check-8357074f","tokenName":"nginx-check"}
-$ nexus --host nginx-check operation get 01a1d910-ba95-7479-bfde-9ccf3fbce0de -o jsonl
-{"action":"nginx.sites.enable","created":"2026-11-14T07:58:34.645776117Z","ended":"2026-11-14T07:58:35.157113493Z","error":null,"host":"nginx-check","id":"01a1d910-ba95-7479-bfde-9ccf3fbce0de","outputEvicted":false,"provider":"nginx","result":{"changed":true,"enabled":true,"fileName":"nexus-check-8357074f.conf","name":"nexus-check-8357074f","reload":{"initExitCode":0,"masterPid":3118,"newWorkers":[6796,6797,6798,6799],"oldWorkers":[6395,6396,6397,6398],"verdict":"confirmed"},"reloaded":true,"testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n"},"started":"2026-11-14T07:58:34.64770757Z","status":"Succeeded","target":"nexus-check-8357074f","tokenName":"nginx-check"}
-[07:58:35] operation 01a1d910-ba95-7479-bfde-9ccf3fbce0de: Succeeded
-$ [host] cd /etc/nginx/http.d && ls -ln nexus-check-8357074f.conf nexus-check-8357074f.conf.disabled 2>&1; sha256sum nexus-check-8357074f.conf nexus-check-8357074f.conf.disabled 2>/dev/null; true
-ls: nexus-check-8357074f.conf.disabled: No such file or directory
--rw-r--r--    1 0        0              172 Nov 14 07:58 nexus-check-8357074f.conf
-7628610b9bca578f0c4af8147e03c0251435610b33182bee93ef3da9422ac75c  nexus-check-8357074f.conf
-$ [host] curl -sS -m 5 http://127.0.0.1:18532/
-nexus-check 8357074f M3
-  (/proc) nginx master 3118, workers 6796 6797 6798 6799
-RESULT 3g-enable: PASS - enable: Succeeded; nexus-check-8357074f.conf sha256 7628610b9bca578f0c4af8147e03c0251435610b33182bee93ef3da9422ac75c; 18532 serves M3; reloaded
+$ nexus --host nginx-check nginxsite start nexus-check-fcf675f1 --no-wait -o jsonl
+{"action":"nginx.sites.enable","created":"2026-11-14T09:00:37.269376313Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d949-8815-755e-8711-1c57fd9f0288","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"nexus-check-fcf675f1","tokenName":"nginx-check"}
+$ nexus --host nginx-check operation get 01a1d949-8815-755e-8711-1c57fd9f0288 -o jsonl
+{"action":"nginx.sites.enable","created":"2026-11-14T09:00:37.269376313Z","ended":"2026-11-14T09:00:37.784779376Z","error":null,"host":"nginx-check","id":"01a1d949-8815-755e-8711-1c57fd9f0288","outputEvicted":false,"provider":"nginx","result":{"changed":true,"enabled":true,"fileName":"nexus-check-fcf675f1.conf","name":"nexus-check-fcf675f1","reload":{"initExitCode":0,"masterPid":3081,"newWorkers":[6876,6877,6878,6879],"oldWorkers":[6469,6471,6472,6474],"verdict":"confirmed"},"reloaded":true,"testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n"},"started":"2026-11-14T09:00:37.271371451Z","status":"Succeeded","target":"nexus-check-fcf675f1","tokenName":"nginx-check"}
+[09:00:38] operation 01a1d949-8815-755e-8711-1c57fd9f0288: Succeeded
+$ [host] cd /etc/nginx/http.d && ls -ln nexus-check-fcf675f1.conf nexus-check-fcf675f1.conf.disabled 2>&1; sha256sum nexus-check-fcf675f1.conf nexus-check-fcf675f1.conf.disabled 2>/dev/null; true
+ls: nexus-check-fcf675f1.conf.disabled: No such file or directory
+-rw-r--r--    1 0        0              172 Nov 14 09:00 nexus-check-fcf675f1.conf
+85f9b0f366f423642c9b13cb39c2179426f19d711525da13c3eed1cec1f9ca17  nexus-check-fcf675f1.conf
+$ [host] curl -sS -m 5 http://127.0.0.1:18948/
+nexus-check fcf675f1 M3
+  (/proc) nginx master 3081, workers 6876 6877 6878 6879
+RESULT 3g-enable: PASS - enable: Succeeded; nexus-check-fcf675f1.conf sha256 85f9b0f366f423642c9b13cb39c2179426f19d711525da13c3eed1cec1f9ca17; 18948 serves M3; reloaded
 
-[07:58:36] == Step 4: an invalid write and a port-conflict write are rolled back (TC-118 step 4)
-$ nexus --host nginx-check nginxsite update nexus-check-8357074f --content 'nexus_check_unknown_directive on;' --no-wait -o jsonl
-{"action":"nginx.sites.update","created":"2026-11-14T07:58:36.165507595Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d910-c085-7070-a741-5cf94dbf2b45","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"nexus-check-8357074f","tokenName":"nginx-check"}
-$ nexus --host nginx-check operation get 01a1d910-c085-7070-a741-5cf94dbf2b45 -o jsonl
-{"action":"nginx.sites.update","created":"2026-11-14T07:58:36.165507595Z","ended":"2026-11-14T07:58:36.678553608Z","error":{"detail":"nginx -t failed with nexus-check-8357074f.conf: the configuration is invalid; nexus-check-8357074f.conf was restored to its previous content, mode and owner, so nothing was changed","rolledBack":true,"status":422,"testOutput":"nginx: [emerg] unknown directive \"nexus_check_unknown_directive\" in /etc/nginx/http.d/nexus-check-8357074f.conf:1\nnginx: configuration file /etc/nginx/nginx.conf test failed\n","title":"nginx configuration invalid","type":"urn:nexus:problem:nginx-config-invalid"},"host":"nginx-check","id":"01a1d910-c085-7070-a741-5cf94dbf2b45","outputEvicted":false,"provider":"nginx","result":null,"started":"2026-11-14T07:58:36.16843617Z","status":"Failed","target":"nexus-check-8357074f","tokenName":"nginx-check"}
-[07:58:37] operation 01a1d910-c085-7070-a741-5cf94dbf2b45: Failed nginx-config-invalid
-$ [host] cd /etc/nginx/http.d && ls -ln nexus-check-8357074f.conf nexus-check-8357074f.conf.disabled 2>&1; sha256sum nexus-check-8357074f.conf nexus-check-8357074f.conf.disabled 2>/dev/null; true
-ls: nexus-check-8357074f.conf.disabled: No such file or directory
--rw-r--r--    1 0        0              172 Nov 14 07:58 nexus-check-8357074f.conf
-7628610b9bca578f0c4af8147e03c0251435610b33182bee93ef3da9422ac75c  nexus-check-8357074f.conf
-$ [host] curl -sS -m 5 http://127.0.0.1:18532/
-nexus-check 8357074f M3
-  (/proc) nginx master 3118, workers 6796 6797 6798 6799
-RESULT 4a-invalid: PASS - invalid write: Failed nginx-config-invalid, rolledBack true; sha256 still 7628610b9bca578f0c4af8147e03c0251435610b33182bee93ef3da9422ac75c; 18532 serves the previous content M3; workers unchanged
-$ [host] nohup timeout 600 busybox nc -l -s 127.0.0.1 -p 18940 </dev/null >/dev/null 2>&1 & echo $!
-7017
-$ [host] tr '\0' ' ' </proc/7017/cmdline; echo; (ss -Htln 2>/dev/null || netstat -tln 2>/dev/null) | grep ':18940 '
-busybox nc -l -s 127.0.0.1 -p 18940 
-LISTEN 0      1      127.0.0.1:18940 0.0.0.0:*
-$ nexus --host nginx-check nginxsite update nexus-check-8357074f --content 'server {
-    listen 127.0.0.1:18532;
-    listen 127.0.0.1:18940;
-    server_name nexus-check-8357074f.invalid;
+[09:00:38] == Step 4: an invalid write and a port-conflict write are rolled back (TC-118 step 4)
+$ nexus --host nginx-check nginxsite update nexus-check-fcf675f1 --content 'nexus_check_unknown_directive on;' --no-wait -o jsonl
+{"action":"nginx.sites.update","created":"2026-11-14T09:00:38.762995768Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d949-8dea-761e-b886-ccc09cf0a7c1","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"nexus-check-fcf675f1","tokenName":"nginx-check"}
+$ nexus --host nginx-check operation get 01a1d949-8dea-761e-b886-ccc09cf0a7c1 -o jsonl
+{"action":"nginx.sites.update","created":"2026-11-14T09:00:38.762995768Z","ended":"2026-11-14T09:00:39.281291476Z","error":{"detail":"nginx -t failed with nexus-check-fcf675f1.conf: the configuration is invalid; nexus-check-fcf675f1.conf was restored to its previous content, mode and owner, so nothing was changed","rolledBack":true,"status":422,"testOutput":"nginx: [emerg] unknown directive \"nexus_check_unknown_directive\" in /etc/nginx/http.d/nexus-check-fcf675f1.conf:1\nnginx: configuration file /etc/nginx/nginx.conf test failed\n","title":"nginx configuration invalid","type":"urn:nexus:problem:nginx-config-invalid"},"host":"nginx-check","id":"01a1d949-8dea-761e-b886-ccc09cf0a7c1","outputEvicted":false,"provider":"nginx","result":null,"started":"2026-11-14T09:00:38.765748704Z","status":"Failed","target":"nexus-check-fcf675f1","tokenName":"nginx-check"}
+[09:00:39] operation 01a1d949-8dea-761e-b886-ccc09cf0a7c1: Failed nginx-config-invalid
+$ [host] cd /etc/nginx/http.d && ls -ln nexus-check-fcf675f1.conf nexus-check-fcf675f1.conf.disabled 2>&1; sha256sum nexus-check-fcf675f1.conf nexus-check-fcf675f1.conf.disabled 2>/dev/null; true
+ls: nexus-check-fcf675f1.conf.disabled: No such file or directory
+-rw-r--r--    1 0        0              172 Nov 14 09:00 nexus-check-fcf675f1.conf
+85f9b0f366f423642c9b13cb39c2179426f19d711525da13c3eed1cec1f9ca17  nexus-check-fcf675f1.conf
+$ [host] curl -sS -m 5 http://127.0.0.1:18948/
+nexus-check fcf675f1 M3
+  (/proc) nginx master 3081, workers 6876 6877 6878 6879
+RESULT 4a-invalid: PASS - invalid write: Failed nginx-config-invalid, rolledBack true; sha256 still 85f9b0f366f423642c9b13cb39c2179426f19d711525da13c3eed1cec1f9ca17; 18948 serves the previous content M3; workers unchanged
+$ [host] nohup timeout 600 busybox nc -l -s 127.0.0.1 -p 18617 </dev/null >/dev/null 2>&1 & echo $!
+7098
+$ [host] tr '\0' ' ' </proc/7098/cmdline; echo
+busybox nc -l -s 127.0.0.1 -p 18617 
+  127.0.0.1:18617 is held (ss)
+$ nexus --host nginx-check nginxsite update nexus-check-fcf675f1 --content 'server {
+    listen 127.0.0.1:18948;
+    listen 127.0.0.1:18617;
+    server_name nexus-check-fcf675f1.invalid;
     default_type text/plain;
-    location / { return 200 "nexus-check 8357074f M4\n"; }
+    location / { return 200 "nexus-check fcf675f1 M4\n"; }
 }' --no-wait -o jsonl
-{"action":"nginx.sites.update","created":"2026-11-14T07:58:37.949303235Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d910-c77d-758b-96e9-2a4916d95bd0","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"nexus-check-8357074f","tokenName":"nginx-check"}
-$ nexus --host nginx-check operation get 01a1d910-c77d-758b-96e9-2a4916d95bd0 -o jsonl
-{"action":"nginx.sites.update","created":"2026-11-14T07:58:37.949303235Z","ended":"2026-11-14T07:58:53.464000315Z","error":{"detail":"the reload with the new nexus-check-8357074f.conf failed: nginx kept its previous configuration: no new worker processes; nexus-check-8357074f.conf was restored to its previous content, mode and owner and nginx reloaded it (verdict confirmed)","observed":{"initExitCode":0,"masterPid":3118,"newWorkers":[],"oldWorkers":[6796,6797,6798,6799],"verdict":"rejected"},"rollbackReload":{"initExitCode":0,"masterPid":3118,"newWorkers":[7210,7211,7212,7213],"oldWorkers":[6796,6797,6798,6799],"verdict":"confirmed"},"rolledBack":true,"testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n","title":"nginx reload failed","type":"urn:nexus:problem:nginx-reload-failed"},"host":"nginx-check","id":"01a1d910-c77d-758b-96e9-2a4916d95bd0","outputEvicted":false,"provider":"nginx","result":null,"started":"2026-11-14T07:58:37.952312393Z","status":"Failed","target":"nexus-check-8357074f","tokenName":"nginx-check"}
-[07:58:53] operation 01a1d910-c77d-758b-96e9-2a4916d95bd0: Failed nginx-reload-failed
-$ [host] P=18940 H=7017; n=0; for d in /proc/[0-9]*; do p=${d#/proc/}; c=$(tr "\0" " " <$d/cmdline 2>/dev/null) || continue; h=; case $c in "busybox nc -l -s 127.0.0.1 -p $P "* | "timeout 600 busybox nc -l -s 127.0.0.1 -p $P "* | "perl -MSocket -e "*" $P " | "python3 -c import socket"*" $P ") h=1 ;; *"$P"*) [ "$p" != "$H" ] || h=1 ;; esac; [ -z "$h" ] || { kill $p && echo "killed holder $p: $c" && n=$((n + 1)); }; done; echo "holders of port $P killed: $n"
-killed holder 7017: busybox nc -l -s 127.0.0.1 -p 18940 
-killed holder 7019: timeout 600 busybox nc -l -s 127.0.0.1 -p 18940 
-holders of port 18940 killed: 2
-$ [host] cd /etc/nginx/http.d && ls -ln nexus-check-8357074f.conf nexus-check-8357074f.conf.disabled 2>&1; sha256sum nexus-check-8357074f.conf nexus-check-8357074f.conf.disabled 2>/dev/null; true
-ls: nexus-check-8357074f.conf.disabled: No such file or directory
--rw-r--r--    1 0        0              172 Nov 14 07:58 nexus-check-8357074f.conf
-7628610b9bca578f0c4af8147e03c0251435610b33182bee93ef3da9422ac75c  nexus-check-8357074f.conf
-$ [host] curl -sS -m 5 http://127.0.0.1:18532/
-nexus-check 8357074f M3
-  (/proc) nginx master 3118, workers 7210 7211 7212 7213
-RESULT 4b-conflict: PASS - port-conflict write: Failed nginx-reload-failed, rolledBack true, observed.verdict rejected, rollbackReload.verdict confirmed; sha256 still 7628610b9bca578f0c4af8147e03c0251435610b33182bee93ef3da9422ac75c; 18532 serves the previous content M3
+{"action":"nginx.sites.update","created":"2026-11-14T09:00:40.707921183Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d949-9583-746f-95e3-5517e790f421","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"nexus-check-fcf675f1","tokenName":"nginx-check"}
+$ nexus --host nginx-check operation get 01a1d949-9583-746f-95e3-5517e790f421 -o jsonl
+{"action":"nginx.sites.update","created":"2026-11-14T09:00:40.707921183Z","ended":"2026-11-14T09:00:56.220700192Z","error":{"detail":"the reload with the new nexus-check-fcf675f1.conf failed: nginx kept its previous configuration: no new worker processes; nexus-check-fcf675f1.conf was restored to its previous content, mode and owner and nginx reloaded it (verdict confirmed)","observed":{"initExitCode":0,"masterPid":3081,"newWorkers":[],"oldWorkers":[6876,6877,6878,6879],"verdict":"rejected"},"rollbackReload":{"initExitCode":0,"masterPid":3081,"newWorkers":[7282,7283,7284,7285],"oldWorkers":[6876,6877,6878,6879],"verdict":"confirmed"},"rolledBack":true,"testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n","title":"nginx reload failed","type":"urn:nexus:problem:nginx-reload-failed"},"host":"nginx-check","id":"01a1d949-9583-746f-95e3-5517e790f421","outputEvicted":false,"provider":"nginx","result":null,"started":"2026-11-14T09:00:40.710987704Z","status":"Failed","target":"nexus-check-fcf675f1","tokenName":"nginx-check"}
+[09:00:56] operation 01a1d949-9583-746f-95e3-5517e790f421: Failed nginx-reload-failed
+$ [host] P=18617 H=7098; n=0; for d in /proc/[0-9]*; do p=${d#/proc/}; c=$(tr "\0" " " 2>/dev/null <$d/cmdline) || continue; h=; case $c in "busybox nc -l -s 127.0.0.1 -p $P "* | "timeout 600 busybox nc -l -s 127.0.0.1 -p $P "* | "perl -MSocket -e "*" $P " | "python3 -c import socket"*" $P ") h=1 ;; *"$P"*) [ "$p" != "$H" ] || h=1 ;; esac; [ -z "$h" ] || { kill $p && echo "killed holder $p: $c" && n=$((n + 1)); }; done; echo "holders of port $P killed: $n"
+killed holder 7098: busybox nc -l -s 127.0.0.1 -p 18617 
+killed holder 7100: timeout 600 busybox nc -l -s 127.0.0.1 -p 18617 
+holders of port 18617 killed: 2
+$ [host] cd /etc/nginx/http.d && ls -ln nexus-check-fcf675f1.conf nexus-check-fcf675f1.conf.disabled 2>&1; sha256sum nexus-check-fcf675f1.conf nexus-check-fcf675f1.conf.disabled 2>/dev/null; true
+ls: nexus-check-fcf675f1.conf.disabled: No such file or directory
+-rw-r--r--    1 0        0              172 Nov 14 09:00 nexus-check-fcf675f1.conf
+85f9b0f366f423642c9b13cb39c2179426f19d711525da13c3eed1cec1f9ca17  nexus-check-fcf675f1.conf
+$ [host] curl -sS -m 5 http://127.0.0.1:18948/
+nexus-check fcf675f1 M3
+  (/proc) nginx master 3081, workers 7282 7283 7284 7285
+RESULT 4b-conflict: PASS - port-conflict write: Failed nginx-reload-failed, rolledBack true, observed.verdict rejected, rollbackReload.verdict confirmed; sha256 still 85f9b0f366f423642c9b13cb39c2179426f19d711525da13c3eed1cec1f9ca17; 18948 serves the previous content M3
 RESULT 4b-initexit: PASS - observed.initExitCode 0 for the bind conflict = svcctltest's openrc reload-bind-conflict (0)
 
-[07:58:54] == Step 5: ASM-7, the init system's reload exit codes (TC-118 step 5 / TC-119)
-  The disposable site only. Each bad text stays in place until nginx has acted on the
-  reload (its error-log line, at most 5 s), then the valid M3 is written back.
-$ [host] (write 34 bytes, sha256 7d27730ce2ce857b8045ce498b9da49b9a1f03749070932c0ad9e80480bcc653, to /etc/nginx/http.d/nexus-check-8357074f.conf by a rename)
-7d27730ce2ce857b8045ce498b9da49b9a1f03749070932c0ad9e80480bcc653  nexus-check-8357074f.conf
-$ [host] /usr/sbin/nginx -t
-nginx: [emerg] unknown directive "nexus_check_unknown_directive" in /etc/nginx/http.d/nexus-check-8357074f.conf:1
-nginx: configuration file /etc/nginx/nginx.conf test failed
-(exit 1)
-$ [host] env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /sbin/rc-service -C nginx reload
- * Reloading nginx configuration ...nginx: [emerg] unknown directive "nexus_check_unknown_directive" in /etc/nginx/http.d/nexus-check-8357074f.conf:1
+[09:00:56] == Step 5: ASM-7, the init system's reload exit codes (TC-118 step 5 / TC-119)
+  The disposable site only. Each bad text is first checked with a whatIf (a shadow
+  test). One host command then renames it over the site, reloads, and renames M3
+  back: at once when the reload fails, else when nginx has logged its reaction.
+$ nexus --host nginx-check nginxsite update nexus-check-fcf675f1 --content 'nexus_check_unknown_directive on;' --what-if --no-wait -o jsonl
+{"action":"nginx.sites.update","created":"2026-11-14T09:00:56.762315393Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d949-d43a-7408-9607-e493ad59364b","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"nexus-check-fcf675f1","tokenName":"nginx-check"}
+$ nexus --host nginx-check operation get 01a1d949-d43a-7408-9607-e493ad59364b -o jsonl
+{"action":"nginx.sites.update","created":"2026-11-14T09:00:56.762315393Z","ended":"2026-11-14T09:00:57.28642585Z","error":null,"host":"nginx-check","id":"01a1d949-d43a-7408-9607-e493ad59364b","outputEvicted":false,"provider":"nginx","result":{"changed":false,"created":false,"enabled":true,"fileName":"nexus-check-fcf675f1.conf","name":"nexus-check-fcf675f1","reloaded":false,"sha256":"7d27730ce2ce857b8045ce498b9da49b9a1f03749070932c0ad9e80480bcc653","sizeBytes":34,"testOutput":"nginx: [emerg] unknown directive \"nexus_check_unknown_directive\" in /etc/nginx/http.d/nexus-check-fcf675f1.conf:1\nnginx: configuration file /etc/nginx/nginx.conf test failed\n","valid":false,"whatIf":true},"started":"2026-11-14T09:00:56.767349469Z","status":"Succeeded","target":"nexus-check-fcf675f1","tokenName":"nginx-check"}
+[09:00:57] operation 01a1d949-d43a-7408-9607-e493ad59364b: Succeeded
+$ [host] (stage 172 bytes, sha256 85f9b0f366f423642c9b13cb39c2179426f19d711525da13c3eed1cec1f9ca17, as /etc/nginx/http.d/.nexus-check-fcf675f1.check-good)
+85f9b0f366f423642c9b13cb39c2179426f19d711525da13c3eed1cec1f9ca17  .nexus-check-fcf675f1.check-good
+$ [host] (stage 34 bytes, sha256 7d27730ce2ce857b8045ce498b9da49b9a1f03749070932c0ad9e80480bcc653, as /etc/nginx/http.d/.nexus-check-fcf675f1.check-bad)
+7d27730ce2ce857b8045ce498b9da49b9a1f03749070932c0ad9e80480bcc653  .nexus-check-fcf675f1.check-bad
+$ [host] trap "" HUP INT TERM; cd /etc/nginx/http.d || exit 98; read t0 _ </proc/uptime; mv -f .nexus-check-fcf675f1.check-bad nexus-check-fcf675f1.conf || exit 97; out=$(env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /sbin/rc-service -C nginx reload 2>&1); rc=$?; if [ "$rc" -eq 0 ]; then i=0; while [ "$i" -lt 100 ] && ! tail -c +2300 /var/log/nginx/error.log 2>/dev/null | grep -qF -- nexus_check_unknown_directive; do sleep 0.05; i=$((i + 1)); done; fi; mv -f .nexus-check-fcf675f1.check-good nexus-check-fcf675f1.conf || echo RESTORE_FAILED; read t1 _ </proc/uptime; printf "%s\n" "$out"; echo "RELOAD_RC=$rc"; awk -v a="$t0" -v b="$t1" "BEGIN { printf \"BAD_SECONDS=%.2f\\n\", b - a }"
+ * Reloading nginx configuration ...nginx: [emerg] unknown directive "nexus_check_unknown_directive" in /etc/nginx/http.d/nexus-check-fcf675f1.conf:1
 nginx: configuration file /etc/nginx/nginx.conf test failed
  [ !! ]
-(exit 1)
-$ [host] tail -c +2162 /var/log/nginx/error.log 2>/dev/null | tail -n 5
-2026/11/14 07:58:54 [emerg] 7367#7367: unknown directive "nexus_check_unknown_directive" in /etc/nginx/http.d/nexus-check-8357074f.conf:1
-2026/11/14 07:58:54 [emerg] 7390#7390: unknown directive "nexus_check_unknown_directive" in /etc/nginx/http.d/nexus-check-8357074f.conf:1
-$ [host] (write 172 bytes, sha256 7628610b9bca578f0c4af8147e03c0251435610b33182bee93ef3da9422ac75c, to /etc/nginx/http.d/nexus-check-8357074f.conf by a rename)
-7628610b9bca578f0c4af8147e03c0251435610b33182bee93ef3da9422ac75c  nexus-check-8357074f.conf
-[07:58:54] the valid text M3 is back in nexus-check-8357074f.conf
-  (/proc) master 3118 -> 3118, workers 7210 7211 7212 7213 -> 7210 7211 7212 7213
+RELOAD_RC=1
+BAD_SECONDS=0.03
+$ [host] tail -c +2300 /var/log/nginx/error.log 2>/dev/null | tail -n 5
+2026/11/14 09:00:58 [emerg] 7508#7508: unknown directive "nexus_check_unknown_directive" in /etc/nginx/http.d/nexus-check-fcf675f1.conf:1
+$ [host] cd /etc/nginx/http.d && sha256sum nexus-check-fcf675f1.conf
+85f9b0f366f423642c9b13cb39c2179426f19d711525da13c3eed1cec1f9ca17  nexus-check-fcf675f1.conf
+[09:00:58] M3 back in nexus-check-fcf675f1.conf: yes; the invalid text was in the include directory for 0.03 s
+  (/proc) master 3081 -> 3081, workers 7282 7283 7284 7285 -> 7282 7283 7284 7285
 $ [host] /usr/sbin/nginx -t
 nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
 nginx: configuration file /etc/nginx/nginx.conf test is successful
-$ [host] curl -sS -m 5 http://127.0.0.1:18532/
-nexus-check 8357074f M3
-RESULT 5a-invalid-exit: PASS - env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /sbin/rc-service -C nginx reload exit 1 with an invalid configuration (nginx -t exit 1); svcctltest has 1; nginx kept its workers; M3 restored, nginx -t passes, 18532 serves M3
-$ [host] nohup timeout 600 busybox nc -l -s 127.0.0.1 -p 18940 </dev/null >/dev/null 2>&1 & echo $!
-7473
-$ [host] tr '\0' ' ' </proc/7473/cmdline; echo; (ss -Htln 2>/dev/null || netstat -tln 2>/dev/null) | grep ':18940 '
-busybox nc -l -s 127.0.0.1 -p 18940 
-LISTEN 0      1      127.0.0.1:18940 0.0.0.0:*
-$ [host] (write 200 bytes, sha256 e77f69411c3f64856d2d3c1d64e2cae1f7359d05278233e2fc0081725153535e, to /etc/nginx/http.d/nexus-check-8357074f.conf by a rename)
-e77f69411c3f64856d2d3c1d64e2cae1f7359d05278233e2fc0081725153535e  nexus-check-8357074f.conf
-$ [host] /usr/sbin/nginx -t
-nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
-nginx: configuration file /etc/nginx/nginx.conf test is successful
-$ [host] env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /sbin/rc-service -C nginx reload
+$ [host] curl -sS -m 5 http://127.0.0.1:18948/
+nexus-check fcf675f1 M3
+RESULT 5a-invalid-exit: PASS - env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /sbin/rc-service -C nginx reload exit 1 with an invalid configuration (whatIf valid: false; in place 0.03 s); svcctltest has 1; nginx kept its workers; M3 restored, nginx -t passes, 18948 serves M3
+$ [host] nohup timeout 600 busybox nc -l -s 127.0.0.1 -p 18617 </dev/null >/dev/null 2>&1 & echo $!
+7582
+$ [host] tr '\0' ' ' </proc/7582/cmdline; echo
+busybox nc -l -s 127.0.0.1 -p 18617 
+  127.0.0.1:18617 is held (ss)
+$ nexus --host nginx-check nginxsite update nexus-check-fcf675f1 --content 'server {
+    listen 127.0.0.1:18948;
+    listen 127.0.0.1:18617;
+    server_name nexus-check-fcf675f1.invalid;
+    default_type text/plain;
+    location / { return 200 "nexus-check fcf675f1 M4\n"; }
+}' --what-if --no-wait -o jsonl
+{"action":"nginx.sites.update","created":"2026-11-14T09:01:00.16125179Z","ended":null,"error":null,"host":"nginx-check","id":"01a1d949-e181-7368-9cd6-842d0b78fdb3","outputEvicted":false,"provider":"nginx","result":null,"started":null,"status":"Queued","target":"nexus-check-fcf675f1","tokenName":"nginx-check"}
+$ nexus --host nginx-check operation get 01a1d949-e181-7368-9cd6-842d0b78fdb3 -o jsonl
+{"action":"nginx.sites.update","created":"2026-11-14T09:01:00.16125179Z","ended":"2026-11-14T09:01:00.673713792Z","error":null,"host":"nginx-check","id":"01a1d949-e181-7368-9cd6-842d0b78fdb3","outputEvicted":false,"provider":"nginx","result":{"changed":false,"created":false,"enabled":true,"fileName":"nexus-check-fcf675f1.conf","name":"nexus-check-fcf675f1","reloaded":false,"sha256":"b203375a91b5bb9d553c47836eda63ad3f71a7f81b8349def70833aba865b5ae","sizeBytes":200,"testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n","valid":true,"whatIf":true},"started":"2026-11-14T09:01:00.163780349Z","status":"Succeeded","target":"nexus-check-fcf675f1","tokenName":"nginx-check"}
+[09:01:01] operation 01a1d949-e181-7368-9cd6-842d0b78fdb3: Succeeded
+$ [host] (stage 172 bytes, sha256 85f9b0f366f423642c9b13cb39c2179426f19d711525da13c3eed1cec1f9ca17, as /etc/nginx/http.d/.nexus-check-fcf675f1.check-good)
+85f9b0f366f423642c9b13cb39c2179426f19d711525da13c3eed1cec1f9ca17  .nexus-check-fcf675f1.check-good
+$ [host] (stage 200 bytes, sha256 b203375a91b5bb9d553c47836eda63ad3f71a7f81b8349def70833aba865b5ae, as /etc/nginx/http.d/.nexus-check-fcf675f1.check-bad)
+b203375a91b5bb9d553c47836eda63ad3f71a7f81b8349def70833aba865b5ae  .nexus-check-fcf675f1.check-bad
+$ [host] trap "" HUP INT TERM; cd /etc/nginx/http.d || exit 98; read t0 _ </proc/uptime; mv -f .nexus-check-fcf675f1.check-bad nexus-check-fcf675f1.conf || exit 97; out=$(env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /sbin/rc-service -C nginx reload 2>&1); rc=$?; if [ "$rc" -eq 0 ]; then i=0; while [ "$i" -lt 100 ] && ! tail -c +2438 /var/log/nginx/error.log 2>/dev/null | grep -qF -- '127.0.0.1:18617 failed'; do sleep 0.05; i=$((i + 1)); done; fi; mv -f .nexus-check-fcf675f1.check-good nexus-check-fcf675f1.conf || echo RESTORE_FAILED; read t1 _ </proc/uptime; printf "%s\n" "$out"; echo "RELOAD_RC=$rc"; awk -v a="$t0" -v b="$t1" "BEGIN { printf \"BAD_SECONDS=%.2f\\n\", b - a }"
  * Reloading nginx configuration ... [ ok ]
+RELOAD_RC=0
+BAD_SECONDS=0.04
 $ [host] tail -c +2438 /var/log/nginx/error.log 2>/dev/null | tail -n 5
-2026/11/14 07:58:56 [emerg] 3118#3118: bind() to 127.0.0.1:18940 failed (98: Address in use)
-$ [host] (write 172 bytes, sha256 7628610b9bca578f0c4af8147e03c0251435610b33182bee93ef3da9422ac75c, to /etc/nginx/http.d/nexus-check-8357074f.conf by a rename)
-7628610b9bca578f0c4af8147e03c0251435610b33182bee93ef3da9422ac75c  nexus-check-8357074f.conf
-[07:58:56] the valid text M3 is back in nexus-check-8357074f.conf
-  (/proc) master 3118 -> 3118, workers 7210 7211 7212 7213 -> 7210 7211 7212 7213
+2026/11/14 09:01:01 [emerg] 3081#3081: bind() to 127.0.0.1:18617 failed (98: Address in use)
+$ [host] cd /etc/nginx/http.d && sha256sum nexus-check-fcf675f1.conf
+85f9b0f366f423642c9b13cb39c2179426f19d711525da13c3eed1cec1f9ca17  nexus-check-fcf675f1.conf
+[09:01:01] M3 back in nexus-check-fcf675f1.conf: yes; the bind text was in the include directory for 0.04 s
+  (/proc) master 3081 -> 3081, workers 7282 7283 7284 7285 -> 7282 7283 7284 7285
 $ [host] /usr/sbin/nginx -t
 nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
 nginx: configuration file /etc/nginx/nginx.conf test is successful
-$ [host] curl -sS -m 5 http://127.0.0.1:18532/
-nexus-check 8357074f M3
-$ [host] P=18940 H=7473; n=0; for d in /proc/[0-9]*; do p=${d#/proc/}; c=$(tr "\0" " " <$d/cmdline 2>/dev/null) || continue; h=; case $c in "busybox nc -l -s 127.0.0.1 -p $P "* | "timeout 600 busybox nc -l -s 127.0.0.1 -p $P "* | "perl -MSocket -e "*" $P " | "python3 -c import socket"*" $P ") h=1 ;; *"$P"*) [ "$p" != "$H" ] || h=1 ;; esac; [ -z "$h" ] || { kill $p && echo "killed holder $p: $c" && n=$((n + 1)); }; done; echo "holders of port $P killed: $n"
-killed holder 7473: busybox nc -l -s 127.0.0.1 -p 18940 
-killed holder 7475: timeout 600 busybox nc -l -s 127.0.0.1 -p 18940 
-holders of port 18940 killed: 2
-RESULT 5b-bind-exit: PASS - env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /sbin/rc-service -C nginx reload exit 0 with a bind conflict on 127.0.0.1:18940 (nginx -t exit 0: only the bind fails); svcctltest has 0; the master kept its workers (bind() failure in /var/log/nginx/error.log: yes), which the exit code does not show; M3 restored, 18532 serves M3
+$ [host] curl -sS -m 5 http://127.0.0.1:18948/
+nexus-check fcf675f1 M3
+$ [host] P=18617 H=7582; n=0; for d in /proc/[0-9]*; do p=${d#/proc/}; c=$(tr "\0" " " 2>/dev/null <$d/cmdline) || continue; h=; case $c in "busybox nc -l -s 127.0.0.1 -p $P "* | "timeout 600 busybox nc -l -s 127.0.0.1 -p $P "* | "perl -MSocket -e "*" $P " | "python3 -c import socket"*" $P ") h=1 ;; *"$P"*) [ "$p" != "$H" ] || h=1 ;; esac; [ -z "$h" ] || { kill $p && echo "killed holder $p: $c" && n=$((n + 1)); }; done; echo "holders of port $P killed: $n"
+killed holder 7582: busybox nc -l -s 127.0.0.1 -p 18617 
+killed holder 7584: timeout 600 busybox nc -l -s 127.0.0.1 -p 18617 
+holders of port 18617 killed: 2
+RESULT 5b-bind-exit: PASS - env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /sbin/rc-service -C nginx reload exit 0 with a bind conflict on 127.0.0.1:18617 (whatIf valid: true, only the bind fails; in place 0.04 s); svcctltest has 0; the master kept its workers (bind() failure in /var/log/nginx/error.log: yes), which the exit code does not show; M3 restored, 18948 serves M3
 
-[07:58:57] == Step 6: remove the site (rm on the host, OOS-4), test, reload (TC-118 step 6)
-[07:58:57] == Cleanup
+[09:01:03] == Step 6: remove the site (rm on the host, OOS-4), test, reload (TC-118 step 6)
+[09:01:03] == Cleanup
+$ [host] P=18617 H=none; n=0; for d in /proc/[0-9]*; do p=${d#/proc/}; c=$(tr "\0" " " 2>/dev/null <$d/cmdline) || continue; h=; case $c in "busybox nc -l -s 127.0.0.1 -p $P "* | "timeout 600 busybox nc -l -s 127.0.0.1 -p $P "* | "perl -MSocket -e "*" $P " | "python3 -c import socket"*" $P ") h=1 ;; *"$P"*) [ "$p" != "$H" ] || h=1 ;; esac; [ -z "$h" ] || { kill $p && echo "killed holder $p: $c" && n=$((n + 1)); }; done; echo "holders of port $P killed: $n"
+holders of port 18617 killed: 0
+$ [host] cd /etc/nginx/http.d && { ls -ln -- nexus-check-fcf675f1.* .nexus-check-fcf675f1.* 2>/dev/null; rm -f -- nexus-check-fcf675f1.conf nexus-check-fcf675f1.conf.disabled nexus-check-fcf675f1.* .nexus-check-fcf675f1.*; ls -a | grep -F -- nexus-check-fcf675f1 || echo 'nexus-check-fcf675f1: no file left'; }
+-rw-r--r--    1 0        0              172 Nov 14 09:01 nexus-check-fcf675f1.conf
+nexus-check-fcf675f1: no file left
 $ nexus --host nginx-check operation get --filter provider=nginx --filter status=Queued --filter status=Running -o jsonl
-$ [host] P=18940 H=none; n=0; for d in /proc/[0-9]*; do p=${d#/proc/}; c=$(tr "\0" " " <$d/cmdline 2>/dev/null) || continue; h=; case $c in "busybox nc -l -s 127.0.0.1 -p $P "* | "timeout 600 busybox nc -l -s 127.0.0.1 -p $P "* | "perl -MSocket -e "*" $P " | "python3 -c import socket"*" $P ") h=1 ;; *"$P"*) [ "$p" != "$H" ] || h=1 ;; esac; [ -z "$h" ] || { kill $p && echo "killed holder $p: $c" && n=$((n + 1)); }; done; echo "holders of port $P killed: $n"
-holders of port 18940 killed: 0
-$ [host] cd /etc/nginx/http.d && ls -ln nexus-check-8357074f.conf nexus-check-8357074f.conf.disabled .nexus-check-8357074f.check-tmp 2>/dev/null; rm -f -- nexus-check-8357074f.conf nexus-check-8357074f.conf.disabled .nexus-check-8357074f.check-tmp; ls -la | grep -F nexus-check-8357074f || echo 'nexus-check-8357074f: no file left'
--rw-r--r--    1 0        0              172 Nov 14 07:58 nexus-check-8357074f.conf
-nexus-check-8357074f: no file left
 $ [host] /usr/sbin/nginx -t
 nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
 nginx: configuration file /etc/nginx/nginx.conf test is successful
 $ [host] env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /sbin/rc-service -C nginx status
  * status: started
-[07:58:58] the site was enabled during the run: reloading nginx to drop it
+[09:01:03] the site was enabled during the run: reloading nginx to drop it
 $ [host] env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /sbin/rc-service -C nginx reload
  * Reloading nginx configuration ... [ ok ]
-  (/proc) master 3118, workers 7701 7702 7703 7704 -> 7845 7846 7847 7848: the reload was applied
-$ [host] curl -sS -m 5 http://127.0.0.1:18532/
-curl: (7) Failed to connect to 127.0.0.1:18532 after 0 ms: Could not connect to server
+  (/proc) master 3081, workers 7843 7844 7845 7846 -> 7985 7986 7987 7988: the reload was applied
+$ [host] curl -sS -m 5 http://127.0.0.1:18948/
+curl: (7) Failed to connect to 127.0.0.1:18948 after 0 ms: Could not connect to server
 (exit 7)
-  127.0.0.1:18532: refused
-$ [host] [ ! -f /var/lib/nexus-nginx-check/snap.before ] || { S=nexus-check-8357074f; for r in /etc/nginx /etc/nginx/http.d; do [ -e "$r" ] && find "$r" -print; done | sort -u | while IFS= read -r f; do b=${f##*/}; case $b in "$S".* | ."$S".*) continue ;; esac; if [ -L "$f" ]; then echo "L $(stat -c "%a %u %g" "$f") $f -> $(readlink "$f")"; elif [ -f "$f" ]; then echo "F $(stat -c "%a %u %g %s" "$f") $(sha256sum <"$f" | cut -d" " -f1) $f"; elif [ -d "$f" ]; then echo "D $(stat -c "%a %u %g" "$f") $f"; else echo "O $(stat -c "%a %u %g" "$f") $f"; fi; done; } >/var/lib/nexus-nginx-check/snap.after; [ ! -f /var/lib/nexus-nginx-check/snap.before ] || diff /var/lib/nexus-nginx-check/snap.before /var/lib/nexus-nginx-check/snap.after
+  127.0.0.1:18948: refused
+$ [host] cd /etc/nginx/http.d || exit 2; ls -a | grep -E '^\.?nexus-check-'
+(exit 1)
+RESULT cleanup-removed: PASS - no nexus-check-* entry is left in /etc/nginx/http.d
+$ [host] [ ! -f /var/lib/nexus-nginx-check/snap.before ] || { S=nexus-check-fcf675f1; { for r in /etc/nginx /etc/nginx/http.d; do [ -e "$r" ] && find -L "$r" -print 2>/dev/null; done; /usr/sbin/nginx -T 2>/dev/null | sed -n "s/^# configuration file \(.*\):\$/\1/p"; cat /var/lib/nexus-nginx-check/conffiles 2>/dev/null; } | sort -u | while IFS= read -r f; do b=${f##*/}; case $b in "$S".* | ."$S".*) continue ;; esac; if [ -L "$f" ]; then echo "L $(stat -c "%a %u %g" "$f") $f -> $(readlink "$f")"; fi; if [ -f "$f" ]; then echo "F $(stat -L -c "%a %u %g %s" "$f") $(sha256sum <"$f" | cut -d" " -f1) $f"; elif [ -d "$f" ]; then echo "D $(stat -L -c "%a %u %g" "$f") $f"; elif [ ! -e "$f" ]; then echo "X missing-or-dangling $f"; else echo "O $(stat -L -c "%a %u %g" "$f") $f"; fi; done; } >/var/lib/nexus-nginx-check/snap.after; [ ! -f /var/lib/nexus-nginx-check/snap.before ] || diff /var/lib/nexus-nginx-check/snap.before /var/lib/nexus-nginx-check/snap.after
 $ [host] rm -rf /var/lib/nexus-nginx-check
-RESULT 6-removed: PASS - no file of nexus-check-8357074f is left in /etc/nginx/http.d; 18532 refused after the reload
-RESULT untouched: PASS - every other file under /etc/nginx and /etc/nginx/http.d is byte-identical to the snapshot (type, mode, owner, size, sha256)
+RESULT 6-removed: PASS - no file of nexus-check-fcf675f1 is left in /etc/nginx/http.d; 18948 refused after the reload
+RESULT untouched: PASS - every other file under /etc/nginx and /etc/nginx/http.d, and every file nginx -T names, is byte-identical to the snapshot (type, mode, owner, size, sha256; symlinks followed)
 RESULT nginx-conf: PASS - /etc/nginx/nginx.conf unchanged: F 644 0 0 3203 dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd /etc/nginx/nginx.conf
-RESULT master: PASS - nginx's master is the one from the start (3118): no restart, only reloads
-RESULT token-absent: PASS - NEXUS_TOKEN does not appear in the transcript
+RESULT master: PASS - nginx's master is the one from the start (3081): no restart, only reloads
+RESULT token-absent: PASS - the token does not appear in the transcript
 
 == Summary (main)
+  token-env  PASS  no child process's environment holds the token (env, run as a child, does not show it)
   1-provider  PASS  nexus nginx get: running, initSystem openrc, includeDir /etc/nginx/http.d, service nginx
   1-include  PASS  /etc/nginx/nginx.conf line 102: include http.d/*.conf; (in http) names http.d/*.conf
   1-nginx-t  PASS  nginx -t passes on the host's configuration before any change
-  1-asm1  PASS  nexusd runs as uid 0 on the host, and the provider's mainPid 3118 is the host's nginx master
+  1-asm1  PASS  nexusd runs as uid 0 on the host, and the provider's mainPid 3081 is the host's nginx master
   1-host  FAIL  running in a container: not a real host
-  3a-whatif  PASS  add --what-if: Succeeded, valid true; no file, 18532 refused, workers unchanged
-  3b-add  PASS  add: Succeeded; result sha256 = sha256 of M1 = sha256sum on the host (5cecbc427e8e3538ab2e758782342fac6343e81e3f8696f2e92afa5e8af03c57); root 0644; 18532 serves M1; reload confirmed, workers 4788 4789 4790 4792 -> 5675 5676 5677 5678, master 3118 unchanged
-  3c-update  PASS  update --if-match: Succeeded; sha256 6edb3a269e7d487edaf2ef25c26c091d8d483416c2c467b6d95a9b1c2deaa854 on the host and in the result, previousSha256 5cecbc427e8e3538ab2e758782342fac6343e81e3f8696f2e92afa5e8af03c57; 18532 serves M2
+  3a-whatif  PASS  add --what-if: Succeeded, valid true; no file, 18948 refused, workers unchanged
+  3b-add  PASS  add: Succeeded; result sha256 = sha256 of M1 = sha256sum on the host (500976d99d723f4b41b446f8bebf888699ff74ff15bf1a394b8ad639bd6dd5e9); root 0644; 18948 serves M1; reload confirmed, workers 4818 4819 4820 4821 -> 5760 5761 5762 5763, master 3081 unchanged
+  3c-update  PASS  update --if-match: Succeeded; sha256 6e8a1c6f0a1a7167cc3d8498244719dc405bb6272c242e24e405fd28dc3fb832 on the host and in the result, previousSha256 500976d99d723f4b41b446f8bebf888699ff74ff15bf1a394b8ad639bd6dd5e9; 18948 serves M2
   2a-test  PASS  nginxconfig test: valid true; nginx -t on the host exits 0
-  2b-start-running  PASS  start of a running nginx: Succeeded, changed false; openrc says started; master 3118 unchanged
-  2c-reload  PASS  reload: Succeeded, verdict confirmed, initExitCode 0; same master 3118, every worker replaced (5854 5856 5857 5858 -> 6203 6204 6205 6206); 18532 serves M2
+  2b-start-running  PASS  start of a running nginx: Succeeded, changed false; openrc says started; master 3081 unchanged
+  2c-reload  PASS  reload: Succeeded, verdict confirmed, initExitCode 0; same master 3081, every worker replaced (5931 5933 5934 5936 -> 6280 6281 6282 6283); 18948 serves M2
   2d-stop  NOT-RUN  opt-in: --with-lifecycle (interrupts production traffic)
   2e-start  NOT-RUN  opt-in: --with-lifecycle (interrupts production traffic)
   2f-restart  NOT-RUN  opt-in: --with-lifecycle (interrupts production traffic)
-  3d-disable  PASS  disable: Succeeded; only nexus-check-8357074f.conf.disabled on disk (sha256 6edb3a269e7d487edaf2ef25c26c091d8d483416c2c467b6d95a9b1c2deaa854, unchanged); 18532 refused; reloaded
-  3e-update-disabled  PASS  update of the disabled site: Succeeded, reloaded false; nexus-check-8357074f.conf.disabled sha256 7628610b9bca578f0c4af8147e03c0251435610b33182bee93ef3da9422ac75c; 18532 still refused; workers unchanged
+  3d-disable  PASS  disable: Succeeded; only nexus-check-fcf675f1.conf.disabled on disk (sha256 6e8a1c6f0a1a7167cc3d8498244719dc405bb6272c242e24e405fd28dc3fb832, unchanged); 18948 refused; reloaded
+  3e-update-disabled  PASS  update of the disabled site: Succeeded, reloaded false; nexus-check-fcf675f1.conf.disabled sha256 85f9b0f366f423642c9b13cb39c2179426f19d711525da13c3eed1cec1f9ca17; 18948 still refused; workers unchanged
   3f-whatif-invalid  PASS  update --what-if of an invalid text: Succeeded, valid false; nothing changed
-  3g-enable  PASS  enable: Succeeded; nexus-check-8357074f.conf sha256 7628610b9bca578f0c4af8147e03c0251435610b33182bee93ef3da9422ac75c; 18532 serves M3; reloaded
-  4a-invalid  PASS  invalid write: Failed nginx-config-invalid, rolledBack true; sha256 still 7628610b9bca578f0c4af8147e03c0251435610b33182bee93ef3da9422ac75c; 18532 serves the previous content M3; workers unchanged
-  4b-conflict  PASS  port-conflict write: Failed nginx-reload-failed, rolledBack true, observed.verdict rejected, rollbackReload.verdict confirmed; sha256 still 7628610b9bca578f0c4af8147e03c0251435610b33182bee93ef3da9422ac75c; 18532 serves the previous content M3
+  3g-enable  PASS  enable: Succeeded; nexus-check-fcf675f1.conf sha256 85f9b0f366f423642c9b13cb39c2179426f19d711525da13c3eed1cec1f9ca17; 18948 serves M3; reloaded
+  4a-invalid  PASS  invalid write: Failed nginx-config-invalid, rolledBack true; sha256 still 85f9b0f366f423642c9b13cb39c2179426f19d711525da13c3eed1cec1f9ca17; 18948 serves the previous content M3; workers unchanged
+  4b-conflict  PASS  port-conflict write: Failed nginx-reload-failed, rolledBack true, observed.verdict rejected, rollbackReload.verdict confirmed; sha256 still 85f9b0f366f423642c9b13cb39c2179426f19d711525da13c3eed1cec1f9ca17; 18948 serves the previous content M3
   4b-initexit  PASS  observed.initExitCode 0 for the bind conflict = svcctltest's openrc reload-bind-conflict (0)
-  5a-invalid-exit  PASS  env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /sbin/rc-service -C nginx reload exit 1 with an invalid configuration (nginx -t exit 1); svcctltest has 1; nginx kept its workers; M3 restored, nginx -t passes, 18532 serves M3
-  5b-bind-exit  PASS  env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /sbin/rc-service -C nginx reload exit 0 with a bind conflict on 127.0.0.1:18940 (nginx -t exit 0: only the bind fails); svcctltest has 0; the master kept its workers (bind() failure in /var/log/nginx/error.log: yes), which the exit code does not show; M3 restored, 18532 serves M3
-  6-removed  PASS  no file of nexus-check-8357074f is left in /etc/nginx/http.d; 18532 refused after the reload
-  untouched  PASS  every other file under /etc/nginx and /etc/nginx/http.d is byte-identical to the snapshot (type, mode, owner, size, sha256)
+  5a-invalid-exit  PASS  env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /sbin/rc-service -C nginx reload exit 1 with an invalid configuration (whatIf valid: false; in place 0.03 s); svcctltest has 1; nginx kept its workers; M3 restored, nginx -t passes, 18948 serves M3
+  5b-bind-exit  PASS  env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /sbin/rc-service -C nginx reload exit 0 with a bind conflict on 127.0.0.1:18617 (whatIf valid: true, only the bind fails; in place 0.04 s); svcctltest has 0; the master kept its workers (bind() failure in /var/log/nginx/error.log: yes), which the exit code does not show; M3 restored, 18948 serves M3
+  cleanup-removed  PASS  no nexus-check-* entry is left in /etc/nginx/http.d
+  6-removed  PASS  no file of nexus-check-fcf675f1 is left in /etc/nginx/http.d; 18948 refused after the reload
+  untouched  PASS  every other file under /etc/nginx and /etc/nginx/http.d, and every file nginx -T names, is byte-identical to the snapshot (type, mode, owner, size, sha256; symlinks followed)
   nginx-conf  PASS  /etc/nginx/nginx.conf unchanged: F 644 0 0 3203 dadcc153024c00d8d3dcd7a4a866522e7fd45636f57bcc2c6fda2ba19b799fbd /etc/nginx/nginx.conf
-  master  PASS  nginx's master is the one from the start (3118): no restart, only reloads
-  token-absent  PASS  NEXUS_TOKEN does not appear in the transcript
+  master  PASS  nginx's master is the one from the start (3081): no restart, only reloads
+  token-absent  PASS  the token does not appear in the transcript
   (container: not real-host evidence)
 transcript: 02-alpine-default.txt
