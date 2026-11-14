@@ -72,3 +72,27 @@ These come from `nexus --host pihole …` against `nexusd d23f764`. "Host view" 
 | DNS | — | `dig @192.168.7.4` returns the file's IP for each of the 53 names (53/53); `pi.hole` → 192.168.7.4; `nexus-test.app.lan` → no answer (the name is free); `nexus-probe-x.invalid` → NXDOMAIN in 1 ms (answered locally) | yes |
 
 Read latency from the Mac was 23–30 ms per CLI call, end to end, across those six reads.
+
+## WI 6.2 step 1: first write, `piholezone add --zone app.lan` (approved 2026-11-14)
+
+```
+nexus --host pihole piholezone add --zone app.lan --if-match sha256:35e3646ba1ca58c420b933d0b63df0dd3cba640d950a114dc3c9d03ed9f3bf2d --follow --yes
+```
+
+- **Operation:** `01a1d86e-68b9-745d-ae59-5276849e0868` ended `Succeeded`; 609 ms end to end from the Mac.
+- **Op log:** it saved the pre-Nexus backup, wrote the temporary file and saved the rollback copy. It then replaced the file and logged `only comment lines changed: no configuration test and no DNS restart`.
+- **Result:**
+  - `restarted: false`;
+  - `ftlPidBefore` 176, `ftlPidAfter` 176: FTL was not restarted;
+  - new etag `sha256:097da9de517d5227574c241282a30d2f807da33c6143c90775d2ae7862264dfe`.
+- **File contents:** the new etag equals the sha256 of a local dry run, `dnsfile.Parse` → `AddZone{app.lan}` → `Render` on `live-53-lines.conf`, which reported `DNSEquivalent=true`. So the live file is byte-for-byte the predicted reorganization (A-42):
+  - `# nexus:zone app.lan` with its 24 records, sorted;
+  - `# nexus:unzoned` with the other 29.
+- **Readback:**
+  - `piholezone get` lists `app.lan` with 24 records;
+  - `piholerecord get` lists 53 records: 24 in `app.lan` and 29 with no zone;
+  - `dig @192.168.7.4` still returns the expected IP for 53 of the 53 names.
+- **Backup:**
+  - Plain `capability get` still showed `preNexusBackupExists: false`, the snapshot from nexusd's start, as documented.
+  - `capability get --refresh` showed `true`.
+  - The backup's sha256 must equal step 0's `35e3646b…`; the console check is pending.
