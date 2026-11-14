@@ -231,3 +231,23 @@ This is FR-11 as specified: removing an entry that does not exist answers `404`,
   - This is consistent with Nexus's `systemctl reset-failed pihole-FTL.service` before each restart (WI 5.5).
 - **After every run:** FTL answered `dig photon.app.lan` → 192.168.7.5, and `pihole get` showed `ftlRunning: true`, `dnsAnswering: true` and blocking enabled.
 - **Still to check:** `systemctl show -p Result pihole-FTL` is not visible from the Mac and is pending on the host console.
+
+## Host-console checks after steps 4–8 (2026-11-14)
+
+The user ran these on the Pi-hole console:
+
+```
+$ grep -cE 'database is locked|Gravity database not available' /var/log/pihole/FTL.log
+0
+$ pihole-FTL sqlite3 -readonly /etc/pihole/gravity.db 'PRAGMA foreign_key_check;' ; echo "fk-check done"
+fk-check done
+$ systemctl show -p Result,NRestarts pihole-FTL
+Result=success
+NRestarts=0
+```
+
+- **No new lock lines:** there are no `database is locked` or `Gravity database not available` lines. Step 0 had 0, and 0 remain after steps 4, 4a and 5, so the A-64 race did not occur.
+- **No orphaned rows:** `PRAGMA foreign_key_check` is empty after the adlist remove without gravity.
+- **Unit state:** FTL's unit ends `Result=success` after 11 restarts. `NRestarts=0` means systemd never auto-restarted FTL: every restart was a deliberate `pihole restartdns`, and none was a crash.
+
+**WI 6.1 and WI 6.2 are complete. Every live check matched on the real host.**
