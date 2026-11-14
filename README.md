@@ -1,6 +1,6 @@
 # Nexus
 
-Nexus is a lightweight server manager for a home Ubuntu host: a server daemon with an API and an agent-callable surface, plus a command-line client. It ships two binaries:
+Nexus is a lightweight server manager for a home Linux host (Ubuntu/Debian with systemd, or Alpine with OpenRC): a server daemon with an API and an agent-callable surface, plus a command-line client. It ships two binaries:
 
 - `nexusd`, the server daemon, built for linux/amd64.
 - `nexus`, the command-line client, built for darwin/arm64 and linux/amd64.

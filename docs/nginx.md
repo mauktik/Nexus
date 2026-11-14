@@ -10,8 +10,9 @@ the reload fails.
 It does not edit `nginx.conf` or any other include directory, does not
 delete a file, does not dump the full configuration (`nginx -T`), and does
 not parse directives: `nginx -t` alone decides whether a configuration is
-valid. The service name, the nginx binary and the include directory come
-only from `/etc/nexus/nexusd.yaml`, never from a request.
+valid. The service name and the include directory come only from
+`/etc/nexus/nexusd.yaml`, and the nginx binary is fixed at `/usr/sbin/nginx`;
+none of them comes from a request.
 
 Read [Security](#security) before giving anyone `nginx:config`: it is
 potentially root-equivalent.
@@ -23,12 +24,17 @@ potentially root-equivalent.
 - The service known to the init system: `nginx.service` on systemd,
   `/etc/init.d/nginx` on OpenRC (Alpine).
 - The include directory, a real directory and not a symlink to one.
-- `nexusd` running as root, as installed. Changes run in detached
-  operations, so those must be available on the host.
+- Detached operations available on the host, because every change runs
+  as one.
 
 When one of these is missing the provider reports `unavailable` in
 `nexus capability get`, with the reason, and its operations answer
-`capability-unavailable`. The check is repeated on each call, so installing
+`capability-unavailable`.
+
+`nexusd` also runs as root, as installed. The provider does not check this
+up front, but the shadow test (used for whatIf and for writes to disabled
+sites) needs root to make its private mount namespace; without it those
+operations fail with `dependency-unavailable`. The check is repeated on each call, so installing
 nginx after `nexusd` started is noticed without a restart.
 
 ## Configuration

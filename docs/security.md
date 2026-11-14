@@ -142,9 +142,9 @@ Nexus narrows what callers can ask for: no operation accepts a command,
 shell string, executable path or container specification, every parameter
 is validated, and scripts are defined only in the root-owned configuration
 file. That limits what a token can request, not what the requested work can
-do once it runs. For nginx, the service, the binary and the include
-directory come only from the configuration file; a request names a site and
-its content, never a path.
+do once it runs. For nginx, the service and the include directory come
+only from the configuration file and the binary is fixed at
+`/usr/sbin/nginx`; a request names a site and its content, never a path.
 
 ## nexusd runs as root; the sandbox is not a security boundary
 

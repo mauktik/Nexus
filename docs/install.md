@@ -19,6 +19,10 @@ Read [security.md](security.md) first: Nexus is for the home LAN only.
   unavailable on Alpine.
 - **For the `scripts` provider:** systemd or OpenRC, and the scripts you
   will catalog.
+- **For the `nginx` provider:** nginx from the distribution's package
+  (`/usr/sbin/nginx`), its init service, and an `include` line for the
+  include directory in `nginx.conf` (see [nginx](nginx.md)). Disabled by
+  default.
 - **Client:** macOS on Apple silicon (darwin/arm64) or Linux on amd64.
 
 ## Install nexusd on a host
