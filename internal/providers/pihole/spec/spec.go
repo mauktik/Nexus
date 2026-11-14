@@ -638,7 +638,7 @@ func refineBatch(s *jsonschema.Schema) {
 
 // laneSuffix ends every mutation's Description: how it runs (FR-5).
 const laneSuffix = "Long-running: answers 202 with an operation, queued in order behind every other Pi-hole " +
-	"operation (the pihole lane); it runs as root in its own systemd unit outside nexusd's sandbox, so it " +
+	"operation (the pihole lane); it runs as root in its own systemd unit (Pi-hole needs systemd; OpenRC hosts are not supported) outside nexusd's sandbox, so it " +
 	"survives a restart of nexusd. A queued operation can be canceled; a running one cannot."
 
 // untrustedSuffix ends the Description of every op whose result carries

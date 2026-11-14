@@ -41,6 +41,12 @@ func TestScriptsPreflightUsesDetachAvailable(t *testing.T) {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
 			return err
 		}
+		// Pi-hole stays systemd-only on purpose: a timed stop-blocking
+		// creates a transient systemd timer, and Pi-hole is not supported
+		// on OpenRC. Its descriptions and Preflight reason say so.
+		if filepath.Base(filepath.Dir(path)) == "pihole" {
+			return nil
+		}
 		b, err := os.ReadFile(path)
 		if err != nil {
 			return err

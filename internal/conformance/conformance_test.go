@@ -204,7 +204,10 @@ func newStack(t *testing.T) *stack {
 		s.exact[sc] = mint(s.exactName[sc], sc)
 	}
 
-	srv, err := server.New(reg, server.Options{Logger: log, Auth: auth.New(stateDir, auth.Options{Logger: log})})
+	srv, err := server.New(reg, server.Options{Logger: log, Auth: auth.New(stateDir, auth.Options{Logger: log}),
+		// Every catalog op is denied once per scope-free token in TC-83, more
+		// than the production per-token allowance (SEC-2) of denial records.
+		NoteLimitPerMinute: 10000})
 	if err != nil {
 		t.Fatalf("server.New: %v", err)
 	}

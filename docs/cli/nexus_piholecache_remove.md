@@ -4,7 +4,7 @@
 
 Flush Pi-hole's DNS cache
 
-Flushes FTL's DNS cache without a restart (pihole restartdns reload, a SIGHUP); never pihole flush, which would delete the query log. Succeeds once FTL answers a query on 127.0.0.1 within 15 seconds. Side effects: runs pihole restartdns reload, which clears FTL's DNS cache; DNS keeps answering. Long-running: answers 202 with an operation, queued in order behind every other Pi-hole operation (the pihole lane); it runs as root in its own systemd unit outside nexusd's sandbox, so it survives a restart of nexusd. A queued operation can be canceled; a running one cannot. Fails pihole-command-failed when the command fails, and dns-verification-failed when FTL does not answer in time.
+Flushes FTL's DNS cache without a restart (pihole restartdns reload, a SIGHUP); never pihole flush, which would delete the query log. Succeeds once FTL answers a query on 127.0.0.1 within 15 seconds. Side effects: runs pihole restartdns reload, which clears FTL's DNS cache; DNS keeps answering. Long-running: answers 202 with an operation, queued in order behind every other Pi-hole operation (the pihole lane); it runs as root in its own systemd unit (Pi-hole needs systemd; OpenRC hosts are not supported) outside nexusd's sandbox, so it survives a restart of nexusd. A queued operation can be canceled; a running one cannot. Fails pihole-command-failed when the command fails, and dns-verification-failed when FTL does not answer in time.
 
 ## Usage
 

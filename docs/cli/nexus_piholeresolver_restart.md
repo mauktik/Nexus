@@ -4,7 +4,7 @@
 
 Restart Pi-hole DNS
 
-Fully restarts Pi-hole's DNS service, FTL (pihole restartdns): DNS stops answering for every client for a few seconds. Succeeds once FTL answers a query on 127.0.0.1 within 15 seconds. The result holds FTL's PID before and after and how long it took to answer. Side effects: runs pihole restartdns, which fully restarts FTL; DNS stops answering for every client for a few seconds. Long-running: answers 202 with an operation, queued in order behind every other Pi-hole operation (the pihole lane); it runs as root in its own systemd unit outside nexusd's sandbox, so it survives a restart of nexusd. A queued operation can be canceled; a running one cannot. Fails pihole-command-failed when the restart command fails, and dns-verification-failed when FTL does not answer in time.
+Fully restarts Pi-hole's DNS service, FTL (pihole restartdns): DNS stops answering for every client for a few seconds. Succeeds once FTL answers a query on 127.0.0.1 within 15 seconds. The result holds FTL's PID before and after and how long it took to answer. Side effects: runs pihole restartdns, which fully restarts FTL; DNS stops answering for every client for a few seconds. Long-running: answers 202 with an operation, queued in order behind every other Pi-hole operation (the pihole lane); it runs as root in its own systemd unit (Pi-hole needs systemd; OpenRC hosts are not supported) outside nexusd's sandbox, so it survives a restart of nexusd. A queued operation can be canceled; a running one cannot. Fails pihole-command-failed when the restart command fails, and dns-verification-failed when FTL does not answer in time.
 
 ## Usage
 
