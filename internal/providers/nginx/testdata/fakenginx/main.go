@@ -77,6 +77,14 @@
 //	nginx: [emerg] open() "/run/nginx/nginx.pid" failed (30: Read-only file system)
 //	nginx: [emerg] mkdir() "/var/lib/nginx/tmp/client_body" failed (30: Read-only file system)
 //
+// Ubuntu builds nginx with --error-log-path=stderr, so its `nginx -t` has no
+// error log file to open and prints no [alert] line at all; fakenginx
+// prints it whatever the host, in Alpine's form (a fidelity gap that no
+// provider code reads: it never parses the [alert] line). The T1 test
+// TC-113 reports it on Ubuntu, and checks real nginx's line against the
+// constant that TestFakeNginxErrorLogAlertIsTheLineTC113ChecksAgainstRealNginx
+// pins fakenginx to.
+//
 // The 30 (EROFS) form is a read-only file system, as in the systemd sandbox;
 // the 13 (EACCES) form is a mode change seen by a non-root user. Both come
 // from the errno of the probe. In the captures nginx checked the pid file
