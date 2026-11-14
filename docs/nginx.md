@@ -375,7 +375,11 @@ PID, the `/proc/<pid>/exe` link (`/usr/sbin/nginx`, or
 restart), the title `nginx: master process` and a real uid of root, read from the
 `Uid:` line of `/proc/<pid>/status` (the pid file on OpenRC is in a directory
 nginx's own user owns, and the owner of `/proc/<pid>` is not used: the kernel
-shows it as root for a process that is not dumpable), and records the master's
+shows it as root for a process that is not dumpable), and the PID namespace of
+PID 1 (`/proc/<pid>/ns/pid`), so that a root nginx master inside a container is
+not taken for the host's. An nginx unit run with systemd's `PrivatePIDs=yes`
+is therefore not supported: its master is refused and every change ends
+`dependency-unavailable`. It then records the master's
 workers. After the reload it reads `/proc` every 100 ms for up to
 `reloadVerifyTimeout`:
 
