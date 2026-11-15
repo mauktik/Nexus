@@ -36,9 +36,6 @@ func newTCProvider(t *testing.T, capture string, ffs *fakeFS, run *fakeRun) *Pro
 // - Setup: `New(Options{FS: F-FS(UBU), GOOS: "linux"})`; goroutine baseline.
 // - Steps: `Configure` with a decoder of `{enabled: true, sampleInterval: 5s}`; read `Settings()`.
 // - Expected: `Settings{5s, 1h, 2s}` (unset keys take defaults); `p.run.Load() == nil`; goroutine count unchanged; calling `Configure` three times more changes nothing else.
-//
-// The `p.run` field is added by WI 3.3; until then "starts nothing" is
-// asserted by the goroutine count, F-FS and F-RUN recording nothing.
 func TestTCHP48_ConfigureDecodesStrictlyAndStartsNothing(t *testing.T) {
 	ffs := fixtureFS(t, capUBU)
 	run := newFakeRun(t, capUBU)
@@ -56,6 +53,9 @@ func TestTCHP48_ConfigureDecodesStrictlyAndStartsNothing(t *testing.T) {
 		}
 		if n := runtime.NumGoroutine(); n > baseline {
 			t.Errorf("Configure #%d: %d goroutines, baseline %d", i+1, n, baseline)
+		}
+		if p.run.Load() != nil {
+			t.Errorf("Configure #%d started a sampler run", i+1)
 		}
 	}
 	if calls := ffs.recorded(); len(calls) != 0 {

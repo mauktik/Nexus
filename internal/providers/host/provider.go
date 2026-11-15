@@ -133,6 +133,9 @@ type Provider struct {
 	settings atomic.Pointer[Settings]
 
 	src *source
+	// run is the current sampler run, nil while the sampler is not
+	// running. Handlers read its snapshot and history through it.
+	run atomic.Pointer[samplerRun]
 }
 
 // New returns the provider with the default settings until Configure. It
@@ -175,7 +178,7 @@ func New(opts Options) *Provider {
 	}
 	s := settingsOf(config.Default().Providers.Host.Settings)
 	p.settings.Store(&s)
-	p.src = newSource(fsys, s.SourceTimeout, opts.Statfs)
+	p.src = newSourceWith(fsys, func() time.Duration { return p.Settings().SourceTimeout }, opts.Statfs)
 	return p
 }
 

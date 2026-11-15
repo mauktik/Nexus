@@ -1,7 +1,3 @@
-// Package host is the read-only overview of the Linux host nexusd runs on
-// (the "system" provider). Every file it touches goes through the source
-// layer's allow-list (NFR-6, D-3), and every source that can block in the
-// kernel goes through bounded (D-7).
 package host
 
 import (
@@ -23,8 +19,10 @@ const maxReadBytes = 4 << 20
 // source is the provider's only path to the host: an allow-listed fs.FS and
 // the Statfs seam, with the in-flight table of bounded calls (D-3, D-7).
 type source struct {
-	fsys    fs.FS         // allowFS: every access is checked
-	timeout time.Duration // sourceTimeout
+	fsys fs.FS // allowFS: every access is checked
+	// timeout is sourceTimeout, read on each bounded call so a Configure
+	// takes effect on the next one.
+	timeout func() time.Duration
 	// statfsSeam is Options.Statfs: stat then statfs of one mount point.
 	statfsSeam func(string) (Usage, error)
 
@@ -41,9 +39,15 @@ type flight struct {
 	err   error
 }
 
-// newSource wraps fsys in the allow-list. A nil statfs is the platform's
-// default seam.
+// newSource wraps fsys in the allow-list, with a fixed sourceTimeout. A nil
+// statfs is the platform's default seam.
 func newSource(fsys fs.FS, timeout time.Duration, statfs func(string) (Usage, error)) *source {
+	return newSourceWith(fsys, func() time.Duration { return timeout }, statfs)
+}
+
+// newSourceWith is newSource with the sourceTimeout read from timeout on
+// each bounded call: the provider passes its current settings'.
+func newSourceWith(fsys fs.FS, timeout func() time.Duration, statfs func(string) (Usage, error)) *source {
 	if statfs == nil {
 		statfs = defaultStatfs
 	}
@@ -103,12 +107,12 @@ func (s *source) statfs(ctx context.Context, mountPoint string) (Usage, error) {
 }
 
 // bounded runs fn, a source that can block in the kernel, for at most
-// s.timeout, with at most one goroutine per key (D-7, A-42):
+// sourceTimeout, with at most one goroutine per key (D-7, A-42):
 //   - no call in flight for what: start one and wait until its start plus
-//     s.timeout;
-//   - a call in flight for less than s.timeout: join it and wait until the
+//     sourceTimeout;
+//   - a call in flight for less than sourceTimeout: join it and wait until the
 //     same deadline, starting nothing;
-//   - a call in flight for s.timeout or longer: return still pending at
+//   - a call in flight for sourceTimeout or longer: return still pending at
 //     once, starting nothing.
 //
 // The goroutine removes its key when fn returns, so the next call after a
@@ -121,11 +125,12 @@ func (s *source) statfs(ctx context.Context, mountPoint string) (Usage, error) {
 // goroutine exits when fn returns.
 func bounded[T any](ctx context.Context, s *source, what string, fn func() (T, error)) (T, error) {
 	var zero T
+	timeout := s.timeout()
 	now := time.Now()
 	s.mu.Lock()
 	f, ok := s.inflight[what]
 	switch {
-	case ok && now.Sub(f.start) >= s.timeout:
+	case ok && now.Sub(f.start) >= timeout:
 		s.mu.Unlock()
 		return zero, &pendingError{what: what}
 	case !ok:
@@ -135,7 +140,7 @@ func bounded[T any](ctx context.Context, s *source, what string, fn func() (T, e
 	}
 	s.mu.Unlock()
 
-	timer := time.NewTimer(time.Until(f.start.Add(s.timeout)))
+	timer := time.NewTimer(time.Until(f.start.Add(timeout)))
 	defer timer.Stop()
 	select {
 	case <-f.done:
@@ -148,7 +153,7 @@ func bounded[T any](ctx context.Context, s *source, what string, fn func() (T, e
 		v, _ := f.val.(T) // fn returned T; only a nil interface fails here
 		return v, nil
 	case <-timer.C:
-		return zero, &timeoutError{what: what, after: s.timeout}
+		return zero, &timeoutError{what: what, after: timeout}
 	case <-ctx.Done():
 		return zero, &timeoutError{what: what, after: time.Since(now).Round(time.Millisecond), cause: ctx.Err()}
 	}
