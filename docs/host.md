@@ -583,20 +583,36 @@ command runs for at most `sourceTimeout`.
 
 ## Unavailable under the systemd sandbox
 
-This is an expected list from analysis of the hardened unit (ASM-4), **to
-be confirmed by WI 5.4** on a live host. Everything not listed is expected
-to be readable under the unit, since `CAP_DAC_READ_SEARCH` lets `nexusd`
-read root-only files. On OpenRC `nexusd` runs as unconfined root, so
-nothing is lost to a sandbox there; the allow-list is the only limit.
+Observed under the unchanged hardened unit (`deploy/nexusd.service`, no
+drop-in) on Ubuntu 26.04.1 with systemd 259: **no field is unavailable
+because of the sandbox.** No field was reported with `permission denied:`
+or `command failed:`, the two reasons a sandbox gives. The fields that were
+unavailable there were all `not reported:`, and are the same without the
+unit: no CPU model or frequency, no temperature sensors, no disk model, no
+link speed on a virtual interface, and no IPv6 address. These observations
+come from the T1 harness (WI 5.3, [verification/host-t1.md](verification/host-t1.md),
+TC-HP-115 and TC-HP-131) and from the container run of
+`test/live/host-check.sh` ([verification/host-live.md](verification/host-live.md)).
+Both are containers; the run on a real Ubuntu host is still pending. If it
+shows a field unavailable because of the sandbox, that field is added to
+the table below with its reason and cause.
 
-| Field | Expected under the unit | Cause |
+`CAP_DAC_READ_SEARCH` lets `nexusd` read root-only files, so the unit
+removes nothing the allow-list permits. On OpenRC `nexusd` runs as
+unconfined root, so nothing is lost to a sandbox there either; the
+allow-list is the only limit.
+
+The unit does change what some fields mean. Each of these was observed
+readable:
+
+| Field | Observed under the unit | Cause |
 | --- | --- | --- |
-| Filesystems below `/tmp` or `/var/tmp` (`host.filesystems.list`, and their usage in the summary) | Usage null, `not visible:` | `PrivateTmp=yes` hides them in `nexusd`'s namespace |
-| `identity.hostname` | Readable, but the name at `nexusd`'s start | `ProtectHostname=yes`: a private UTS namespace |
-| `readOnly` (`host.filesystems.list`) | Expected readable; if PID 1's mount table is denied, null with `permission denied: /proc/1/mountinfo ...` | `/proc/1/mountinfo` is PID 1's, read without `CAP_SYS_PTRACE` |
-| `clock.synchronized` | Expected readable; if `timedatectl` cannot reach systemd-timedated over D-Bus, `unknown` with `command failed:` | `ProtectClock=yes` and the system call filter rule out a clock system call, so only the command remains |
-| `topByCpu`, `topByMemory` | Expected readable for every user's processes | `CAP_DAC_READ_SEARCH`; a `/proc` mounted with `hidepid` would give `permission denied:` |
-| `failedServices` | Expected readable | `systemctl list-units` reaches systemd over D-Bus, as `nexusd`'s other `systemctl` queries do |
+| Filesystems below `/tmp` or `/var/tmp` (`host.filesystems.list`, and their usage in the summary) | Listed, with usage null and `not visible:` (TC-HP-117, a mount below `/tmp`). This is by design, not a denial | `PrivateTmp=yes` hides them in `nexusd`'s namespace, and the provider makes no `statfs` there |
+| `identity.hostname` | Readable, equal to the kernel hostname; the name at `nexusd`'s start | `ProtectHostname=yes`: a private UTS namespace |
+| `readOnly` (`host.filesystems.list`) | Readable for every item, from PID 1's mount table (TC-HP-117) | `/proc/1/mountinfo` is PID 1's; were it denied, `readOnly` would be null with `permission denied: /proc/1/mountinfo ...` |
+| `clock.synchronized` | Readable, equal to `timedatectl`'s `NTPSynchronized` (TC-HP-E29), with no system call killed | `ProtectClock=yes` and the system call filter rule out a clock system call, so only the `timedatectl` command is used; were it to fail, `unknown` with `command failed:` |
+| `topByCpu`, `topByMemory` | Readable for every user's processes, `nobody` included (TC-HP-E28) | `CAP_DAC_READ_SEARCH`; a `/proc` mounted with `hidepid` would give `permission denied:` |
+| `failedServices` | Readable, equal to `systemctl --failed` (TC-HP-118) | `systemctl list-units` reaches systemd over D-Bus, as `nexusd`'s other `systemctl` queries do |
 
 ## What is never returned
 

@@ -1,0 +1,93 @@
+# host-check.sh transcript: system-provider WI 5.4 (TC-HP-127 to TC-HP-130)
+# started 2026-11-15T07:17:27Z on 8121580896a2, mode rss-start, host this machine, arguments: --yes --rss-24h start --transcript /root/30-soak-start.txt
+# script sha256 28c99d83814c391d913464d5539df86deea73c8cc01ccba8f801fe7bcdb9ab39
+# CONTAINER DETECTED on the host (/.dockerenv, /run/.containerenv or container= in PID 1's environment):
+# this transcript is a container run, NOT real-host evidence.
+$ [host] /usr/local/bin/nexusd tls fingerprint
+EF:95:DF:ED:59:8D:5D:6D:97:60:98:4B:E5:75:CF:80:32:26:EA:43:B5:CB:15:CF:85:48:AC:02:72:50:40:BC
+$ (the token, on stdin) | nexus host add host-check --url https://127.0.0.1:7443 --fingerprint EF:95:DF:ED:59:8D:5D:6D:97:60:98:4B:E5:75:CF:80:32:26:EA:43:B5:CB:15:CF:85:48:AC:02:72:50:40:BC --token-stdin
+Server certificate SHA-256 fingerprint:
+  EF:95:DF:ED:59:8D:5D:6D:97:60:98:4B:E5:75:CF:80:32:26:EA:43:B5:CB:15:CF:85:48:AC:02:72:50:40:BC
+It matches --fingerprint; pinning it.
+Added host "host-check" (https://127.0.0.1:7443, nexusd dev, trust: pin) to <throwaway client config>
+RESULT token-env: PASS - no child process's environment holds the token (env, run as a child, does not show it)
+[07:17:27] == Step 1: facts
+$ [host] uname -a; [ ! -r /etc/alpine-release ] || echo "Alpine $(cat /etc/alpine-release)"; [ ! -r /etc/debian_version ] || echo "Debian base $(cat /etc/debian_version)"; sed -n "s/^PRETTY_NAME=//p" /etc/os-release; tr "\0" " " </proc/1/cmdline; echo; echo "nproc $(nproc); $(grep MemTotal /proc/meminfo)"
+Linux 8121580896a2 6.8.0-100-generic #100-Ubuntu SMP PREEMPT_DYNAMIC Tue Jan 13 16:39:21 UTC 2026 aarch64 Linux
+Alpine 3.24.4
+"Alpine Linux v3.24"
+/sbin/init 
+nproc 4; MemTotal:        8114204 kB
+$ [host] openrc --version
+openrc (OpenRC [DOCKER]) 0.63.2
+$ [host] /usr/local/bin/nexusd -version
+nexusd dev
+$ nexus --version
+nexus dev
+  nexusd: pid 761, uid 0
+$ [host] sed -n '/^  host:$/,/^  [a-z]/p' /etc/nexus/nexusd.yaml
+  host:
+    enabled: true              # Off until enabled here
+    sampleInterval: 10s        # 2s..60s: how often the sampler reads the host
+    historyDuration: 1h        # sampleInterval..24h: how far back the in-memory history goes
+    sourceTimeout: 2s          # 250ms..5s: bound on one read of a file, statfs call or command
+$ nexus --host host-check capability get -o json (output kept, not logged)
+  capability: host provider enabled, initSystem openrc, sampleIntervalSeconds 10, historyDurationSeconds 3600
+RESULT 1-provider: PASS - the host provider is enabled; initSystem openrc = the host's init (openrc); sampleInterval 10s, historyDuration 3600s
+RESULT 1-host: FAIL - running in a container: not a real host
+
+== Plan. With --yes the script will, on this host:
+  - save /etc/nexus/nexusd.yaml to /var/lib/nexus-host-check (0600), set providers.host.enabled false, restart nexusd,
+    and sample nexusd's RSS and CPU every 60 s for 600 s (the disabled baseline);
+  - set enabled true, historyDuration 24h, sampleInterval 2s, validate and reload;
+  - create the token host-check-soak (system:read, 2 days) on the host, in a client
+    config under /var/lib/nexus-host-check, and start a poll on the host: hostsummary, hosthealth and a
+    24 h hostmetric every 10 s, nexusd's VmRSS and CPU logged every 60 s to /var/lib/nexus-host-check/rss.log;
+  - leave it running: finish with --rss-24h finish after 24 h (or earlier, recorded NOT-RUN).
+
+[07:17:27] == Step 9: NFR-2 at the 24 h maximum, start (--rss-24h start, TC-HP-130)
+$ [host] /usr/local/bin/nexus --version
+nexus dev
+$ [host] umask 077 && mkdir -p /var/lib/nexus-host-check && cp -p /etc/nexus/nexusd.yaml /var/lib/nexus-host-check/nexusd.yaml.orig && sha256sum /etc/nexus/nexusd.yaml | cut -d' ' -f1 >/var/lib/nexus-host-check/nexusd.yaml.sha256 && cat /var/lib/nexus-host-check/nexusd.yaml.sha256
+71c7068adf4a7f4224df831191de563ad8e9ab436618161ad95a6ebefe05f8ac
+$ [host] sed -i -e '/^  host:$/,/^  [a-z]/ s/^\(    enabled:[[:space:]]*\)[a-z]*/\1false/' -e '/^  host:$/,/^  [a-z]/ s/^\(    sampleInterval:[[:space:]]*\)[0-9a-z]*/\110s/' -e '/^  host:$/,/^  [a-z]/ s/^\(    historyDuration:[[:space:]]*\)[0-9a-z]*/\11h/' /etc/nexus/nexusd.yaml && /usr/local/bin/nexusd validate-config && sed -n '/^  host:$/,/^  [a-z]/p' /etc/nexus/nexusd.yaml
+/etc/nexus/nexusd.yaml: configuration is valid
+  host:
+    enabled: false              # Off until enabled here
+    sampleInterval: 10s        # 2s..60s: how often the sampler reads the host
+    historyDuration: 1h        # sampleInterval..24h: how far back the in-memory history goes
+    sourceTimeout: 2s          # 250ms..5s: bound on one read of a file, statfs call or command
+$ [host] rc-service nexusd restart
+ * Stopping nexusd ... [ ok ]
+ * Starting nexusd ... [ ok ]
+$ nexus --host host-check capability get -o json (output kept, not logged)
+  after the restart: nexusd pid 1102; host provider disabled, sampleIntervalSeconds <absent>, historyDurationSeconds <absent>
+[07:17:31] disabled baseline: 60 s to settle, then 600 s
+  t=0 pid 1102 ticks 2 VmRSS 22944 kB
+  t=60 pid 1102 ticks 2 VmRSS 22952 kB
+  t=120 pid 1102 ticks 2 VmRSS 21772 kB
+  t=180 pid 1102 ticks 2 VmRSS 21772 kB
+  t=240 pid 1102 ticks 2 VmRSS 21776 kB
+[07:23:31] stopped early (exit 130): undoing this run's changes
+[07:23:31] == Cleanup
+$ [host] cat /var/lib/nexus-host-check/nexusd.yaml.orig >/etc/nexus/nexusd.yaml && [ "$(sha256sum /etc/nexus/nexusd.yaml | cut -d' ' -f1)" = "$(cat /var/lib/nexus-host-check/nexusd.yaml.sha256)" ] && echo 'restored, sha256 equal to the saved one' && /usr/local/bin/nexusd validate-config
+restored, sha256 equal to the saved one
+/etc/nexus/nexusd.yaml: configuration is valid
+$ [host] rc-service nexusd reload
+ * Reloading nexusd ... [ ok ]
+$ nexus --host host-check capability get -o json (output kept, not logged)
+  after the reload: nexusd pid 1102; host provider enabled, sampleIntervalSeconds 10, historyDurationSeconds 3600
+RESULT conf-restored: PASS - /etc/nexus/nexusd.yaml restored byte for byte (sha256 71c7068adf4a7f4224df831191de563ad8e9ab436618161ad95a6ebefe05f8ac) and reloaded
+$ [host] rm -rf /var/lib/nexus-host-check
+RESULT cleanup: PASS - no planted marker, dummy service or changed configuration is left; /var/lib/nexus-host-check removed
+RESULT token-absent: PASS - the token does not appear in the transcript
+
+== Summary (rss-start)
+  token-env  PASS  no child process's environment holds the token (env, run as a child, does not show it)
+  1-provider  PASS  the host provider is enabled; initSystem openrc = the host's init (openrc); sampleInterval 10s, historyDuration 3600s
+  1-host  FAIL  running in a container: not a real host
+  conf-restored  PASS  /etc/nexus/nexusd.yaml restored byte for byte (sha256 71c7068adf4a7f4224df831191de563ad8e9ab436618161ad95a6ebefe05f8ac) and reloaded
+  cleanup  PASS  no planted marker, dummy service or changed configuration is left; /var/lib/nexus-host-check removed
+  token-absent  PASS  the token does not appear in the transcript
+  (container: not real-host evidence)
+transcript: /root/30-soak-start.txt

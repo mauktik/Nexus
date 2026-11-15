@@ -1,0 +1,14 @@
+# host-check.sh transcript: system-provider WI 5.4 (TC-HP-127 to TC-HP-130)
+# started 2026-11-15T07:26:20Z on 5a5bcfc808f5, mode check, host this machine, arguments: --yes --transcript /root/15-ubuntu-refuse-pending.txt
+# script sha256 281d577abca434c4664c63026f2c831926468788926470fca474e57e98a21778
+# CONTAINER DETECTED on the host (/.dockerenv, /run/.containerenv or container= in PID 1's environment):
+# this transcript is a container run, NOT real-host evidence.
+$ [host] /usr/local/bin/nexusd tls fingerprint
+8E:F4:A0:70:C8:A9:CF:3A:19:50:C0:08:F2:56:FF:23:26:C3:12:58:49:E1:D3:F1:53:5C:1C:28:D5:8A:B7:72
+$ (the token, on stdin) | nexus host add host-check --url https://127.0.0.1:7443 --fingerprint 8E:F4:A0:70:C8:A9:CF:3A:19:50:C0:08:F2:56:FF:23:26:C3:12:58:49:E1:D3:F1:53:5C:1C:28:D5:8A:B7:72 --token-stdin
+Server certificate SHA-256 fingerprint:
+  8E:F4:A0:70:C8:A9:CF:3A:19:50:C0:08:F2:56:FF:23:26:C3:12:58:49:E1:D3:F1:53:5C:1C:28:D5:8A:B7:72
+It matches --fingerprint; pinning it.
+Added host "host-check" (https://127.0.0.1:7443, nexusd dev, trust: pin) to <throwaway client config>
+RESULT token-env: PASS - no child process's environment holds the token (env, run as a child, does not show it)
+REFUSED: an earlier run did not finish (/var/lib/nexus-host-check/state, mode check+faults): run with --yes --cleanup first

@@ -16,7 +16,7 @@
 // "sampler started" and "sampler stopped" lines TC-HP-116 and TC-HP-121
 // read.
 //
-// TC-HP-131 (WI 5.4) is still a stub here.
+// TC-HP-131 (WI 5.4) checks docs/host.md's sandbox section against TC-HP-115's list.
 
 package integration
 
@@ -1532,8 +1532,75 @@ func TestTCHP126_IdentityReportsTheHarnessSInitSystem(t *testing.T) {
 // - Setup: TC-HP-115's collected list; `/harness/src/docs/host.md`.
 // - Steps: extract the "Unavailable under the systemd sandbox" section; for each observed `(field, reason prefix)` caused by the sandbox (`permission denied:` or `command failed:` reasons), look it up.
 // - Expected: every observed sandbox-caused field is listed with its cause; the section no longer says "to be confirmed by WI 5.4".
+//
+// run.sh does not copy docs/ to /harness/src; the release tree it installs
+// from does carry them (make nexusd-tree copies docs/), built from the same
+// checkout, so host.md is read from /harness/src/docs when present and from
+// /harness/release/nexusd/docs otherwise. The check runs both ways: a field
+// observed unavailable because of the sandbox must be in the section with
+// its reason, and the section may say that no field is only when none was
+// observed.
 func TestTCHP131_TheDocumentedSandboxUnavailableListMatchesWhat(t *testing.T) {
-	t.Skip("TC-HP-131: SKIP-only stub; un-skip when WI 5.4 lands")
+	d := hostSetupSystemd(t, "")
+	observed := hostUnavailable(t, hostCallAll(t, d), "host-unavailable-systemd.txt")
+
+	var doc []byte
+	var docPath string
+	for _, p := range []string{"/harness/src/docs/host.md", filepath.Join(releaseTree, "docs", "host.md")} {
+		b, err := os.ReadFile(p)
+		if err == nil {
+			doc, docPath = b, p
+			break
+		}
+	}
+	if doc == nil {
+		t.Fatal("docs/host.md is in neither /harness/src/docs nor the release tree's docs")
+	}
+	const heading = "## Unavailable under the systemd sandbox"
+	text := string(doc)
+	i := strings.Index(text, "\n"+heading+"\n")
+	if i < 0 {
+		t.Fatalf("%s has no %q section", docPath, heading)
+	}
+	sec := text[i+len(heading)+2:]
+	if j := strings.Index(sec, "\n## "); j >= 0 {
+		sec = sec[:j]
+	}
+	t.Logf("%s, %q (%d bytes):\n%s", docPath, heading, len(sec), sec)
+	flat := strings.Join(strings.Fields(sec), " ")
+	if strings.Contains(flat, "to be confirmed by WI 5.4") {
+		t.Error("the section still says it is to be confirmed by WI 5.4")
+	}
+
+	const noneObserved = "no field is unavailable because of the sandbox"
+	var sandbox []hostReason
+	for _, r := range observed {
+		if strings.HasPrefix(r.reason, "permission denied: ") || strings.HasPrefix(r.reason, "command failed: ") {
+			sandbox = append(sandbox, r)
+		}
+	}
+	t.Logf("%d unavailable fields observed, %d with permission denied: or command failed:", len(observed), len(sandbox))
+	if len(sandbox) == 0 && !strings.Contains(flat, noneObserved) {
+		t.Errorf("no sandbox-caused field was observed, but the section does not say %q", noneObserved)
+	}
+	if len(sandbox) > 0 && strings.Contains(flat, noneObserved) {
+		t.Errorf("the section says %q, but T1 observed %d: %v", noneObserved, len(sandbox), sandbox)
+	}
+	for _, r := range sandbox {
+		field := r.path[strings.LastIndexByte(r.path, '.')+1:]
+		prefix := r.reason[:strings.Index(r.reason, ":")+1]
+		found := false
+		for line := range strings.Lines(sec) {
+			if strings.HasPrefix(line, "|") && strings.Contains(line, "`"+field+"`") && strings.Contains(line, prefix) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("%s %s (%s) is not a row of the section naming `%s` with %q and its cause", r.op, r.path, r.reason,
+				field, prefix)
+		}
+	}
 }
 
 // TC-HP-E28: Processes of other users are sampled under the unit (systemd). Owner WI 5.3. Requirements: FR-10, ASM-4.

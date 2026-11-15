@@ -1,0 +1,51 @@
++ git rev-parse HEAD: fb475bcaf9523d61e4f98581f33b72db7ce2ae95
++ container nx-wi54-alpine-20261115T071703Z, image nexus-harness:alpine-alpine-latest sha256:da04a04680b2a64f1e65a60cb2f81a0e717cac89a8d41662641ee0a3c174cbb9
++ openrc (OpenRC [DOCKER]) 0.63.2
+Alpine Linux v3.24
+aarch64
++ PID 1: /sbin/init 
++ docker cp /private/tmp/claude-501/-Users-devuser-Projects-Nexus/c1dff5bf-5d6a-47af-a04d-54d84132cd94/scratchpad/release nx-wi54-alpine-20261115T071703Z:/harness-release
++ docker exec nx-wi54-alpine-20261115T071703Z chown -R root:root /harness-release
++ docker exec nx-wi54-alpine-20261115T071703Z sh /harness-release/nexusd/install.sh
+install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/init.d/nexusd
+install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+/etc/nexus/nexusd.yaml: configuration is valid
+install.sh: next steps:
+install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+install.sh:   start nexusd at boot: rc-update add nexusd default
+install.sh:   start nexusd now: rc-service nexusd start
++ docker cp /private/tmp/claude-501/-Users-devuser-Projects-Nexus/c1dff5bf-5d6a-47af-a04d-54d84132cd94/scratchpad/bin/nexus-linux nx-wi54-alpine-20261115T071703Z:/usr/local/bin/nexus
++ docker exec nx-wi54-alpine-20261115T071703Z sh -c chown root:root /usr/local/bin/nexus && chmod 0755 /usr/local/bin/nexus
++ docker exec nx-wi54-alpine-20261115T071703Z sed -i /^  host:$/,/^  [a-z]/ s/^    enabled: false /    enabled: true  / /etc/nexus/nexusd.yaml
++ docker exec nx-wi54-alpine-20261115T071703Z sed -i s/^listen: \["127.0.0.1:7443"\]/listen: ["0.0.0.0:7443"]/ /etc/nexus/nexusd.yaml
++ docker exec nx-wi54-alpine-20261115T071703Z /usr/local/bin/nexusd validate-config
+/etc/nexus/nexusd.yaml: configuration is valid
++ docker exec nx-wi54-alpine-20261115T071703Z sh -c grep -n -A4 '^  host:' /etc/nexus/nexusd.yaml; grep -n '^listen' /etc/nexus/nexusd.yaml
+174:  host:
+175-    enabled: true              # Off until enabled here
+176-    sampleInterval: 10s        # 2s..60s: how often the sampler reads the host
+177-    historyDuration: 1h        # sampleInterval..24h: how far back the in-memory history goes
+178-    sourceTimeout: 2s          # 250ms..5s: bound on one read of a file, statfs call or command
+14:listen: ["0.0.0.0:7443"]
++ docker exec nx-wi54-alpine-20261115T071703Z sh -c apk add --no-cache openssh-server >/dev/null && ssh-keygen -A >/dev/null && sed -i "s/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/" /etc/ssh/sshd_config && mkdir -p /root/.ssh && chmod 700 /root/.ssh && rc-update add sshd default >/dev/null && rc-service sshd start
+Service 'acpid' needs non existent service 'dev'
+Service 'hwdrivers' needs non existent service 'dev'
+Service 'machine-id' needs non existent service 'dev'
+Service 'watchdog' needs non existent service 'dev'
+ * Caching service dependencies ... [ ok ]
+ * Starting sshd ... [ ok ]
++ docker cp /private/tmp/claude-501/-Users-devuser-Projects-Nexus/c1dff5bf-5d6a-47af-a04d-54d84132cd94/scratchpad/ssh/id_ed25519.pub nx-wi54-alpine-20261115T071703Z:/root/.ssh/authorized_keys
++ docker exec nx-wi54-alpine-20261115T071703Z sh -c chown root:root /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys
++ docker exec nx-wi54-alpine-20261115T071703Z rc-update add nexusd default
+ * service nexusd added to runlevel default
++ docker exec nx-wi54-alpine-20261115T071703Z rc-service nexusd start
+ * /var/lib/nexus: creating directory
+ * /var/log/nexus: creating directory
+ * Starting nexusd ... [ ok ]
++ healthz: {"status":"ok"}
+Created token "host-check" (id 21d7f53a05d5). It is shown only this once; store it now.
++ token created (name host-check, scope system:read; value in the scratchpad only, 61 bytes)
++ docker exec nx-wi54-alpine-20261115T071703Z /usr/local/bin/nexusd tls fingerprint
+74:F2:62:56:D5:50:E4:8D:0B:C6:E8:34:12:A2:6D:F5:71:3A:E9:6A:F4:4B:3F:4C:34:0A:69:6F:FF:D1:88:C5
++ container nx-wi54-alpine-20261115T071703Z ready

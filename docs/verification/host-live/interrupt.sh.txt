@@ -1,0 +1,13 @@
+#!/bin/sh
+# interrupt.sh SIGNAL PATTERN TRANSCRIPT ARGS...: run host-check.sh, send SIGNAL to it once PATTERN appears in the transcript.
+sig=$1 pat=$2 tr=$3; shift 3
+cd /root && rm -f "$tr"
+T=$(cat /root/tok)
+NEXUS_TOKEN=$T sh host-check.sh --transcript "$tr" "$@" >/dev/null 2>&1 &
+p=$!
+i=0
+until grep -q -- "$pat" "$tr" 2>/dev/null; do sleep 0.1; i=$((i+1)); [ $i -lt 1200 ] || break; done
+# the script re-execs itself (same pid, exec)
+kill -s "$sig" $p
+wait $p
+echo "script exit $?"

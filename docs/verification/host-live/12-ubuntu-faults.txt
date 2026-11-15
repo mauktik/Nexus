@@ -1,0 +1,2227 @@
+# host-check.sh transcript: system-provider WI 5.4 (TC-HP-127 to TC-HP-130)
+# started 2026-11-15T07:24:20Z on 5a5bcfc808f5, mode check --with-faults, host this machine, arguments: --yes --with-faults --transcript /root/12-ubuntu-faults.txt
+# script sha256 281d577abca434c4664c63026f2c831926468788926470fca474e57e98a21778
+# CONTAINER DETECTED on the host (/.dockerenv, /run/.containerenv or container= in PID 1's environment):
+# this transcript is a container run, NOT real-host evidence.
+$ [host] /usr/local/bin/nexusd tls fingerprint
+8E:F4:A0:70:C8:A9:CF:3A:19:50:C0:08:F2:56:FF:23:26:C3:12:58:49:E1:D3:F1:53:5C:1C:28:D5:8A:B7:72
+$ (the token, on stdin) | nexus host add host-check --url https://127.0.0.1:7443 --fingerprint 8E:F4:A0:70:C8:A9:CF:3A:19:50:C0:08:F2:56:FF:23:26:C3:12:58:49:E1:D3:F1:53:5C:1C:28:D5:8A:B7:72 --token-stdin
+Server certificate SHA-256 fingerprint:
+  8E:F4:A0:70:C8:A9:CF:3A:19:50:C0:08:F2:56:FF:23:26:C3:12:58:49:E1:D3:F1:53:5C:1C:28:D5:8A:B7:72
+It matches --fingerprint; pinning it.
+Added host "host-check" (https://127.0.0.1:7443, nexusd dev, trust: pin) to <throwaway client config>
+RESULT token-env: PASS - no child process's environment holds the token (env, run as a child, does not show it)
+[07:24:20] == Step 1: facts
+$ [host] uname -a; [ ! -r /etc/alpine-release ] || echo "Alpine $(cat /etc/alpine-release)"; [ ! -r /etc/debian_version ] || echo "Debian base $(cat /etc/debian_version)"; sed -n "s/^PRETTY_NAME=//p" /etc/os-release; tr "\0" " " </proc/1/cmdline; echo; echo "nproc $(nproc); $(grep MemTotal /proc/meminfo)"
+Linux 5a5bcfc808f5 6.8.0-100-generic #100-Ubuntu SMP PREEMPT_DYNAMIC Tue Jan 13 16:39:21 UTC 2026 aarch64 GNU/Linux
+Debian base forky/sid
+"Ubuntu 26.04.1 LTS"
+/sbin/init 
+nproc 4; MemTotal:        8114204 kB
+$ [host] systemctl --version | head -n 1
+systemd 259 (259.9-0ubuntu0.1)
+$ [host] /usr/local/bin/nexusd -version
+nexusd dev
+$ nexus --version
+nexus dev
+  nexusd: pid 420, uid 0
+$ [host] systemctl show -p MainPID,ActiveState,NRestarts nexusd.service; sha256sum /etc/systemd/system/nexusd.service; ls /etc/systemd/system/nexusd.service.d 2>&1 || true
+ActiveState=active
+MainPID=420
+NRestarts=0
+5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a  /etc/systemd/system/nexusd.service
+ls: cannot access '/etc/systemd/system/nexusd.service.d': No such file or directory
+$ [host] sed -n '/^  host:$/,/^  [a-z]/p' /etc/nexus/nexusd.yaml
+  host:
+    enabled: true              # Off until enabled here
+    sampleInterval: 10s        # 2s..60s: how often the sampler reads the host
+    historyDuration: 1h        # sampleInterval..24h: how far back the in-memory history goes
+    sourceTimeout: 2s          # 250ms..5s: bound on one read of a file, statfs call or command
+$ nexus --host host-check capability get -o json (output kept, not logged)
+  capability: host provider enabled, initSystem systemd, sampleIntervalSeconds 10, historyDurationSeconds 3600
+RESULT 1-provider: PASS - the host provider is enabled; initSystem systemd = the host's init (systemd); sampleInterval 10s, historyDuration 3600s
+RESULT 1-host: FAIL - running in a container: not a real host
+
+== Plan. With --yes the script will, on this host:
+  - call every nexus host* command with -o json and read each field back with the host's
+    tools (TC-HP-127); walk every response: no null without a reason (TC-HP-115's rule);
+  - NFR-3 over one sampler interval aligned on its tick: CPU against vmstat (or /proc/stat),
+    memory available against free -b, rx/tx against /sys/class/net/*/statistics (TC-HP-128);
+  - NFR-1: 50 timed calls per operation, the p95 from the CLI's --verbose timing (TC-HP-129);
+  - btrfs (A-21, A-38): each btrfs filesystem listed once with df's numbers, if there is one.
+  - --with-faults: write /var/run/reboot-required (Debian and Ubuntu, only if absent) and
+    run a transient unit nx-host-check-<random> that runs /bin/false and fails; read
+    both back through hosthealth, then remove the marker and reset-failed the unit.
+    If the run is interrupted, the EXIT trap undoes both; --cleanup does it later.
+$ nexus --host host-check hostsummary get -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/summary/current",
+    "name": "current",
+    "properties": {
+      "cpu": {
+        "load": {
+          "load1": 1.41,
+          "load15": 0.86,
+          "load5": 1.04
+        },
+        "logicalCpus": 4,
+        "model": null,
+        "unavailable": {
+          "model": "not reported: no model name in /proc/cpuinfo"
+        },
+        "usagePercent": 43.83527033855483
+      },
+      "filesystems": [
+        {
+          "mountPoint": "/",
+          "sizeBytes": 63088406528,
+          "usedPercent": 54.67030697701284
+        },
+        {
+          "mountPoint": "/dev/shm",
+          "sizeBytes": 67108864,
+          "usedPercent": 0
+        },
+        {
+          "mountPoint": "/run",
+          "sizeBytes": 4154470400,
+          "usedPercent": 0.0017746666338024698
+        },
+        {
+          "mountPoint": "/tmp",
+          "sizeBytes": 4154474496,
+          "usedPercent": 0.006605697068647981
+        },
+        {
+          "mountPoint": "/var/lib/docker",
+          "sizeBytes": 63088406528,
+          "usedPercent": 54.67030697701284
+        }
+      ],
+      "filesystemsTotal": 5,
+      "filesystemsTruncated": false,
+      "health": {
+        "failedServicesCount": 1,
+        "oomKills": 0,
+        "rebootRequired": "false"
+      },
+      "identity": {
+        "architecture": "aarch64",
+        "bootTime": "2026-10-17T13:30:49Z",
+        "hostname": "5a5bcfc808f5",
+        "initSystem": "systemd",
+        "kernelRelease": "6.8.0-100-generic",
+        "os": {
+          "id": "ubuntu",
+          "prettyName": "Ubuntu 26.04.1 LTS",
+          "versionId": "26.04"
+        },
+        "uptimeSeconds": 2483611.1
+      },
+      "memory": {
+        "availableBytes": 7008428032,
+        "swapTotalBytes": 0,
+        "swapUsedBytes": 0,
+        "totalBytes": 8308944896,
+        "usedPercent": 15.652009735027614
+      },
+      "network": {
+        "defaultGateways": [
+          {
+            "address": "172.17.0.1",
+            "family": "ipv4",
+            "interface": "eth0",
+            "metric": 0
+          }
+        ],
+        "interfaces": [
+          {
+            "ipv4": "172.18.0.1/16",
+            "ipv6": null,
+            "name": "docker0",
+            "rxBytesPerSecond": 0,
+            "state": "down",
+            "txBytesPerSecond": 0,
+            "unavailable": {
+              "ipv6": "not reported: no IPv6 address"
+            }
+          },
+          {
+            "ipv4": "172.17.0.2/16",
+            "ipv6": null,
+            "name": "eth0",
+            "rxBytesPerSecond": 0,
+            "state": "up",
+            "txBytesPerSecond": 0,
+            "unavailable": {
+              "ipv6": "not reported: no IPv6 address"
+            }
+          }
+        ],
+        "interfacesTotal": 2,
+        "interfacesTruncated": false
+      },
+      "sampler": {
+        "ageSeconds": 1.209470072,
+        "intervalSeconds": 9.999736452,
+        "sampledAt": "2026-11-15T07:24:19.256376392Z",
+        "state": "ready"
+      }
+    },
+    "type": "summary"
+  }
+]
+RESULT 3-walk-hostsummary: PASS - no null without a reason; 3 field(s) unavailable, each with a reason prefix
+$ nexus --host host-check hostidentity get -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/identity/current",
+    "name": "current",
+    "properties": {
+      "architecture": "aarch64",
+      "bootTime": "2026-10-17T13:30:49Z",
+      "clock": {
+        "source": "kernel",
+        "synchronized": "true"
+      },
+      "dmi": {
+        "biosVendor": "Apple Inc.",
+        "biosVersion": "2164.0.0.0.0",
+        "productName": "Apple Virtualization Generic Platform",
+        "productVersion": "1",
+        "systemVendor": "Apple Inc."
+      },
+      "hostname": "5a5bcfc808f5",
+      "initSystem": "systemd",
+      "kernelRelease": "6.8.0-100-generic",
+      "os": {
+        "id": "ubuntu",
+        "prettyName": "Ubuntu 26.04.1 LTS",
+        "versionId": "26.04"
+      },
+      "timezone": {
+        "name": "Etc/UTC",
+        "offsetSeconds": 0,
+        "source": "/etc/localtime link"
+      },
+      "uptimeSeconds": 2483611.13,
+      "virtualization": {
+        "evidence": "/.dockerenv",
+        "kind": "container",
+        "type": "docker"
+      }
+    },
+    "type": "identity"
+  }
+]
+RESULT 3-walk-hostidentity: PASS - no null without a reason; 0 field(s) unavailable, each with a reason prefix
+$ nexus --host host-check hostcpu get -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/cpu/current",
+    "name": "current",
+    "properties": {
+      "frequencyMhz": null,
+      "load": {
+        "load1": 1.41,
+        "load15": 0.86,
+        "load5": 1.04
+      },
+      "logicalCpus": 4,
+      "model": null,
+      "perCpu": [
+        {
+          "cpu": 0,
+          "frequencyMhz": null,
+          "unavailable": {
+            "frequencyMhz": "not reported: no cpufreq and no cpu MHz in /proc/cpuinfo"
+          },
+          "usagePercent": 44.16498993963783
+        },
+        {
+          "cpu": 1,
+          "frequencyMhz": null,
+          "unavailable": {
+            "frequencyMhz": "not reported: no cpufreq and no cpu MHz in /proc/cpuinfo"
+          },
+          "usagePercent": 44.29868819374369
+        },
+        {
+          "cpu": 2,
+          "frequencyMhz": null,
+          "unavailable": {
+            "frequencyMhz": "not reported: no cpufreq and no cpu MHz in /proc/cpuinfo"
+          },
+          "usagePercent": 43.3502538071066
+        },
+        {
+          "cpu": 3,
+          "frequencyMhz": null,
+          "unavailable": {
+            "frequencyMhz": "not reported: no cpufreq and no cpu MHz in /proc/cpuinfo"
+          },
+          "usagePercent": 43.69323915237134
+        }
+      ],
+      "physicalCores": 4,
+      "sampler": {
+        "ageSeconds": 1.262658625,
+        "intervalSeconds": 9.999736452,
+        "sampledAt": "2026-11-15T07:24:19.256376392Z",
+        "state": "ready"
+      },
+      "temperatures": [],
+      "times": {
+        "iowaitPercent": 0,
+        "stealPercent": 0,
+        "systemPercent": 19.732187973724102,
+        "userPercent": 22.86508337544214
+      },
+      "unavailable": {
+        "frequencyMhz": "not reported: no cpufreq and no cpu MHz in /proc/cpuinfo",
+        "model": "not reported: no model name in /proc/cpuinfo",
+        "temperatures": "not reported: no temperature sensors (common in VMs)"
+      },
+      "usagePercent": 43.83527033855483
+    },
+    "type": "cpu"
+  }
+]
+RESULT 3-walk-hostcpu: PASS - no null without a reason; 7 field(s) unavailable, each with a reason prefix
+$ nexus --host host-check hostmemory get -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/memory/current",
+    "name": "current",
+    "properties": {
+      "availableBytes": 6998638592,
+      "buffersBytes": 585699328,
+      "cachedBytes": 6119755776,
+      "freeBytes": 503209984,
+      "pressure": {
+        "cpu": {
+          "full": {
+            "avg10": 0,
+            "avg300": 0,
+            "avg60": 0
+          },
+          "some": {
+            "avg10": 11.97,
+            "avg300": 4.26,
+            "avg60": 6.22
+          }
+        },
+        "io": {
+          "full": {
+            "avg10": 0,
+            "avg300": 0.11,
+            "avg60": 0
+          },
+          "some": {
+            "avg10": 0,
+            "avg300": 0.14,
+            "avg60": 0
+          }
+        },
+        "memory": {
+          "full": {
+            "avg10": 0,
+            "avg300": 0,
+            "avg60": 0
+          },
+          "some": {
+            "avg10": 0,
+            "avg300": 0,
+            "avg60": 0
+          }
+        }
+      },
+      "sharedBytes": 2011136,
+      "swapFreeBytes": 0,
+      "swapTotalBytes": 0,
+      "swapUsedBytes": 0,
+      "totalBytes": 8308944896,
+      "usedBytes": 1310306304,
+      "usedPercent": 15.769827822913992
+    },
+    "type": "memory"
+  }
+]
+RESULT 3-walk-hostmemory: PASS - no null without a reason; 0 field(s) unavailable, each with a reason prefix
+$ nexus --host host-check hostfs get --limit 1000 -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/filesystems/%2F",
+    "name": "%2F",
+    "properties": {
+      "availableBytes": 27130048512,
+      "fsType": "overlay",
+      "inodesFree": 3425131,
+      "inodesTotal": 3932160,
+      "inodesUsed": 507029,
+      "mountPoint": "/",
+      "readOnly": false,
+      "sizeBytes": 63088406528,
+      "source": "overlay",
+      "usedBytes": 32720461824,
+      "usedPercent": 54.6703138207306
+    },
+    "type": "filesystems"
+  },
+  {
+    "host": "host-check",
+    "id": "/providers/host/filesystems/%2Fdev%2Fshm",
+    "name": "%2Fdev%2Fshm",
+    "properties": {
+      "availableBytes": 67108864,
+      "fsType": "tmpfs",
+      "inodesFree": 1014274,
+      "inodesTotal": 1014275,
+      "inodesUsed": 1,
+      "mountPoint": "/dev/shm",
+      "readOnly": false,
+      "sizeBytes": 67108864,
+      "source": "shm",
+      "usedBytes": 0,
+      "usedPercent": 0
+    },
+    "type": "filesystems"
+  },
+  {
+    "host": "host-check",
+    "id": "/providers/host/filesystems/%2Frun",
+    "name": "%2Frun",
+    "properties": {
+      "availableBytes": 4154396672,
+      "fsType": "tmpfs",
+      "inodesFree": 1014152,
+      "inodesTotal": 1014275,
+      "inodesUsed": 123,
+      "mountPoint": "/run",
+      "readOnly": false,
+      "sizeBytes": 4154470400,
+      "source": "tmpfs",
+      "usedBytes": 73728,
+      "usedPercent": 0.0017746666338024698
+    },
+    "type": "filesystems"
+  },
+  {
+    "host": "host-check",
+    "id": "/providers/host/filesystems/%2Ftmp",
+    "name": "%2Ftmp",
+    "properties": {
+      "availableBytes": 4154146816,
+      "fsType": "tmpfs",
+      "inodesFree": 1048476,
+      "inodesTotal": 1048576,
+      "inodesUsed": 100,
+      "mountPoint": "/tmp",
+      "readOnly": false,
+      "sizeBytes": 4154474496,
+      "source": "tmpfs",
+      "usedBytes": 327680,
+      "usedPercent": 0.007887399484952814
+    },
+    "type": "filesystems"
+  },
+  {
+    "host": "host-check",
+    "id": "/providers/host/filesystems/%2Fvar%2Flib%2Fdocker",
+    "name": "%2Fvar%2Flib%2Fdocker",
+    "properties": {
+      "availableBytes": 27130048512,
+      "fsType": "ext4",
+      "inodesFree": 3425131,
+      "inodesTotal": 3932160,
+      "inodesUsed": 507029,
+      "mountPoint": "/var/lib/docker",
+      "readOnly": false,
+      "sizeBytes": 63088406528,
+      "source": "/dev/vdb1",
+      "usedBytes": 32720461824,
+      "usedPercent": 54.6703138207306
+    },
+    "type": "filesystems"
+  }
+]
+RESULT 3-walk-hostfs: PASS - no null without a reason; 0 field(s) unavailable, each with a reason prefix
+$ nexus --host host-check hostdisk get --limit 1000 -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/disks/vda",
+    "name": "vda",
+    "properties": {
+      "model": null,
+      "partitions": [
+        {
+          "mountPoints": [],
+          "name": "vda1",
+          "sizeBytes": 20400029184
+        },
+        {
+          "mountPoints": [],
+          "name": "vda15",
+          "sizeBytes": 103809536
+        },
+        {
+          "mountPoints": [],
+          "name": "vda16",
+          "sizeBytes": 967836160
+        }
+      ],
+      "readBytesPerSecond": 0,
+      "readIops": 0,
+      "removable": false,
+      "rotational": true,
+      "sampler": {
+        "ageSeconds": 1.331742056,
+        "intervalSeconds": 9.999736452,
+        "sampledAt": "2026-11-15T07:24:19.256376392Z",
+        "state": "ready"
+      },
+      "sizeBytes": 21474836480,
+      "unavailable": {
+        "model": "not reported: no /sys/block/vda/device/model"
+      },
+      "writeBytesPerSecond": 0,
+      "writeIops": 0
+    },
+    "type": "disks"
+  },
+  {
+    "host": "host-check",
+    "id": "/providers/host/disks/vdb",
+    "name": "vdb",
+    "properties": {
+      "model": null,
+      "partitions": [
+        {
+          "mountPoints": [
+            "/etc/hostname",
+            "/etc/hosts",
+            "/etc/resolv.conf",
+            "/var/lib/containerd",
+            "/var/lib/docker"
+          ],
+          "name": "vdb1",
+          "sizeBytes": 64422412288
+        }
+      ],
+      "readBytesPerSecond": 0,
+      "readIops": 0,
+      "removable": false,
+      "rotational": true,
+      "sampler": {
+        "ageSeconds": 1.331742056,
+        "intervalSeconds": 9.999736452,
+        "sampledAt": "2026-11-15T07:24:19.256376392Z",
+        "state": "ready"
+      },
+      "sizeBytes": 64424509440,
+      "unavailable": {
+        "model": "not reported: no /sys/block/vdb/device/model"
+      },
+      "writeBytesPerSecond": 22938.204531792795,
+      "writeIops": 1.7000448043408094
+    },
+    "type": "disks"
+  },
+  {
+    "host": "host-check",
+    "id": "/providers/host/disks/vdc",
+    "name": "vdc",
+    "properties": {
+      "model": null,
+      "partitions": [],
+      "readBytesPerSecond": 0,
+      "readIops": 0,
+      "removable": false,
+      "rotational": true,
+      "sampler": {
+        "ageSeconds": 1.331742056,
+        "intervalSeconds": 9.999736452,
+        "sampledAt": "2026-11-15T07:24:19.256376392Z",
+        "state": "ready"
+      },
+      "sizeBytes": 55689216,
+      "unavailable": {
+        "model": "not reported: no /sys/block/vdc/device/model"
+      },
+      "writeBytesPerSecond": 0,
+      "writeIops": 0
+    },
+    "type": "disks"
+  }
+]
+RESULT 3-walk-hostdisk: PASS - no null without a reason; 3 field(s) unavailable, each with a reason prefix
+$ nexus --host host-check hostnet get --limit 1000 -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/interfaces/docker0",
+    "name": "docker0",
+    "properties": {
+      "ipv4": [
+        {
+          "address": "172.18.0.1",
+          "prefixLength": 16
+        }
+      ],
+      "ipv6": [],
+      "loopback": false,
+      "mac": "fe:14:af:38:3a:6e",
+      "mtu": 1500,
+      "rxBytes": 0,
+      "rxBytesPerSecond": 0,
+      "rxDropped": 0,
+      "rxErrors": 0,
+      "sampler": {
+        "ageSeconds": 1.354507656,
+        "intervalSeconds": 9.999736452,
+        "sampledAt": "2026-11-15T07:24:19.256376392Z",
+        "state": "ready"
+      },
+      "speedMbps": null,
+      "state": "down",
+      "txBytes": 0,
+      "txBytesPerSecond": 0,
+      "txDropped": 0,
+      "txErrors": 0,
+      "unavailable": {
+        "speedMbps": "not reported: no link speed at /sys/class/net/docker0/speed"
+      }
+    },
+    "type": "interfaces"
+  },
+  {
+    "host": "host-check",
+    "id": "/providers/host/interfaces/eth0",
+    "name": "eth0",
+    "properties": {
+      "ipv4": [
+        {
+          "address": "172.17.0.2",
+          "prefixLength": 16
+        }
+      ],
+      "ipv6": [],
+      "loopback": false,
+      "mac": "3e:d7:c4:03:8e:ff",
+      "mtu": 1500,
+      "rxBytes": 1870,
+      "rxBytesPerSecond": 0,
+      "rxDropped": 0,
+      "rxErrors": 0,
+      "sampler": {
+        "ageSeconds": 1.354507656,
+        "intervalSeconds": 9.999736452,
+        "sampledAt": "2026-11-15T07:24:19.256376392Z",
+        "state": "ready"
+      },
+      "speedMbps": 10000,
+      "state": "up",
+      "txBytes": 126,
+      "txBytesPerSecond": 0,
+      "txDropped": 0,
+      "txErrors": 0
+    },
+    "type": "interfaces"
+  },
+  {
+    "host": "host-check",
+    "id": "/providers/host/interfaces/lo",
+    "name": "lo",
+    "properties": {
+      "ipv4": [
+        {
+          "address": "127.0.0.1",
+          "prefixLength": 8
+        }
+      ],
+      "ipv6": [
+        {
+          "address": "::1",
+          "prefixLength": 128
+        }
+      ],
+      "loopback": true,
+      "mac": "00:00:00:00:00:00",
+      "mtu": 65536,
+      "rxBytes": 50562993,
+      "rxBytesPerSecond": 383755.71380508615,
+      "rxDropped": 0,
+      "rxErrors": 0,
+      "sampler": {
+        "ageSeconds": 1.354507656,
+        "intervalSeconds": 9.999736452,
+        "sampledAt": "2026-11-15T07:24:19.256376392Z",
+        "state": "ready"
+      },
+      "speedMbps": null,
+      "state": "unknown",
+      "txBytes": 50562993,
+      "txBytesPerSecond": 383755.71380508615,
+      "txDropped": 0,
+      "txErrors": 0,
+      "unavailable": {
+        "speedMbps": "not reported: no link speed at /sys/class/net/lo/speed"
+      }
+    },
+    "type": "interfaces"
+  }
+]
+RESULT 3-walk-hostnet: PASS - no null without a reason; 2 field(s) unavailable, each with a reason prefix
+$ nexus --host host-check hostnetconfig get -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/netconfig/current",
+    "name": "current",
+    "properties": {
+      "defaultGateways": [
+        {
+          "address": "172.17.0.1",
+          "family": "ipv4",
+          "interface": "eth0",
+          "metric": 0
+        }
+      ],
+      "dns": {
+        "servers": [
+          {
+            "address": "192.168.5.1",
+            "stub": false
+          }
+        ],
+        "source": "/etc/resolv.conf"
+      }
+    },
+    "type": "netconfig"
+  }
+]
+RESULT 3-walk-hostnetconfig: PASS - no null without a reason; 0 field(s) unavailable, each with a reason prefix
+$ nexus --host host-check hosthealth get -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/health/current",
+    "name": "current",
+    "properties": {
+      "failedServices": {
+        "count": 1,
+        "names": [
+          "systemd-modules-load.service"
+        ],
+        "namesTruncated": false,
+        "source": "systemd"
+      },
+      "oomKills": 0,
+      "processSampleSeconds": 9.999775744,
+      "rebootRequired": {
+        "check": "debian-reboot-required-marker",
+        "evidence": "/var/run/reboot-required is absent; marker writer installed: /usr/share/perl5/NeedRestart/UI/Ubuntu.pm",
+        "packages": [],
+        "state": "false"
+      },
+      "sampler": {
+        "ageSeconds": 1.398402218,
+        "intervalSeconds": 9.999736452,
+        "sampledAt": "2026-11-15T07:24:19.256376392Z",
+        "state": "ready"
+      },
+      "topByCpu": [
+        {
+          "command": "nexusd",
+          "cpuPercent": 11.600260142793857,
+          "pid": 420,
+          "rssBytes": 27615232,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "systemd",
+          "cpuPercent": 3.5000784913602154,
+          "pid": 1,
+          "rssBytes": 15921152,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "sh",
+          "cpuPercent": 1.2000269113235025,
+          "pid": 62822,
+          "rssBytes": 1835008,
+          "uid": null,
+          "unavailable": {
+            "uid": "not present: /proc/62822/status",
+            "user": "not present: /proc/62822/status"
+          },
+          "user": null
+        },
+        {
+          "command": "dbus-daemon",
+          "cpuPercent": 0.10000224261029188,
+          "pid": 58,
+          "rssBytes": 3801088,
+          "uid": 997,
+          "user": "messagebus"
+        },
+        {
+          "command": "systemd-journal",
+          "cpuPercent": 0,
+          "pid": 24,
+          "rssBytes": 13508608,
+          "uid": 0,
+          "user": "root"
+        }
+      ],
+      "topByMemory": [
+        {
+          "command": "dockerd",
+          "cpuPercent": 0,
+          "pid": 107,
+          "rssBytes": 97558528,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "containerd",
+          "cpuPercent": 0,
+          "pid": 67,
+          "rssBytes": 63451136,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "nexusd",
+          "cpuPercent": 11.600260142793857,
+          "pid": 420,
+          "rssBytes": 27615232,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "systemd",
+          "cpuPercent": 3.5000784913602154,
+          "pid": 1,
+          "rssBytes": 15921152,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "systemd-journal",
+          "cpuPercent": 0,
+          "pid": 24,
+          "rssBytes": 13508608,
+          "uid": 0,
+          "user": "root"
+        }
+      ]
+    },
+    "type": "health"
+  }
+]
+RESULT 3-walk-hosthealth: PASS - no null without a reason; 2 field(s) unavailable, each with a reason prefix
+$ nexus --host host-check hostmetric get -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/metrics/current",
+    "name": "current",
+    "properties": {
+      "entitiesTruncated": {
+        "disks": 0,
+        "interfaces": 0
+      },
+      "from": "2026-11-15T07:17:00Z",
+      "historyStart": "2026-11-15T07:17:09.254Z",
+      "points": 45,
+      "sampler": {
+        "ageSeconds": 1.424200759,
+        "intervalSeconds": 9.999736452,
+        "sampledAt": "2026-11-15T07:24:19.256376392Z",
+        "state": "ready"
+      },
+      "series": [
+        {
+          "entity": "",
+          "metric": "cpu",
+          "name": "usagePercent",
+          "unit": "percent",
+          "values": [
+            null,
+            11.92938232421875,
+            3.189352035522461,
+            22.14375877380371,
+            49.40218734741211,
+            44.656005859375,
+            43.85652542114258,
+            49.05804443359375,
+            43.49150085449219,
+            44.12139892578125,
+            49.69496536254883,
+            44.730857849121094,
+            45.061885833740234,
+            49.391788482666016,
+            39.61204528808594,
+            27.438100814819336,
+            4.907361030578613,
+            14.688128471374512,
+            16.498741149902344,
+            9.152627944946289,
+            20.373172760009766,
+            30.999492645263672,
+            25.468830108642578,
+            10.148576736450195,
+            0.6751688122749329,
+            0.450112521648407,
+            0.8514900803565979,
+            0.5003752708435059,
+            0.4258517026901245,
+            9.602400779724121,
+            6.35794734954834,
+            14.25339412689209,
+            22.93924903869629,
+            19.425548553466797,
+            11.414267539978027,
+            3.8317055702209473,
+            0.7001750469207764,
+            0.4008015990257263,
+            0.47559449076652527,
+            3.330828905105591,
+            5.790925025939941,
+            47.17363739013672,
+            49.32996368408203,
+            43.835269927978516,
+            null
+          ]
+        },
+        {
+          "entity": "",
+          "metric": "load",
+          "name": "load1",
+          "unit": "load",
+          "values": [
+            0.5,
+            0.5899999737739563,
+            0.5,
+            0.6499999761581421,
+            1.0199999809265137,
+            1.340000033378601,
+            1.4500000476837158,
+            1.9800000190734863,
+            1.8300000429153442,
+            2.1700000762939453,
+            2.4600000381469727,
+            2.609999895095825,
+            2.5199999809265137,
+            2.740000009536743,
+            2.7799999713897705,
+            2.5,
+            2.109999895095825,
+            1.9500000476837158,
+            1.9600000381469727,
+            1.7300000190734863,
+            1.5499999523162842,
+            1.6200000047683716,
+            1.600000023841858,
+            1.350000023841858,
+            1.1399999856948853,
+            0.9700000286102295,
+            0.8199999928474426,
+            0.6899999976158142,
+            0.5899999737739563,
+            0.5799999833106995,
+            0.5600000023841858,
+            0.7099999785423279,
+            0.6800000071525574,
+            0.5699999928474426,
+            0.5699999928474426,
+            0.47999998927116394,
+            0.4000000059604645,
+            0.3400000035762787,
+            0.28999999165534973,
+            0.23999999463558197,
+            0.20999999344348907,
+            0.699999988079071,
+            1.2200000286102295,
+            1.409999966621399,
+            null
+          ]
+        },
+        {
+          "entity": "",
+          "metric": "memory",
+          "name": "usedBytes",
+          "unit": "bytes",
+          "values": [
+            1141805056,
+            1263546368,
+            1219543040,
+            1293340672,
+            1304104960,
+            1301549056,
+            1299451904,
+            1300013056,
+            1311969280,
+            1330991104,
+            1330487296,
+            1299120128,
+            1298866176,
+            1309351936,
+            1286664192,
+            1288577024,
+            1222000640,
+            1169907712,
+            1172164608,
+            1170149376,
+            1186758656,
+            1179254784,
+            1174319104,
+            1163673600,
+            1179480064,
+            1158111232,
+            1171693568,
+            1159979008,
+            1147928576,
+            1463717888,
+            1206161408,
+            1177759744,
+            1173827584,
+            1166675968,
+            1611063296,
+            1198419968,
+            1182474240,
+            1163100160,
+            1150693376,
+            1200234496,
+            1252868096,
+            1297383424,
+            1317474304,
+            1284513792,
+            null
+          ]
+        },
+        {
+          "entity": "",
+          "metric": "memory",
+          "name": "availableBytes",
+          "unit": "bytes",
+          "values": [
+            7167139840,
+            7045398528,
+            7089401856,
+            7015604224,
+            7004839936,
+            7007395840,
+            7009492992,
+            7008931840,
+            6996975616,
+            6977953792,
+            6978457600,
+            7009824768,
+            7010078720,
+            6999592960,
+            7022280704,
+            7020367872,
+            7086944256,
+            7139037184,
+            7136780288,
+            7138795520,
+            7122186240,
+            7129690112,
+            7134625792,
+            7145271296,
+            7129464832,
+            7150833664,
+            7137251328,
+            7148965888,
+            7161016320,
+            6845227008,
+            7102783488,
+            7131185152,
+            7135117312,
+            7142268928,
+            6697881600,
+            7110524928,
+            7126470656,
+            7145844736,
+            7158251520,
+            7108710400,
+            7056076800,
+            7011561472,
+            6991470592,
+            7024431104,
+            null
+          ]
+        },
+        {
+          "entity": "",
+          "metric": "swap",
+          "name": "usedBytes",
+          "unit": "bytes",
+          "values": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            null
+          ]
+        }
+      ],
+      "stepSeconds": 10
+    },
+    "type": "metrics"
+  }
+]
+RESULT 3-walk-hostmetric: PASS - no null without a reason; 0 field(s) unavailable, each with a reason prefix
+
+[07:24:20] == Step 4a: hostidentity against hostnamectl, /etc/os-release, uname, /proc, systemd-detect-virt
+$ [host] q() { sed -n "s/^$1=//p" /etc/os-release | head -n 1 | sed -e "s/^\"//" -e "s/\"\$//"; }
+echo "kernel_hostname=$(cat /proc/sys/kernel/hostname)"
+command -v hostnamectl >/dev/null 2>&1 && echo "hostnamectl=$(hostnamectl hostname 2>/dev/null || hostnamectl --transient 2>/dev/null)"
+echo "os_id=$(q ID)"; echo "os_version_id=$(q VERSION_ID)"; echo "os_pretty=$(q PRETTY_NAME)"
+echo "uname_r=$(uname -r)"; echo "uname_m=$(uname -m)"
+b=$(sed -n "s/^btime //p" /proc/stat); echo "btime=$b"; echo "btime_utc=$(date -u -d @$b +%Y-%m-%dT%H:%M:%SZ)"
+echo "uptime=$(cut -d" " -f1 /proc/uptime)"
+if command -v systemd-detect-virt >/dev/null 2>&1; then echo "detect_virt=$(systemd-detect-virt 2>/dev/null)"; fi
+[ ! -e /.dockerenv ] || echo dockerenv=1
+for f in sys_vendor product_name product_version bios_vendor bios_version; do [ ! -r /sys/class/dmi/id/$f ] || echo "dmi_$f=$(cat /sys/class/dmi/id/$f)"; done
+[ ! -r /etc/timezone ] || echo "etc_timezone=$(head -n 1 /etc/timezone)"
+[ ! -L /etc/localtime ] || echo "localtime_link=$(readlink /etc/localtime)"
+[ -e /etc/localtime ] || echo "no_localtime=1"
+echo "date_z=$(date +%z)"
+if [ -d /run/systemd/system ] && [ -x /usr/bin/timedatectl ]; then echo "ntp_sync=$(/usr/bin/timedatectl show --property=NTPSynchronized --value 2>&1)"; elif [ -x /usr/bin/chronyc ]; then echo "chrony=$(/usr/bin/chronyc -c tracking 2>&1 | cut -d, -f14)"; fi
+kernel_hostname=5a5bcfc808f5
+hostnamectl=5a5bcfc808f5
+os_id=ubuntu
+os_version_id=26.04
+os_pretty=Ubuntu 26.04.1 LTS
+uname_r=6.8.0-100-generic
+uname_m=aarch64
+btime=1792243849
+btime_utc=2026-10-17T13:30:49Z
+uptime=2483611.38
+detect_virt=docker
+dockerenv=1
+dmi_sys_vendor=Apple Inc.
+dmi_product_name=Apple Virtualization Generic Platform
+dmi_product_version=1
+dmi_bios_vendor=Apple Inc.
+dmi_bios_version=2164.0.0.0.0
+localtime_link=/usr/share/zoneinfo/Etc/UTC
+date_z=+0000
+ntp_sync=yes
+  ok    hostname 5a5bcfc808f5 = 5a5bcfc808f5
+  (hostnamectl hostname: 5a5bcfc808f5)
+  ok    os.id ubuntu = ubuntu
+  ok    os.versionId 26.04 = 26.04
+  ok    os.prettyName Ubuntu 26.04.1 LTS = Ubuntu 26.04.1 LTS
+  ok    kernelRelease 6.8.0-100-generic = 6.8.0-100-generic
+  ok    architecture aarch64 = aarch64
+  ok    initSystem systemd = systemd
+  ok    bootTime 2026-10-17T13:30:49Z = 2026-10-17T13:30:49Z
+  ok    uptimeSeconds 2483611.13 ~ 2483611.38 (tolerance 5)
+  ok    virtualization.type docker = systemd-detect-virt (container, evidence /.dockerenv)
+  ok    dmi.systemVendor Apple Inc. = Apple Inc.
+  ok    dmi.productName Apple Virtualization Generic Platform = Apple Virtualization Generic Platform
+  ok    dmi.productVersion 1 = 1
+  ok    dmi.biosVendor Apple Inc. = Apple Inc.
+  ok    dmi.biosVersion 2164.0.0.0.0 = 2164.0.0.0.0
+  ok    timezone.name Etc/UTC = Etc/UTC
+  ok    timezone.offsetSeconds 0 ~ 0 (tolerance 0)
+  ok    clock.synchronized true = timedatectl NTPSynchronized yes
+RESULT 4a-identity: PASS - 18 fields match the host's tools, 0 unavailable with a reason
+
+[07:24:20] == Step 4b: hostcpu against nproc, /proc/cpuinfo, /proc/loadavg, cpufreq, hwmon
+$ [host] echo "nproc=$(nproc)"; echo "nproc_all=$(nproc --all 2>/dev/null)"; echo "stat_cpus=$(grep -c "^cpu[0-9]" /proc/stat)"
+echo "model=$(sed -n "s/^model name[[:space:]]*:[[:space:]]*//p" /proc/cpuinfo | head -n 1)"
+echo "loadavg=$(cat /proc/loadavg)"
+f=/sys/devices/system/cpu/cpu0/cpufreq; [ ! -r $f/cpuinfo_min_freq ] || echo "freq_range=$(cat $f/cpuinfo_min_freq) $(cat $f/cpuinfo_max_freq)"
+echo "cpuinfo_mhz=$(sed -n "s/^cpu MHz[[:space:]]*:[[:space:]]*//p" /proc/cpuinfo | head -n 1)"
+n=0; for t in /sys/class/hwmon/hwmon*/temp*_input /sys/class/thermal/thermal_zone*/temp; do [ ! -r "$t" ] || n=$((n + 1)); done; echo "temp_inputs=$n"
+nproc=4
+nproc_all=4
+stat_cpus=4
+model=
+loadavg=1.41 1.04 0.86 1/404 80463
+cpuinfo_mhz=
+temp_inputs=0
+  ok    logicalCpus 4 = nproc
+  ok    perCpu has 4 entries = logicalCpus
+  unav  [0].properties.model: not reported: no model name in /proc/cpuinfo
+  ok    load.load1 1.41 ~ 1.41 (tolerance 0.391)
+  ok    load.load5 1.04 ~ 1.04 (tolerance 0.354)
+  ok    load.load15 0.86 ~ 0.86 (tolerance 0.336)
+  unav  [0].properties.frequencyMhz: not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+  unav  [0].properties.temperatures: not reported: no temperature sensors (common in VMs) (the host shows: no hwmon temp*_input and no thermal zone)
+  ok    physicalCores 4 within 1..logicalCpus (range check)
+  ok    times.userPercent 22.86508337544214 within 0..100 (range check; usage is NFR-3's)
+  ok    times.systemPercent 19.732187973724102 within 0..100 (range check; usage is NFR-3's)
+  ok    times.iowaitPercent 0 within 0..100 (range check; usage is NFR-3's)
+  ok    times.stealPercent 0 within 0..100 (range check; usage is NFR-3's)
+RESULT 4b-cpu: PASS - 10 fields match the host's tools, 3 unavailable with a reason
+
+[07:24:20] == Step 4c: hostmemory against free -b and /proc/meminfo
+$ [host] free -b; awk "/^(MemTotal|MemFree|MemAvailable|Buffers|Cached|SReclaimable|Shmem|SwapTotal|SwapFree):/ { sub(\":\", \"\", \$1); print \"mi_\" \$1 \"=\" \$2 * 1024 }" /proc/meminfo; for f in cpu memory io; do [ ! -r /proc/pressure/$f ] || echo "psi_$f=1"; done
+               total        used        free      shared  buff/cache   available
+Mem:      8308944896  1320251392   493240320     2134016  6705602560  6988693504
+Swap:              0           0           0
+mi_MemTotal=8308944896
+mi_MemFree=493240320
+mi_MemAvailable=6988693504
+mi_Buffers=585699328
+mi_Cached=5124218880
+mi_SwapTotal=0
+mi_SwapFree=0
+mi_Shmem=2134016
+mi_SReclaimable=995684352
+psi_cpu=1
+psi_memory=1
+psi_io=1
+  ok    totalBytes 8308944896 ~ 8308944896 (tolerance 0)
+  ok    freeBytes 503209984 ~ 493240320 (tolerance 8.30894e+07)
+  ok    usedBytes 1310306304 ~ 1320251392 (tolerance 8.30894e+07)
+  ok    buffersBytes 585699328 ~ 585699328 (tolerance 8.30894e+07)
+  ok    cachedBytes (Cached + SReclaimable, free's cache) 6119755776 ~ 6119903232 (tolerance 8.30894e+07)
+  ok    sharedBytes 2011136 ~ 2134016 (tolerance 8.30894e+07)
+  ok    usedPercent 15.769827822913992 ~ 15.8895 (tolerance 1)
+  ok    swapTotalBytes 0 ~ 0 (tolerance 0)
+  ok    swapUsedBytes 0 ~ 0 (tolerance 1048576)
+  ok    swapFreeBytes 0 ~ 0 (tolerance 1048576)
+  ok    pressure.cpu present; /proc/pressure/cpu is readable
+  ok    pressure.memory present; /proc/pressure/memory is readable
+  ok    pressure.io present; /proc/pressure/io is readable
+RESULT 4c-memory: PASS - 13 fields match the host's tools, 0 unavailable with a reason; availableBytes is NFR-3's (step 5)
+
+[07:24:20] == Step 4d: hostfs against df -B1, stat -f and PID 1's mount table
+  5 filesystem(s) listed
+$ nexus --host host-check hostfs get --limit 1000 -o json (output kept, not logged)
+$ [host] df -B1 -P and stat -f -c '%S %c %d' at each mount point, just before and just after that call:
+    df1=overlay        63088406528 32720498688 27130011648      55% /
+    st1=4096 3932160 3425129
+    df2=shm            67108864     0  67108864       0% /dev/shm
+    st2=4096 1014275 1014274
+    df3=tmpfs          4154470400 77824 4154392576       1% /run
+    st3=4096 1014275 1014150
+    df4=tmpfs          4154474496 434176 4154040320       1% /tmp
+    st4=4096 1048576 1048454
+    df5=/dev/vdb1      63088406528 32720498688 27130011648      55% /var/lib/docker
+    st5=4096 3932160 3425129
+    -- after:
+    df1=overlay        63088406528 32720498688 27130011648      55% /
+    st1=4096 3932160 3425129
+    df2=shm            67108864     0  67108864       0% /dev/shm
+    st2=4096 1014275 1014274
+    df3=tmpfs          4154470400 77824 4154392576       1% /run
+    st3=4096 1014275 1014150
+    df4=tmpfs          4154474496 442368 4154032128       1% /tmp
+    st4=4096 1048576 1048452
+    df5=/dev/vdb1      63088406528 32720498688 27130011648      55% /var/lib/docker
+    st5=4096 3932160 3425129
+  ok    / fsType overlay = /proc/1/mountinfo
+  ok    / readOnly false = false
+  ok    / sizeBytes (df) 63088406528 within the host's 63088406528 .. 63088406528 (± 0)
+  ok    / usedBytes (df) 32720498688 within the host's 32720498688 .. 32720498688 (± 4096)
+  ok    / availableBytes (df) 27130011648 within the host's 27130011648 .. 27130011648 (± 4096)
+  ok    / inodesTotal (statfs) 3932160 within the host's 3932160 .. 3932160 (± 0)
+  ok    / inodesFree (statfs) 3425129 within the host's 3425129 .. 3425129 (± 1)
+  ok    /dev/shm fsType tmpfs = /proc/1/mountinfo
+  ok    /dev/shm readOnly false = false
+  ok    /dev/shm sizeBytes (df) 67108864 within the host's 67108864 .. 67108864 (± 0)
+  ok    /dev/shm usedBytes (df) 0 within the host's 0 .. 0 (± 4096)
+  ok    /dev/shm availableBytes (df) 67108864 within the host's 67108864 .. 67108864 (± 4096)
+  ok    /dev/shm inodesTotal (statfs) 1014275 within the host's 1014275 .. 1014275 (± 0)
+  ok    /dev/shm inodesFree (statfs) 1014274 within the host's 1014274 .. 1014274 (± 1)
+  ok    /run fsType tmpfs = /proc/1/mountinfo
+  ok    /run readOnly false = false
+  ok    /run sizeBytes (df) 4154470400 within the host's 4154470400 .. 4154470400 (± 0)
+  ok    /run usedBytes (df) 77824 within the host's 77824 .. 77824 (± 4096)
+  ok    /run availableBytes (df) 4154392576 within the host's 4154392576 .. 4154392576 (± 4096)
+  ok    /run inodesTotal (statfs) 1014275 within the host's 1014275 .. 1014275 (± 0)
+  ok    /run inodesFree (statfs) 1014150 within the host's 1014150 .. 1014150 (± 1)
+  ok    /tmp fsType tmpfs = /proc/1/mountinfo
+  ok    /tmp readOnly false = false
+  ok    /tmp sizeBytes (df) 4154474496 within the host's 4154474496 .. 4154474496 (± 0)
+  ok    /tmp usedBytes (df) 434176 within the host's 434176 .. 442368 (± 4096)
+  ok    /tmp availableBytes (df) 4154040320 within the host's 4154040320 .. 4154032128 (± 4096)
+  ok    /tmp inodesTotal (statfs) 1048576 within the host's 1048576 .. 1048576 (± 0)
+  ok    /tmp inodesFree (statfs) 1048453 within the host's 1048454 .. 1048452 (± 1)
+  ok    /var/lib/docker fsType ext4 = /proc/1/mountinfo
+  ok    /var/lib/docker readOnly false = false
+  ok    /var/lib/docker sizeBytes (df) 63088406528 within the host's 63088406528 .. 63088406528 (± 0)
+  ok    /var/lib/docker usedBytes (df) 32720498688 within the host's 32720498688 .. 32720498688 (± 4096)
+  ok    /var/lib/docker availableBytes (df) 27130011648 within the host's 27130011648 .. 27130011648 (± 4096)
+  ok    /var/lib/docker inodesTotal (statfs) 3932160 within the host's 3932160 .. 3932160 (± 0)
+  ok    /var/lib/docker inodesFree (statfs) 3425129 within the host's 3425129 .. 3425129 (± 1)
+  ok    coverage: every disk or network filesystem mount in /proc/1/mountinfo is listed, or shares its device with a listed item
+RESULT 4d-filesystems: PASS - 36 fields match the host's tools, 0 unavailable with a reason
+RESULT 4d-btrfs: INFO - no btrfs filesystem on this host: the A-21/A-38 live readback was not possible here
+
+[07:24:21] == Step 4e: hostdisk against lsblk (or /sys/block)
+$ [host] if command -v lsblk >/dev/null 2>&1; then lsblk -b -d -n -r -o NAME,SIZE,ROTA,RM | sed "s/^/lsblk=/"; fi
+for d in /sys/block/*; do n=${d##*/}; m=; [ ! -r $d/device/model ] || m=$(sed "s/[[:space:]]*$//" $d/device/model); p=; for q in $d/$n*; do [ ! -e $q/partition ] || p="$p ${q##*/}"; done; echo "sys=$n $(($(cat $d/size) * 512)) $(cat $d/queue/rotational 2>/dev/null) $(cat $d/removable) bf=$( [ -r $d/loop/backing_file ] && echo 1 || echo 0) parts=$p model=$m"; done
+lsblk=vda 21474836480 1 0
+lsblk=vdb 64424509440 1 0
+lsblk=vdc 55689216 1 0
+sys=loop0 0 0 0 bf=0 parts= model=
+sys=loop1 0 0 0 bf=0 parts= model=
+sys=loop2 0 1 0 bf=0 parts= model=
+sys=loop3 0 1 0 bf=0 parts= model=
+sys=loop4 0 1 0 bf=0 parts= model=
+sys=loop5 0 1 0 bf=0 parts= model=
+sys=loop6 0 1 0 bf=0 parts= model=
+sys=loop7 0 1 0 bf=0 parts= model=
+sys=vda 21474836480 1 0 bf=0 parts= vda1 vda15 vda16 model=
+sys=vdb 64424509440 1 0 bf=0 parts= vdb1 model=
+sys=vdc 55689216 1 0 bf=0 parts= model=
+  ok    vda sizeBytes (lsblk) 21474836480 ~ 21474836480 (tolerance 0)
+  ok    vda rotational (lsblk) true = true
+  ok    vda removable (lsblk) false = false
+  unav  [0].properties.model: not reported: no /sys/block/vda/device/model
+  ok    vda partitions [vda1 vda15 vda16] = /sys/block
+  ok    vdb sizeBytes (lsblk) 64424509440 ~ 64424509440 (tolerance 0)
+  ok    vdb rotational (lsblk) true = true
+  ok    vdb removable (lsblk) false = false
+  unav  [1].properties.model: not reported: no /sys/block/vdb/device/model
+  ok    vdb partitions [vdb1] = /sys/block
+  ok    vdc sizeBytes (lsblk) 55689216 ~ 55689216 (tolerance 0)
+  ok    vdc rotational (lsblk) true = true
+  ok    vdc removable (lsblk) false = false
+  unav  [2].properties.model: not reported: no /sys/block/vdc/device/model
+  ok    vdc partitions [] = /sys/block
+  ok    coverage: every disk in /sys/block is listed (ram, zram and unbacked loop devices are left out)
+RESULT 4e-disks: PASS - 13 fields match the host's tools, 3 unavailable with a reason
+
+[07:24:21] == Step 4f: hostnet against /sys/class/net and ip addr
+$ nexus --host host-check hostnet get --limit 1000 -o json (output kept, not logged)
+$ [host] (each interface's /sys/class/net attributes and ip -o addr, read before and after that call)
+if=docker0 mac=fe:14:af:38:3a:6e mtu=1500 state=down type=1 speed=-1 rx=0 tx=0
+addr=docker0 inet 172.18.0.1/16
+if=eth0 mac=3e:d7:c4:03:8e:ff mtu=1500 state=up type=1 speed=10000 rx=1870 tx=126
+addr=eth0 inet 172.17.0.2/16
+if=lo mac=00:00:00:00:00:00 mtu=65536 state=unknown type=772 speed= rx=50599843 tx=50599843
+addr=lo inet 127.0.0.1/8
+addr=lo inet6 ::1/128
+  ok    docker0 mac fe:14:af:38:3a:6e = fe:14:af:38:3a:6e
+  ok    docker0 mtu 1500 ~ 1500 (tolerance 0)
+  ok    docker0 state down = down
+  ok    docker0 loopback false = false
+  unav  [0].properties.speedMbps: not reported: no link speed at /sys/class/net/docker0/speed
+  ok    docker0 rxBytes 0 within the host's reads 0..0
+  ok    docker0 txBytes 0 within the host's reads 0..0
+  ok    docker0 ipv4 [172.18.0.1/16] = ip addr
+  ok    docker0 ipv6 [] = ip addr (none)
+  ok    eth0 mac 3e:d7:c4:03:8e:ff = 3e:d7:c4:03:8e:ff
+  ok    eth0 mtu 1500 ~ 1500 (tolerance 0)
+  ok    eth0 state up = up
+  ok    eth0 loopback false = false
+  ok    eth0 speedMbps 10000 ~ 10000 (tolerance 0)
+  ok    eth0 rxBytes 1870 within the host's reads 1870..1870
+  ok    eth0 txBytes 126 within the host's reads 126..126
+  ok    eth0 ipv4 [172.17.0.2/16] = ip addr
+  ok    eth0 ipv6 [] = ip addr (none)
+  ok    lo mac 00:00:00:00:00:00 = 00:00:00:00:00:00
+  ok    lo mtu 65536 ~ 65536 (tolerance 0)
+  ok    lo state unknown = unknown
+  ok    lo loopback true = true
+  unav  [2].properties.speedMbps: not reported: no link speed at /sys/class/net/lo/speed
+  ok    lo rxBytes 50597597 within the host's reads 50592984..50599843
+  ok    lo txBytes 50597597 within the host's reads 50592984..50599843
+  ok    lo ipv4 [127.0.0.1/8] = ip addr
+  ok    lo ipv6 [::1/128] = ip addr
+  ok    coverage: every interface in /sys/class/net is listed
+RESULT 4f-interfaces: PASS - 26 fields match the host's tools, 2 unavailable with a reason; rates are NFR-3's (step 5)
+
+[07:24:21] == Step 4g: hostnetconfig against ip route and the resolver file
+$ [host] ip -4 route show default; ip -6 route show default; echo '-- /etc/resolv.conf:'; sed -n 's/^nameserver[[:space:]]*//p' /etc/resolv.conf; echo '-- /etc/resolv.conf:'; sed -n 's/^nameserver[[:space:]]*//p' /etc/resolv.conf
+default via 172.17.0.1 dev eth0 
+-- /etc/resolv.conf:
+192.168.5.1
+-- /etc/resolv.conf:
+192.168.5.1
+  ok    defaultGateways [172.17.0.1 eth0 0;] = ip route show default (address dev metric)
+  dns.source /etc/resolv.conf; upstream servers [192.168.5.1 ]; stubs []; nameservers in /etc/resolv.conf [192.168.5.1 ], in /etc/resolv.conf [192.168.5.1 ]
+  ok    dns.servers = the nameservers of /etc/resolv.conf
+RESULT 4g-netconfig: PASS - 2 fields match the host's tools, 0 unavailable with a reason
+
+[07:24:21] == Step 4h: hosthealth against systemctl --failed, the reboot rule, /proc
+$ [host] systemctl --failed --plain --no-legend --no-pager | awk '{ print "failed=" $1 }'; awk '/^oom_kill / { print "oom=" $2 }' /proc/vmstat; [ ! -e /var/run/reboot-required ] || { echo marker=1; cat /var/run/reboot-required.pkgs 2>/dev/null | sed 's/^/pkg=/'; }; for w in /usr/share/update-notifier/notify-reboot-required /usr/share/perl5/NeedRestart/UI/Ubuntu.pm; do [ ! -e $w ] || echo writer=$w; done; [ ! -r /etc/debian_version ] || echo debian=1
+failed=systemd-modules-load.service
+oom=0
+writer=/usr/share/perl5/NeedRestart/UI/Ubuntu.pm
+debian=1
+  ok    failedServices.count 1 ~ 1 (tolerance 0)
+  ok    failedServices.names [systemd-modules-load.service ] = the host's list
+  ok    failedServices.source systemd = systemd
+  ok    oomKills 0 ~ 0 (tolerance 0)
+  ok    rebootRequired.state false, as the rule for this host gives (debian-reboot-required-marker: /var/run/reboot-required is absent; marker writer installed: /usr/share/perl5/NeedRestart/UI/Ubuntu.pm)
+$ nexus --host host-check hostcpu get -o json (output kept, not logged)
+  the processes are read on the host 7.92s from now, 0.3 s after the sampler's next tick
+$ [host] sleep 7.92; hz=$(getconf CLK_TCK 2>/dev/null || echo 100); up=$(cut -d" " -f1 /proc/uptime); for p in 1 24 58 67 107 420 62822 ; do st=$(cat /proc/$p/stat 2>/dev/null) || { echo "proc=$p gone"; continue; }; st=${st##*") "}; set -- $st; echo "proc=$p $(cat /proc/$p/comm) $(sed -n "s/^Uid:[[:space:]]*\([0-9]*\).*/\1/p" /proc/$p/status) $(sed -n "s/^VmRSS:[[:space:]]*\([0-9]*\).*/\1/p" /proc/$p/status) $((${up%.*} - ${20} / hz))"; done; awk -F: "{ print \"user=\" \$3 \" \" \$1 }" /etc/passwd
+proc=1 systemd 0 15720 445
+proc=24 systemd-journal 0 13616 445
+proc=58 dbus-daemon 997 3880 445
+proc=67 containerd 0 62556 445
+proc=107 dockerd 0 95704 444
+proc=420 nexusd 0 27140 441
+proc=62822 gone
+user=0 root
+user=1 daemon
+user=2 bin
+user=3 sys
+user=4 sync
+user=5 games
+user=6 man
+user=7 lp
+user=8 mail
+user=9 news
+user=10 uucp
+user=13 proxy
+user=33 www-data
+user=34 backup
+user=38 list
+user=39 irc
+user=42 _apt
+user=65534 nobody
+user=1000 ubuntu
+user=998 systemd-network
+user=997 messagebus
+$ nexus --host host-check hosthealth get -o json (output kept, not logged)
+  hosthealth's processes after that tick (sampledAt 2026-11-15T07:24:29.258382043Z, processSampleSeconds 10.002811324):
+    .topByCpu[0].command="nexusd" .topByCpu[0].pid=420 .topByCpu[0].rssBytes=27422720 
+    .topByCpu[1].command="systemd" .topByCpu[1].pid=1 .topByCpu[1].rssBytes=15921152 
+    .topByCpu[2].command="systemd-journal" .topByCpu[2].pid=24 .topByCpu[2].rssBytes=13508608 
+    .topByCpu[3].command="dbus-daemon" .topByCpu[3].pid=58 .topByCpu[3].rssBytes=3801088 
+    .topByCpu[4].command="systemd-logind" .topByCpu[4].pid=61 .topByCpu[4].rssBytes=7340032 
+    .topByMemory[0].command="dockerd" .topByMemory[0].pid=107 .topByMemory[0].rssBytes=97558528 
+    .topByMemory[1].command="containerd" .topByMemory[1].pid=67 .topByMemory[1].rssBytes=63451136 
+    .topByMemory[2].command="nexusd" .topByMemory[2].pid=420 .topByMemory[2].rssBytes=27422720 
+    .topByMemory[3].command="systemd" .topByMemory[3].pid=1 .topByMemory[3].rssBytes=15921152 
+    .topByMemory[4].command="systemd-journal" .topByMemory[4].pid=24 .topByMemory[4].rssBytes=13508608 
+  ok    topByCpu pid 420 nexusd uid 0 root = /proc/420
+  ok    topByCpu pid 1 systemd uid 0 root = /proc/1
+  ok    topByCpu pid 24 systemd-journal uid 0 root = /proc/24
+  ok    topByCpu pid 58 dbus-daemon uid 997 messagebus = /proc/58
+  info  topByCpu pid 61 (systemd-logind) has exited since
+  ok    topByMemory pid 107 dockerd uid 0 root = /proc/107; rssBytes 97558528, VmRSS 95704 kB
+  ok    topByMemory pid 67 containerd uid 0 root = /proc/67; rssBytes 63451136, VmRSS 62556 kB
+  ok    topByMemory pid 420 nexusd uid 0 root = /proc/420; rssBytes 27422720, VmRSS 27140 kB
+  ok    topByMemory pid 1 systemd uid 0 root = /proc/1; rssBytes 15921152, VmRSS 15720 kB
+  ok    topByMemory pid 24 systemd-journal uid 0 root = /proc/24; rssBytes 13508608, VmRSS 13616 kB
+  ok    processSampleSeconds 9.999775744 >= the interval (10 s)
+RESULT 4h-health: PASS - 15 fields match the host's tools, 0 unavailable with a reason
+
+[07:24:29] == Step 4i: hostsummary against the per-area operations and the host
+  ok    identity.hostname "5a5bcfc808f5" = hostidentity
+  ok    identity.os.id "ubuntu" = hostidentity
+  ok    identity.os.versionId "26.04" = hostidentity
+  ok    identity.os.prettyName "Ubuntu 26.04.1 LTS" = hostidentity
+  ok    identity.kernelRelease "6.8.0-100-generic" = hostidentity
+  ok    identity.architecture "aarch64" = hostidentity
+  ok    identity.initSystem "systemd" = hostidentity
+  ok    identity.bootTime "2026-10-17T13:30:49Z" = hostidentity
+  ok    cpu.logicalCpus = hostcpu (4)
+  ok    memory.totalBytes = hostmemory (8308944896)
+  ok    memory.swapTotalBytes = hostmemory (0)
+  ok    filesystems' mount points = hostfs
+  ok    network.interfaces' names ["docker0" "eth0" ] = hostnet's non-loopback interfaces
+  ok    health.rebootRequired false = hosthealth
+  ok    health.failedServicesCount 1 = hosthealth
+  ok    health.oomKills 0 = hosthealth
+RESULT 4i-summary: PASS - 16 fields match the host's tools, 0 unavailable with a reason
+
+[07:24:29] == Step 4j: hostmetric (the history)
+  ok    sampler.state ready
+  ok    points 45, historyStart 2026-11-15T07:17:09.254Z, stepSeconds 10
+  ok    default series: cpu.usagePercent load.load1 memory.availableBytes memory.usedBytes swap.usedBytes 
+$ nexus --host host-check hostmetric get --metric network --metric disk --window-seconds 86400 -o json (output kept, not logged)
+  ok    --metric network --metric disk --window-seconds 86400 answers: series per metric 6 "disk"; 6 "network";; truncated 0 interfaces, 0 disks
+RESULT 4j-metrics: PASS - 4 fields match the host's tools, 0 unavailable with a reason
+
+  every unavailable field (op, path, reason):
+    hostsummary	[0].properties.cpu.model	not reported: no model name in /proc/cpuinfo
+    hostsummary	[0].properties.network.interfaces[0].ipv6	not reported: no IPv6 address
+    hostsummary	[0].properties.network.interfaces[1].ipv6	not reported: no IPv6 address
+    hostcpu	[0].properties.perCpu[0].frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+    hostcpu	[0].properties.perCpu[1].frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+    hostcpu	[0].properties.perCpu[2].frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+    hostcpu	[0].properties.perCpu[3].frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+    hostcpu	[0].properties.frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+    hostcpu	[0].properties.model	not reported: no model name in /proc/cpuinfo
+    hostcpu	[0].properties.temperatures	not reported: no temperature sensors (common in VMs)
+    hostdisk	[0].properties.model	not reported: no /sys/block/vda/device/model
+    hostdisk	[1].properties.model	not reported: no /sys/block/vdb/device/model
+    hostdisk	[2].properties.model	not reported: no /sys/block/vdc/device/model
+    hostnet	[0].properties.speedMbps	not reported: no link speed at /sys/class/net/docker0/speed
+    hostnet	[2].properties.speedMbps	not reported: no link speed at /sys/class/net/lo/speed
+    hosthealth	[0].properties.topByCpu[2].uid	not present: /proc/62822/status
+    hosthealth	[0].properties.topByCpu[2].user	not present: /proc/62822/status
+RESULT 3-sandbox: INFO - 17 unavailable field(s); 0 with permission denied: or command failed: (the reasons a sandbox gives)
+
+[07:24:29] == Step 5: NFR-3 accuracy over one sampler interval, aligned on its tick (TC-HP-128)
+$ nexus --host host-check hostcpu get -o json (output kept, not logged)
+  sampler interval 10s; the window starts 9.65s from now, 0.3 s after a tick; CPU from vmstat
+$ [host] r() { echo "up$1=$(cut -d" " -f1 /proc/uptime)"; echo "stat$1=$(head -n 1 /proc/stat)"; for i in /sys/class/net/*; do echo "net$1=${i##*/} $(cat $i/statistics/rx_bytes) $(cat $i/statistics/tx_bytes)"; done; echo "at$1=$(date -u +%Y-%m-%dT%H:%M:%SZ)"; }; sleep 9.65; r 0;  vmstat 10 2 | tail -n 1 | sed 's/^/vmstat=/'; r 1
+up0=2483630.21
+stat0=cpu  3586476 41 2432515 985985218 702673 0 228355 0 0 0
+net0=docker0 0 0
+net0=eth0 1940 126
+net0=lo 51959280 51959280
+at0=2026-11-15T07:24:39Z
+vmstat= 5  0      0 501468 571972 5976552    0    0     0     4 15498 25087 21 25 55  0  0  0
+up1=2483640.24
+stat1=cpu  3587289 41 2433439 985987340 702673 0 228385 0 0 0
+net1=docker0 0 0
+net1=eth0 1940 126
+net1=lo 54316614 54316614
+at1=2026-11-15T07:24:49Z
+$ nexus --host host-check hostcpu get -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/cpu/current",
+    "name": "current",
+    "properties": {
+      "frequencyMhz": null,
+      "load": {
+        "load1": 2.39,
+        "load15": 0.95,
+        "load5": 1.31
+      },
+      "logicalCpus": 4,
+      "model": null,
+      "perCpu": [
+        {
+          "cpu": 0,
+          "frequencyMhz": null,
+          "unavailable": {
+            "frequencyMhz": "not reported: no cpufreq and no cpu MHz in /proc/cpuinfo"
+          },
+          "usagePercent": 44.00826446280991
+        },
+        {
+          "cpu": 1,
+          "frequencyMhz": null,
+          "unavailable": {
+            "frequencyMhz": "not reported: no cpufreq and no cpu MHz in /proc/cpuinfo"
+          },
+          "usagePercent": 46.542827657378744
+        },
+        {
+          "cpu": 2,
+          "frequencyMhz": null,
+          "unavailable": {
+            "frequencyMhz": "not reported: no cpufreq and no cpu MHz in /proc/cpuinfo"
+          },
+          "usagePercent": 45.52008238928939
+        },
+        {
+          "cpu": 3,
+          "frequencyMhz": null,
+          "unavailable": {
+            "frequencyMhz": "not reported: no cpufreq and no cpu MHz in /proc/cpuinfo"
+          },
+          "usagePercent": 44.44444444444444
+        }
+      ],
+      "physicalCores": 4,
+      "sampler": {
+        "ageSeconds": 1.37706421,
+        "intervalSeconds": 9.998353029,
+        "sampledAt": "2026-11-15T07:24:49.256204717Z",
+        "state": "ready"
+      },
+      "temperatures": [],
+      "times": {
+        "iowaitPercent": 0,
+        "stealPercent": 0,
+        "systemPercent": 23.594636410520884,
+        "userPercent": 20.78390923156266
+      },
+      "unavailable": {
+        "frequencyMhz": "not reported: no cpufreq and no cpu MHz in /proc/cpuinfo",
+        "model": "not reported: no model name in /proc/cpuinfo",
+        "temperatures": "not reported: no temperature sensors (common in VMs)"
+      },
+      "usagePercent": 45.12635379061371
+    },
+    "type": "cpu"
+  }
+]
+$ nexus --host host-check hostnet get --limit 1000 -o json (output kept, not logged)
+$ nexus --host host-check hostmemory get -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/memory/current",
+    "name": "current",
+    "properties": {
+      "availableBytes": 7029030912,
+      "buffersBytes": 585699328,
+      "cachedBytes": 6120001536,
+      "freeBytes": 533553152,
+      "pressure": {
+        "cpu": {
+          "full": {
+            "avg10": 0,
+            "avg300": 0,
+            "avg60": 0
+          },
+          "some": {
+            "avg10": 13.11,
+            "avg300": 4.77,
+            "avg60": 7.68
+          }
+        },
+        "io": {
+          "full": {
+            "avg10": 0,
+            "avg300": 0.1,
+            "avg60": 0
+          },
+          "some": {
+            "avg10": 0,
+            "avg300": 0.12,
+            "avg60": 0
+          }
+        },
+        "memory": {
+          "full": {
+            "avg10": 0,
+            "avg300": 0,
+            "avg60": 0
+          },
+          "some": {
+            "avg10": 0,
+            "avg300": 0,
+            "avg60": 0
+          }
+        }
+      },
+      "sharedBytes": 2207744,
+      "swapFreeBytes": 0,
+      "swapTotalBytes": 0,
+      "swapUsedBytes": 0,
+      "totalBytes": 8308944896,
+      "usedBytes": 1279913984,
+      "usedPercent": 15.404049491484315
+    },
+    "type": "memory"
+  }
+]
+$ [host] free -b
+               total        used        free      shared  buff/cache   available
+Mem:      8308944896  1279913984   533553152     2207744  6705700864  7029030912
+Swap:              0           0           0
+  host window 10.03s (2026-11-15T07:24:39Z .. 2026-11-15T07:24:49Z); provider sample at 2026-11-15T07:24:49.256204717Z over 9.998353029s
+RESULT 5-cpu: PASS - usagePercent 45.12635379061371, vmstat 100-id-wa 45 (within ±5 pp); /proc/stat over the same window 45.44
+RESULT 5-memory: PASS - availableBytes 7029030912, free -b available 7029030912 (within ±1%)
+  info  docker0 rx 0 vs 0 B/s, tx 0 vs 0 B/s (under 1 KiB/s each way: not compared)
+  info  eth0 rx 0 vs 0 B/s, tx 0 vs 0 B/s (under 1 KiB/s each way: not compared)
+  ok    lo rx 228847.69055097544 B/s ~ 235028, tx 228847.69055097544 B/s ~ 235028 (within ±5%)
+RESULT 5-network: PASS - 1 interface(s) within ±5% of the /sys/class/net statistics delta over 10.03s
+  usedBytes: exact to one block against df -B1 at each mount point in step 4d (4d-filesystems)
+
+[07:24:52] == Step 6: NFR-1 latency, 50 calls per operation (TC-HP-129)
+  each call is a new nexus process (TLS handshake included); the time is the CLI's own
+  --verbose request time, from the request to the response's status line
+  hostsummary: n=50 p50=5 p95=9 max=13 ms, errors 0
+  hostidentity: n=50 p50=4 p95=8 max=37 ms, errors 0
+  hostcpu: n=50 p50=2 p95=2 max=3 ms, errors 0
+  hostmemory: n=50 p50=1 p95=2 max=2 ms, errors 0
+  hostfs: n=50 p50=2 p95=2 max=2 ms, errors 0
+  hostdisk: n=50 p50=2 p95=2 max=3 ms, errors 0
+  hostnet: n=50 p50=2 p95=3 max=5 ms, errors 0
+  hostnetconfig: n=50 p50=1 p95=2 max=2 ms, errors 0
+  hosthealth: n=50 p50=5 p95=7 max=7 ms, errors 0
+  hostmetric: n=50 p50=1 p95=2 max=3 ms, errors 0
+RESULT 6-latency: PASS - p95 < 200 ms for each of the ten operations (50 calls each); the worst p95 9 ms
+RESULT 6-hung-mount: NOT-RUN - the optional manual step (an NFS mount with its server firewalled; --hung-mount PATH) was not set up
+
+[07:25:00] == Step 7a: the reboot-required marker (--with-faults)
+$ [host] printf '%s\n' '*** System restart required ***' >/var/run/reboot-required && printf '%s\n' nexus-host-check >/var/run/reboot-required.pkgs && ls -l /var/run/reboot-required /var/run/reboot-required.pkgs
+-rw-r--r-- 1 root root 32 Nov 15 07:25 /var/run/reboot-required
+-rw-r--r-- 1 root root 17 Nov 15 07:25 /var/run/reboot-required.pkgs
+$ nexus --host host-check hosthealth get -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/health/current",
+    "name": "current",
+    "properties": {
+      "failedServices": {
+        "count": 1,
+        "names": [
+          "systemd-modules-load.service"
+        ],
+        "namesTruncated": false,
+        "source": "systemd"
+      },
+      "oomKills": 0,
+      "processSampleSeconds": 10.001176988,
+      "rebootRequired": {
+        "check": "debian-reboot-required-marker",
+        "evidence": "/var/run/reboot-required exists",
+        "packages": [
+          "nexus-host-check"
+        ],
+        "state": "true"
+      },
+      "sampler": {
+        "ageSeconds": 0.982742788,
+        "intervalSeconds": 10.000855277,
+        "sampledAt": "2026-11-15T07:24:59.257059995Z",
+        "state": "ready"
+      },
+      "topByCpu": [
+        {
+          "command": "nexusd",
+          "cpuPercent": 11.89859954911139,
+          "pid": 420,
+          "rssBytes": 27525120,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "systemd",
+          "cpuPercent": 3.6995645656900957,
+          "pid": 1,
+          "rssBytes": 15921152,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "sh",
+          "cpuPercent": 1.1998587780616528,
+          "pid": 79739,
+          "rssBytes": 1835008,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "dbus-daemon",
+          "cpuPercent": 0.09998823150513772,
+          "pid": 58,
+          "rssBytes": 3801088,
+          "uid": 997,
+          "user": "messagebus"
+        },
+        {
+          "command": "systemd-journal",
+          "cpuPercent": 0,
+          "pid": 24,
+          "rssBytes": 13508608,
+          "uid": 0,
+          "user": "root"
+        }
+      ],
+      "topByMemory": [
+        {
+          "command": "dockerd",
+          "cpuPercent": 0,
+          "pid": 107,
+          "rssBytes": 97558528,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "containerd",
+          "cpuPercent": 0,
+          "pid": 67,
+          "rssBytes": 63451136,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "nexusd",
+          "cpuPercent": 11.89859954911139,
+          "pid": 420,
+          "rssBytes": 27525120,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "systemd",
+          "cpuPercent": 3.6995645656900957,
+          "pid": 1,
+          "rssBytes": 15921152,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "systemd-journal",
+          "cpuPercent": 0,
+          "pid": 24,
+          "rssBytes": 13508608,
+          "uid": 0,
+          "user": "root"
+        }
+      ]
+    },
+    "type": "health"
+  }
+]
+$ [host] rm -f /var/run/reboot-required /var/run/reboot-required.pkgs; ls /var/run/reboot-required 2>&1; true
+ls: cannot access '/var/run/reboot-required': No such file or directory
+$ nexus --host host-check hosthealth get -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/health/current",
+    "name": "current",
+    "properties": {
+      "failedServices": {
+        "count": 1,
+        "names": [
+          "systemd-modules-load.service"
+        ],
+        "namesTruncated": false,
+        "source": "systemd"
+      },
+      "oomKills": 0,
+      "processSampleSeconds": 10.001176988,
+      "rebootRequired": {
+        "check": "debian-reboot-required-marker",
+        "evidence": "/var/run/reboot-required is absent; marker writer installed: /usr/share/perl5/NeedRestart/UI/Ubuntu.pm",
+        "packages": [],
+        "state": "false"
+      },
+      "sampler": {
+        "ageSeconds": 1.010743845,
+        "intervalSeconds": 10.000855277,
+        "sampledAt": "2026-11-15T07:24:59.257059995Z",
+        "state": "ready"
+      },
+      "topByCpu": [
+        {
+          "command": "nexusd",
+          "cpuPercent": 11.89859954911139,
+          "pid": 420,
+          "rssBytes": 27525120,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "systemd",
+          "cpuPercent": 3.6995645656900957,
+          "pid": 1,
+          "rssBytes": 15921152,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "sh",
+          "cpuPercent": 1.1998587780616528,
+          "pid": 79739,
+          "rssBytes": 1835008,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "dbus-daemon",
+          "cpuPercent": 0.09998823150513772,
+          "pid": 58,
+          "rssBytes": 3801088,
+          "uid": 997,
+          "user": "messagebus"
+        },
+        {
+          "command": "systemd-journal",
+          "cpuPercent": 0,
+          "pid": 24,
+          "rssBytes": 13508608,
+          "uid": 0,
+          "user": "root"
+        }
+      ],
+      "topByMemory": [
+        {
+          "command": "dockerd",
+          "cpuPercent": 0,
+          "pid": 107,
+          "rssBytes": 97558528,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "containerd",
+          "cpuPercent": 0,
+          "pid": 67,
+          "rssBytes": 63451136,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "nexusd",
+          "cpuPercent": 11.89859954911139,
+          "pid": 420,
+          "rssBytes": 27525120,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "systemd",
+          "cpuPercent": 3.6995645656900957,
+          "pid": 1,
+          "rssBytes": 15921152,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "systemd-journal",
+          "cpuPercent": 0,
+          "pid": 24,
+          "rssBytes": 13508608,
+          "uid": 0,
+          "user": "root"
+        }
+      ]
+    },
+    "type": "health"
+  }
+]
+$ [host] systemctl --failed --plain --no-legend --no-pager | awk '{ print "failed=" $1 }'; awk '/^oom_kill / { print "oom=" $2 }' /proc/vmstat; [ ! -e /var/run/reboot-required ] || { echo marker=1; cat /var/run/reboot-required.pkgs 2>/dev/null | sed 's/^/pkg=/'; }; for w in /usr/share/update-notifier/notify-reboot-required /usr/share/perl5/NeedRestart/UI/Ubuntu.pm; do [ ! -e $w ] || echo writer=$w; done; [ ! -r /etc/debian_version ] || echo debian=1
+failed=systemd-modules-load.service
+oom=0
+writer=/usr/share/perl5/NeedRestart/UI/Ubuntu.pm
+debian=1
+RESULT 7a-reboot: PASS - marker planted: state true, packages [nexus-host-check]; removed: false (the rule gives false)
+
+[07:25:00] == Step 7b: a failed transient unit (--with-faults)
+$ [host] systemd-run --unit=nx-host-check-7e34add1 --quiet /bin/false; i=0; while [ "$(systemctl is-failed nx-host-check-7e34add1.service)" != failed ] && [ $i -lt 50 ]; do sleep 0.2; i=$((i + 1)); done; systemctl is-failed nx-host-check-7e34add1.service
+failed
+$ [host] systemctl --failed --plain --no-legend --no-pager | awk '{ print "failed=" $1 }'; awk '/^oom_kill / { print "oom=" $2 }' /proc/vmstat; [ ! -e /var/run/reboot-required ] || { echo marker=1; cat /var/run/reboot-required.pkgs 2>/dev/null | sed 's/^/pkg=/'; }; for w in /usr/share/update-notifier/notify-reboot-required /usr/share/perl5/NeedRestart/UI/Ubuntu.pm; do [ ! -e $w ] || echo writer=$w; done; [ ! -r /etc/debian_version ] || echo debian=1
+failed=nx-host-check-7e34add1.service
+failed=systemd-modules-load.service
+oom=0
+writer=/usr/share/perl5/NeedRestart/UI/Ubuntu.pm
+debian=1
+$ nexus --host host-check hosthealth get -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/health/current",
+    "name": "current",
+    "properties": {
+      "failedServices": {
+        "count": 2,
+        "names": [
+          "nx-host-check-7e34add1.service",
+          "systemd-modules-load.service"
+        ],
+        "namesTruncated": false,
+        "source": "systemd"
+      },
+      "oomKills": 0,
+      "processSampleSeconds": 10.001176988,
+      "rebootRequired": {
+        "check": "debian-reboot-required-marker",
+        "evidence": "/var/run/reboot-required is absent; marker writer installed: /usr/share/perl5/NeedRestart/UI/Ubuntu.pm",
+        "packages": [],
+        "state": "false"
+      },
+      "sampler": {
+        "ageSeconds": 1.29289198,
+        "intervalSeconds": 10.000855277,
+        "sampledAt": "2026-11-15T07:24:59.257059995Z",
+        "state": "ready"
+      },
+      "topByCpu": [
+        {
+          "command": "nexusd",
+          "cpuPercent": 11.89859954911139,
+          "pid": 420,
+          "rssBytes": 27525120,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "systemd",
+          "cpuPercent": 3.6995645656900957,
+          "pid": 1,
+          "rssBytes": 15921152,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "sh",
+          "cpuPercent": 1.1998587780616528,
+          "pid": 79739,
+          "rssBytes": 1835008,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "dbus-daemon",
+          "cpuPercent": 0.09998823150513772,
+          "pid": 58,
+          "rssBytes": 3801088,
+          "uid": 997,
+          "user": "messagebus"
+        },
+        {
+          "command": "systemd-journal",
+          "cpuPercent": 0,
+          "pid": 24,
+          "rssBytes": 13508608,
+          "uid": 0,
+          "user": "root"
+        }
+      ],
+      "topByMemory": [
+        {
+          "command": "dockerd",
+          "cpuPercent": 0,
+          "pid": 107,
+          "rssBytes": 97558528,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "containerd",
+          "cpuPercent": 0,
+          "pid": 67,
+          "rssBytes": 63451136,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "nexusd",
+          "cpuPercent": 11.89859954911139,
+          "pid": 420,
+          "rssBytes": 27525120,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "systemd",
+          "cpuPercent": 3.6995645656900957,
+          "pid": 1,
+          "rssBytes": 15921152,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "systemd-journal",
+          "cpuPercent": 0,
+          "pid": 24,
+          "rssBytes": 13508608,
+          "uid": 0,
+          "user": "root"
+        }
+      ]
+    },
+    "type": "health"
+  }
+]
+$ [host] systemctl reset-failed nx-host-check-7e34add1.service; systemctl is-failed nx-host-check-7e34add1.service; true
+inactive
+$ nexus --host host-check hosthealth get -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/health/current",
+    "name": "current",
+    "properties": {
+      "failedServices": {
+        "count": 1,
+        "names": [
+          "systemd-modules-load.service"
+        ],
+        "namesTruncated": false,
+        "source": "systemd"
+      },
+      "oomKills": 0,
+      "processSampleSeconds": 10.001176988,
+      "rebootRequired": {
+        "check": "debian-reboot-required-marker",
+        "evidence": "/var/run/reboot-required is absent; marker writer installed: /usr/share/perl5/NeedRestart/UI/Ubuntu.pm",
+        "packages": [],
+        "state": "false"
+      },
+      "sampler": {
+        "ageSeconds": 1.325877119,
+        "intervalSeconds": 10.000855277,
+        "sampledAt": "2026-11-15T07:24:59.257059995Z",
+        "state": "ready"
+      },
+      "topByCpu": [
+        {
+          "command": "nexusd",
+          "cpuPercent": 11.89859954911139,
+          "pid": 420,
+          "rssBytes": 27525120,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "systemd",
+          "cpuPercent": 3.6995645656900957,
+          "pid": 1,
+          "rssBytes": 15921152,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "sh",
+          "cpuPercent": 1.1998587780616528,
+          "pid": 79739,
+          "rssBytes": 1835008,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "dbus-daemon",
+          "cpuPercent": 0.09998823150513772,
+          "pid": 58,
+          "rssBytes": 3801088,
+          "uid": 997,
+          "user": "messagebus"
+        },
+        {
+          "command": "systemd-journal",
+          "cpuPercent": 0,
+          "pid": 24,
+          "rssBytes": 13508608,
+          "uid": 0,
+          "user": "root"
+        }
+      ],
+      "topByMemory": [
+        {
+          "command": "dockerd",
+          "cpuPercent": 0,
+          "pid": 107,
+          "rssBytes": 97558528,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "containerd",
+          "cpuPercent": 0,
+          "pid": 67,
+          "rssBytes": 63451136,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "nexusd",
+          "cpuPercent": 11.89859954911139,
+          "pid": 420,
+          "rssBytes": 27525120,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "systemd",
+          "cpuPercent": 3.6995645656900957,
+          "pid": 1,
+          "rssBytes": 15921152,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "systemd-journal",
+          "cpuPercent": 0,
+          "pid": 24,
+          "rssBytes": 13508608,
+          "uid": 0,
+          "user": "root"
+        }
+      ]
+    },
+    "type": "health"
+  }
+]
+RESULT 7b-service: PASS - nx-host-check-7e34add1.service in failedServices.names (count 2 = the host's 2); gone after the cleanup
+[07:25:00] == Cleanup
+$ [host] rm -rf /var/lib/nexus-host-check
+RESULT cleanup: PASS - no planted marker, dummy service or changed configuration is left; /var/lib/nexus-host-check removed
+RESULT token-absent: PASS - the token does not appear in the transcript
+
+== Summary (check --with-faults)
+  token-env  PASS  no child process's environment holds the token (env, run as a child, does not show it)
+  1-provider  PASS  the host provider is enabled; initSystem systemd = the host's init (systemd); sampleInterval 10s, historyDuration 3600s
+  1-host  FAIL  running in a container: not a real host
+  3-walk-hostsummary  PASS  no null without a reason; 3 field(s) unavailable, each with a reason prefix
+  3-walk-hostidentity  PASS  no null without a reason; 0 field(s) unavailable, each with a reason prefix
+  3-walk-hostcpu  PASS  no null without a reason; 7 field(s) unavailable, each with a reason prefix
+  3-walk-hostmemory  PASS  no null without a reason; 0 field(s) unavailable, each with a reason prefix
+  3-walk-hostfs  PASS  no null without a reason; 0 field(s) unavailable, each with a reason prefix
+  3-walk-hostdisk  PASS  no null without a reason; 3 field(s) unavailable, each with a reason prefix
+  3-walk-hostnet  PASS  no null without a reason; 2 field(s) unavailable, each with a reason prefix
+  3-walk-hostnetconfig  PASS  no null without a reason; 0 field(s) unavailable, each with a reason prefix
+  3-walk-hosthealth  PASS  no null without a reason; 2 field(s) unavailable, each with a reason prefix
+  3-walk-hostmetric  PASS  no null without a reason; 0 field(s) unavailable, each with a reason prefix
+  4a-identity  PASS  18 fields match the host's tools, 0 unavailable with a reason
+  4b-cpu  PASS  10 fields match the host's tools, 3 unavailable with a reason
+  4c-memory  PASS  13 fields match the host's tools, 0 unavailable with a reason; availableBytes is NFR-3's (step 5)
+  4d-filesystems  PASS  36 fields match the host's tools, 0 unavailable with a reason
+  4d-btrfs  INFO  no btrfs filesystem on this host: the A-21/A-38 live readback was not possible here
+  4e-disks  PASS  13 fields match the host's tools, 3 unavailable with a reason
+  4f-interfaces  PASS  26 fields match the host's tools, 2 unavailable with a reason; rates are NFR-3's (step 5)
+  4g-netconfig  PASS  2 fields match the host's tools, 0 unavailable with a reason
+  4h-health  PASS  15 fields match the host's tools, 0 unavailable with a reason
+  4i-summary  PASS  16 fields match the host's tools, 0 unavailable with a reason
+  4j-metrics  PASS  4 fields match the host's tools, 0 unavailable with a reason
+  3-sandbox  INFO  17 unavailable field(s); 0 with permission denied: or command failed: (the reasons a sandbox gives)
+  5-cpu  PASS  usagePercent 45.12635379061371, vmstat 100-id-wa 45 (within ±5 pp); /proc/stat over the same window 45.44
+  5-memory  PASS  availableBytes 7029030912, free -b available 7029030912 (within ±1%)
+  5-network  PASS  1 interface(s) within ±5% of the /sys/class/net statistics delta over 10.03s
+  6-latency  PASS  p95 < 200 ms for each of the ten operations (50 calls each); the worst p95 9 ms
+  6-hung-mount  NOT-RUN  the optional manual step (an NFS mount with its server firewalled; --hung-mount PATH) was not set up
+  7a-reboot  PASS  marker planted: state true, packages [nexus-host-check]; removed: false (the rule gives false)
+  7b-service  PASS  nx-host-check-7e34add1.service in failedServices.names (count 2 = the host's 2); gone after the cleanup
+  cleanup  PASS  no planted marker, dummy service or changed configuration is left; /var/lib/nexus-host-check removed
+  token-absent  PASS  the token does not appear in the transcript
+  (container: not real-host evidence)
+transcript: /root/12-ubuntu-faults.txt

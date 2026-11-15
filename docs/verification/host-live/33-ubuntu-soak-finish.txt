@@ -1,0 +1,158 @@
+# host-check.sh transcript: system-provider WI 5.4 (TC-HP-127 to TC-HP-130)
+# started 2026-11-15T08:39:04Z on 25cabe92df7a, mode rss-finish, host this machine, arguments: --yes --rss-24h finish --transcript /root/33-soak-finish.txt
+# script sha256 281d577abca434c4664c63026f2c831926468788926470fca474e57e98a21778
+# CONTAINER DETECTED on the host (/.dockerenv, /run/.containerenv or container= in PID 1's environment):
+# this transcript is a container run, NOT real-host evidence.
+$ [host] /usr/local/bin/nexusd tls fingerprint
+4E:38:B8:17:56:C8:99:A5:78:40:E0:6A:CC:85:D2:3A:ED:12:A5:2B:C9:51:B8:C2:1D:5D:D3:F2:93:CF:BC:17
+$ (the token, on stdin) | nexus host add host-check --url https://127.0.0.1:7443 --fingerprint 4E:38:B8:17:56:C8:99:A5:78:40:E0:6A:CC:85:D2:3A:ED:12:A5:2B:C9:51:B8:C2:1D:5D:D3:F2:93:CF:BC:17 --token-stdin
+Server certificate SHA-256 fingerprint:
+  4E:38:B8:17:56:C8:99:A5:78:40:E0:6A:CC:85:D2:3A:ED:12:A5:2B:C9:51:B8:C2:1D:5D:D3:F2:93:CF:BC:17
+It matches --fingerprint; pinning it.
+Added host "host-check" (https://127.0.0.1:7443, nexusd dev, trust: pin) to <throwaway client config>
+RESULT token-env: PASS - no child process's environment holds the token (env, run as a child, does not show it)
+state (/var/lib/nexus-host-check/state):
+  mode=rss-start
+  init=systemd
+  f_marker=0
+  f_unit=
+  f_svc=
+  conf_saved=1
+  rss_start=1794728083
+  rss_base=22077
+  rss_base_cpu=0.0017
+  poller=1597
+  nxhost=host-check
+[08:39:04] == Step 1: facts
+$ [host] uname -a; [ ! -r /etc/alpine-release ] || echo "Alpine $(cat /etc/alpine-release)"; [ ! -r /etc/debian_version ] || echo "Debian base $(cat /etc/debian_version)"; sed -n "s/^PRETTY_NAME=//p" /etc/os-release; tr "\0" " " </proc/1/cmdline; echo; echo "nproc $(nproc); $(grep MemTotal /proc/meminfo)"
+Linux 25cabe92df7a 6.8.0-100-generic #100-Ubuntu SMP PREEMPT_DYNAMIC Tue Jan 13 16:39:21 UTC 2026 aarch64 GNU/Linux
+Debian base forky/sid
+"Ubuntu 26.04.1 LTS"
+/sbin/init 
+nproc 4; MemTotal:        8114204 kB
+$ [host] systemctl --version | head -n 1
+systemd 259 (259.9-0ubuntu0.1)
+$ [host] /usr/local/bin/nexusd -version
+nexusd dev
+$ nexus --version
+nexus dev
+  nexusd: pid 1281, uid 0
+$ [host] systemctl show -p MainPID,ActiveState,NRestarts nexusd.service; sha256sum /etc/systemd/system/nexusd.service; ls /etc/systemd/system/nexusd.service.d 2>&1 || true
+ActiveState=active
+MainPID=1281
+NRestarts=0
+5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a  /etc/systemd/system/nexusd.service
+ls: cannot access '/etc/systemd/system/nexusd.service.d': No such file or directory
+$ [host] sed -n '/^  host:$/,/^  [a-z]/p' /etc/nexus/nexusd.yaml
+  host:
+    enabled: true              # Off until enabled here
+    sampleInterval: 2s        # 2s..60s: how often the sampler reads the host
+    historyDuration: 24h        # sampleInterval..24h: how far back the in-memory history goes
+    sourceTimeout: 2s          # 250ms..5s: bound on one read of a file, statfs call or command
+$ nexus --host host-check capability get -o json (output kept, not logged)
+  capability: host provider enabled, initSystem systemd, sampleIntervalSeconds 2, historyDurationSeconds 86400
+RESULT 1-provider: PASS - the host provider is enabled; initSystem systemd = the host's init (systemd); sampleInterval 2s, historyDuration 86400s
+RESULT 1-host: FAIL - running in a container: not a real host
+
+== Plan. With --yes the script will, on this host:
+  - stop the poll, read /var/lib/nexus-host-check/rss.log: the maximum RSS over its last 10 minutes against
+    the baseline, the start and end times; read hostmetric's historyStart and points;
+  - revoke host-check-soak, restore /etc/nexus/nexusd.yaml byte for byte, validate and reload.
+
+[08:39:04] == Step 9: NFR-2 at the 24 h maximum, finish (--rss-24h finish, TC-HP-130)
+  started at epoch 1794728083, now 1794731944: 1.0725 h elapsed
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  hostmetric: historyStart 2026-11-15T07:34:42.242Z, points 24, stepSeconds 173, sampler ready
+$ [host] touch /var/lib/nexus-host-check/stop; sleep 12; kill -0 1597 2>/dev/null && kill 1597; wc -l </var/lib/nexus-host-check/rss.log; tail -n 3 /var/lib/nexus-host-check/rss.log
+64
+1794731769 2487920.42 1281 29188 571 1101 0
+1794731830 2487980.84 1281 29192 581 1119 0
+1794731890 2488041.29 1281 29192 591 1137 0
+  rss.log (epoch uptime pid VmRSS-kB ticks polls-ok polls-failed), every line:
+    1794728083 2484234.06 1281 24860 6 3 0
+    1794728143 2484294.40 1281 26736 16 21 0
+    1794728204 2484354.81 1281 27480 25 39 0
+    1794728264 2484415.23 1281 28320 34 57 0
+    1794728325 2484475.67 1281 28884 43 75 0
+    1794728385 2484536.14 1281 28668 54 93 0
+    1794728445 2484596.57 1281 29000 64 111 0
+    1794728506 2484657.00 1281 29024 74 129 0
+    1794728566 2484717.44 1281 28972 84 147 0
+    1794728627 2484777.91 1281 28988 96 165 0
+    1794728687 2484838.35 1281 29016 106 183 0
+    1794728748 2484898.79 1281 29020 115 201 0
+    1794728808 2484959.23 1281 28768 124 219 0
+    1794728869 2485019.69 1281 28772 134 237 0
+    1794728929 2485080.11 1281 28812 142 255 0
+    1794728989 2485140.54 1281 28828 150 273 0
+    1794729050 2485201.00 1281 28832 160 291 0
+    1794729110 2485261.43 1281 29180 171 309 0
+    1794729171 2485321.87 1281 29244 180 327 0
+    1794729231 2485382.29 1281 29248 188 345 0
+    1794729292 2485442.71 1281 28864 198 363 0
+    1794729352 2485503.13 1281 28864 206 381 0
+    1794729412 2485563.56 1281 29180 215 399 0
+    1794729473 2485624.02 1281 28972 223 417 0
+    1794729533 2485684.46 1281 28972 233 435 0
+    1794729594 2485744.86 1281 29224 241 453 0
+    1794729654 2485805.30 1281 28928 251 471 0
+    1794729715 2485865.75 1281 28928 259 489 0
+    1794729775 2485926.18 1281 28928 268 507 0
+    1794729835 2485986.62 1281 28928 277 525 0
+    1794729896 2486047.06 1281 28928 286 543 0
+    1794729956 2486107.50 1281 28928 296 561 0
+    1794730017 2486167.93 1281 28672 303 579 0
+    1794730077 2486228.37 1281 28840 313 597 0
+    1794730138 2486288.81 1281 28620 322 615 0
+    1794730198 2486349.22 1281 28628 330 633 0
+    1794730258 2486409.63 1281 28636 339 651 0
+    1794730319 2486470.06 1281 28888 349 669 0
+    1794730379 2486530.50 1281 28944 358 687 0
+    1794730440 2486590.92 1281 28944 367 705 0
+    1794730500 2486651.38 1281 29616 375 723 0
+    1794730561 2486711.81 1281 29004 385 741 0
+    1794730621 2486772.24 1281 29000 394 759 0
+    1794730682 2486832.67 1281 29100 404 777 0
+    1794730742 2486893.11 1281 29040 414 795 0
+    1794730802 2486953.54 1281 29040 423 813 0
+    1794730863 2487013.96 1281 28860 432 831 0
+    1794730923 2487074.40 1281 28888 442 849 0
+    1794730984 2487134.85 1281 28888 451 867 0
+    1794731044 2487195.28 1281 28888 460 885 0
+    1794731105 2487255.70 1281 28888 470 903 0
+    1794731165 2487316.15 1281 28892 479 921 0
+    1794731225 2487376.57 1281 28896 487 939 0
+    1794731286 2487437.00 1281 28900 497 957 0
+    1794731346 2487497.41 1281 28904 506 975 0
+    1794731407 2487557.85 1281 28904 516 993 0
+    1794731467 2487618.28 1281 29096 525 1011 0
+    1794731528 2487678.69 1281 29724 535 1029 0
+    1794731588 2487739.12 1281 29156 544 1047 0
+    1794731648 2487799.54 1281 29156 553 1065 0
+    1794731709 2487859.99 1281 29156 562 1083 0
+    1794731769 2487920.42 1281 29188 571 1101 0
+    1794731830 2487980.84 1281 29192 581 1119 0
+    1794731890 2488041.29 1281 29192 591 1137 0
+  maximum VmRSS over the last 10 minutes 29724 kB; baseline 22077 kB; delta 7.47 MiB; 64 samples; polls ok/failed: 1137 0
+$ [host] /usr/local/bin/nexusd token revoke host-check-soak; rm -rf /var/lib/nexus-host-check/xdg
+Revoked token "host-check-soak" (id d2b60cfe553f).
+$ [host] cat /var/lib/nexus-host-check/nexusd.yaml.orig >/etc/nexus/nexusd.yaml && [ "$(sha256sum /etc/nexus/nexusd.yaml | cut -d' ' -f1)" = "$(cat /var/lib/nexus-host-check/nexusd.yaml.sha256)" ] && echo 'restored, sha256 equal to the saved one' && /usr/local/bin/nexusd validate-config
+restored, sha256 equal to the saved one
+/etc/nexus/nexusd.yaml: configuration is valid
+$ [host] systemctl reload nexusd.service
+$ nexus --host host-check capability get -o json (output kept, not logged)
+  after the reload: nexusd pid 1281; host provider enabled, sampleIntervalSeconds 10, historyDurationSeconds 3600
+RESULT conf-restored: PASS - /etc/nexus/nexusd.yaml restored byte for byte (sha256 f3036c0711ff7670d879e7a6a6088c209624cd20b53a2002b54c0aa55132e3ac) and reloaded
+RESULT 9-rss-24h: NOT-RUN - the history was not full: 1.07 h of 24 h. So far: max VmRSS over the last 10 min 29724 kB - baseline 22077 kB = 7.47 MiB
+$ [host] rm -rf /var/lib/nexus-host-check
+RESULT token-absent: PASS - the token does not appear in the transcript
+
+== Summary (rss-finish)
+  token-env  PASS  no child process's environment holds the token (env, run as a child, does not show it)
+  1-provider  PASS  the host provider is enabled; initSystem systemd = the host's init (systemd); sampleInterval 2s, historyDuration 86400s
+  1-host  FAIL  running in a container: not a real host
+  conf-restored  PASS  /etc/nexus/nexusd.yaml restored byte for byte (sha256 f3036c0711ff7670d879e7a6a6088c209624cd20b53a2002b54c0aa55132e3ac) and reloaded
+  9-rss-24h  NOT-RUN  the history was not full: 1.07 h of 24 h. So far: max VmRSS over the last 10 min 29724 kB - baseline 22077 kB = 7.47 MiB
+  token-absent  PASS  the token does not appear in the transcript
+  (container: not real-host evidence)
+transcript: /root/33-soak-finish.txt
