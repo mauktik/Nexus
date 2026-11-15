@@ -372,6 +372,27 @@ func (h *history) sources(metrics []string) []seriesSource {
 	return out
 }
 
+// metricsGrid is the step grid of a metrics answer, shared by Query and the
+// handler's answer without a run: the step is raised to at least
+// ceil(window / maxPoints), then further until the grid from start (aligned
+// down to the step) to now holds at most maxPoints points. It returns the
+// aligned start, the step and the point count.
+func metricsGrid(nowMs, startMs int64, windowSeconds, step, maxPoints int) (fromMs int64, stepOut, points int) {
+	step = max(step, ceilDiv(windowSeconds, maxPoints))
+	for {
+		stepMs := int64(step) * 1000
+		fromMs = floorDiv(startMs, stepMs) * stepMs
+		points = 0
+		if nowMs >= fromMs {
+			points = int((nowMs-fromMs)/stepMs) + 1
+		}
+		if points <= maxPoints {
+			return fromMs, step, points
+		}
+		step++
+	}
+}
+
 // Query returns the requested metrics over windowSeconds before now, as
 // MetricsProperties without sampler, which the handler fills.
 //
@@ -401,7 +422,6 @@ func (h *history) Query(now time.Time, windowSeconds, stepSeconds int, metrics [
 	if len(src) > 0 {
 		maxPoints = max(1, min(maxPoints, spec.MaxResponseValues/len(src)))
 	}
-	step = max(step, ceilDiv(windowSeconds, maxPoints))
 
 	nowMs := now.UnixMilli()
 	start := nowMs - int64(windowSeconds)*1000
@@ -410,20 +430,8 @@ func (h *history) Query(now time.Time, windowSeconds, stepSeconds int, metrics [
 		oldestMs = h.ts[h.head]
 		start = max(start, oldestMs)
 	}
-	var fromMs, stepMs int64
-	points := 0
-	for {
-		stepMs = int64(step) * 1000
-		fromMs = floorDiv(start, stepMs) * stepMs
-		points = 0
-		if nowMs >= fromMs {
-			points = int((nowMs-fromMs)/stepMs) + 1
-		}
-		if points <= maxPoints {
-			break
-		}
-		step++
-	}
+	fromMs, step, points := metricsGrid(nowMs, start, windowSeconds, step, maxPoints)
+	stepMs := int64(step) * 1000
 
 	p := spec.MetricsProperties{
 		From:        time.UnixMilli(fromMs).UTC(),

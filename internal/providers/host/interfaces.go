@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"net/netip"
 	"slices"
-	"sync"
 	"time"
 
 	"github.com/mauktik/nexus/internal/apitypes"
@@ -139,20 +138,7 @@ type speedRead struct {
 // here, in the request's goroutine.
 func (p *Provider) linkSpeeds(ctx context.Context, names []string) []speedRead {
 	out := make([]speedRead, len(names))
-	panics := make([]any, len(names))
-	var wg sync.WaitGroup
-	for i, name := range names {
-		wg.Go(func() {
-			defer func() { panics[i] = recover() }()
-			out[i] = p.linkSpeed(ctx, name)
-		})
-	}
-	wg.Wait()
-	for _, v := range panics {
-		if v != nil {
-			panic(v)
-		}
-	}
+	fanOut(len(names), func(i int) { out[i] = p.linkSpeed(ctx, names[i]) })
 	return out
 }
 

@@ -10,7 +10,6 @@ import (
 	"path"
 	"slices"
 	"strings"
-	"sync"
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/problem"
@@ -164,6 +163,11 @@ func (p *Provider) collectFilesystems(ctx context.Context) ([]spec.FilesystemPro
 	if err != nil {
 		return nil, err
 	}
+	return p.filesystemsOf(ctx, t), nil
+}
+
+// filesystemsOf is collectFilesystems for an already read mount table.
+func (p *Provider) filesystemsOf(ctx context.Context, t mountTable) []spec.FilesystemProperties {
 	var view *selfView
 	if t.self != nil {
 		view = newSelfView(t.self)
@@ -183,7 +187,7 @@ func (p *Provider) collectFilesystems(ctx context.Context) ([]spec.FilesystemPro
 	}
 
 	items := make([]*spec.FilesystemProperties, len(order))
-	var wg sync.WaitGroup
+	visibleOf := make([][]hostparse.Mount, len(order))
 	for i, d := range order {
 		cands := groups[d]
 		slices.SortStableFunc(cands, preferMount)
@@ -205,13 +209,15 @@ func (p *Provider) collectFilesystems(ctx context.Context) ([]spec.FilesystemPro
 			items[i] = &f
 			continue
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			items[i] = p.pickFilesystem(ctx, t, visible)
-		}()
+		visibleOf[i] = visible
 	}
-	wg.Wait()
+	// One bounded statfs per group at once. fanOut raises a panic of a
+	// read in this goroutine, where the request's recovery sees it.
+	fanOut(len(order), func(i int) {
+		if visibleOf[i] != nil {
+			items[i] = p.pickFilesystem(ctx, t, visibleOf[i])
+		}
+	})
 
 	out := make([]spec.FilesystemProperties, 0, len(items))
 	for _, f := range items {
@@ -220,7 +226,7 @@ func (p *Provider) collectFilesystems(ctx context.Context) ([]spec.FilesystemPro
 		}
 	}
 	slices.SortStableFunc(out, func(a, b spec.FilesystemProperties) int { return strings.Compare(a.MountPoint, b.MountPoint) })
-	return out, nil
+	return out
 }
 
 // preferMount orders a group's candidates: mountinfo root "/" first, then

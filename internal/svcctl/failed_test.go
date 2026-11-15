@@ -124,7 +124,7 @@ func readCapture(t *testing.T, name string) capture {
 
 // specUnitPattern is the unit-name pattern of the work item, written
 // independently of failed.go's.
-var specUnitPattern = regexp.MustCompile(`^[A-Za-z0-9@._:\-]+\.[a-z]+$`)
+var specUnitPattern = regexp.MustCompile(`^[A-Za-z0-9@._:\\\-]+\.[a-z]+$`)
 
 // wantSystemdNames is the first field of each line of out that matches the
 // unit-name pattern, deduped and sorted.
@@ -163,6 +163,50 @@ func TestFailedCapturesParseToNames(t *testing.T) {
 	}
 	if got := wantOpenRCNames(readCapture(t, "openrc/rc-status-crashed.txt").out); len(got) < 2 {
 		t.Errorf("OpenRC capture parses to %q, want at least the planted service and nginx", got)
+	}
+}
+
+// CR-9: FailedTool names the argv0 ListFailed actually runs.
+func TestFailedToolIsTheArgv0ListFailedRuns(t *testing.T) {
+	for init, argv := range map[platform.InitSystem][]string{platform.Systemd: wantListUnitsArgv, platform.OpenRC: wantRCStatusArgv} {
+		if tool, ok := FailedTool(init); !ok || tool != argv[0] {
+			t.Errorf("FailedTool(%q) = %q, %v; want %q", init, tool, ok, argv[0])
+		}
+	}
+	if tool, ok := FailedTool(platform.InitSystem("unknown")); ok || tool != "" {
+		t.Errorf("FailedTool(unknown) = %q, %v; want none", tool, ok)
+	}
+}
+
+// CR-2: systemd prints a unit name derived from a path or device with its
+// "\xNN" escapes, backslash included. The first capture is real (T1 Ubuntu
+// harness, `systemd-run --unit 'tc-hp\x2dfail'`); the mount, swap, fsck and
+// cryptsetup lines are synthetic, written in the form systemd-escape(1)
+// produces. All of them must be kept and counted, while a name with a path
+// separator is still dropped.
+func TestFailedKeepsSystemdEscapedUnitNames(t *testing.T) {
+	c := readCapture(t, "systemd/list-units-failed-escaped.txt")
+	synthetic := `mnt-nas\x2dbackup.mount loaded failed failed /mnt/nas-backup
+dev-disk-by\x2dlabel-swap.swap loaded failed failed Swap
+systemd-fsck@dev-disk-by\x2duuid-0a1b2c3d\x2d4e5f.service loaded failed failed File System Check
+systemd-cryptsetup@luks\x2d0a1b.service loaded failed failed Cryptography Setup
+a/b\x2dc.service loaded failed failed not a name
+`
+	frun := newFRun(t).answer(wantListUnitsArgv, fAnswer{out: c.out + synthetic, exit: c.exit})
+	got, err := ListFailed(t.Context(), platform.Systemd, Options{Run: frun.Run})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		`dev-disk-by\x2dlabel-swap.swap`,
+		`mnt-nas\x2dbackup.mount`,
+		`systemd-cryptsetup@luks\x2d0a1b.service`,
+		`systemd-fsck@dev-disk-by\x2duuid-0a1b2c3d\x2d4e5f.service`,
+		`tc-hp-plain.service`,
+		`tc-hp\x2dfail.service`,
+	}
+	if !slices.Equal(got.Names, want) || got.Count != len(want) {
+		t.Errorf("got %d names %q, want %q", got.Count, got.Names, want)
 	}
 }
 

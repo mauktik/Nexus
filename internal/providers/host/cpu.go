@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/mauktik/nexus/internal/apitypes"
@@ -42,6 +41,67 @@ func (p *Provider) cpu(ctx context.Context, _ spec.NoInput) (apitypes.List[spec.
 	return currentList(p, spec.CPUType, p.collectCPU(ctx, p.run.Load().snapshot())), nil
 }
 
+// cpuBasics is what the CPU op and the summary's CPU part both read, in one
+// place so their values and reasons cannot drift apart: /proc/cpuinfo and
+// the cpuN lines of /proc/stat, each with the reason it could not be read.
+type cpuBasics struct {
+	info    *hostparse.CPUInfo
+	infoRaw []byte
+	infoWhy string
+	cpus    []hostparse.PerCPU
+	statWhy string
+}
+
+func (p *Provider) cpuBasics() cpuBasics {
+	var out cpuBasics
+	if b, err := p.src.read(pathCPUInfo); err != nil {
+		out.infoWhy = reasonFor(pathCPUInfo, err)
+	} else if ci, err := hostparse.Cpuinfo(b); err != nil {
+		out.infoWhy = reasonFor(pathCPUInfo, err)
+	} else {
+		out.info, out.infoRaw = &ci, b
+	}
+	// The logical CPUs are the cpuN lines of /proc/stat, read now.
+	if b, err := p.src.read(pathStat); err != nil {
+		out.statWhy = reasonFor(pathStat, err)
+	} else if st, err := hostparse.ProcStat(b); err != nil {
+		out.statWhy = reasonFor(pathStat, err)
+	} else {
+		out.cpus = st.CPUs
+	}
+	return out
+}
+
+// model is the CPU model, or the reason there is none.
+func (b cpuBasics) model() (*string, string) {
+	switch {
+	case b.info == nil:
+		return nil, b.infoWhy
+	case b.info.Model == "":
+		return nil, reasonNoModel
+	}
+	m := b.info.Model
+	return &m, ""
+}
+
+// logicalCPUs is the count of cpuN lines, or the reason there is none.
+func (b cpuBasics) logicalCPUs() (*int, string) {
+	if b.statWhy != "" {
+		return nil, b.statWhy
+	}
+	n := len(b.cpus)
+	return &n, ""
+}
+
+// cpuRates is the sampler's CPU rates, the zero value for a nil snapshot
+// (the sampler is not running; val gives the reason).
+func (s *snapshot) cpuRates() cpuRates {
+	if s == nil {
+		return cpuRates{}
+	}
+	return s.cpu
+}
+
 // collectCPU reads the CPU detail live and merges in the sampler-derived
 // usage from snap (nil when the sampler is not running). The model, counts,
 // load, frequencies and temperatures never depend on the sampler (FR-11).
@@ -50,45 +110,18 @@ func (p *Provider) collectCPU(ctx context.Context, snap *snapshot) spec.CPUPrope
 	out := spec.CPUProperties{Sampler: snap.sampler(now)}
 	un := &out.Unavailable
 
-	var info *hostparse.CPUInfo
-	var infoRaw []byte
-	infoWhy := ""
-	if b, err := p.src.read(pathCPUInfo); err != nil {
-		infoWhy = reasonFor(pathCPUInfo, err)
-	} else if ci, err := hostparse.Cpuinfo(b); err != nil {
-		infoWhy = reasonFor(pathCPUInfo, err)
-	} else {
-		info, infoRaw = &ci, b
+	basics := p.cpuBasics()
+	info, cpus, statWhy := basics.info, basics.cpus, basics.statWhy
+	var why string
+	if out.Model, why = basics.model(); why != "" {
+		setWhy(un, "model", why)
 	}
-	switch {
-	case info == nil:
-		setWhy(un, "model", infoWhy)
-	case info.Model == "":
-		setWhy(un, "model", reasonNoModel)
-	default:
-		m := info.Model
-		out.Model = &m
+	if out.LogicalCPUs, why = basics.logicalCPUs(); why != "" {
+		setWhy(un, "logicalCpus", why)
+		setWhy(un, "perCpu", why)
 	}
 
-	// The logical CPUs are the cpuN lines of /proc/stat, read now.
-	var cpus []hostparse.PerCPU
-	statWhy := ""
-	if b, err := p.src.read(pathStat); err != nil {
-		statWhy = reasonFor(pathStat, err)
-	} else if st, err := hostparse.ProcStat(b); err != nil {
-		statWhy = reasonFor(pathStat, err)
-	} else {
-		cpus = st.CPUs
-	}
-	if statWhy != "" {
-		setWhy(un, "logicalCpus", statWhy)
-		setWhy(un, "perCpu", statWhy)
-	} else {
-		n := len(cpus)
-		out.LogicalCPUs = &n
-	}
-
-	if n, why := p.physicalCores(cpus, statWhy, infoRaw); why != "" {
+	if n, why := p.physicalCores(cpus, statWhy, basics.infoRaw); why != "" {
 		setWhy(un, "physicalCores", why)
 	} else {
 		out.PhysicalCores = &n
@@ -98,10 +131,7 @@ func (p *Provider) collectCPU(ctx context.Context, snap *snapshot) spec.CPUPrope
 
 	// The usage and its split come from the sampler's snapshot; val gives
 	// the not-running reason for a nil one.
-	var rates cpuRates
-	if snap != nil {
-		rates = snap.cpu
-	}
+	rates := snap.cpuRates()
 	usage, why := snap.val(now, rates.usage)
 	out.UsagePercent = usage
 	if why != "" {
@@ -130,10 +160,10 @@ func (p *Provider) collectCPU(ctx context.Context, snap *snapshot) spec.CPUPrope
 	var freqs []freqRead
 	var temps spec.Array[spec.Temperature]
 	tempsWhy := ""
-	var wg sync.WaitGroup
-	wg.Go(func() { freqs = p.frequencies(ctx, cpus, info) })
-	wg.Go(func() { temps, tempsWhy = p.temperatures(ctx) })
-	wg.Wait()
+	concurrently(
+		func() { freqs = p.frequencies(ctx, cpus, info) },
+		func() { temps, tempsWhy = p.temperatures(ctx) },
+	)
 
 	out.PerCPU = make(spec.Array[spec.PerCPU], 0, len(cpus))
 	var sum float64
@@ -291,35 +321,31 @@ type freqRead struct {
 // without a fallback is that failure's reason.
 func (p *Provider) frequencies(ctx context.Context, cpus []hostparse.PerCPU, info *hostparse.CPUInfo) []freqRead {
 	out := make([]freqRead, len(cpus))
-	var wg sync.WaitGroup
-	for i, c := range cpus {
-		wg.Go(func() {
-			name, err := segPath(segName, cpuDir, "cpu"+strconv.Itoa(c.ID), "cpufreq", "scaling_cur_freq")
-			if err == nil {
-				var b []byte
-				if b, err = p.src.readBounded(ctx, name); err == nil {
-					var khz int64
-					if khz, err = hostparse.ScalarInt(b); err == nil && khz <= 0 {
-						err = errors.New("scaling_cur_freq: not a positive frequency")
-					}
-					if err == nil {
-						out[i] = freqRead{mhz: float64(khz) / 1000}
-						return
-					}
+	fanOut(len(cpus), func(i int) {
+		name, err := segPath(segName, cpuDir, "cpu"+strconv.Itoa(cpus[i].ID), "cpufreq", "scaling_cur_freq")
+		if err == nil {
+			var b []byte
+			if b, err = p.src.readBounded(ctx, name); err == nil {
+				var khz int64
+				if khz, err = hostparse.ScalarInt(b); err == nil && khz <= 0 {
+					err = errors.New("scaling_cur_freq: not a positive frequency")
+				}
+				if err == nil {
+					out[i] = freqRead{mhz: float64(khz) / 1000}
+					return
 				}
 			}
-			if info != nil && i < len(info.MHz) {
-				out[i] = freqRead{mhz: info.MHz[i]}
-				return
-			}
-			if errors.Is(err, fs.ErrNotExist) {
-				out[i] = freqRead{why: reasonNoFrequency}
-				return
-			}
-			out[i] = freqRead{why: reasonFor(name, err)}
-		})
-	}
-	wg.Wait()
+		}
+		if info != nil && i < len(info.MHz) {
+			out[i] = freqRead{mhz: info.MHz[i]}
+			return
+		}
+		if errors.Is(err, fs.ErrNotExist) {
+			out[i] = freqRead{why: reasonNoFrequency}
+			return
+		}
+		out[i] = freqRead{why: reasonFor(name, err)}
+	})
 	return out
 }
 
@@ -351,24 +377,21 @@ func (p *Provider) temperatures(ctx context.Context) (spec.Array[spec.Temperatur
 	}
 
 	out := make(spec.Array[spec.Temperature], len(sensors))
-	var wg sync.WaitGroup
-	for i, s := range sensors {
-		wg.Go(func() {
-			t := s.t
-			b, err := p.src.readBounded(ctx, s.input)
-			var c float64
-			if err == nil {
-				c, err = hostparse.Millidegrees(b)
-			}
-			if err != nil {
-				setWhy(&t.Unavailable, "celsius", reasonFor(s.input, err))
-			} else {
-				t.Celsius = &c
-			}
-			out[i] = t
-		})
-	}
-	wg.Wait()
+	fanOut(len(sensors), func(i int) {
+		s := sensors[i]
+		t := s.t
+		b, err := p.src.readBounded(ctx, s.input)
+		var c float64
+		if err == nil {
+			c, err = hostparse.Millidegrees(b)
+		}
+		if err != nil {
+			setWhy(&t.Unavailable, "celsius", reasonFor(s.input, err))
+		} else {
+			t.Celsius = &c
+		}
+		out[i] = t
+	})
 	return out, ""
 }
 

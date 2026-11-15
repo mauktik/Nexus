@@ -39,14 +39,9 @@ type flight struct {
 	err   error
 }
 
-// newSource wraps fsys in the allow-list, with a fixed sourceTimeout. A nil
-// statfs is the platform's default seam.
-func newSource(fsys fs.FS, timeout time.Duration, statfs func(string) (Usage, error)) *source {
-	return newSourceWith(fsys, func() time.Duration { return timeout }, statfs)
-}
-
-// newSourceWith is newSource with the sourceTimeout read from timeout on
-// each bounded call: the provider passes its current settings'.
+// newSourceWith wraps fsys in the allow-list, with the sourceTimeout read
+// from timeout on each bounded call: the provider passes its current
+// settings'. A nil statfs is the platform's default seam.
 func newSourceWith(fsys fs.FS, timeout func() time.Duration, statfs func(string) (Usage, error)) *source {
 	if statfs == nil {
 		statfs = defaultStatfs

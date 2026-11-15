@@ -67,8 +67,46 @@ func (p *Provider) identity(ctx context.Context, _ spec.NoInput) (apitypes.List[
 // collectIdentity reads the host's identity live. Each source that fails
 // leaves only its own fields null with the reason.
 func (p *Provider) collectIdentity(ctx context.Context) spec.IdentityProperties {
-	var out spec.IdentityProperties
-	un := &out.Unavailable
+	b := p.identityBasics()
+	out := spec.IdentityProperties{
+		Hostname:      b.hostname,
+		OS:            b.os,
+		KernelRelease: b.kernelRelease,
+		Architecture:  b.architecture,
+		InitSystem:    b.initSystem,
+		BootTime:      b.bootTime,
+		UptimeSeconds: b.uptimeSeconds,
+		Unavailable:   b.un,
+	}
+	osrelease := ""
+	if b.kernelRelease != nil {
+		osrelease = *b.kernelRelease
+	}
+
+	dmi, vendor, product := p.dmi()
+	out.DMI = dmi
+	out.Virtualization = p.virtualization(osrelease, vendor, product)
+	out.Timezone = p.timezone()
+	out.Clock = p.clock(ctx)
+	return out
+}
+
+// identityBasics is what the identity op and the summary's identity part
+// both read, in one place so their values and reasons cannot drift apart:
+// the hostname, OS, kernel release, architecture, init system, boot time
+// and uptime.
+type identityBasics struct {
+	hostname, kernelRelease, architecture *string
+	os                                    spec.OSRelease
+	initSystem                            string
+	bootTime                              *time.Time
+	uptimeSeconds                         *float64
+	un                                    spec.Unavailable
+}
+
+func (p *Provider) identityBasics() identityBasics {
+	var out identityBasics
+	un := &out.un
 
 	// The hostname is the kernel's in nexusd's UTS namespace, never
 	// os.Hostname or the host.name label (A-20, TC-HP-E19).
@@ -77,20 +115,18 @@ func (p *Provider) collectIdentity(ctx context.Context) spec.IdentityProperties 
 	} else if v == "" {
 		setWhy(un, "hostname", prefixUnrecognized+displayPath(pathHostname))
 	} else {
-		out.Hostname = &v
+		out.hostname = &v
 	}
 
-	out.OS = p.osRelease()
-	out.InitSystem = string(p.plat.Init)
+	out.os = p.osRelease()
+	out.initSystem = string(p.plat.Init)
 
-	osrelease, why := p.readString(pathOSRelease)
-	switch {
-	case why != "":
+	if v, why := p.readString(pathOSRelease); why != "" {
 		setWhy(un, "kernelRelease", why)
-	case osrelease == "":
+	} else if v == "" {
 		setWhy(un, "kernelRelease", prefixUnrecognized+displayPath(pathOSRelease))
-	default:
-		out.KernelRelease = &osrelease
+	} else {
+		out.kernelRelease = &v
 	}
 
 	if m, err := p.uname(); err != nil {
@@ -103,7 +139,7 @@ func (p *Provider) collectIdentity(ctx context.Context) spec.IdentityProperties 
 	} else if m == "" {
 		setWhy(un, "architecture", prefixUnrecognized+"uname(2) machine")
 	} else {
-		out.Architecture = &m
+		out.architecture = &m
 	}
 
 	if b, err := p.src.read(pathStat); err != nil {
@@ -112,7 +148,7 @@ func (p *Provider) collectIdentity(ctx context.Context) spec.IdentityProperties 
 		setWhy(un, "bootTime", prefixUnrecognized+displayPath(pathStat))
 	} else {
 		bt := time.Unix(int64(st.BootTime), 0).UTC()
-		out.BootTime = &bt
+		out.bootTime = &bt
 	}
 
 	if b, err := p.src.read(pathUptime); err != nil {
@@ -120,14 +156,8 @@ func (p *Provider) collectIdentity(ctx context.Context) spec.IdentityProperties 
 	} else if up, err := hostparse.Uptime(b); err != nil {
 		setWhy(un, "uptimeSeconds", reasonFor(pathUptime, err))
 	} else {
-		out.UptimeSeconds = &up
+		out.uptimeSeconds = &up
 	}
-
-	dmi, vendor, product := p.dmi()
-	out.DMI = dmi
-	out.Virtualization = p.virtualization(osrelease, vendor, product)
-	out.Timezone = p.timezone()
-	out.Clock = p.clock(ctx)
 	return out
 }
 

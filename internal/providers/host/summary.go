@@ -12,7 +12,6 @@ import (
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/problem"
-	"github.com/mauktik/nexus/internal/providers/host/hostparse"
 	"github.com/mauktik/nexus/internal/providers/host/spec"
 )
 
@@ -90,12 +89,22 @@ func (p *Provider) collectSummary(ctx context.Context, snap *snapshot) spec.Summ
 // have returned, so the dispatcher's recovery sees it and no goroutine
 // outlives the call.
 func concurrently(fns ...func()) {
-	panics := make([]any, len(fns))
+	fanOut(len(fns), func(i int) { fns[i]() })
+}
+
+// fanOut runs fn(0) to fn(n-1), each in its own goroutine, and waits for
+// all. Every goroutine recovers, and the first panic value, by index, is
+// raised again in the caller's goroutine after the wait. bounded raises a
+// panic of its worker in whoever waits on it, so a bare goroutine in a
+// handler would turn that into a process crash instead of a failed request
+// (NFR-4).
+func fanOut(n int, fn func(i int)) {
+	panics := make([]any, n)
 	var wg sync.WaitGroup
-	for i, fn := range fns {
+	for i := range n {
 		wg.Go(func() {
 			defer func() { panics[i] = recover() }()
-			fn()
+			fn(i)
 		})
 	}
 	wg.Wait()
@@ -115,97 +124,37 @@ func carry(dst *spec.Unavailable, to string, src spec.Unavailable, from string) 
 
 // summaryIdentity is the identity-basic collector: the identity op's
 // hostname, OS, kernel release, architecture, init system, boot time and
-// uptime, read the same way (collectIdentity), without DMI,
-// virtualization, time zone or the clock command.
+// uptime (identityBasics), without DMI, virtualization, time zone or the
+// clock command.
 func (p *Provider) summaryIdentity() spec.SummaryIdentity {
-	var out spec.SummaryIdentity
-	un := &out.Unavailable
-
-	if v, why := p.readString(pathHostname); why != "" {
-		setWhy(un, "hostname", why)
-	} else if v == "" {
-		setWhy(un, "hostname", prefixUnrecognized+displayPath(pathHostname))
-	} else {
-		out.Hostname = &v
+	b := p.identityBasics()
+	return spec.SummaryIdentity{
+		Hostname:      b.hostname,
+		OS:            b.os,
+		KernelRelease: b.kernelRelease,
+		Architecture:  b.architecture,
+		InitSystem:    b.initSystem,
+		BootTime:      b.bootTime,
+		UptimeSeconds: b.uptimeSeconds,
+		Unavailable:   b.un,
 	}
-
-	out.OS = p.osRelease()
-	out.InitSystem = string(p.plat.Init)
-
-	if v, why := p.readString(pathOSRelease); why != "" {
-		setWhy(un, "kernelRelease", why)
-	} else if v == "" {
-		setWhy(un, "kernelRelease", prefixUnrecognized+displayPath(pathOSRelease))
-	} else {
-		out.KernelRelease = &v
-	}
-
-	if m, err := p.uname(); err != nil {
-		var unsupported *unsupportedError
-		if errors.As(err, &unsupported) {
-			setWhy(un, "architecture", reasonFor("uname", err))
-		} else {
-			setWhy(un, "architecture", prefixNotPresent+"uname(2) machine")
-		}
-	} else if m == "" {
-		setWhy(un, "architecture", prefixUnrecognized+"uname(2) machine")
-	} else {
-		out.Architecture = &m
-	}
-
-	if b, err := p.src.read(pathStat); err != nil {
-		setWhy(un, "bootTime", reasonFor(pathStat, err))
-	} else if st, err := hostparse.ProcStat(b); err != nil || !st.HasBootTime || st.BootTime > 1<<62 {
-		setWhy(un, "bootTime", prefixUnrecognized+displayPath(pathStat))
-	} else {
-		bt := time.Unix(int64(st.BootTime), 0).UTC()
-		out.BootTime = &bt
-	}
-
-	if b, err := p.src.read(pathUptime); err != nil {
-		setWhy(un, "uptimeSeconds", reasonFor(pathUptime, err))
-	} else if up, err := hostparse.Uptime(b); err != nil {
-		setWhy(un, "uptimeSeconds", reasonFor(pathUptime, err))
-	} else {
-		out.UptimeSeconds = &up
-	}
-	return out
 }
 
 // summaryCPU is the CPU-basic collector: the CPU op's model, logical CPUs,
-// usage and load, read the same way (collectCPU), without topology,
-// frequencies or sensors.
+// usage and load (cpuBasics), without topology, frequencies or sensors.
 func (p *Provider) summaryCPU(snap *snapshot, now time.Time) spec.SummaryCPU {
 	var out spec.SummaryCPU
 	un := &out.Unavailable
+	b := p.cpuBasics()
 
-	if b, err := p.src.read(pathCPUInfo); err != nil {
-		setWhy(un, "model", reasonFor(pathCPUInfo, err))
-	} else if ci, err := hostparse.Cpuinfo(b); err != nil {
-		setWhy(un, "model", reasonFor(pathCPUInfo, err))
-	} else if ci.Model == "" {
-		setWhy(un, "model", reasonNoModel)
-	} else {
-		m := ci.Model
-		out.Model = &m
+	var why string
+	if out.Model, why = b.model(); why != "" {
+		setWhy(un, "model", why)
 	}
-
-	if b, err := p.src.read(pathStat); err != nil {
-		setWhy(un, "logicalCpus", reasonFor(pathStat, err))
-	} else if st, err := hostparse.ProcStat(b); err != nil {
-		setWhy(un, "logicalCpus", reasonFor(pathStat, err))
-	} else {
-		n := len(st.CPUs)
-		out.LogicalCPUs = &n
+	if out.LogicalCPUs, why = b.logicalCPUs(); why != "" {
+		setWhy(un, "logicalCpus", why)
 	}
-
-	var rates cpuRates
-	if snap != nil {
-		rates = snap.cpu
-	}
-	usage, why := snap.val(now, rates.usage)
-	out.UsagePercent = usage
-	if why != "" {
+	if out.UsagePercent, why = snap.val(now, snap.cpuRates().usage); why != "" {
 		setWhy(un, "usagePercent", why)
 	}
 	out.Load = p.load()
@@ -226,12 +175,13 @@ func projectMemory(m spec.MemoryProperties) spec.SummaryMemory {
 // or the reason there is none: only a host without any readable mountinfo
 // has none, and then the host file's reason is the summary's.
 func (p *Provider) summaryFilesystems(ctx context.Context) ([]spec.FilesystemProperties, string) {
-	fs, err := p.collectFilesystems(ctx) // sorted by mount point
+	t, err := p.readMountTable()
 	if err != nil {
-		t, _ := p.readMountTable()
+		// readMountTable fails only with neither file readable, and t then
+		// carries the host file's reason: no second read to recover it.
 		return nil, t.hostWhy
 	}
-	return fs, ""
+	return p.filesystemsOf(ctx, t), "" // sorted by mount point
 }
 
 // projectFilesystem is one filesystem's summary entry.

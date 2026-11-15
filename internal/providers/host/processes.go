@@ -1,6 +1,7 @@
 package host
 
 import (
+	"errors"
 	"strconv"
 
 	"github.com/mauktik/nexus/internal/providers/host/hostparse"
@@ -28,11 +29,12 @@ func (p *Provider) topProcesses(byCPU, byMem []procRate) (spec.Array[spec.Proces
 	var users map[uint32]string
 	usersWhy := ""
 	usersRead := false
-	ownerOf := func(pid int) owner {
+	ownerOf := func(r procRate) owner {
+		pid := r.pid
 		if o, ok := owners[pid]; ok {
 			return o
 		}
-		o := p.processUID(pid)
+		o := p.processUID(pid, r.startTime)
 		if o.uid != nil {
 			if !usersRead {
 				usersRead = true
@@ -57,7 +59,7 @@ func (p *Provider) topProcesses(byCPU, byMem []procRate) (spec.Array[spec.Proces
 	list := func(rs []procRate) spec.Array[spec.Process] {
 		out := make(spec.Array[spec.Process], 0, len(rs))
 		for _, r := range rs {
-			o := ownerOf(r.pid)
+			o := ownerOf(r)
 			cpu, rss := r.cpuPercent, r.rssBytes
 			pr := spec.Process{PID: r.pid, Command: r.comm, UID: o.uid, User: o.user, CPUPercent: &cpu, RSSBytes: &rss}
 			if o.uidWhy != "" {
@@ -73,9 +75,12 @@ func (p *Provider) topProcesses(byCPU, byMem []procRate) (spec.Array[spec.Proces
 	return list(byCPU), list(byMem)
 }
 
-// processUID reads the real uid of pid from /proc/<pid>/status. Without
-// it the user name is unknown for the same reason.
-func (p *Provider) processUID(pid int) owner {
+// processUID reads the real uid of pid from /proc/<pid>/status, once
+// /proc/<pid>/stat has the starttime of the sampled process: the scan can
+// be many ticks old, and a reused pid is another process, whose owner must
+// not be shown next to the sampled command. Without the uid the user name
+// is unknown for the same reason.
+func (p *Provider) processUID(pid int, startTime uint64) owner {
 	var o owner
 	name, err := segPath(segPID, pathProc, strconv.Itoa(pid), "status")
 	if err != nil {
@@ -84,7 +89,12 @@ func (p *Provider) processUID(pid int) owner {
 		return o
 	}
 	b, err := p.src.read(name)
-	if err != nil {
+	if err == nil {
+		err = p.sameProcess(pid, startTime)
+	}
+	if errors.Is(err, errPidReused) {
+		o.uidWhy = prefixNotPresent + "/proc/" + strconv.Itoa(pid) + " (process exited)"
+	} else if err != nil {
 		o.uidWhy = reasonFor(name, err)
 	} else if uid, err := hostparse.PidStatusUID(b); err != nil {
 		o.uidWhy = prefixUnrecognized + displayPath(name)
@@ -96,4 +106,26 @@ func (p *Provider) processUID(pid int) owner {
 		o.userWhy = o.uidWhy
 	}
 	return o
+}
+
+// errPidReused is a pid whose process is no longer the sampled one.
+var errPidReused = errors.New("process exited")
+
+// sameProcess is nil when /proc/<pid>/stat still shows the sampled
+// process's starttime. A stat that cannot be read gives that read's
+// error, and one that shows another process (or cannot be parsed, so the
+// process cannot be told) gives errPidReused.
+func (p *Provider) sameProcess(pid int, startTime uint64) error {
+	name, err := segPath(segPID, pathProc, strconv.Itoa(pid), "stat")
+	if err != nil {
+		return err
+	}
+	b, err := p.src.read(name)
+	if err != nil {
+		return err
+	}
+	if st, err := hostparse.PidStat(b); err != nil || st.StartTime != startTime {
+		return errPidReused
+	}
+	return nil
 }

@@ -82,7 +82,7 @@ copy_dynamic() {
 # Read entries other than the dynamic ones, as globs relative to HOST-ROOT.
 # `*` in proc/*/ is the digits-only pid (copy_dynamic); cpu* is digits-only.
 READ_GLOBS='
-proc/meminfo proc/loadavg proc/uptime proc/vmstat proc/cpuinfo proc/mounts
+proc/meminfo proc/loadavg proc/uptime proc/vmstat proc/cpuinfo
 proc/self/mountinfo proc/1/mountinfo
 proc/net/route proc/net/ipv6_route
 proc/pressure/cpu proc/pressure/memory proc/pressure/io

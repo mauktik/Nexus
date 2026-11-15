@@ -13,14 +13,34 @@ import (
 // rcStatusPath is the absolute path of rc-status (A-17, testdata/README.md).
 const rcStatusPath = "/bin/rc-status"
 
-// unitNamePattern is what ListFailed accepts as a systemd unit name.
-const unitNamePattern = `^[A-Za-z0-9@._:\-]+\.[a-z]+$`
+// unitNamePattern is what ListFailed accepts as a systemd unit name. The
+// backslash is in the class because systemd writes unit names derived from
+// paths and devices with "\xNN" escapes ("tc-hp\x2dfail.service",
+// "mnt-nas\x2dbackup.mount"); systemd.unit(5): the unit name prefix "must
+// consist of one or more valid characters (ASCII letters, digits, ":", "-",
+// "_", ".", and "\")", and systemd-escape(1) produces those escapes. The
+// listing prints them verbatim, so without the backslash a failed mount,
+// swap, fsck or cryptsetup unit would vanish from the count.
+const unitNamePattern = `^[A-Za-z0-9@._:\\\-]+\.[a-z]+$`
 
 // unitNameMax is the longest unit name systemd accepts (testdata/README.md:
 // 255 characters are accepted, 256 refused).
 const unitNameMax = 255
 
 var unitName = regexp.MustCompile(unitNamePattern)
+
+// FailedTool is the absolute path of the tool ListFailed runs for init, or
+// false when ListFailed lists nothing for it. Callers that key or word
+// something by the tool use this and so cannot drift from the argv.
+func FailedTool(init platform.InitSystem) (string, bool) {
+	switch init {
+	case platform.Systemd:
+		return systemctlPath, true
+	case platform.OpenRC:
+		return rcStatusPath, true
+	}
+	return "", false
+}
 
 // FailedServices is what the init system reports failed.
 type FailedServices struct {

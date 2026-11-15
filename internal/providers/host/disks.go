@@ -78,7 +78,7 @@ func (p *Provider) collectDisks(_ context.Context, snap *snapshot) ([]diskItem, 
 			continue
 		}
 		if strings.HasPrefix(name, "loop") {
-			backing, _ := segPath(segName, blockDir, name, "loop", "backing_file")
+			backing, _ := segPath(segName, blockDir, name, "loop", "backing_file") // name passed segPath above; the rest is fixed
 			if _, err := p.src.stat(backing); errors.Is(err, fs.ErrNotExist) {
 				continue // an unbacked loop device
 			}
@@ -211,7 +211,7 @@ func (p *Provider) partitions(un *spec.Unavailable, dir string, mounts map[devOf
 			continue // attributes and the bdi, device and subsystem links
 		}
 		attr := func(leaf string) string {
-			n, _ := segPath(segName, dir, e.Name(), leaf)
+			n, _ := segPath(segName, dir, e.Name(), leaf) // used only after e.Name() passed segPath below; leaf is fixed
 			return n
 		}
 		if _, err := segPath(segName, dir, e.Name()); err != nil {

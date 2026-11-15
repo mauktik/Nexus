@@ -77,18 +77,8 @@ func (p *Provider) noHistory(now time.Time, in spec.MetricsInput) spec.MetricsPr
 		k, _ := historyShape(historySamples(s.HistoryDuration, s.SampleInterval))
 		step = max(1, int((time.Duration(k)*s.SampleInterval+time.Second-1)/time.Second))
 	}
-	step = max(step, ceilDiv(window, spec.MaxSeriesPoints))
 	nowMs := now.UnixMilli()
-	start := nowMs - int64(window)*1000
-	var fromMs int64
-	for {
-		stepMs := int64(step) * 1000
-		fromMs = floorDiv(start, stepMs) * stepMs
-		if (nowMs-fromMs)/stepMs+1 <= spec.MaxSeriesPoints {
-			break
-		}
-		step++
-	}
+	fromMs, step, _ := metricsGrid(nowMs, nowMs-int64(window)*1000, window, step, spec.MaxSeriesPoints)
 	return spec.MetricsProperties{
 		From:        time.UnixMilli(fromMs).UTC(),
 		StepSeconds: step,

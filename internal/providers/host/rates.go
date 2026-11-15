@@ -7,14 +7,12 @@ import (
 	"time"
 
 	"github.com/mauktik/nexus/internal/providers/host/hostparse"
+	"github.com/mauktik/nexus/internal/providers/host/spec"
 )
 
 // userHZ is the unit of the /proc/stat and /proc/<pid>/stat tick counters:
 // USER_HZ, 100 on every architecture Linux exports to user space (A-7).
 const userHZ = 100
-
-// topN is the length of each top-process list (FR-10).
-const topN = 5
 
 // rateVal is one computed value, or the reason there is none. A missing
 // value is never 0 (FR-12).
@@ -51,6 +49,7 @@ type procRate struct {
 	comm       string
 	cpuPercent float64 // of one CPU (A-7)
 	rssBytes   uint64
+	startTime  uint64 // /proc/<pid>/stat starttime, to tell a reused pid from the sampled process
 }
 
 // snapshot is one immutable result of the sampler, published with an
@@ -216,7 +215,7 @@ func perSecond(entity string, a, b, unit uint64, secs float64) rateVal {
 // processRates ranks the pids present in both scans with the same
 // starttime (A-7). A pid in only one scan, or reused (its starttime
 // changed), or whose ticks decreased, is not ranked. CPU % is of one CPU:
-// Δ(utime+stime) / (USER_HZ × elapsed s) × 100. The lists are the topN by
+// Δ(utime+stime) / (USER_HZ × elapsed s) × 100. The lists are the top spec.TopProcesses by
 // CPU and by RSS, descending, ties by pid ascending.
 func processRates(base, cur *procScan, pageSize int) (byCPU, byMem []procRate, interval time.Duration, why string) {
 	switch {
@@ -247,6 +246,7 @@ func processRates(base, cur *procScan, pageSize int) (byCPU, byMem []procRate, i
 			comm:       c.Comm,
 			cpuPercent: float64(ct-pt) / (userHZ * secs) * 100,
 			rssBytes:   uint64(max(c.RSSPages, 0)) * uint64(pageSize),
+			startTime:  c.StartTime,
 		})
 	}
 	byCPU = topBy(ranked, func(a, b procRate) int { return cmp.Compare(b.cpuPercent, a.cpuPercent) })
@@ -254,7 +254,7 @@ func processRates(base, cur *procScan, pageSize int) (byCPU, byMem []procRate, i
 	return byCPU, byMem, interval, ""
 }
 
-// topBy is the first topN of ps ordered by order, ties by pid ascending,
+// topBy is the first spec.TopProcesses (FR-10) of ps ordered by order, ties by pid ascending,
 // in a slice of its own.
 func topBy(ps []procRate, order func(a, b procRate) int) []procRate {
 	slices.SortFunc(ps, func(a, b procRate) int {
@@ -263,5 +263,5 @@ func topBy(ps []procRate, order func(a, b procRate) int) []procRate {
 		}
 		return cmp.Compare(a.pid, b.pid)
 	})
-	return slices.Clone(ps[:min(topN, len(ps))])
+	return slices.Clone(ps[:min(spec.TopProcesses, len(ps))])
 }

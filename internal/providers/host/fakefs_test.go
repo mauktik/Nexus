@@ -190,11 +190,6 @@ func (f *fakeFS) deny(pattern string) {
 	f.addFault(&fsFault{match: under(pattern), errno: syscall.EACCES})
 }
 
-// eperm is deny with EPERM.
-func (f *fakeFS) eperm(pattern string) {
-	f.addFault(&fsFault{match: under(pattern), errno: syscall.EPERM})
-}
-
 // missing makes pattern and below fail with ENOENT.
 func (f *fakeFS) missing(pattern string) {
 	f.addFault(&fsFault{match: under(pattern), errno: syscall.ENOENT})

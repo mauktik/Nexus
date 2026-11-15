@@ -442,6 +442,13 @@ func TestTCHP6_ValidateConfigAndCheckConfigNeverStartA(t *testing.T) {
 	if _, errs := CheckConfig(path); len(errs) != 0 {
 		t.Fatalf("CheckConfig: %v", errs)
 	}
+	// CheckConfig builds its own providers, so F-BG goes through the same
+	// path with it behind the provider set; the real host provider returns
+	// from RunBackground at once off Linux and would leave nothing to see.
+	withF := func(string, *slog.Logger) []provider.Provider { return []provider.Provider{f} }
+	if _, errs := checkConfigWith(path, withF); len(errs) != 0 {
+		t.Fatalf("checkConfigWith: %v", errs)
+	}
 	if n := f.starts(); n != 0 {
 		t.Fatalf("F-BG started %d times by validation", n)
 	}

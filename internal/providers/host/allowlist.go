@@ -79,7 +79,7 @@ var allowList = buildAllowList(
 	// /proc (3.1, 3.3, 4.1-4.4).
 	allow(accRead,
 		"proc/stat", "proc/meminfo", "proc/loadavg", "proc/uptime", "proc/vmstat",
-		"proc/diskstats", "proc/cpuinfo", "proc/mounts",
+		"proc/diskstats", "proc/cpuinfo",
 		"proc/self/mountinfo", "proc/1/mountinfo",
 		"proc/net/dev", "proc/net/route", "proc/net/ipv6_route",
 		"proc/pressure/cpu", "proc/pressure/memory", "proc/pressure/io",
@@ -94,7 +94,7 @@ var allowList = buildAllowList(
 	// Block devices and partitions (4.2).
 	allow(accRead,
 		"sys/block/*/size", "sys/block/*/removable", "sys/block/*/dev",
-		"sys/block/*/queue/rotational", "sys/block/*/device/model", "sys/block/*/loop/backing_file",
+		"sys/block/*/queue/rotational", "sys/block/*/device/model",
 		"sys/block/*/*/size", "sys/block/*/*/dev", "sys/block/*/*/partition",
 	),
 	// Sensors (4.1).
@@ -128,6 +128,9 @@ var allowList = buildAllowList(
 	),
 	allow(accStatOnly,
 		"sys/class/net/*/device",
+		// Whether a loop device is backed, never what it is backed by: the
+		// content is a host path (SEC-2).
+		"sys/block/*/loop/backing_file",
 		"run/.containerenv", ".dockerenv", "proc/vz", "proc/bc",
 		"var/run/reboot-required", "lib/modules/*",
 		"usr/bin/chronyc", "run/systemd/timesync", "run/chrony/chronyd.pid", "run/ntpd.pid",

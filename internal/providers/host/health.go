@@ -5,21 +5,12 @@ import (
 	"errors"
 
 	"github.com/mauktik/nexus/internal/apitypes"
-	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/providers/host/hostparse"
 	"github.com/mauktik/nexus/internal/providers/host/spec"
 	"github.com/mauktik/nexus/internal/svcctl"
 )
 
 const pathVmstat = "proc/vmstat"
-
-// failedArgv0 is the tool svcctl.ListFailed runs per init system
-// (internal/svcctl: systemctlPath, rcStatusPath). It keys the bounded call
-// and names the tool in reasons.
-var failedArgv0 = map[platform.InitSystem]string{
-	platform.Systemd: "/usr/bin/systemctl",
-	platform.OpenRC:  "/bin/rc-status",
-}
 
 // health is host.health.get.
 func (p *Provider) health(ctx context.Context, _ spec.NoInput) (apitypes.List[spec.Health], error) {
@@ -89,7 +80,7 @@ type failedOutcome struct {
 func (p *Provider) failedServices(ctx context.Context) spec.FailedServices {
 	init := p.plat.Init
 	out := spec.FailedServices{Source: string(init)}
-	argv0, ok := failedArgv0[init]
+	argv0, ok := svcctl.FailedTool(init)
 	if !ok {
 		why := prefixNotSupported + "no failed-service listing for init system " + string(init)
 		setWhy(&out.Unavailable, "count", why)

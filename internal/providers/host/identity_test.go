@@ -138,8 +138,6 @@ func toolOS(t *testing.T, capture string) map[string]string {
 	return out
 }
 
-func strPtr(s string) *string { return &s }
-
 func eqStr(got *string, want string) bool { return got != nil && *got == want }
 
 func show[T any](p *T) string {

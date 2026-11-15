@@ -1122,8 +1122,10 @@ func TestTCHPE32_ConcurrentCallsJoinAHealthyInFlight(t *testing.T) {
 		if r.err != nil || r.u != rootRow {
 			t.Errorf("step 1 call %d = %+v, %v; want the root row", i, r.u, r.err)
 		}
-		if r.took < 40*time.Millisecond || r.took > 200*time.Millisecond {
-			t.Errorf("step 1 call %d took %v, want 40-200ms", i, r.took)
+		// Only the lower bound proves the wait; the upper one is the next
+		// deadline, not a tight window a loaded -race run could miss.
+		if r.took < 40*time.Millisecond || r.took >= 250*time.Millisecond {
+			t.Errorf("step 1 call %d took %v, want at least 40ms and under the 250ms timeout", i, r.took)
 		}
 	}
 	if n := st.count("/mnt/slow"); n != 1 {
@@ -1147,20 +1149,20 @@ func TestTCHPE32_ConcurrentCallsJoinAHealthyInFlight(t *testing.T) {
 	if r := reasonFor("/mnt/late", r1.err); r != timedOut {
 		t.Errorf("first call: reason %q", r)
 	}
-	if r1.took < 250*time.Millisecond || r1.took > 350*time.Millisecond {
-		t.Errorf("first call took %v, want 250-350ms", r1.took)
+	if r1.took < 250*time.Millisecond || r1.took >= 400*time.Millisecond {
+		t.Errorf("first call took %v, want at least 250ms and under the 400ms the seam takes", r1.took)
 	}
 	if r := reasonFor("/mnt/late", r2.err); r != timedOut {
 		t.Errorf("second call: reason %q", r)
 	}
-	if r2.took < 120*time.Millisecond || r2.took > 220*time.Millisecond {
-		t.Errorf("second call took %v, want 120-220ms (the first call's deadline)", r2.took)
+	if r2.took < 120*time.Millisecond || r2.took >= 300*time.Millisecond {
+		t.Errorf("second call took %v, want at least 120ms (the first call's deadline) and under 300ms (the seam's return)", r2.took)
 	}
 	if r := reasonFor("/mnt/late", third.err); r != "still pending: statfs /mnt/late" {
 		t.Errorf("third call: reason %q", r)
 	}
-	if third.took > 10*time.Millisecond {
-		t.Errorf("third call took %v, want at most 10ms", third.took)
+	if third.took >= 100*time.Millisecond {
+		t.Errorf("third call took %v, want under 100ms (it started 100ms before the seam returns)", third.took)
 	}
 	if n := st.count("/mnt/late"); n != 1 {
 		t.Errorf("F-STATFS count for /mnt/late = %d, want 1", n)

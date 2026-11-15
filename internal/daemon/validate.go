@@ -28,6 +28,13 @@ func ValidateProviders(cfg *config.Config) error {
 // their own locations, and any other is reported at providers.<name>. The
 // list is empty only for a file nexusd would start with.
 func CheckConfig(path string) (*config.Config, config.ErrorList) {
+	return checkConfigWith(path, builtinProviders)
+}
+
+// checkConfigWith is CheckConfig over the providers build returns, so a
+// test can put a provider with background work behind it and see that
+// validation never starts it.
+func checkConfigWith(path string, build func(host string, log *slog.Logger) []provider.Provider) (*config.Config, config.ErrorList) {
 	cfg, err := config.Load(path)
 	if err != nil {
 		var list config.ErrorList
@@ -40,7 +47,7 @@ func CheckConfig(path string) (*config.Config, config.ErrorList) {
 	cfgs := providerConfigs(cfg)
 	var list config.ErrorList
 	// One provider at a time, so each error is known to be that provider's.
-	for _, p := range builtinProviders("", log) {
+	for _, p := range build("", log) {
 		err := core.ValidateProviders([]provider.Provider{p}, cfgs)
 		list = append(list, providerErrors(path, p.Spec().Name, err)...)
 	}

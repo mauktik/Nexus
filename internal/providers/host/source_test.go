@@ -22,6 +22,11 @@ import (
 	"github.com/mauktik/nexus/internal/svcctl"
 )
 
+// newSource is newSourceWith for a fixed sourceTimeout.
+func newSource(fsys fs.FS, timeout time.Duration, statfs func(string) (Usage, error)) *source {
+	return newSourceWith(fsys, func() time.Duration { return timeout }, statfs)
+}
+
 // inFlight reports whether bounded has a call in flight for key.
 func (s *source) inFlight(key string) bool {
 	s.mu.Lock()
@@ -57,6 +62,11 @@ func TestAllowListAccessKinds(t *testing.T) {
 		{"read", read, "proc/self/stat", false},
 		{"read", read, "sys/devices/system/cpu/cpufreq/scaling_cur_freq", false},
 		{"read", read, "sys/devices/system/cpu/cpuX/topology/core_id", false},
+		// SEC-2: a loop device's backing file is existence-only, and the
+		// mount table comes from mountinfo, so proc/mounts has no grant.
+		{"read", read, "sys/block/loop0/loop/backing_file", false},
+		{"read", read, "proc/mounts", false},
+		{"stat", stat, "sys/block/loop0/loop/backing_file", true},
 		{"read", read, "proc/stat", true},
 		{"read", read, "etc/localtime", true},
 		{"read", read, "proc/1/stat", true},

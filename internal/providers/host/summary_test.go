@@ -402,6 +402,25 @@ func TestSummaryListSourcesUnreadable(t *testing.T) {
 	}
 }
 
+// CR-3: the summary's filesystems failure takes its reason from the one
+// mount-table read that failed; it does not read mountinfo again (and then
+// has no reason when that second read succeeds).
+func TestSummaryFilesystemsFailureReadsMountinfoOnce(t *testing.T) {
+	s := newHostStack(t, capUBU)
+	s.ffs.deny(pathHostMountinfo)
+	s.ffs.deny(pathSelfMountinfo)
+	s.ffs.resetRecorder()
+	_, why := s.p.summaryFilesystems(t.Context())
+	if why != "permission denied: /proc/1/mountinfo" {
+		t.Errorf("reason %q, want the host file's", why)
+	}
+	for _, name := range []string{pathHostMountinfo, pathSelfMountinfo} {
+		if n := s.ffs.count("open", name); n != 1 {
+			t.Errorf("%s opened %d times, want 1", name, n)
+		}
+	}
+}
+
 // An interface whose type cannot be read may not be loopback, so it is
 // listed; one whose operstate cannot be read is unknown with the reason;
 // denied addresses make both primaries null with the Addrs reason.
