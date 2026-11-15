@@ -254,6 +254,47 @@ files before committing).
   soak's start undoes the change at once; after a SIGKILL, every run
   refuses until `--cleanup` has undone it.
 
+### The script was hardened after these runs (SEC-3 to SEC-5)
+
+The transcripts above are from the script with sha256 `281d577a…` (and
+`28c99d83…` for 31 and 32). They are kept as they were: they are the
+evidence of those runs. After them, the delta security review
+(`planning/system-provider/security-review.md`, iteration 2) found that a
+process name could make the script run code as root: any user can name
+their own process (`/proc/self/comm`), step 4h split that name into words
+and globbed it, and a displaced field reached awk as program text
+(SEC-3). The script now has sha256
+`7c19ec18e0a8ba44c3e197c9b2298c08dc25a7b32030e12583931a7f9da3f629`:
+
+- `set -f`; no unquoted expansion of data (shellcheck's SC2086 and SC2046
+  are on); a line is split by awk (`field`), never by the shell;
+- `calc` takes a fixed program with operands `a` to `e`, and every value
+  through `awk -v` after a number check; no awk or sed program has a value
+  in its text; no `eval`;
+- the host prints a process's `comm` last, each byte outside
+  `A-Za-z0-9._:+@-` made `_`, and the provider's `command` is compared
+  after the same mapping;
+- `--rss-24h finish` signals the poll's pid only while its command line is
+  still `sh /var/lib/nexus-host-check/poller.sh` (SEC-4);
+- the sampler interval and the capability's interval and history are
+  checked as whole seconds in range before any use (SEC-5).
+
+TC-HP-132 checks this statically, and
+`TestTCHP132_AHostileProcessNameIsDataNotCode` runs step 4h with a
+hostile `comm`. On 2026-11-15 the new script ran again in a fresh
+`nexus-harness:ubuntu-latest` container (the same fb475bc release; no Go
+code changed since), with an unprivileged process (`nobody`, about 390 MB)
+named `a b /tmp/q/*` and a file `/tmp/q/system("id >PWNED")`. The old
+script (`281d577a…`, `--calls 20`) wrote `PWNED` with `uid=0(root)`. The
+new one wrote nothing, compared that process field by field (`ok
+topByMemory pid 490 a b /tmp/q/* uid 65534 nobody`, VmRSS 392,404 kB),
+and gave the results of `11-ubuntu-check.txt` again (every `3-walk`,
+`4*`, `5-*` and `6-latency` PASS, worst p95 7 ms; exit 1, from `1-host`
+only). A `--rss-24h start --baseline 60` and `finish` on the same
+container exercised the soak's changed paths (baseline, poll stopped by
+its stop file, `conf-restored` PASS). Those transcripts are not
+committed.
+
 ## Known before the real run
 
 - **The Alpine VM's reboot flag cannot be planted.** Alpine's rule is

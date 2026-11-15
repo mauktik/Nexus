@@ -9,6 +9,7 @@
 package buildsys
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -360,6 +361,89 @@ func TestTCHP132_TheLiveCheckScriptIsPOSIXAnd(t *testing.T) {
 		}
 	}
 
+	// SEC-3: data from the host, nexusd or the state file is never code.
+	// set -f runs before the first function and is never undone; the
+	// file does not turn off shellcheck's quoting checks (SC2086, SC2046),
+	// so every expansion here is quoted; no eval; calc's program is a
+	// single-quoted literal of operands and arithmetic (values go through
+	// -v); and no awk or sed program is a double-quoted string that
+	// expands something, here or on the host (calc's own awk aside).
+	// TestTCHP132_AHostileProcessNameIsDataNotCode runs the case that was
+	// exploitable.
+	lines := strings.Split(script, "\n")
+	setF, firstFn := -1, -1
+	for i, line := range lines {
+		if setF < 0 && line == "set -f" {
+			setF = i
+		}
+		if firstFn < 0 && funcStart.MatchString(line) {
+			firstFn = i
+		}
+		if strings.Contains(line, "set +f") {
+			t.Errorf("%s:%d turns pathname expansion back on: %s", rel, i+1, line)
+		}
+		if strings.HasPrefix(line, "# shellcheck disable=") &&
+			(strings.Contains(line, "SC2086") || strings.Contains(line, "SC2046")) {
+			t.Errorf("%s:%d disables shellcheck's quoting checks for the file: %s", rel, i+1, line)
+		}
+	}
+	if setF < 0 || (firstFn >= 0 && setF > firstFn) {
+		t.Errorf("%s: no `set -f` in the main code before the first function (set -f at line %d, first function at line %d)",
+			rel, setF+1, firstFn+1)
+	}
+	evalRe := regexp.MustCompile(`(^|[;&|\s(])eval\s`)
+	calcCall := regexp.MustCompile(`\bcalc\s+('[^']*'|"[^"]*"|\S+)`)
+	calcExpr := regexp.MustCompile(`^'[a-e0-9.+*/() -]+'$`)
+	program := regexp.MustCompile(`\b(awk|sed)((?:\s+-(?:[nEi]+|F\S+|v\s+\S+|e))*)\s+"`)
+	expands := regexp.MustCompile(`(^|[^\\])\$[A-Za-z_{(0-9@*#?$!-]`)
+	nCalc := 0
+	checkCode := func(where string, code []string) {
+		for _, line := range code {
+			if evalRe.MatchString(line) {
+				t.Errorf("%s: eval in %s: %s", rel, where, strings.TrimSpace(line))
+			}
+			for _, m := range calcCall.FindAllStringSubmatch(line, -1) {
+				if strings.HasPrefix(m[1], "()") {
+					continue // the definition
+				}
+				nCalc++
+				if !calcExpr.MatchString(m[1]) {
+					t.Errorf("%s: calc in %s takes %s, not a single-quoted literal of a-e, digits and + - * / ( ): %s",
+						rel, where, m[1], strings.TrimSpace(line))
+				}
+			}
+			if where == "calc" {
+				continue
+			}
+			for _, loc := range program.FindAllStringIndex(line, -1) {
+				rest := line[loc[1]:] // after the opening quote
+				end := len(rest)
+				for j := 0; j < len(rest); j++ {
+					if rest[j] == '\\' {
+						j++
+						continue
+					}
+					if rest[j] == '"' {
+						end = j
+						break
+					}
+				}
+				if expands.MatchString(rest[:end]) {
+					t.Errorf("%s: an awk or sed program in %s expands a value into its text (pass it with -v): %s",
+						rel, where, strings.TrimSpace(line))
+				}
+			}
+		}
+	}
+	for _, f := range fns {
+		checkCode(f.name, f.lines)
+	}
+	checkCode("the main code", top)
+	if nCalc == 0 {
+		t.Errorf("%s: no calc call found (the check above would pass vacuously)", rel)
+	}
+	requireAll(t, rel, script, `tr -c "A-Za-z0-9._:+@-" "_"`, `valid_dec "$_co" || return 1`)
+
 	// Behaviour that needs no host: --help, an unknown argument, and
 	// mutually exclusive modes, each before any transcript is made.
 	dir := t.TempDir()
@@ -376,5 +460,146 @@ func TestTCHP132_TheLiveCheckScriptIsPOSIXAnd(t *testing.T) {
 	}
 	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
 		t.Errorf("the refused runs left files in %s: %v %v", dir, entries, err)
+	}
+}
+
+// shellFunctions returns the text of every top-level function of a shell
+// script (name() { ... } up to a "}" in column 0, or one line), without
+// the code outside them, so a test can call one function with stubs.
+func shellFunctions(script string) string {
+	funcStart := regexp.MustCompile(`^[a-z_][a-z0-9_]*\(\) \{`)
+	var b strings.Builder
+	in := false
+	for _, line := range strings.Split(script, "\n") {
+		if !in {
+			if !funcStart.MatchString(line) {
+				continue
+			}
+			b.WriteString(line + "\n")
+			if strings.HasSuffix(strings.TrimSpace(line), "}") {
+				continue // a one-line function
+			}
+			in = true
+			continue
+		}
+		b.WriteString(line + "\n")
+		if line == "}" {
+			in = false
+		}
+	}
+	return b.String()
+}
+
+// TC-HP-132 (SEC-3 regression): a process name is data, never code. Any
+// user can set their own process's comm (/proc/self/comm, up to 15 bytes,
+// spaces, quotes and * allowed). check_health reads each top process's
+// comm on the host; the script must not split it into fields, glob it, or
+// put it (or a field it displaced) into awk program text.
+//
+// The test runs the script's own check_health (every function of the
+// script, without its main code and without set -f, so the structure is
+// what is tested) with the nexus and host calls stubbed: hrun runs the
+// script's real host command, with /proc and /etc/passwd pointed at a fake
+// tree that holds one process with a hostile comm. The working directory
+// holds q/system("touch PWNED"), the file a glob of "q/*" finds; awk would
+// run it if a displaced field reached a program. Expected: no PWNED file,
+// and the process compared field by field (pid, uid, user, RSS).
+func TestTCHP132_AHostileProcessNameIsDataNotCode(t *testing.T) {
+	root := repoRoot(t)
+	rel := filepath.Join("test", "live", "host-check.sh")
+	funcs := shellFunctions(readFile(t, filepath.Join(root, rel)))
+	if !strings.Contains(funcs, "\ncheck_health() {\n") {
+		t.Fatalf("%s: no check_health function", rel)
+	}
+
+	const harness = `set -u
+LC_ALL=C
+export LC_ALL
+TRANSCRIPT=$FAKE/transcript TMPD=$FAKE/tmp INIT=systemd IN_CONTAINER=0 CAP_IV=10 FAILS=0 INCONCL=0 RESULTS=
+mkdir -p "$TMPD"
+host_health_facts() { HX_OUT=oom=0; HX_RC=0; }
+align() { AL_WAIT=0.01 AL_IV=10; }
+hrun() {
+	_fake=$(printf '%s' "$1" | sed -e "s#/proc/#$FAKE/proc/#g" -e "s#/etc/passwd#$FAKE/etc/passwd#g")
+	HX_OUT=$(sh -c "$_fake" 2>&1)
+	HX_RC=$?
+}
+nx_quiet() { JF=$FAKE/health.flat; NX_RC=0; }
+JF=$FAKE/health.flat
+check_health
+`
+	shells := [][]string{{"sh"}}
+	if _, err := exec.LookPath("dash"); err == nil {
+		shells = append(shells, []string{"dash"})
+	}
+	if _, err := exec.LookPath("busybox"); err == nil {
+		shells = append(shells, []string{"busybox", "sh"})
+	}
+	cases := map[string]string{
+		"glob":  `a b q/*`,
+		"quote": `x"; system("touch PWNED"); "`,
+		"paren": `a) 1 2 q/*`,
+	}
+	for name, comm := range cases {
+		for _, shell := range shells {
+			t.Run(name+"/"+strings.Join(shell, "-"), func(t *testing.T) {
+				fake := t.TempDir()
+				work := filepath.Join(fake, "work")
+				write := func(p, s string) {
+					t.Helper()
+					if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(p, []byte(s), 0o644); err != nil {
+						t.Fatal(err)
+					}
+				}
+				write(filepath.Join(work, "q", `system("touch PWNED")`), "")
+				write(filepath.Join(fake, "proc", "uptime"), "5000.00 9000.00\n")
+				// starttime (field 22) 100000 ticks: 1000 s after boot, so
+				// 4000 s old at an uptime of 5000 s.
+				write(filepath.Join(fake, "proc", "4242", "stat"),
+					"4242 ("+comm+") S 1 4242 4242 0 -1 4194560 100 0 0 0 10 5 0 0 20 0 1 0 100000 1000000 225000\n")
+				write(filepath.Join(fake, "proc", "4242", "comm"), comm+"\n")
+				write(filepath.Join(fake, "proc", "4242", "status"),
+					"Name:\tx\nUid:\t1000\t1000\t1000\t1000\nVmRSS:\t  900000 kB\n")
+				write(filepath.Join(fake, "etc", "passwd"),
+					"root:x:0:0:root:/root:/bin/sh\nmallory:x:1000:1000::/home/mallory:/bin/sh\n")
+				cmdJSON, err := json.Marshal(comm)
+				if err != nil {
+					t.Fatal(err)
+				}
+				p := "[0].properties."
+				write(filepath.Join(fake, "health.flat"), strings.Join([]string{
+					p + "failedServices.count\t0",
+					p + "failedServices.source\t\"systemd\"",
+					p + "oomKills\t0",
+					p + "rebootRequired.state\t\"unknown\"",
+					p + "topByMemory[0].pid\t4242",
+					p + "topByMemory[0].command\t" + string(cmdJSON),
+					p + "topByMemory[0].uid\t1000",
+					p + "topByMemory[0].user\t\"mallory\"",
+					p + "topByMemory[0].rssBytes\t921600000",
+					p + "processSampleSeconds\t10",
+				}, "\n")+"\n")
+				write(filepath.Join(fake, "harness.sh"), funcs+harness)
+
+				env := append(os.Environ(), "FAKE="+fake)
+				args := append(shell[1:], filepath.Join(fake, "harness.sh"))
+				out, code := run(t, work, env, shell[0], args...)
+				transcript, _ := os.ReadFile(filepath.Join(fake, "transcript"))
+				if _, err := os.Stat(filepath.Join(work, "PWNED")); err == nil {
+					t.Errorf("comm %q: the script ran code from the process name (PWNED was created)", comm)
+				}
+				want := "ok    topByMemory pid 4242 "
+				if !strings.Contains(string(transcript), want) || !strings.Contains(string(transcript), "uid 1000 mallory") ||
+					!strings.Contains(string(transcript), "VmRSS 900000 kB") {
+					t.Errorf("comm %q: process 4242 not compared field by field (want %q, uid 1000 mallory, VmRSS 900000 kB)", comm, want)
+				}
+				if t.Failed() {
+					t.Logf("%s exit %d\n%s\ntranscript:\n%s", strings.Join(shell, " "), code, out, transcript)
+				}
+			})
+		}
 	}
 }

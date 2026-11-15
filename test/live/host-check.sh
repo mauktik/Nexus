@@ -32,12 +32,16 @@
 # transcript file (--transcript FILE). NEXUS_TOKEN is never written to it.
 
 # Functions run through the EXIT trap, which shellcheck cannot follow
-# (SC2317, SC2329). `set -- $(...)` and `set -- $var` split a line of
-# numbers into fields on purpose (SC2046, SC2086). `[ test ] && ok ... ||
-# bad ...` is an if-then-else here, because ok, bad and unav always return
-# 0 (SC2015).
-# shellcheck disable=SC2317,SC2329,SC2046,SC2086,SC2015
+# (SC2317, SC2329). `[ test ] && ok ... || bad ...` is an if-then-else
+# here, because ok, bad and unav always return 0 (SC2015).
+# shellcheck disable=SC2317,SC2329,SC2015
 set -u
+# Data from the host, from nexusd and from the state file is never code
+# here: no pathname expansion anywhere (set -f; the host commands run in
+# their own sh, which globs as usual), no unquoted expansion of such data,
+# a line is split into fields by awk (field), and a value reaches awk only
+# through -v, never through program text (calc).
+set -f
 umask 022
 # Byte order for every sort and comparison, as the provider sorts.
 LC_ALL=C
@@ -278,6 +282,23 @@ valid_path() {
 	case $1 in *[!A-Za-z0-9_./@+-]* | */../* | */..) return 1 ;; esac
 }
 valid_num() { case $1 in '' | *[!0-9]*) return 1 ;; esac; }
+# valid_dec: a decimal number as awk prints one (-1.5, 2, 1.2e+06).
+valid_dec() {
+	case $1 in '' | *[!0-9eE.+-]*) return 1 ;; esac
+	awk -v x="$1" 'BEGIN { exit !(x ~ /^-?[0-9]+(\.[0-9]*)?([eE][-+]?[0-9]+)?$/) }'
+}
+# in_range N LO HI: N is a whole number from LO to HI.
+in_range() { valid_num "$1" && [ "$1" -ge "$2" ] && [ "$1" -le "$3" ]; }
+
+# field TEXT N: the Nth blank-separated field of TEXT's first line; for N
+# <= 0, the field -N places before the last one (0 is the last). Empty if
+# there is no such field. A line from the host is split here, never by the
+# shell, so a field holds no glob and cannot move the others.
+field() { printf '%s\n' "$1" | awk -v n="$2" 'NR == 1 { i = (n > 0) ? n : NF + n; if (i >= 1 && i <= NF) print $i; exit }'; }
+
+# kv TEXT KEY: the value of the first line KEY=... in TEXT. kvs: every one.
+kv() { printf '%s\n' "$1" | awk -v k="$2=" 'index($0, k) == 1 { print substr($0, length(k) + 1); exit }'; }
+kvs() { printf '%s\n' "$1" | awk -v k="$2=" 'index($0, k) == 1 { print substr($0, length(k) + 1) }'; }
 
 rand_hex8() { od -An -N4 -tx1 /dev/urandom | tr -d ' \n'; }
 
@@ -314,9 +335,9 @@ hrun() {
 }
 
 # hval KEY: the value of the line KEY=... in HX_OUT (the first one).
-hval() { printf '%s\n' "$HX_OUT" | sed -n "s/^$1=//p" | head -n 1; }
+hval() { kv "$HX_OUT" "$1"; }
 # hvals KEY: every such value, one per line.
-hvals() { printf '%s\n' "$HX_OUT" | sed -n "s/^$1=//p"; }
+hvals() { kvs "$HX_OUT" "$1"; }
 
 host_root() {
 	if [ -z "$SSH_TARGET" ]; then
@@ -360,8 +381,11 @@ nexusd_pid() {
 proc_sample() {
 	# shellcheck disable=SC2016 # Expanded on the host.
 	hx 'p='"$NXD_PID"'; u=$(cut -d" " -f1 /proc/uptime); s=$(cat /proc/$p/stat 2>/dev/null) || { echo gone; exit 1; }; s=${s##*") "}; set -- $s; echo "$u $((${12} + ${13})) $(sed -n "s/^VmRSS:[[:space:]]*\([0-9]*\).*/\1/p" /proc/$p/status) $p"'
-	set -- $HX_OUT
-	P_UP=${1:-} P_TICKS=${2:-} P_RSS=${3:-} P_PID=${4:-}
+	P_UP=$(field "$HX_OUT" 1) P_TICKS=$(field "$HX_OUT" 2) P_RSS=$(field "$HX_OUT" 3) P_PID=$(field "$HX_OUT" 4)
+	valid_dec "$P_UP" || P_UP=
+	valid_num "$P_TICKS" || P_TICKS=
+	valid_num "$P_RSS" || P_RSS=
+	valid_num "$P_PID" || P_PID=
 }
 
 # --- the nexus CLI -------------------------------------------------------
@@ -480,8 +504,19 @@ epoch() {
 	}'
 }
 
-# calc EXPR: awk arithmetic, such as calc "1.5 * 2".
-calc() { awk "BEGIN { print $1 }"; }
+# calc EXPR NUMBER...: awk arithmetic, such as calc 'a * 1024' "$kb". EXPR
+# is fixed text written at the call, in single quotes: the operands a to
+# e, digits and + - * / ( ), so it can name no function or variable of
+# awk's. Every value is an operand, passed with -v after valid_dec, never
+# part of EXPR. Prints nothing and fails when EXPR has another character
+# or an operand is not a number.
+calc() {
+	_ce=$1
+	shift
+	case $_ce in '' | *[!abcde0123456789.+*/\ \(\)-]*) return 1 ;; esac
+	for _co in "$@"; do valid_dec "$_co" || return 1; done
+	awk -v a="${1:-0}" -v b="${2:-0}" -v c="${3:-0}" -v d="${4:-0}" -v e="${5:-0}" "BEGIN { print $_ce }"
+}
 # within A B TOL: |A - B| <= TOL.
 within() { awk -v a="$1" -v b="$2" -v t="$3" 'BEGIN { d = a - b; if (d < 0) d = -d; exit !(d <= t) }'; }
 
@@ -653,6 +688,10 @@ facts() {
 	CAP_IV=$(jv "$_i.details.sampleIntervalSeconds")
 	CAP_HD=$(jv "$_i.details.historyDurationSeconds")
 	log "  capability: host provider $CAP_STATUS, initSystem $CAP_INIT, sampleIntervalSeconds $CAP_IV, historyDurationSeconds $CAP_HD"
+	# Both reach awk and host commands later: whole seconds in the
+	# provider's ranges (2s..60s, up to 24h), or empty (the defaults).
+	in_range "$CAP_IV" 1 60 || { [ "$CAP_IV" = '<absent>' ] || log "  (sampleIntervalSeconds is not 1..60 whole seconds: not used)"; CAP_IV=; }
+	in_range "$CAP_HD" 1 86400 || { [ "$CAP_HD" = '<absent>' ] || log "  (historyDurationSeconds is not 1..86400 whole seconds: not used)"; CAP_HD=; }
 	if [ "$CAP_STATUS" = enabled ] && [ "$CAP_INIT" = "$INIT" ]; then
 		result 1-provider PASS "the host provider is enabled; initSystem $CAP_INIT = the host's init ($INIT); sampleInterval ${CAP_IV}s, historyDuration ${CAP_HD}s"
 		PROVIDER_OK=1
@@ -757,7 +796,7 @@ check_all() {
 
 host_identity_facts() {
 	# shellcheck disable=SC2016 # Expanded on the host.
-	hrun 'q() { sed -n "s/^$1=//p" /etc/os-release | head -n 1 | sed -e "s/^\"//" -e "s/\"\$//"; }
+	hrun 'q() { awk -v k="$1=" "index(\$0, k) == 1 { print substr(\$0, length(k) + 1); exit }" /etc/os-release | sed -e "s/^\"//" -e "s/\"\$//"; }
 echo "kernel_hostname=$(cat /proc/sys/kernel/hostname)"
 command -v hostnamectl >/dev/null 2>&1 && echo "hostnamectl=$(hostnamectl hostname 2>/dev/null || hostnamectl --transient 2>/dev/null)"
 echo "os_id=$(q ID)"; echo "os_version_id=$(q VERSION_ID)"; echo "os_pretty=$(q PRETTY_NAME)"
@@ -851,11 +890,10 @@ n=0; for t in /sys/class/hwmon/hwmon*/temp*_input /sys/class/thermal/thermal_zon
 	if [ "$_pc" = "$_lc" ]; then ok "perCpu has $_pc entries = logicalCpus"; else bad "perCpu has $_pc entries, logicalCpus $_lc"; fi
 	_m=$(hval model)
 	if [ -n "$_m" ]; then eq model "$P.model" "$_m"; elif [ "$(jv "$P.model")" = null ]; then unav "$P.model" ""; else bad "model '$(js "$P.model")' but /proc/cpuinfo has no model name"; fi
-	set -- $(hval loadavg)
+	_la=$(hval loadavg)
 	for _l in 1:load1 2:load5 3:load15; do
-		eval "_hl=\${${_l%%:*}:-}"
-		# shellcheck disable=SC2154 # _hl is set by the eval.
-		near "load.${_l#*:}" "$P.load.${_l#*:}" "$_hl" "$(calc "0.25 + 0.1 * $_hl")"
+		_hl=$(field "$_la" "${_l%%:*}")
+		near "load.${_l#*:}" "$P.load.${_l#*:}" "$_hl" "$(calc '0.25 + 0.1 * a' "$_hl")"
 	done
 	_fr=$(hval freq_range) _fq=$(jv "$P.frequencyMhz")
 	if [ "$_fq" = null ]; then
@@ -863,7 +901,7 @@ n=0; for t in /sys/class/hwmon/hwmon*/temp*_input /sys/class/thermal/thermal_zon
 	elif [ -n "$_fr" ]; then
 		if awk -v f="$_fq" -v lo="${_fr% *}" -v hi="${_fr#* }" 'BEGIN { exit !(f >= lo / 1000 - 1 && f <= hi / 1000 + 1) }'; then ok "frequencyMhz $_fq within cpufreq's range $_fr kHz"; else bad "frequencyMhz $_fq outside cpufreq's range $_fr kHz"; fi
 	else
-		near frequencyMhz "$P.frequencyMhz" "$(hval cpuinfo_mhz)" "$(calc "0.5 * $(hval cpuinfo_mhz)")"
+		near frequencyMhz "$P.frequencyMhz" "$(hval cpuinfo_mhz)" "$(calc '0.5 * a' "$(hval cpuinfo_mhz)")"
 	fi
 	_nt=$(jn "$P.temperatures") _ht=$(hval temp_inputs)
 	if [ "$_nt" -eq 0 ]; then
@@ -886,18 +924,22 @@ check_memory() {
 	hrun 'free -b; awk "/^(MemTotal|MemFree|MemAvailable|Buffers|Cached|SReclaimable|Shmem|SwapTotal|SwapFree):/ { sub(\":\", \"\", \$1); print \"mi_\" \$1 \"=\" \$2 * 1024 }" /proc/meminfo; for f in cpu memory io; do [ ! -r /proc/pressure/$f ] || echo "psi_$f=1"; done'
 	c_begin
 	P='[0].properties'
-	set -- $(printf '%s\n' "$HX_OUT" | awk '$1 == "Mem:" { print $2 }')
-	near totalBytes "$P.totalBytes" "${1:-}" 0
-	near freeBytes "$P.freeBytes" "$(hval mi_MemFree)" "$(calc "0.01 * $(hval mi_MemTotal)")"
-	near usedBytes "$P.usedBytes" "$(calc "$(hval mi_MemTotal) - $(hval mi_MemAvailable)")" "$(calc "0.01 * $(hval mi_MemTotal)")"
-	near buffersBytes "$P.buffersBytes" "$(hval mi_Buffers)" "$(calc "0.01 * $(hval mi_MemTotal)")"
-	near "cachedBytes (Cached + SReclaimable, free's cache)" "$P.cachedBytes" "$(calc "$(hval mi_Cached) + $(hval mi_SReclaimable)")" "$(calc "0.01 * $(hval mi_MemTotal)")"
-	near sharedBytes "$P.sharedBytes" "$(hval mi_Shmem)" "$(calc "0.01 * $(hval mi_MemTotal)")"
-	near usedPercent "$P.usedPercent" "$(calc "100 * ($(hval mi_MemTotal) - $(hval mi_MemAvailable)) / $(hval mi_MemTotal)")" 1
-	set -- $(printf '%s\n' "$HX_OUT" | awk '$1 == "Swap:" { print $2, $3, $4 }')
-	near swapTotalBytes "$P.swapTotalBytes" "${1:-}" 0
-	near swapUsedBytes "$P.swapUsedBytes" "${2:-}" "$(calc "0.01 * ${1:-0} + 1048576")"
-	near swapFreeBytes "$P.swapFreeBytes" "${3:-}" "$(calc "0.01 * ${1:-0} + 1048576")"
+	_mem=$(printf '%s\n' "$HX_OUT" | awk '$1 == "Mem:"')
+	_swap=$(printf '%s\n' "$HX_OUT" | awk '$1 == "Swap:"')
+	_mt=$(hval mi_MemTotal) _ma=$(hval mi_MemAvailable)
+	_tol=$(calc '0.01 * a' "$_mt")
+	near totalBytes "$P.totalBytes" "$(field "$_mem" 2)" 0
+	near freeBytes "$P.freeBytes" "$(hval mi_MemFree)" "$_tol"
+	near usedBytes "$P.usedBytes" "$(calc 'a - b' "$_mt" "$_ma")" "$_tol"
+	near buffersBytes "$P.buffersBytes" "$(hval mi_Buffers)" "$_tol"
+	near "cachedBytes (Cached + SReclaimable, free's cache)" "$P.cachedBytes" "$(calc 'a + b' "$(hval mi_Cached)" "$(hval mi_SReclaimable)")" "$_tol"
+	near sharedBytes "$P.sharedBytes" "$(hval mi_Shmem)" "$_tol"
+	near usedPercent "$P.usedPercent" "$(calc '100 * (a - b) / a' "$_mt" "$_ma")" 1
+	_st=$(field "$_swap" 2)
+	_tol=$(calc '0.01 * a + 1048576' "${_st:-0}")
+	near swapTotalBytes "$P.swapTotalBytes" "$_st" 0
+	near swapUsedBytes "$P.swapUsedBytes" "$(field "$_swap" 3)" "$_tol"
+	near swapFreeBytes "$P.swapFreeBytes" "$(field "$_swap" 4)" "$_tol"
 	for _f in cpu memory io; do
 		if [ "$(hval "psi_$_f")" = 1 ]; then
 			if [ "$(jv "$P.pressure.$_f")" = null ]; then unav "$P.pressure.$_f" "/proc/pressure/$_f is readable"; else ok "pressure.$_f present; /proc/pressure/$_f is readable"; fi
@@ -972,14 +1014,18 @@ check_fs() {
 			unav "$P.sizeBytes" ""
 			continue
 		fi
-		set -- $(printf '%s\n' "$_before" | sed -n "s/^df$_k=//p") x x x x
-		_s0=$2 _u0=$3 _a0=$4
-		set -- $(printf '%s\n' "$HX_OUT" | sed -n "s/^df$_k=//p") x x x x
-		_s1=$2 _u1=$3 _a1=$4
-		set -- $(printf '%s\n' "$_before" | sed -n "s/^st$_k=//p") x x x
-		_bs=$1 _f0=$2 _ff0=$3
-		set -- $(printf '%s\n' "$HX_OUT" | sed -n "s/^st$_k=//p") x x x
-		_f1=$2 _ff1=$3
+		# df -P: SOURCE SIZE USED AVAILABLE CAPACITY MOUNTPOINT. The source
+		# (a FUSE mount's is the user's choice) may hold blanks, so the
+		# numbers are counted from the end: the mount point passed
+		# valid_path and has none.
+		_l=$(kv "$_before" "df$_k")
+		_s0=$(field "$_l" -4) _u0=$(field "$_l" -3) _a0=$(field "$_l" -2)
+		_l=$(kv "$HX_OUT" "df$_k")
+		_s1=$(field "$_l" -4) _u1=$(field "$_l" -3) _a1=$(field "$_l" -2)
+		_l=$(kv "$_before" "st$_k")
+		_bs=$(field "$_l" 1) _f0=$(field "$_l" 2) _ff0=$(field "$_l" 3)
+		_l=$(kv "$HX_OUT" "st$_k")
+		_f1=$(field "$_l" 2) _ff1=$(field "$_l" 3)
 		valid_num "$_bs" || _bs=4096
 		bracket "$_mp sizeBytes (df)" "$P.sizeBytes" "$_s0" "$_s1" 0
 		bracket "$_mp usedBytes (df)" "$P.usedBytes" "$_u0" "$_u1" "$_bs"
@@ -1031,7 +1077,7 @@ check_disks() {
 	note "== Step 4e: hostdisk against lsblk (or /sys/block)"
 	# shellcheck disable=SC2016 # Expanded on the host.
 	hrun 'if command -v lsblk >/dev/null 2>&1; then lsblk -b -d -n -r -o NAME,SIZE,ROTA,RM | sed "s/^/lsblk=/"; fi
-for d in /sys/block/*; do n=${d##*/}; m=; [ ! -r $d/device/model ] || m=$(sed "s/[[:space:]]*$//" $d/device/model); p=; for q in $d/$n*; do [ ! -e $q/partition ] || p="$p ${q##*/}"; done; echo "sys=$n $(($(cat $d/size) * 512)) $(cat $d/queue/rotational 2>/dev/null) $(cat $d/removable) bf=$( [ -r $d/loop/backing_file ] && echo 1 || echo 0) parts=$p model=$m"; done'
+for d in /sys/block/*; do n=${d##*/}; m=; [ ! -r $d/device/model ] || m=$(sed "s/[[:space:]]*$//" $d/device/model); p=; for q in $d/$n*; do [ ! -e $q/partition ] || p="$p ${q##*/}"; done; echo "sys=$n $(($(cat $d/size) * 512)) $(cat $d/queue/rotational 2>/dev/null || echo -) $(cat $d/removable) bf=$( [ -r $d/loop/backing_file ] && echo 1 || echo 0) parts=$p model=$m"; done'
 	c_begin
 	_n=$(jn "")
 	_i=0
@@ -1043,18 +1089,18 @@ for d in /sys/block/*; do n=${d##*/}; m=; [ ! -r $d/device/model ] || m=$(sed "s
 		_i=$((_i + 1))
 		_s=$(printf '%s\n' "$HX_OUT" | awk -v d="$_d" '$1 == "sys=" d { print; exit }')
 		[ -n "$_s" ] || { bad "disk $_d is not in /sys/block"; continue; }
-		set -- $_s
-		_l=$(printf '%s\n' "$HX_OUT" | awk -v d="$_d" '$1 == "lsblk=" d { print $2, $3, $4; exit }')
+		# sys=NAME SIZE ROTATIONAL REMOVABLE ..., or lsblk=NAME SIZE ROTA RM.
+		_l=$(printf '%s\n' "$HX_OUT" | awk -v d="$_d" '$1 == "lsblk=" d { print; exit }')
 		if [ -n "$_l" ]; then
-			set -- "$1" $_l
 			_src=lsblk
 		else
+			_l=$_s
 			_src=/sys/block
 		fi
-		near "$_d sizeBytes ($_src)" "$P.sizeBytes" "$2" 0
-		case ${3:-} in 1) _rv=true ;; 0) _rv=false ;; *) _rv= ;; esac
+		near "$_d sizeBytes ($_src)" "$P.sizeBytes" "$(field "$_l" 2)" 0
+		case $(field "$_l" 3) in 1) _rv=true ;; 0) _rv=false ;; *) _rv= ;; esac
 		[ -z "$_rv" ] && [ "$(jv "$P.rotational")" = null ] && unav "$P.rotational" "" || eq "$_d rotational ($_src)" "$P.rotational" "$_rv"
-		case ${4:-} in 1) _rv=true ;; *) _rv=false ;; esac
+		case $(field "$_l" 4) in 1) _rv=true ;; *) _rv=false ;; esac
 		eq "$_d removable ($_src)" "$P.removable" "$_rv"
 		_hm=$(printf '%s\n' "$_s" | sed -n 's/.* model=//p')
 		if [ -n "$_hm" ]; then eq "$_d model" "$P.model" "$_hm"; else [ "$(jv "$P.model")" = null ] && unav "$P.model" "" || bad "$_d model set, no /sys/block/$_d/device/model"; fi
@@ -1072,7 +1118,7 @@ for d in /sys/block/*; do n=${d##*/}; m=; [ ! -r $d/device/model ] || m=$(sed "s
 
 host_net_facts() {
 	# shellcheck disable=SC2016 # Expanded on the host.
-	hx 'for i in /sys/class/net/*; do n=${i##*/}; s=$(cat $i/speed 2>/dev/null) || s=; echo "if=$n mac=$(cat $i/address) mtu=$(cat $i/mtu) state=$(cat $i/operstate) type=$(cat $i/type) speed=$s rx=$(cat $i/statistics/rx_bytes) tx=$(cat $i/statistics/tx_bytes)"; ip -o addr show dev "$n" 2>/dev/null | awk -v n="$n" "{ print \"addr=\" n \" \" \$3 \" \" \$4 }"; done'
+	hx 'for i in /sys/class/net/*; do n=${i##*/}; s=$(cat "$i/speed" 2>/dev/null) || s=; echo "if=$n mac=$(cat "$i/address") mtu=$(cat "$i/mtu") state=$(cat "$i/operstate") type=$(cat "$i/type") speed=$s rx=$(cat "$i/statistics/rx_bytes") tx=$(cat "$i/statistics/tx_bytes")"; ip -o addr show dev "$n" 2>/dev/null | awk -v n="$n" "{ print \"addr=\" n \" \" \$3 \" \" \$4 }"; done'
 }
 
 check_net() {
@@ -1095,7 +1141,7 @@ check_net() {
 		_i=$((_i + 1))
 		_s=$(printf '%s\n' "$HX_OUT" | awk -v d="$_d" '$1 == "if=" d { print; exit }')
 		[ -n "$_s" ] || { bad "interface $_d is not in /sys/class/net"; continue; }
-		_hv() { printf '%s\n' "$_s" | tr ' ' '\n' | sed -n "s/^$1=//p"; }
+		_hv() { kv "$(printf '%s\n' "$_s" | tr ' ' '\n')" "$1"; }
 		eq "$_d mac" "$P.mac" "$(_hv mac)"
 		near "$_d mtu" "$P.mtu" "$(_hv mtu)" 0
 		eq "$_d state" "$P.state" "$(_hv state)"
@@ -1136,7 +1182,7 @@ check_netconfig() {
 	_hg=$(printf '%s\n' "$HX_OUT" | awk '$1 == "default" { a = ""; d = ""; m = 0; for (i = 2; i < NF; i++) { if ($i == "via") a = $(i + 1); if ($i == "dev") d = $(i + 1); if ($i == "metric") m = $(i + 1) } if (a != "") print a, d, m }' | sort | tr '\n' ';')
 	_pg=$(awk -F'\t' -v p="$P.defaultGateways[" 'index($1, p) == 1 { split(substr($1, length(p) + 1), a, "]."); v = $2; gsub(/"/, "", v); f[a[1], a[2]] = v; k[a[1]] = 1 } END { for (i in k) print f[i, "address"], f[i, "interface"], f[i, "metric"] }' "$JF" | sort | tr '\n' ';')
 	[ "$_hg" = "$_pg" ] && ok "defaultGateways [$_pg] = ip route show default (address dev metric)" || bad "defaultGateways [$_pg], ip route [$_hg]"
-	_fns=$(printf '%s\n' "$HX_OUT" | sed -n "/^-- $(printf '%s' "$_q" | sed 's#/#\\/#g'):\$/,/^-- /p" | grep -v '^-- ' | sort -u | tr '\n' ' ')
+	_fns=$(printf '%s\n' "$HX_OUT" | awk -v h="-- $_q:" '$0 == h { f = 1; next } /^-- / { f = 0 } f' | sort -u | tr '\n' ' ')
 	_rns=$(printf '%s\n' "$HX_OUT" | sed -n '/^-- \/etc\/resolv.conf:$/,$p' | grep -v '^-- ' | sort -u | tr '\n' ' ')
 	_up=$(awk -F'\t' -v p="$P.dns.servers[" 'index($1, p) == 1 { split(substr($1, length(p) + 1), a, "]."); v = $2; gsub(/"/, "", v); f[a[1], a[2]] = v; k[a[1]] = 1 } END { for (i in k) if (f[i, "stub"] == "false") print f[i, "address"] }' "$JF" | sort -u | tr '\n' ' ')
 	_st=$(awk -F'\t' -v p="$P.dns.servers[" 'index($1, p) == 1 { split(substr($1, length(p) + 1), a, "]."); v = $2; gsub(/"/, "", v); f[a[1], a[2]] = v; k[a[1]] = 1 } END { for (i in k) if (f[i, "stub"] == "true") print f[i, "address"] }' "$JF" | sort -u | tr '\n' ' ')
@@ -1200,7 +1246,7 @@ check_health() {
 	align
 	log "  the processes are read on the host ${AL_WAIT}s from now, 0.3 s after the sampler's next tick"
 	# shellcheck disable=SC2016 # Expanded on the host.
-	hrun 'sleep '"$AL_WAIT"'; hz=$(getconf CLK_TCK 2>/dev/null || echo 100); up=$(cut -d" " -f1 /proc/uptime); for p in '"$(printf '%s' "$_pids" | tr -cd '0-9 ')"'; do st=$(cat /proc/$p/stat 2>/dev/null) || { echo "proc=$p gone"; continue; }; st=${st##*") "}; set -- $st; echo "proc=$p $(cat /proc/$p/comm) $(sed -n "s/^Uid:[[:space:]]*\([0-9]*\).*/\1/p" /proc/$p/status) $(sed -n "s/^VmRSS:[[:space:]]*\([0-9]*\).*/\1/p" /proc/$p/status) $((${up%.*} - ${20} / hz))"; done; awk -F: "{ print \"user=\" \$3 \" \" \$1 }" /etc/passwd'
+	hrun 'sleep '"$AL_WAIT"'; hz=$(getconf CLK_TCK 2>/dev/null || echo 100); up=$(cut -d" " -f1 /proc/uptime); for p in '"$(printf '%s' "$_pids" | tr -cd '0-9 ')"'; do st=$(cat /proc/$p/stat 2>/dev/null) || { echo "proc=$p gone"; continue; }; st=${st##*") "}; set -- $st; u=$(sed -n "s/^Uid:[[:space:]]*\([0-9]*\).*/\1/p" /proc/$p/status); r=$(sed -n "s/^VmRSS:[[:space:]]*\([0-9]*\).*/\1/p" /proc/$p/status); c=$(cat /proc/$p/comm 2>/dev/null); echo "proc=$p ${u:--} ${r:--} $((${up%.*} - ${20} / hz)) $(printf "%s" "$c" | tr -c "A-Za-z0-9._:+@-" "_")"; done; awk -F: "{ print \"user=\" \$3 \" \" \$1 }" /etc/passwd'
 	_procs=$HX_OUT
 	nx_quiet health-aligned hosthealth get
 	log "  hosthealth's processes after that tick (sampledAt $(js "$P.sampler.sampledAt"), processSampleSeconds $(jv "$P.processSampleSeconds")):"
@@ -1213,24 +1259,34 @@ check_health() {
 			_q="$P.${_lst}[$_j]"
 			_j=$((_j + 1))
 			_pid=$(jv "$_q.pid") _cmd=$(js "$_q.command") _uid=$(jv "$_q.uid") _usr=$(js "$_q.user") _rss=$(jv "$_q.rssBytes")
-			# proc=PID COMM UID VMRSS-kB AGE-seconds, or proc=PID gone.
-			set -- $(printf '%s\n' "$HX_OUT" | awk -v p="$_pid" '$1 == "proc=" p { print $2, $3, $4, $5; exit }')
-			if [ "${1:-}" = gone ] || [ $# -lt 2 ]; then log "  info  $_lst pid $_pid ($_cmd) has exited since"; continue; fi
-			_hu=$(printf '%s\n' "$HX_OUT" | awk -v u="$2" '$1 == "user=" u { print $2; exit }')
+			# proc=PID UID VMRSS-kB AGE-seconds COMM, or proc=PID gone. Any
+			# user names their own process (comm), so the host prints it
+			# last, each byte outside A-Za-z0-9._:+@- made _: one field,
+			# with no blank, quote or glob. The provider's command (its
+			# JSON escapes \" and \\ undone) is mapped the same way.
+			_pl=$(printf '%s\n' "$HX_OUT" | awk -v p="$_pid" '$1 == "proc=" p { print; exit }')
+			_huid=$(field "$_pl" 2) _hkb=$(field "$_pl" 3) _hage=$(field "$_pl" 4) _hcomm=$(field "$_pl" 5)
+			if [ -z "$_pl" ] || [ "$_huid" = gone ]; then log "  info  $_lst pid $_pid ($_cmd) has exited since"; continue; fi
+			valid_num "$_huid" || _huid=
+			valid_num "$_hkb" || _hkb=
+			valid_num "$_hage" || _hage=
+			_cs=$(printf '%s' "$_cmd" | sed 's/\\\(["\\]\)/\1/g' | tr -c 'A-Za-z0-9._:+@-' '_')
+			_hu=
+			[ -z "$_huid" ] || _hu=$(printf '%s\n' "$HX_OUT" | awk -v u="$_huid" '$1 == "user=" u { print $2; exit }')
 			_e=
-			[ "$_cmd" = "$1" ] || _e="$_e command '$_cmd' vs comm '$1';"
-			[ "$_uid" = "$2" ] || _e="$_e uid $_uid vs $2;"
+			[ "$_cs" = "$_hcomm" ] || _e="$_e command '$_cmd' vs comm '$_hcomm';"
+			[ "$_uid" = "$_huid" ] || _e="$_e uid $_uid vs ${_huid:-?};"
 			[ -z "$_hu" ] || [ "$_usr" = "$_hu" ] || _e="$_e user '$_usr' vs /etc/passwd '$_hu';"
 			# A process younger than a minute (an SSH session of this
 			# script) is shown, not compared: its RSS is still moving.
-			if [ "$_lst" = topByMemory ] && [ -n "${3:-}" ]; then
-				if [ "${4:-0}" -lt 60 ]; then
-					log "  info  $_lst pid $_pid $_cmd is ${4:-?} s old: rssBytes $_rss, VmRSS now $3 kB (not compared)"
-				elif ! within "$_rss" "$(calc "${3} * 1024")" "$(calc "0.2 * ${3} * 1024 + 1048576")"; then
-					_e="$_e rssBytes $_rss vs VmRSS $3 kB (±20% + 1 MiB);"
+			if [ "$_lst" = topByMemory ] && [ -n "$_hkb" ]; then
+				if [ -z "$_hage" ] || [ "$_hage" -lt 60 ]; then
+					log "  info  $_lst pid $_pid $_cmd is ${_hage:-?} s old: rssBytes $_rss, VmRSS now $_hkb kB (not compared)"
+				elif ! within "$_rss" "$(calc 'a * 1024' "$_hkb")" "$(calc '0.2 * a * 1024 + 1048576' "$_hkb")"; then
+					_e="$_e rssBytes $_rss vs VmRSS $_hkb kB (±20% + 1 MiB);"
 				fi
 			fi
-			[ -z "$_e" ] && ok "$_lst pid $_pid $_cmd uid $_uid $_usr = /proc/$_pid$([ "$_lst" != topByMemory ] || echo "; rssBytes $_rss, VmRSS ${3:-?} kB")" || bad "$_lst pid $_pid:$_e"
+			[ -z "$_e" ] && ok "$_lst pid $_pid $_cmd uid $_uid $_usr = /proc/$_pid$([ "$_lst" != topByMemory ] || echo "; rssBytes $_rss, VmRSS ${_hkb:-?} kB")" || bad "$_lst pid $_pid:$_e"
 		done
 	done
 	JF=$_hj
@@ -1296,7 +1352,12 @@ check_metrics() {
 align() {
 	nx_quiet align hostcpu get
 	_age=$(jv "[0].properties.sampler.ageSeconds") _iv=$(jv "[0].properties.sampler.intervalSeconds")
-	AL_IV=$(printf '%.0f' "$_iv" 2>/dev/null || echo "${CAP_IV:-10}")
+	AL_IV=$(printf '%.0f' "$_iv" 2>/dev/null) || AL_IV=${CAP_IV:-10}
+	# It reaches the host's command line (vmstat, sleep) and $((...)).
+	if ! in_range "$AL_IV" 1 60; then
+		log "  (sampler.intervalSeconds $(shown "$_iv") is not 1..60 seconds: 10 assumed)"
+		AL_IV=10
+	fi
 	AL_WAIT=$(awk -v a="$_age" -v i="$AL_IV" 'BEGIN { w = i - a + 0.3; while (w < 0.3) w += i; printf "%.2f", w }')
 }
 
@@ -1333,7 +1394,7 @@ check_nfr3() {
 	wait "$_tp" 2>/dev/null
 	HX_OUT=$_out
 	_u0=$(hval up0) _u1=$(hval up1)
-	_dt=$(calc "$_u1 - $_u0")
+	_dt=$(calc 'a - b' "$_u1" "$_u0")
 	_at1=$(epoch "$(hval at1)")
 	_se=$(epoch "$_sat")
 	log "  host window ${_dt}s ($(hval at0) .. $(hval at1)); provider sample at $_sat over ${_siv}s"
@@ -1360,7 +1421,7 @@ check_nfr3() {
 	else
 		result 5-cpu FAIL "usagePercent $_pcpu, $_refn $_ref, /proc/stat $_hcpu (aligned $_aligned)"
 	fi
-	if within "$_pavail" "$_havail" "$(calc "0.01 * $_havail")"; then
+	if within "$_pavail" "$_havail" "$(calc '0.01 * a' "$_havail")"; then
 		result 5-memory PASS "availableBytes $_pavail, free -b available $_havail (within ±1%)"
 	else
 		result 5-memory FAIL "availableBytes $_pavail, free -b available $_havail"
@@ -1368,18 +1429,19 @@ check_nfr3() {
 	# Rates: each interface with at least 1 KiB/s each way on the host.
 	JF=$TMPD/nfr3-net.flat
 	_cmp=0 _rbad=
-	for _ifl in $(hvals net0 | tr ' ' '|'); do
-		_if=${_ifl%%|*}
-		_l0=$(printf '%s' "$_ifl" | tr '|' ' ')
+	# net0= and net1= lines: NAME RX-BYTES TX-BYTES.
+	hvals net0 >"$TMPD/net0"
+	while IFS= read -r _l0; do
+		_if=$(field "$_l0" 1)
 		_l1=$(hvals net1 | awk -v d="$_if" '$1 == d { print; exit }')
-		set -- $_l0 $_l1
-		_hrx=$(calc "($5 - $2) / $_dt") _htx=$(calc "($6 - $3) / $_dt")
+		_hrx=$(calc '(a - b) / c' "$(field "$_l1" 2)" "$(field "$_l0" 2)" "$_dt")
+		_htx=$(calc '(a - b) / c' "$(field "$_l1" 3)" "$(field "$_l0" 3)" "$_dt")
 		_ix=$(awk -F'\t' -v d="\"$_if\"" '$1 ~ /^\[[0-9]+\]\.name$/ && $2 == d { sub(/\.name$/, "", $1); print $1; exit }' "$JF")
 		[ -n "$_ix" ] || continue
 		_prx=$(jv "$_ix.properties.rxBytesPerSecond") _ptx=$(jv "$_ix.properties.txBytesPerSecond")
 		if awk -v a="$_hrx" -v b="$_htx" 'BEGIN { exit !(a >= 1024 && b >= 1024) }'; then
 			_cmp=$((_cmp + 1))
-			if within "$_prx" "$_hrx" "$(calc "0.05 * $_hrx")" && within "$_ptx" "$_htx" "$(calc "0.05 * $_htx")"; then
+			if within "$_prx" "$_hrx" "$(calc '0.05 * a' "$_hrx")" && within "$_ptx" "$_htx" "$(calc '0.05 * a' "$_htx")"; then
 				log "  ok    $_if rx $_prx B/s ~ $_hrx, tx $_ptx B/s ~ $_htx (within ±5%)"
 			else
 				log "  FAIL  $_if rx $_prx B/s vs $_hrx, tx $_ptx B/s vs $_htx"
@@ -1388,7 +1450,7 @@ check_nfr3() {
 		else
 			log "  info  $_if rx $_prx vs $_hrx B/s, tx $_ptx vs $_htx B/s (under 1 KiB/s each way: not compared)"
 		fi
-	done
+	done <"$TMPD/net0"
 	if [ "$_cmp" -eq 0 ]; then
 		result 5-network NOT-RUN "no interface carried 1 KiB/s each way during the window"
 	elif [ -z "$_rbad" ] && [ "$_aligned" = 1 ]; then
@@ -1470,7 +1532,7 @@ mut_save_state() {
 	[ "$HX_RC" -eq 0 ] || log "WARNING: could not write $H_STATE/state: $HX_OUT"
 }
 
-state_value() { printf '%s\n' "$STATE_TEXT" | sed -n "s/^$1=//p" | head -n 1; }
+state_value() { kv "$STATE_TEXT" "$1"; }
 
 load_state() {
 	hx "cat $H_STATE/state"
@@ -1616,6 +1678,10 @@ mut_conf_save() {
 # mut_conf_set ENABLED INTERVAL DURATION: those three keys of providers.host.
 mut_conf_set() {
 	mutating_allowed || refuse "internal: a host change outside an opt-in mode"
+	case $1 in true | false) ;; *) refuse "internal: enabled $(shown "$1")" ;; esac
+	for _cv in "$2" "$3"; do
+		case $_cv in '' | *[!0-9smh]*) refuse "internal: duration $(shown "$_cv")" ;; esac
+	done
 	hrun "sed -i -e '/^  host:\$/,/^  [a-z]/ s/^\\(    enabled:[[:space:]]*\\)[a-z]*/\\1$1/' -e '/^  host:\$/,/^  [a-z]/ s/^\\(    sampleInterval:[[:space:]]*\\)[0-9a-z]*/\\1$2/' -e '/^  host:\$/,/^  [a-z]/ s/^\\(    historyDuration:[[:space:]]*\\)[0-9a-z]*/\\1$3/' $CONF && $NEXUSD validate-config && sed -n '/^  host:\$/,/^  [a-z]/p' $CONF"
 	[ "$HX_RC" -eq 0 ] || { mut_conf_restore; refuse "the edited configuration did not validate; the original is back"; }
 }
@@ -1669,10 +1735,10 @@ window() {
 	done
 	hx 'getconf CLK_TCK 2>/dev/null || echo 100'
 	_hz=$HX_OUT
-	W_CPU=$(calc "100 * ($P_TICKS - $_t0) / $_hz / ($P_UP - $_u0)")
-	set -- $(printf '%s\n' $_rs | awk '{ s += $1; if (NR == 1 || $1 > mx) mx = $1; if (NR == 1 || $1 < mn) mn = $1 } END { printf "%d %d %.0f", mx, mn, s / NR }')
-	W_RSS_MAX=$1 W_RSS_MIN=$2 W_RSS_MEAN=$3
-	log "  CPU $(printf '%.3f' "$W_CPU")% of one CPU over $(calc "$P_UP - $_u0") s (CLK_TCK $_hz); VmRSS max $W_RSS_MAX, min $W_RSS_MIN, mean $W_RSS_MEAN kB"
+	W_CPU=$(calc '100 * (a - b) / c / (d - e)' "$P_TICKS" "$_t0" "$_hz" "$P_UP" "$_u0")
+	_w=$(printf '%s\n' "$_rs" | tr ' ' '\n' | awk 'NF { n++; s += $1; if (n == 1 || $1 > mx) mx = $1; if (n == 1 || $1 < mn) mn = $1 } END { if (n) printf "%d %d %.0f", mx, mn, s / n }')
+	W_RSS_MAX=$(field "$_w" 1) W_RSS_MIN=$(field "$_w" 2) W_RSS_MEAN=$(field "$_w" 3)
+	log "  CPU $(printf '%.3f' "$W_CPU")% of one CPU over $(calc 'a - b' "$P_UP" "$_u0") s (CLK_TCK $_hz); VmRSS max $W_RSS_MAX, min $W_RSS_MIN, mean $W_RSS_MEAN kB"
 	[ "$_p0" = "$P_PID" ]
 }
 
@@ -1680,7 +1746,7 @@ window() {
 history_full() {
 	nx_quiet hist hostmetric get --window-seconds 86400
 	_hs=$(js "[0].properties.historyStart") _sa=$(js "[0].properties.sampler.sampledAt")
-	H_SPAN=$(calc "$(epoch "$_sa") - $(epoch "$_hs")")
+	H_SPAN=$(calc 'a - b' "$(epoch "$_sa")" "$(epoch "$_hs")")
 	log "  historyStart $_hs, sampledAt $_sa: $(printf '%.0f' "$H_SPAN") s of ${CAP_HD:-3600} s; points $(jv "[0].properties.points"), stepSeconds $(jv "[0].properties.stepSeconds")"
 	awk -v s="$H_SPAN" -v d="${CAP_HD:-3600}" -v i="${CAP_IV:-10}" 'BEGIN { exit !(s >= d - i) }'
 }
@@ -1709,13 +1775,13 @@ mut_overhead() {
 	window "$WINDOW" || { result 8-overhead FAIL "nexusd restarted during the disabled window"; mut_conf_restore; return; }
 	_dcpu=$W_CPU _drss=$W_RSS_MEAN
 	mut_conf_restore
-	_d=$(calc "$_ecpu - $_dcpu")
+	_d=$(calc 'a - b' "$_ecpu" "$_dcpu")
 	if awk -v d="$_d" 'BEGIN { exit !(d < 1) }'; then
 		result 8-cpu PASS "enabled $(printf '%.3f' "$_ecpu")% - disabled $(printf '%.3f' "$_dcpu")% = $(printf '%.3f' "$_d")% of one CPU over $WINDOW s each (< 1%)"
 	else
 		result 8-cpu FAIL "enabled $_ecpu% - disabled $_dcpu% = $_d% of one CPU (want < 1%)"
 	fi
-	_rd=$(calc "($_erss - $_drss) / 1024")
+	_rd=$(calc '(a - b) / 1024' "$_erss" "$_drss")
 	if awk -v d="$_rd" 'BEGIN { exit !(d < 8) }'; then
 		result 8-rss-1h PASS "VmRSS max $_erss kB enabled (1 h history full) - mean $_drss kB disabled = $(printf '%.2f' "$_rd") MiB (< 8 MiB)"
 	else
@@ -1780,6 +1846,7 @@ mut_rss_start() {
 	valid_num "$POLLER" || { mut_conf_restore; refuse "the poll did not start"; }
 	hx 'date +%s'
 	RSS_START=$HX_OUT
+	valid_num "$RSS_START" || { log "WARNING: the host's date +%s is not a number: $(shown "$RSS_START"); finish will record the soak as not run"; RSS_START=; }
 	mut_save_state
 	sleep 15
 	hrun "cat $H_STATE/rss.log"
@@ -1793,26 +1860,37 @@ mut_rss_finish() {
 	note "== Step 9: NFR-2 at the 24 h maximum, finish (--rss-24h finish, TC-HP-130)"
 	hx 'date +%s'
 	_now=$HX_OUT
-	_el=$((_now - RSS_START))
-	log "  started at epoch $RSS_START, now $_now: $(calc "$_el / 3600") h elapsed"
+	if valid_num "$_now" && valid_num "$RSS_START"; then
+		_el=$((_now - RSS_START))
+	else
+		log "  the start ($(shown "$RSS_START")) or the host's time now ($(shown "$_now")) is not a number: elapsed taken as 0"
+		_el=0
+	fi
+	log "  started at epoch $RSS_START, now $_now: $(calc 'a / 3600' "$_el") h elapsed"
 	nx_quiet hist hostmetric get --window-seconds 86400
 	log "  hostmetric: historyStart $(js "[0].properties.historyStart"), points $(jv "[0].properties.points"), stepSeconds $(jv "[0].properties.stepSeconds"), sampler $(js "[0].properties.sampler.state")"
-	hrun "touch $H_STATE/stop; sleep 12; kill -0 $POLLER 2>/dev/null && kill $POLLER; wc -l <$H_STATE/rss.log; tail -n 3 $H_STATE/rss.log"
+	# The stop file ends the poll within 10 s. The pid is signalled only if
+	# it is still the poll (its command line, read on the host): after the
+	# poll ended, or a reboot, the number may be another process's.
+	valid_num "$POLLER" || POLLER=0
+	hrun "touch $H_STATE/stop; sleep 12; case \$(tr '\\0' ' ' 2>/dev/null </proc/$POLLER/cmdline) in 'sh $H_STATE/poller.sh '*) kill $POLLER ;; *) echo 'the poll (pid $POLLER) has ended' ;; esac; wc -l <$H_STATE/rss.log; tail -n 3 $H_STATE/rss.log"
 	hx "cat $H_STATE/rss.log"
 	printf '%s\n' "$HX_OUT" >"$TMPD/rss.log"
 	log "  rss.log (epoch uptime pid VmRSS-kB ticks polls-ok polls-failed), every line:"
 	sed 's/^/    /' "$TMPD/rss.log" | tee -a "$TRANSCRIPT"
-	set -- $(awk 'NF >= 7 { l = $1; r[NR] = $4; e[NR] = $1; p[NR] = $3; n = NR } END { mx = 0; for (i = 1; i <= n; i++) if (e[i] >= l - 600 && r[i] > mx) mx = r[i]; pc = 0; for (i = 2; i <= n; i++) if (p[i] != p[1]) pc = 1; print mx, n, pc }' "$TMPD/rss.log")
-	_mx=${1:-0} _nl=${2:-0} _pc=${3:-0}
+	_rl=$(awk 'NF >= 7 { l = $1; r[NR] = $4; e[NR] = $1; p[NR] = $3; n = NR } END { mx = 0; for (i = 1; i <= n; i++) if (e[i] >= l - 600 && r[i] > mx) mx = r[i]; pc = 0; for (i = 2; i <= n; i++) if (p[i] != p[1]) pc = 1; print mx, n, pc }' "$TMPD/rss.log")
+	_mx=$(field "$_rl" 1) _nl=$(field "$_rl" 2) _pc=$(field "$_rl" 3)
+	valid_num "$_mx" || _mx=0
+	valid_num "$_nl" || _nl=0
 	_last=$(tail -n 1 "$TMPD/rss.log")
-	_d=$(calc "($_mx - $RSS_BASE) / 1024")
+	_d=$(calc '(a - b) / 1024' "$_mx" "$RSS_BASE")
 	log "  maximum VmRSS over the last 10 minutes $_mx kB; baseline $RSS_BASE kB; delta $(printf '%.2f' "$_d") MiB; $_nl samples; polls ok/failed: $(printf '%s\n' "$_last" | cut -d' ' -f6,7)"
 	hrun "$NEXUSD token revoke $SOAK_TOKEN_NAME; rm -rf $H_STATE/xdg"
 	mut_conf_restore
 	if [ "$_pc" = 1 ]; then
 		result 9-rss-24h FAIL "nexusd's PID changed during the soak (it restarted)"
 	elif [ "$_el" -lt 86400 ]; then
-		result 9-rss-24h NOT-RUN "the history was not full: $(printf '%.2f' "$(calc "$_el / 3600")") h of 24 h. So far: max VmRSS over the last 10 min $_mx kB - baseline $RSS_BASE kB = $(printf '%.2f' "$_d") MiB"
+		result 9-rss-24h NOT-RUN "the history was not full: $(printf '%.2f' "$(calc 'a / 3600' "$_el")") h of 24 h. So far: max VmRSS over the last 10 min $_mx kB - baseline $RSS_BASE kB = $(printf '%.2f' "$_d") MiB"
 	elif awk -v d="$_d" 'BEGIN { exit !(d < 32) }'; then
 		result 9-rss-24h PASS "24 h history full; max VmRSS over the last 10 min $_mx kB - baseline $RSS_BASE kB = $(printf '%.2f' "$_d") MiB (< 32 MiB)"
 	else
