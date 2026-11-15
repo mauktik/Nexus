@@ -105,11 +105,20 @@ Keep `nexusd` LAN only.
 | `pihole:read` | Pi-hole status, summary, blocking state, allow and deny entries, adlists, zones and records |
 | `pihole:dns` | DNS zone and record changes, single or batched: can redirect any name for every LAN client |
 | `pihole:write` | Pi-hole blocking, allow and deny entries, adlists, gravity, DNS restart and cache flush |
+| `system:read` | The `host` provider's read-only overview of the host: host identity (hostname, OS, kernel, DMI vendor and model), network addresses and gateway, DNS resolvers, mount points, and process names and owners of the top processes, plus usage and metrics |
 | `audit:read` | Querying the audit log |
 | `nexusd:read` | The running `nexusd`: version, uptime, rollback binary, whether updates are configured, and checking its configuration file |
 | `nexusd:admin` | Reloading, restarting, updating and rolling back `nexusd`, and uploading a release; **root-equivalent** |
 
 The generated [API reference](api.md) lists the scope of every operation.
+
+`system:read` is the `host` provider's scope, named before the provider was
+(see [host.md](host.md#naming)). Despite its name, `system:read` does not
+gate the `system.*` operations: `system.capabilities.get` and
+`system.operations.*` keep needing only a valid token, and
+`system.audit.list` keeps needing `audit:read`. A request without the
+scope an operation needs is refused with `forbidden` (403), whose
+`requiredScope` names the scope.
 
 ## Mutating scopes are potentially root-equivalent
 
@@ -445,6 +454,46 @@ Reads run inside the sandbox and never run a Pi-hole command.
   an operation record or an audit record.
 - Today's summary comes from FTL's local API on 127.0.0.1, which needs no
   credentials, and the DNS health check queries 127.0.0.1:53.
+
+## What the host provider reads
+
+The `host` provider ([host.md](host.md)) is read-only, but it runs inside
+`nexusd`, which holds `CAP_DAC_READ_SEARCH` under the systemd unit and
+every root capability on OpenRC, so it could read any file. Its own rules
+limit it:
+
+- **An allow-list.** Every file access goes through a fixed allow-list of
+  paths under `/proc`, `/sys`, `/etc` and `/run`, each with the kinds of
+  access it permits (read, list, existence only, link). An access outside
+  it is refused before it reaches the file system. Mount points are never
+  opened: they get only `stat` and `statfs`, and only when they come from
+  the mount table. No request supplies a path, device name or command.
+- **Never** `/proc/<pid>/cmdline` or `/proc/<pid>/environ`: processes are
+  reported by PID, 15-character command name, owner, CPU and memory only.
+- **Never** DMI serial numbers, UUIDs or asset tags: only the vendor,
+  product and BIOS files of `/sys/class/dmi/id` are on the list.
+- **Never** the kernel log, nor the ARP or neighbour tables.
+- **No `@clock` system calls.** The unit's `SystemCallFilter` would kill
+  `nexusd` on one, so clock synchronization comes from the fixed commands
+  `timedatectl show --property=NTPSynchronized --value` and
+  `chronyc -c tracking`. The other commands it runs are
+  `systemctl list-units --state=failed` and `rc-status --crashed`. Each
+  has a fixed argument list and is bounded by `sourceTimeout`.
+- **Nothing is changed.** The provider writes no file, signals no process
+  and changes no setting. Its metrics history stays in memory.
+- **Reasons quote no content.** A field that cannot be read carries a
+  reason naming a fixed path, a fixed command or a mount point, never what
+  a file or a command printed.
+
+`CAP_DAC_READ_SEARCH` is what lets it read every process's `stat` and
+`status` and the root-only files on the list. On OpenRC, `nexusd` runs as
+unconfined root (ASM-5), so every source is readable there and the
+allow-list is the only limit.
+
+What `system:read` exposes is listed in [Scopes](#scopes): host identity,
+network addresses and gateway, DNS resolvers, mount points, and process
+names and owners. Give it to an agent that should see the host's shape and
+load, not to one that should not learn its layout.
 
 ## Audit log and its limits
 

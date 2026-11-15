@@ -9,9 +9,13 @@
 package buildsys
 
 import (
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+
+	hostspec "github.com/mauktik/nexus/internal/providers/host/spec"
 )
 
 // TC-HP-8: adding-a-provider.md documents the generic Background contract. Owner WI 1.1. Requirements: CON-4, FR-1.
@@ -55,7 +59,87 @@ func TestTCHP8_AddingAProviderMdDocumentsTheGeneric(t *testing.T) {
 //   - `mcp.md` lists the three tools as untrusted and states 68 tools and the measured token figure;
 //   - `adding-a-provider.md` lists `host`; README links `docs/host.md` and lists `system:read`; `handWritten` contains `host.md`.
 func TestTCHP112_HandWrittenDocsCoverScopeOpsKeys(t *testing.T) {
-	t.Skip("TC-HP-112: SKIP-only stub; un-skip when WI 5.2 lands")
+	root := repoRoot(t)
+	read := func(rel string) string { return readFile(t, filepath.Join(root, filepath.FromSlash(rel))) }
+
+	// security.md: the Scopes row, the system.* note and the reads section.
+	security := read("docs/security.md")
+	row := regexp.MustCompile("(?m)^\\|\\s*`system:read`\\s*\\|.*$").FindString(security)
+	if row == "" {
+		t.Error("docs/security.md's Scopes table has no row for `system:read`")
+	}
+	requireAll(t, "docs/security.md's system:read row", row, "host identity", "network addresses", "gateway",
+		"DNS resolvers", "mount points", "process names and owners")
+	if !regexp.MustCompile("`system:read`[^.]*does not gate[^.]*`system\\.\\*`").MatchString(oneLine(security)) {
+		t.Error("docs/security.md does not note that `system:read` does not gate the `system.*` operations")
+	}
+	reads := section(security, "What the host provider reads")
+	if reads == "" {
+		t.Error(`docs/security.md has no "What the host provider reads" section`)
+	}
+	requireAll(t, "docs/security.md's host reads section", reads, "allow-list", "`CAP_DAC_READ_SEARCH`",
+		"cmdline", "environ", "serial numbers", "kernel log", "`@clock`", "OpenRC", "unconfined root")
+
+	// host.md: every op, every key, every reason prefix, the sandbox heading,
+	// the exclusion list and the naming note.
+	host := read("docs/host.md")
+	var ids []string
+	for _, op := range hostspec.Spec().Ops {
+		ids = append(ids, "`"+op.ID+"`")
+	}
+	if len(ids) != 10 {
+		t.Errorf("the host spec declares %d operations, want 10", len(ids))
+	}
+	requireAll(t, "docs/host.md (op IDs)", host, ids...)
+	requireAll(t, "docs/host.md (config keys)", host,
+		"`enabled`", "`sampleInterval`", "`historyDuration`", "`sourceTimeout`")
+	requireAll(t, "docs/host.md (reason prefixes)", host,
+		"`warming up`", "`stale: last sample", "`not running`", "`permission denied: ", "`not present: ",
+		"`timed out after ", "`still pending: ", "`not visible: ", "`unrecognized format: ", "`counter reset: ",
+		"`not reported: ", "`command failed: ", "`not supported: ", "`internal error: access not allow-listed`")
+	if !regexp.MustCompile(`(?m)^#+ Unavailable under the systemd sandbox\s*$`).MatchString(host) {
+		t.Error(`docs/host.md has no "Unavailable under the systemd sandbox" heading`)
+	}
+	sandbox := section(host, "Unavailable under the systemd sandbox")
+	requireAll(t, "docs/host.md's sandbox section", sandbox, "to be confirmed by WI 5.4")
+	requireAll(t, "docs/host.md (excluded filesystem types)", host,
+		"`proc`", "`sysfs`", "`devtmpfs`", "`devpts`", "`cgroup`", "`cgroup2`", "`securityfs`", "`debugfs`",
+		"`tracefs`", "`bpf`", "`pstore`", "`mqueue`", "`hugetlbfs`", "`configfs`", "`fusectl`", "`autofs`",
+		"`binfmt_misc`", "`nsfs`", "`efivarfs`", "`rpc_pipefs`", "`nfsd`", "`selinuxfs`", "`ramfs`",
+		"`fuse.lxcfs`", "`fuse.gvfsd-fuse`", "`fuse.portal`", "`overlay`", "`squashfs`", "`tmpfs`")
+	naming := section(host, "Naming")
+	if naming == "" {
+		t.Error(`docs/host.md has no "Naming" section`)
+	}
+	requireAll(t, "docs/host.md's naming note", naming, "`host`", "`system:read`", "`system`", "ASM-1")
+
+	// mcp.md: the three tools as untrusted, 68 tools and the token figure.
+	mcp := read("docs/mcp.md")
+	untrusted := ""
+	for _, para := range strings.Split(mcp, "\n") {
+		if strings.Contains(para, "**Untrusted content.**") {
+			untrusted = para
+		}
+	}
+	requireAll(t, "docs/mcp.md's untrusted list", untrusted,
+		"`get_host_summary`", "`get_host_health`", "`get_host_metrics`")
+	requireAll(t, "docs/mcp.md", mcp, "68 tools", "2,831 tokens")
+
+	// adding-a-provider.md, README.md and handWritten.
+	intro := read("docs/adding-a-provider.md")
+	if i := strings.Index(intro, "\n## "); i >= 0 {
+		intro = intro[:i]
+	}
+	if !regexp.MustCompile("`host`\\s+for\\s").MatchString(oneLine(intro)) {
+		t.Error("docs/adding-a-provider.md's intro does not list `host` among the providers")
+	}
+	readme := read("README.md")
+	requireAll(t, "README.md", readme, "(docs/host.md)", "`system:read`")
+	gendocs := read("cmd/nexus-gendocs/main_test.go")
+	hw := regexp.MustCompile(`(?m)^var handWritten = \[\]string\{(.*)\}$`).FindStringSubmatch(gendocs)
+	if hw == nil || !strings.Contains(hw[1], `"host.md"`) {
+		t.Error("handWritten in cmd/nexus-gendocs/main_test.go does not list host.md")
+	}
 }
 
 // TC-HP-113: The hardened unit and the OpenRC script are unchanged. Owner WI 5.2. Requirements: CON-1, OOS-4.
@@ -64,7 +148,20 @@ func TestTCHP112_HandWrittenDocsCoverScopeOpsKeys(t *testing.T) {
 // - Steps: `git diff --quiet 09b05cff1518fef79c23a87615d70fdaebcfba83 -- deploy/nexusd.service deploy/nexusd.openrc`; run `TestSystemdUnitByteIdenticalToBase`.
 // - Expected: exit 0 (no diff); the existing test passes.
 func TestTCHP113_TheHardenedUnitAndTheOpenRCScript(t *testing.T) {
-	t.Skip("TC-HP-113: SKIP-only stub; un-skip when WI 5.2 lands")
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	const base = "09b05cff1518fef79c23a87615d70fdaebcfba83"
+	root := repoRoot(t)
+	if out, code := run(t, root, nil, "git", "cat-file", "-e", base+"^{commit}"); code != 0 {
+		t.Skipf("base commit %s not reachable (shallow clone?): %s", base, out)
+	}
+	if out, code := run(t, root, nil, "git", "diff", "--quiet", base, "--",
+		"deploy/nexusd.service", "deploy/nexusd.openrc"); code != 0 {
+		t.Errorf("deploy/nexusd.service or deploy/nexusd.openrc differs from %s (CON-1, OOS-4): exit %d %s",
+			base, code, out)
+	}
+	t.Run("TestSystemdUnitByteIdenticalToBase", TestSystemdUnitByteIdenticalToBase)
 }
 
 // TC-HP-132: The live check script is POSIX and read-only by default. Owner WI 5.4. Requirements: NFR-5, CON-2.

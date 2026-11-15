@@ -2,8 +2,9 @@
 
 A provider is a set of operations on one kind of thing on the host: `docker`
 for containers, `apt` for packages, `scripts` for cataloged scripts, `nexusd`
-for the daemon itself, `pihole` for a Pi-hole and its local DNS names. Every
-surface is derived from the provider's declarations: the REST routes, the
+for the daemon itself, `pihole` for a Pi-hole and its local DNS names, and
+`host` for a read-only overview of the host itself. Every surface is
+derived from the provider's declarations: the REST routes, the
 OpenAPI document, the MCP tools, the `nexus` commands, authorization, audit
 and idempotency. Adding a provider therefore means writing a **spec**
 package, an **implementation** with its **bindings**, and adding **two
