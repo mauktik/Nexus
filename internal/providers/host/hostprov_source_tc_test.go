@@ -1,6 +1,6 @@
 // Stub-style: SKIP-only (system-provider)
 //
-// Stubs of planning/system-provider/test-cases.md TC-HP-21, TC-HP-22, TC-HP-23, TC-HP-24, TC-HP-25, TC-HP-26, TC-HP-27, TC-HP-E6, TC-HP-E7, TC-HP-ERR10, TC-HP-ERR11, TC-HP-ERR12, TC-HP-E30.
+// Stubs of planning/system-provider/test-cases.md TC-HP-21, TC-HP-22, TC-HP-23, TC-HP-24, TC-HP-25, TC-HP-26, TC-HP-27, TC-HP-E6, TC-HP-E7, TC-HP-ERR10, TC-HP-ERR11, TC-HP-ERR12, TC-HP-E30, TC-HP-135, TC-HP-E32.
 // Owner WIs: 2.1, 2.2. Each stub compiles today and skips; the
 // developer of the owning work item replaces the skip and the comment with
 // the test. An un-skipped passing test is the GREEN signal
@@ -16,8 +16,8 @@ import "testing"
 // - Steps: for UBU and ALP, stat `fs/`, `t1/`, `tools/`, `PROVENANCE`; read `PROVENANCE`; stat `testdata/capture.sh` and `testdata/README.md`.
 // - Expected:
 //   - all exist; `PROVENANCE` has non-empty `host:`, `kernel:`, `date:` and `under-unit:` lines;
-//   - `fs/proc/stat`, `fs/proc/meminfo`, `fs/proc/1/mountinfo` (or a documented absence), `t1/proc/stat`, `t1/proc/net/dev`, `t1/proc/diskstats` exist;
-//   - `tools/` holds `free`, `df`, `vmstat`, `uname-rm`, `nproc`, `hostname`, `statfs.txt`, `stat-mounts.txt` (one `stat -c '%d %F %n'` line per mountinfo mount point; the F-STATFS `Dev` and `IsDir` source, Finding 2), `ip-addr`, `ip-route`, and `lsblk` (UBU), and the failed-services output;
+//   - `fs/proc/stat`, `fs/proc/meminfo`, `fs/proc/self/mountinfo`, `fs/proc/1/mountinfo` (or a documented absence), `t1/proc/stat`, `t1/proc/net/dev`, `t1/proc/diskstats` exist;
+//   - `tools/` holds `free`, `df`, `vmstat`, `uname-rm`, `nproc`, `hostname`, `statfs.txt`, `stat-mounts.txt` (one `stat -c '%d %F %n'` line per mountinfo mount point; `%F` is the F-STATFS `IsDir` source, and `%d` is A-38 evidence only, never read by a test or by the fake), `ip-addr`, `ip-route`, and `lsblk` (UBU), and the failed-services output;
 //   - README says the files are vectors, not proofs (NFR-5), and how passwd was reduced.
 func TestTCHP21_BothCapturesAreCompleteAndDocumented(t *testing.T) {
 	t.Skip("TC-HP-21: SKIP-only stub; un-skip when WI 2.1 lands")
@@ -54,7 +54,7 @@ func TestTCHP24_ReadsIgnoreAZeroProcfsSizeAnd(t *testing.T) {
 //
 // - Setup: a table of injected errors.
 // - Steps: `reasonFor(path, err)` for: `&fs.PathError{Op:"open", Path:"proc/1/mountinfo", Err: syscall.EACCES}`, the same with `EPERM`, with `ENOENT`, a `bounded` timeout of 2 s on `statfs /mnt/x`, and a parse error carrying the line `secret-token-xyz`.
-// - Expected: `permission denied: /proc/1/mountinfo` (twice), `not present: /proc/1/mountinfo`, `timed out after 2s: statfs /mnt/x`, `unrecognized format: /proc/stat`; no reason contains `secret-token-xyz`; every reason starts with one of the prefixes of the architecture's table, which has thirteen after Finding 2 adds `not visible:`.
+// - Expected: `permission denied: /proc/1/mountinfo` (twice), `not present: /proc/1/mountinfo`, `timed out after 2s: statfs /mnt/x`, `unrecognized format: /proc/stat`; no reason contains `secret-token-xyz`; every reason starts with one of the prefixes of the architecture's Error Handling table (the test holds the table's prefix column as a list, with no count).
 func TestTCHP25_ReasonClassificationUsesTheFixedVocabularyAnd(t *testing.T) {
 	t.Skip("TC-HP-25: SKIP-only stub; un-skip when WI 2.2 lands")
 }
@@ -122,9 +122,9 @@ func TestTCHPERR11_DynamicPathSegmentsAreValidated(t *testing.T) {
 
 // TC-HP-ERR12: A hung statfs times out, and a second call reports it still pending. Owner WI 2.2. Requirements: FR-7, FR-12, NFR-1.
 //
-// - Setup: F-STATFS `hang("/mnt/nfs")`, which blocks the whole seam call (stat and statfs) before it returns `Usage`, `Dev` or `IsDir` (Finding 2); timeout 250 ms; goroutine baseline taken.
-// - Steps: `statfsBounded(ctx, "/mnt/nfs")` and time it; call again at once; `release()`; wait until the first goroutine finished; call a third time.
-// - Expected: first: `timed out after 250ms: statfs /mnt/nfs` within 350 ms; second: `still pending: statfs /mnt/nfs` within 10 ms, F-STATFS count still 1, and `runtime.NumGoroutine()` at most baseline + 1 (Finding 3); third: a new call (count 2) that returns the release result, including its `Dev` and `IsDir`.
+// - Setup: F-STATFS `hang("/mnt/nfs")`, which blocks the whole seam call (stat and statfs) before it returns `Usage` (Finding 2); timeout 250 ms; goroutine baseline taken.
+// - Steps: `src.statfs(ctx, "/mnt/nfs")` (WI 2.2) and time it; call again at once, when the call in flight is already `sourceTimeout` old (the stuck branch, A-42); `release()`; wait until the first goroutine finished; call a third time.
+// - Expected: first: `timed out after 250ms: statfs /mnt/nfs` within 350 ms; second: `still pending: statfs /mnt/nfs` within 10 ms, F-STATFS count still 1, and `runtime.NumGoroutine()` at most baseline + 1 (Finding 3); third: a new call (count 2) that returns the release result, the `Usage` F-STATFS was configured with, `IsDir` included.
 func TestTCHPERR12_AHungStatfsTimesOutAndA(t *testing.T) {
 	t.Skip("TC-HP-ERR12: SKIP-only stub; un-skip when WI 2.2 lands")
 }
@@ -144,4 +144,60 @@ func TestTCHPERR12_AHungStatfsTimesOutAndA(t *testing.T) {
 //   - F-FS recorded every call with its access kind, so the allow-list let it through to the filesystem.
 func TestTCHPE30_ListAndStatOnlyAllowListEntriesAccept(t *testing.T) {
 	t.Skip("TC-HP-E30: SKIP-only stub; un-skip when WI 2.2 lands")
+}
+
+// TC-HP-135: The committed captures are redacted. Owner WI 2.1. Requirements: NFR-6, NFR-5.
+//
+// - Setup: a scanner written in the test, not shared with `capture.sh`, that finds:
+//   - MAC tokens: `[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}`, bounded by characters that are neither hex digits nor colons;
+//   - IPv4: dotted tokens of four 0–255 octets, bounded by characters other than digits and dots, plus the Destination and Gateway columns of `proc/net/route`, decoded from little-endian hex;
+//   - IPv6: candidate hex-and-colon tokens parsed with `netip.ParseAddr`, plus the destination, source and next-hop 32-hex columns of `proc/net/ipv6_route`.
+//
+// - Steps:
+//  1. Self-test the scanner on an in-memory tree with one planted value of each kind: `00:1a:2b:3c:4d:5e` in `sys/class/net/eth0/address`, `08080808` as a `proc/net/route` Gateway, `8.8.4.4` in `etc/resolv.conf`, `2a00145000000000000000000000200e` as a `proc/net/ipv6_route` destination, and `2a00:1450::200e` in `tools/ip-addr`.
+//  2. Scan every file under `fs/`, `t1/` and `tools/` of both captures.
+//  3. Read `fs/proc/sys/kernel/hostname`, `tools/hostname` and `PROVENANCE`.
+//
+// - Expected:
+//
+//   - Step 1 flags each planted value, so the scanner is not vacuous.
+//
+//   - Step 2 finds, in either capture:
+//
+//   - no universally administered MAC (first octet with bit 0x02 clear), other than `00:00:00:00:00:00` and `ff:ff:ff:ff:ff:ff`;
+//
+//   - no IPv4 outside 10/8, 172.16/12, 192.168/16, 127/8, 169.254/16, 100.64/10 and 192.0.2.0/24. `0.0.0.0`, `255.255.255.255` and contiguous netmasks are not counted as addresses;
+//
+//   - no address in 2000::/3 outside 2001:db8::/32.
+//
+//     Each failure names the file and the token.
+//
+//   - Step 2 is non-vacuous: in each capture it finds at least one MAC (a `02:00:00:00:00:NN` value) and decodes at least one default route from `proc/net/route`.
+//
+//   - The hostname files hold exactly `ubuntu-capture` (UBU) and `alpine-capture` (ALP), and `tools/hostname` equals `fs/proc/sys/kernel/hostname`.
+//
+//   - `PROVENANCE` has a `redaction:` line whose value is not `off`, so a capture made with `--no-redact` fails here (test-strategy.md Open Item 8).
+func TestTCHP135_TheCommittedCapturesAreRedacted(t *testing.T) {
+	t.Skip("TC-HP-135: SKIP-only stub; un-skip when WI 2.1 lands")
+}
+
+// TC-HP-E32: Concurrent calls join a healthy in-flight call, and a joiner times out at the first call's deadline. Owner WI 2.2. Requirements: FR-12, NFR-1.
+//
+// - Setup: `newSource(F-FS(UBU), 250ms, F-STATFS)`. F-STATFS has `delay("/mnt/slow", 50ms)` and `delay("/mnt/late", 400ms)`, both answering with the root row of `tools/statfs.txt`. A goroutine baseline is taken.
+// - Steps:
+//  1. Start two `src.statfs(ctx, "/mnt/slow")` calls at once (a barrier releases both).
+//  2. Call `src.statfs(ctx, "/mnt/late")` at t0. Call it again 100 ms later, and a third time at t0 + 300 ms.
+//  3. Wait (`eventually`) until F-STATFS's `/mnt/late` call has returned and the key is cleared. Set its delay to 0, and call it a fourth time.
+//
+// - Expected:
+//   - Step 1 (the join branch, A-42): both calls return the same `Usage` with no error in 40–200 ms, and neither gets `still pending`. F-STATFS's count for `/mnt/slow` is 1.
+//   - Step 2:
+//   - The first call returns `timed out after 250ms: statfs /mnt/late` 250–350 ms after t0.
+//   - The second call joined a call aged 100 ms. It returns the same reason at the first call's deadline (start + `sourceTimeout`): 120–220 ms after its own start, never 250 ms after it.
+//   - The third call finds the call in flight for 300 ms, which is `sourceTimeout` or longer (the stuck branch). It returns `still pending: statfs /mnt/late` within 10 ms.
+//   - F-STATFS's count for `/mnt/late` stays 1, and `runtime.NumGoroutine()` stays at or below baseline + 1 throughout.
+//   - Step 3 (the start branch): the fourth call starts a new seam call (count 2) and returns the row.
+//   - Goroutines return to the baseline.
+func TestTCHPE32_ConcurrentCallsJoinAHealthyInFlight(t *testing.T) {
+	t.Skip("TC-HP-E32: SKIP-only stub; un-skip when WI 2.2 lands")
 }

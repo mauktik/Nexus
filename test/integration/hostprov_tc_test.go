@@ -42,12 +42,19 @@ func TestTCHP116_NoSandboxDenialCrashOrRestartDuring(t *testing.T) {
 // TC-HP-117: PID 1's mountinfo is readable under the unit and later host mounts appear. Owner WI 5.3. Requirements: FR-7.
 //
 // - Setup: as TC-HP-114.
-// - Steps: `host.filesystems.list`; then, with nexusd still running, mount a loop-backed ext4 image (`truncate -s 32M /var/tmp/tc-hp.img`, `mkfs.ext4 -q`, `mount -o loop` at `/mnt/tc-hp`; cleanup `umount` and `rm`) and list again; `df -B1 /mnt/tc-hp`. (A tmpfs is not used: tmpfs outside `/tmp`, `/run` and `/dev/shm` is excluded by FR-7.) Then the PrivateTmp case (Finding 2, A-13): mount a second loop-backed ext4 image at `/tmp/tc-hp-hidden` on the host (`mkdir -p`, `mount -o loop`; cleanup `umount`, `rmdir` and `rm`), list again, and run `df -B1 /tmp/tc-hp-hidden` on the host.
+// - Steps:
+//  1. `host.filesystems.list`.
+//  2. With nexusd still running, mount a loop-backed ext4 image (`truncate -s 32M /var/tmp/tc-hp.img`, `mkfs.ext4 -q`, `mount -o loop` at `/mnt/tc-hp`; cleanup `umount` and `rm`), list again, and run `df -B1 /mnt/tc-hp`. (A tmpfs is not used: FR-7 excludes tmpfs outside `/tmp`, `/run` and `/dev/shm`.)
+//  3. The PrivateTmp case (A-13, D-9): mount a second loop-backed ext4 image at `/tmp/tc-hp-hidden` on the host (`mkdir -p`, `mount -o loop`; cleanup `umount`, `rmdir` and `rm`). List again, and run `df -B1 /tmp/tc-hp-hidden` on the host.
+//  4. Log the evidence: the lines of nexusd's `/proc/<MainPID>/mountinfo` for `/`, `/tmp` and `/tmp/tc-hp-hidden` (mount ID, parent ID, `maj:min`, root), and the result of `nsenter -m -t <MainPID> stat -c '%F' /tmp/tc-hp-hidden`.
+//  5. Finding 14's case: `nsenter -m -t <MainPID> mkdir -p /tmp/tc-hp-hidden` creates the path inside nexusd's private `/tmp` (cleanup `nsenter -m -t <MainPID> rmdir`). List again.
+//
 // - Expected:
 //   - No item has `readOnly` in `unavailable`, and `/` has `readOnly false`.
-//   - After the first mount, `/mnt/tc-hp` is listed with `sizeBytes` equal to df's and `fsType ext4`. This is A-13: a host mount made after start is visible, and statfs reaches it.
-//   - After the second mount, the host's `df` reports numbers for `/tmp/tc-hp-hidden`, so the mount is real. The provider lists `/tmp/tc-hp-hidden` with `fsType ext4`. Its `sizeBytes`, `usedBytes`, `availableBytes`, `usedPercent` and inode fields are null, with the reason `not visible: /tmp/tc-hp-hidden is hidden in nexusd's mount namespace`. nexusd's private `/tmp` hides the mount, and the provider must never report the numbers of whatever filesystem the path resolves to there.
-//   - The test runs `nsenter -m -t <MainPID> stat -c '%d' /tmp/tc-hp-hidden` and logs the result: ENOENT, or a device number different from the host's `stat -c '%d'`. That records which seam result produced the reason, as A-13's evidence.
+//   - After step 2, `/mnt/tc-hp` is listed with `sizeBytes` equal to df's and `fsType ext4`. This is A-13: a host mount made after start is visible, and statfs reaches it.
+//   - After step 3, the host's `df` reports numbers for `/tmp/tc-hp-hidden`, so the mount is real, and the host's `/proc/1/mountinfo` lists it, so the case is not vacuous. The provider lists `/tmp/tc-hp-hidden` with `fsType ext4`. Its `sizeBytes`, `usedBytes`, `availableBytes`, `usedPercent` and inode fields are null, with the reason `not visible: /tmp/tc-hp-hidden is hidden in nexusd's mount namespace`.
+//   - Step 4's lines and stat result are logged with `t.Logf` and committed with the T1 logs as the live evidence of A-13's shape and A-38's rule. The stat result is expected to be ENOENT; the test logs any other result and does not fail on it. There is no device-number check.
+//   - After step 5, the path exists in nexusd's namespace and `statfs` there would succeed on the private `/tmp`. The item is still `not visible:` with null usage, never the private `/tmp`'s numbers. So ENOENT is not the only safeguard (Finding 14).
 func TestTCHP117_PID1SMountinfoIsReadableUnder(t *testing.T) {
 	t.Skip("TC-HP-117: SKIP-only stub; un-skip when WI 5.3 lands")
 }

@@ -1,6 +1,6 @@
 // Stub-style: SKIP-only (system-provider)
 //
-// Stubs of planning/system-provider/test-cases.md TC-HP-71, TC-HP-72, TC-HP-73, TC-HP-74, TC-HP-75, TC-HP-76, TC-HP-77, TC-HP-78, TC-HP-79, TC-HP-80, TC-HP-81, TC-HP-82, TC-HP-83, TC-HP-84, TC-HP-85, TC-HP-86, TC-HP-87, TC-HP-88, TC-HP-89, TC-HP-90, TC-HP-91, TC-HP-92, TC-HP-93, TC-HP-94, TC-HP-95, TC-HP-96, TC-HP-97, TC-HP-98, TC-HP-99, TC-HP-100, TC-HP-101, TC-HP-102, TC-HP-103, TC-HP-E18, TC-HP-E19, TC-HP-E20, TC-HP-E21, TC-HP-E22, TC-HP-E23, TC-HP-E24, TC-HP-E25, TC-HP-E26, TC-HP-ERR18, TC-HP-ERR19, TC-HP-ERR20, TC-HP-ERR21, TC-HP-ERR22, TC-HP-ERR23, TC-HP-ERR24, TC-HP-ERR25, TC-HP-ERR26, TC-HP-ERR27, TC-HP-ERR28, TC-HP-E31.
+// Stubs of planning/system-provider/test-cases.md TC-HP-71, TC-HP-72, TC-HP-73, TC-HP-74, TC-HP-75, TC-HP-76, TC-HP-77, TC-HP-78, TC-HP-79, TC-HP-80, TC-HP-81, TC-HP-82, TC-HP-83, TC-HP-84, TC-HP-85, TC-HP-86, TC-HP-87, TC-HP-88, TC-HP-89, TC-HP-90, TC-HP-91, TC-HP-92, TC-HP-93, TC-HP-94, TC-HP-95, TC-HP-96, TC-HP-97, TC-HP-98, TC-HP-99, TC-HP-100, TC-HP-101, TC-HP-102, TC-HP-103, TC-HP-E18, TC-HP-E19, TC-HP-E20, TC-HP-E21, TC-HP-E22, TC-HP-E23, TC-HP-E24, TC-HP-E25, TC-HP-E26, TC-HP-ERR18, TC-HP-ERR19, TC-HP-ERR20, TC-HP-ERR21, TC-HP-ERR22, TC-HP-ERR23, TC-HP-ERR24, TC-HP-ERR25, TC-HP-ERR26, TC-HP-ERR27, TC-HP-ERR28, TC-HP-E31, TC-HP-134, TC-HP-E33.
 // Owner WIs: 4.1, 4.2, 4.3, 4.4, 4.5. Each stub compiles today and skips; the
 // developer of the owning work item replaces the skip and the comment with
 // the test. An un-skipped passing test is the GREEN signal
@@ -96,7 +96,7 @@ func TestTCHP78_CPUSamplerFieldsReportTheSamplerState(t *testing.T) {
 
 // TC-HP-79: Filesystems on both captures agree with statfs and df. Owner WI 4.2. Requirements: FR-7, NFR-3, FR-15.
 //
-// - Setup: host stack per capture, F-STATFS from `tools/statfs.txt`.
+// - Setup: host stack per capture, F-STATFS from `tools/statfs.txt`. F-FS serves the capture's own `proc/1/mountinfo` and `proc/self/mountinfo`, with no `addMount`. When `PROVENANCE` says `under-unit: no`, both files list the same mounts, and every `tools/df` target is expected with numbers. When it says `yes`, targets at or under `/tmp` and `/var/tmp` are left out of this comparison; TC-HP-E31 and TC-HP-117 cover them.
 // - Steps: filesystems handler with `limit 1000`.
 // - Expected:
 //   - every item's mount point is a `tools/df` target, and `/` is present;
@@ -108,9 +108,28 @@ func TestTCHP79_FilesystemsOnBothCapturesAgreeWithStatfs(t *testing.T) {
 
 // TC-HP-80: The exclusion list and bind-mount dedupe. Owner WI 4.2. Requirements: FR-7.
 //
-// - Setup: UBU F-FS with `replace("proc/1/mountinfo", …)` = the capture's lines plus, for each fstype of A-21, one synthetic line derived from a real line of that type (or from the root line with the fstype changed), plus: overlays under each container-runtime dir, `squashfs` at `/snap/core/1`, tmpfs at `/tmp`, `/run`, `/dev/shm`, `/var/tmp`, a file bind at `/etc/hosts`, and a bind of the root device at `/mnt/bind` (same `maj:min`, root `/home`). The file bind is not a directory according to F-STATFS: its `/etc/hosts` entry has `IsDir=false` and the root line's `Dev`. F-FS has no entry for any mount point (Finding 2).
-// - Steps: filesystems handler.
-// - Expected: none of the excluded types or paths listed; tmpfs at `/tmp`, `/run`, `/dev/shm` listed, `/var/tmp` tmpfs not; `/etc/hosts` not, and the reason it is dropped is F-STATFS `IsDir=false`: the variant with `IsDir=true` for `/etc/hosts` lists it; F-FS recorded no access to `etc/hosts`, `mnt/bind` or any other mount point; the root device listed once at `/` (root `/` preferred over `/mnt/bind`); an overlay at `/` itself (container root) is listed.
+// - Setup:
+//   - UBU F-FS. Every mount below is added with `addMount(…, both)` and has its own fresh `maj:min` unless stated otherwise. F-FS has no entry for any mount point (Finding 2).
+//   - For each fstype of A-21, one line derived from a real line of that type in the capture, or from the root line with the fstype changed and a fresh `maj:min`. Also overlays under each container-runtime directory, `squashfs` at `/snap/core/1`, and tmpfs at `/tmp`, `/run`, `/dev/shm` and `/var/tmp` (the capture's own lines where it has them).
+//   - `/mnt/bind`: a bind of the root filesystem, `sameDevAs("/")`, with root `/home` (the dedupe case).
+//   - `/etc/hosts`: a file bind from another disk, as Docker makes it, with its own `maj:min` `8:33` (the host disk's, not the root's) and root `/var/lib/docker/containers/c1/hosts`. F-STATFS answers it with `IsDir=false`.
+//
+// - Steps: filesystems handler with `limit 1000`, in four subtests:
+//  1. As set up.
+//  2. F-STATFS answers `/etc/hosts` with `IsDir=true` and a row of numbers.
+//  3. Add `/srv/appdata`, a directory mount with `sameDevAs("/etc/hosts")` (`8:33`) and root `/appdata`. Its mount point is longer than `/etc/hosts`, so WI 4.2's preference order (mountinfo root `/`, then the shortest mount point) tries the file bind first. (`/srv/data`, the architecture's example, is shorter than `/etc/hosts`, so it would be tried first and the skip would never run.)
+//  4. The root line's fstype is `overlay` in both files (a container root).
+//
+// - Expected:
+//   - Subtest 1:
+//   - none of the excluded types or paths is listed;
+//   - tmpfs at `/tmp`, `/run` and `/dev/shm` is listed, and the `/var/tmp` tmpfs is not;
+//   - `/etc/hosts` is not listed. Its group is a singleton, and F-STATFS said `IsDir=false`, so the group is dropped. F-STATFS's count for `/etc/hosts` is 1;
+//   - the root device is listed once, at `/` (root `/` is preferred over `/mnt/bind`), and F-STATFS's count for `/mnt/bind` is 0.
+//   - Subtest 2: `/etc/hosts` is listed with the row's numbers. So the drop in subtest 1 came from `IsDir`, not from the path.
+//   - Subtest 3: `/srv/appdata` is listed with its F-STATFS numbers and `/etc/hosts` is not. F-STATFS was called for `/etc/hosts` and then for `/srv/appdata`, once each. A file bind never displaces a directory bind of the same filesystem.
+//   - Subtest 4: the overlay at `/` is listed.
+//   - Every subtest: F-FS recorded no access to `etc/hosts`, `mnt/bind`, `srv/appdata` or any other mount point.
 func TestTCHP80_TheExclusionListAndBindMountDedupe(t *testing.T) {
 	t.Skip("TC-HP-80: SKIP-only stub; un-skip when WI 4.2 lands")
 }
@@ -126,9 +145,12 @@ func TestTCHP81_AFilesystemWithoutInodeCountsReportsThem(t *testing.T) {
 
 // TC-HP-82: The read-only flag comes from PID 1's mountinfo. Owner WI 4.2. Requirements: FR-7.
 //
-// - Setup: UBU F-FS where `proc/self/mountinfo` marks every mount `ro` (as under `ProtectSystem=strict`) and `proc/1/mountinfo` is the capture's, plus one line `ro` only in super options.
-// - Steps: filesystems handler.
-// - Expected: F-FS recorded `proc/1/mountinfo` and not `proc/self/mountinfo`; `readOnly` false for `/`, true for the super-options `ro` mount.
+// - Setup: UBU F-FS. `proc/1/mountinfo` is the capture's plus one mount, `/srv/rosuper` (fresh `maj:min`, added with `addMount(…, both)`), whose per-mount options are `rw` and whose super options are `ro`. Then every entry of `proc/self/mountinfo` gets per-mount options `ro`, as under `ProtectSystem=strict`, with its mount ID, parent ID and `maj:min` unchanged.
+// - Steps: filesystems handler; read F-FS's recorder.
+// - Expected:
+//   - F-FS recorded `Open`s of both files: `proc/1/mountinfo` (the mount list and the `readOnly` source) and `proc/self/mountinfo` (visibility only, D-9), the latter exactly once per handler call (WI 4.2 step 1).
+//   - `readOnly` is false for `/` and true for `/srv/rosuper`. So `readOnly` comes from PID 1's view, and the self file's `ro` options change nothing.
+//   - Every item has numbers: the self file decides only visibility, and every mount is visible in it.
 func TestTCHP82_TheReadOnlyFlagComesFromPID(t *testing.T) {
 	t.Skip("TC-HP-82: SKIP-only stub; un-skip when WI 4.2 lands")
 }
@@ -290,7 +312,7 @@ func TestTCHP98_SummaryValuesEqualTheDetailOperations(t *testing.T) {
 
 // TC-HP-99: The summary is at most 16 KiB on a 32-mount, 32-interface host. Owner WI 4.5. Requirements: FR-4, NFR-7.
 //
-// - Setup: the synthetic large host of test-strategy.md (32 mounts with 64-byte mount points, 32 interfaces with 15-byte names, IPv4 + IPv6 each), warming up (all sampler fields null with reasons, the largest shape).
+// - Setup: the synthetic large host of test-strategy.md (32 mounts with 64-byte mount points, each added with `addMount(…, both)` and its own fresh `maj:min`, so each is visible and is its own dedupe group; 32 interfaces with 15-byte names, IPv4 + IPv6 each), warming up (all sampler fields null with reasons, the largest shape).
 // - Steps: summary handler; `json.Marshal` the full list response.
 // - Expected: ≤ 16,384 bytes; `filesystemsTruncated` and `interfacesTruncated` false; totals 32 + the capture's own.
 func TestTCHP99_TheSummaryIsAtMost16KiB(t *testing.T) {
@@ -323,7 +345,7 @@ func TestTCHP101_MetricsOperationOverARunningSampler(t *testing.T) {
 //   - Every recorded access matches an allow-list entry of its access kind, checked after the fact with `allowedAs(path, kind)` (Finding 1): an `Open` needs a read entry, a `ReadDir` a list entry, and a `Stat` or `ReadLink` a read or stat-only entry.
 //   - No recorded path matches `(?i)(cmdline|environ|serial|uuid|asset_tag|kmsg|shadow|/arp$|neigh|/mem$|kcore|/fd/|/maps$)`.
 //   - No recorded path is a mount point of the capture's mountinfo, other than allow-listed files that happen to be mount points. Mount points are reached only through F-STATFS (Finding 2).
-//   - The recording is non-vacuous. It includes an `Open` of `proc/1/mountinfo`, of `sys/class/dmi/id/sys_vendor` and of at least one `proc/<pid>/stat`, a `ReadDir` of `proc` (process scan), and a `Stat` of at least one clock-source marker (`run/systemd/timesync` on UBU, from the clock-source check; `usr/bin/chronyc` on ALP, from the chronyc check).
+//   - The recording is non-vacuous. It includes an `Open` of `proc/1/mountinfo`, of `proc/self/mountinfo` (visibility, D-9), of `sys/class/dmi/id/sys_vendor` and of at least one `proc/<pid>/stat`, a `ReadDir` of `proc` (process scan), and a `Stat` of at least one clock-source marker (`run/systemd/timesync` on UBU, from the clock-source check; `usr/bin/chronyc` on ALP, from the chronyc check).
 func TestTCHP102_NothingOutsideTheAllowListIsEver(t *testing.T) {
 	t.Skip("TC-HP-102: SKIP-only stub; un-skip when WI 4.5 lands")
 }
@@ -375,9 +397,9 @@ func TestTCHPE21_ADiskWithoutAModelReportsIt(t *testing.T) {
 
 // TC-HP-E22: A mount point with a space round-trips. Owner WI 4.2. Requirements: FR-7, FR-15.
 //
-// - Setup: an extra mountinfo line (derived from the root line) with mount point `/mnt/my\040disk`; F-STATFS answering for `/mnt/my disk`.
+// - Setup: an extra ext4 mount whose mountinfo mount point is `/mnt/my\040disk`, with a fresh `maj:min` (`8:65`), added with `addMount(…, both)`. F-STATFS answers for `/mnt/my disk` with a row distinct from the root's.
 // - Steps: filesystems handler.
-// - Expected: `mountPoint "/mnt/my disk"`, `name "%2Fmnt%2Fmy%20disk"`; F-STATFS was called with the decoded path.
+// - Expected: the item has `mountPoint "/mnt/my disk"`, `name "%2Fmnt%2Fmy%20disk"` and the row's numbers; F-STATFS was called once, with the decoded path `/mnt/my disk`.
 func TestTCHPE22_AMountPointWithASpaceRound(t *testing.T) {
 	t.Skip("TC-HP-E22: SKIP-only stub; un-skip when WI 4.2 lands")
 }
@@ -411,7 +433,7 @@ func TestTCHPE25_NeighbourTablesAreNeverRead(t *testing.T) {
 
 // TC-HP-E26: Lists over the summary bound are cut with an indicator, never silently. Owner WI 4.5. Requirements: FR-4.
 //
-// - Setup: the synthetic large host with 40 extra mounts and 40 extra interfaces.
+// - Setup: the synthetic large host with 40 extra mounts (each added with `addMount(…, both)` and its own fresh `maj:min`) and 40 extra interfaces.
 // - Steps: summary handler.
 // - Expected: 32 filesystems, `filesystemsTotal` = 40 + the capture's, `filesystemsTruncated true`; 32 interfaces, `interfacesTotal` likewise, `interfacesTruncated true`; the kept filesystems are the first 32 by mount point.
 func TestTCHPE26_ListsOverTheSummaryBoundAreCut(t *testing.T) {
@@ -462,9 +484,9 @@ func TestTCHPERR21_WithoutPID1SMountinfoReadOnly(t *testing.T) {
 
 // TC-HP-ERR22: One hung mount does not hold up the list. Owner WI 4.2. Requirements: FR-7, NFR-1.
 //
-// - Setup: UBU with SP-HUNG-NFS (F-STATFS `hang` covers the whole seam call, including the directory check; Finding 2); timeout 250 ms.
-// - Steps: filesystems handler; measure; call again at once.
-// - Expected: first returns within 450 ms (`sourceTimeout` + 200 ms); `/mnt/nfs` listed with size, used, available, usedPercent and inodes null with `timed out after 250ms: statfs /mnt/nfs`; all other mounts populated; the second call answers within 50 ms with `still pending: statfs /mnt/nfs`; F-FS recorded no access of any kind to `mnt/nfs` or a path under it, so the directory check did not run outside the bounded call; F-STATFS's count for `/mnt/nfs` is 1.
+// - Setup: UBU with SP-HUNG-NFS: `/mnt/nfs` (nfs4, fresh `maj:min` `0:250`) is added with `addMount(…, both)`, so it is visible and the seam is reached. F-STATFS `hang` covers the whole seam call, including the directory check (Finding 2). Timeout 250 ms.
+// - Steps: filesystems handler; measure; call again at once (the call in flight is then `sourceTimeout` old: the stuck branch, A-42).
+// - Expected: first returns within 450 ms (`sourceTimeout` + 200 ms); `/mnt/nfs` listed with size, used, available, usedPercent and inodes null with `timed out after 250ms: statfs /mnt/nfs`, never `not visible:` (which would mean the fixture, not the timeout, decided); all other mounts populated; the second call answers within 50 ms with `still pending: statfs /mnt/nfs`; F-FS recorded no access of any kind to `mnt/nfs` or a path under it, so the directory check did not run outside the bounded call; F-STATFS's count for `/mnt/nfs` is 1.
 func TestTCHPERR22_OneHungMountDoesNotHoldUp(t *testing.T) {
 	t.Skip("TC-HP-ERR22: SKIP-only stub; un-skip when WI 4.2 lands")
 }
@@ -498,9 +520,9 @@ func TestTCHPERR25_FailedServiceQueryFailuresLeaveTheCount(t *testing.T) {
 
 // TC-HP-ERR26: One hung mount keeps the summary under its bound. Owner WI 4.5. Requirements: FR-4, NFR-1.
 //
-// - Setup: UBU with SP-HUNG-NFS (the hang covers the whole seam call, including the directory check; Finding 2); timeout 250 ms; plus F-RUN `hang` on the failed-units argv.
+// - Setup: UBU with SP-HUNG-NFS (`/mnt/nfs`, fresh `maj:min` `0:250`, added with `addMount(…, both)`, so the seam is reached; the hang covers the whole seam call, including the directory check; Finding 2); timeout 250 ms; plus F-RUN `hang` on the failed-units argv.
 // - Steps: summary handler; measure.
-// - Expected: returns within 550 ms (`sourceTimeout` + 300 ms) even with two hung sources (collectors run concurrently); `/mnt/nfs` usage and `health.failedServicesCount` null with their `timed out` reasons.
+// - Expected: returns within 550 ms (`sourceTimeout` + 300 ms) even with two hung sources (collectors run concurrently); `/mnt/nfs` usage and `health.failedServicesCount` null with their `timed out` reasons (not `not visible:` for `/mnt/nfs`).
 func TestTCHPERR26_OneHungMountKeepsTheSummaryUnder(t *testing.T) {
 	t.Skip("TC-HP-ERR26: SKIP-only stub; un-skip when WI 4.5 lands")
 }
@@ -526,19 +548,78 @@ func TestTCHPERR28_AssertExplicitCatchesEachKindOfViolation(t *testing.T) {
 // TC-HP-E31: A mount point hidden in nexusd's mount namespace reports not visible, never numbers. Owner WI 4.2. Requirements: FR-7, FR-12.
 //
 // - Setup:
-//   - UBU F-FS with `replace("proc/1/mountinfo", …)`: the capture's lines plus one ext4 line at `/tmp/hidden`, derived from the root line with a new `maj:min` (`8:99`) and mount ID.
-//   - Variant (i), the PrivateTmp case: F-STATFS answers `/tmp/hidden` with the root row's `Usage`, `IsDir=true`, and the root's `Dev`, which does not match `8:99`. Inside nexusd's namespace the path resolves to the private `/tmp` on the root filesystem.
-//   - Variant (ii): F-STATFS returns `*fs.PathError{Err: ENOENT}` for `/tmp/hidden`. The path does not exist in nexusd's namespace.
-//   - Control: every other mount's `Dev` matches its mountinfo `maj:min`, from the capture's `tools/stat-mounts.txt`.
+//   - UBU F-FS. Mounts are added with `addMount`, and the root forms are set with `selfRoot` and `stackRoot` (test-strategy.md). Each writes mount IDs and parent IDs that fit its view, because D-9's reachability rule follows parent IDs. F-STATFS answers every path below with a distinct row, the hidden ones included, so a call that should not have been made would also leak numbers.
+//   - Base (a): any `/tmp` line is removed from both files, so `/tmp` lives on `/`.
+//   - Base (b): a host tmpfs at `/tmp` (`0:45`) is added with `both`.
+//   - The hidden mount is `/tmp/hidden`: ext4, `8:99`, root `/`.
+//   - A path-prefix control is in every variant: `/tmpdata` (ext4, `8:97`, `both`).
+//
+// - Steps: filesystems handler with `limit 1000`, once per variant:
+//  1. Shape (a), PrivateTmp over a root-filesystem `/tmp` (D-9, Finding 14): `/tmp/hidden` with `underAncestor("/tmp")` on base (a). Self has `/`, the private bind at `/tmp` (root `/tmp/systemd-private-…/tmp`, the `maj:min` of `/`, parent `/`) and `/tmp/hidden` with parent `/`, the only entry at that path. Run it four times: the bind written before and after `/tmp/hidden`, each with mount IDs ascending and descending (`idOrder`).
+//  2. The second line of defence: `/mnt/gone` (ext4, `8:96`) with `both`; F-STATFS returns `*fs.PathError{Err: ENOENT}` for it.
+//  3. Over-mounted at its own path: `/srv/over` (ext4, `8:98`) with `overMounted("0:77")`. The over-mount is written first in self.
+//  4. Shape (b), PrivateTmp over a host tmpfs `/tmp`: `/tmp/hidden` with `underAncestor("/tmp")` on base (b). Self has `/`, the copied tmpfs `/tmp`, the private bind stacked on it (`0:45`, parent the copied `/tmp`) and `/tmp/hidden`, whose parent is the copied `/tmp`. Run it in the same four orders as step 1.
+//  5. Ambiguous: `/srv/twin` (ext4, `8:95`) with `ambiguous("0:78")`. Self has two entries at `/srv/twin`, both children of `/` and neither stacked on the other, one with `8:95` and one with `0:78`.
+//  6. The fallback (`deny("proc/1/mountinfo")`, so the self entries are the candidates):
+//     - 6a: `/tmp/hidden` with `both`, and F-STATFS ENOENT for it;
+//     - 6b: `/tmp/hidden` with `underAncestor("/tmp")` on base (a).
+//  7. Positive controls:
+//     - 7a: `/tmp/hidden` with `both` on each base;
+//     - 7b: a root stack (`stackRoot()`): a second `/` entry with the root's `maj:min`, stacked on the root entry. `/srv/upper` (ext4, `8:94`) is a child of the upper `/` entry, and `/srv/lower` (ext4, `8:93`) is a child of the covered lower one;
+//     - 7c: the self root entry in proc(5)'s namespace-root form, with its own mount ID as its parent ID (`selfRoot(ownParent)`). Every other variant uses the unlisted-parent form (`selfRoot(unlisted)`), as a captured self file has it.
+//
+// - Expected:
+//   - Steps 1, 3, 4, 5 and 6b: the hidden item (`/tmp/hidden`, `/srv/over` or `/srv/twin`) is listed with `fsType ext4`. In steps 1, 3, 4 and 5 its `readOnly` comes from PID 1's line.
+//   - Its `sizeBytes`, `usedBytes`, `availableBytes`, `usedPercent`, `inodesTotal`, `inodesFree` and `inodesUsed` are null, with `not visible: <mount> is hidden in nexusd's mount namespace`.
+//   - F-STATFS's count for it is 0 (D-9: no syscall on a hidden mount), so none of its configured numbers appears.
+//   - Every order of steps 1 and 4 gives the same result.
+//   - Step 2: `/mnt/gone` has null usage with `not visible: /mnt/gone is hidden in nexusd's mount namespace`, and F-STATFS's count for it is 1: the seam was asked and answered ENOENT.
+//   - Step 4: `/tmp` itself (the private bind on the host's tmpfs, with the same `maj:min`, `0:45`) is listed with its F-STATFS numbers, count 1. This pins A-44: a stacked entry needs its parent only walked.
+//   - Step 6a: `/tmp/hidden` has null usage with `not present: /tmp/hidden`, and `readOnly` is null with TC-HP-ERR21's reason. Step 6b: `not visible:`, count 0, so the rule also applies under the fallback.
+//   - Step 7a: `/tmp/hidden` is listed with its F-STATFS numbers, count 1, on both bases. So the hidden results above come from the self view, not from the path, the `maj:min` or the fstype.
+//   - Step 7b: `/` and `/srv/upper` are listed with numbers. `/srv/lower` is `not visible:` with count 0, because a child of a covered entry is not walked.
+//   - Step 7c: `/` is listed with numbers.
+//   - Every variant:
+//   - `/tmpdata` and `/` keep their numbers. `/tmp` hides `/tmp/hidden` but is not a path-prefix ancestor of `/tmpdata`;
+//   - `assertExplicit` passes;
+//   - F-FS recorded no access to `tmp/hidden`, `srv/over`, `srv/twin`, `srv/upper`, `srv/lower` or `mnt/gone`.
+func TestTCHPE31_AMountPointHiddenInNexusdsMountNamespace(t *testing.T) {
+	t.Skip("TC-HP-E31: SKIP-only stub; un-skip when WI 4.2 lands")
+}
+
+// TC-HP-134: The sampler with a summary and a 24 h metrics call on every tick keeps the heap under 32 MiB. Owner WI 4.5. Requirements: NFR-2, FR-13, FR-4.
+//
+// - Setup:
+//   - Finding 16 splits this out of TC-HP-133, so the shape that needs WI 4.5's handlers is owned by WI 4.5.
+//   - The synthetic large host of test-strategy.md, generated from UBU into `t.TempDir()`: 32 extra interfaces, 32 extra block devices with diskstats lines, and 300 extra pids. The pids are copies of one captured `proc/<pid>/{stat,status}` pair with the pid fields rewritten, so each tick's process scan reads and parses a realistic volume.
+//   - `debug.SetGCPercent(100)` (restored in cleanup).
+//   - Baseline: `runtime.GC()`, `debug.FreeOSMemory()`, then `runtime.ReadMemStats`.
+//
+// - Steps:
+//  1. Configure `historyDuration: 24h`, `sampleInterval: 2s`.
+//  2. Fill the history ring to capacity (21,600 stored points for every slot; A-40) through the history API, as TC-HP-60 does.
+//  3. Start `RunBackground`. Fire 200 ticks with F-TICK, alternating `F-FS.advance()` between the two dynamic samples and advancing F-CLK 2 s per tick. After each tick, call the summary handler and `host.metrics.get` for the full window once.
+//  4. Read `runtime.ReadMemStats` after every 20th tick, with no forced GC.
+//
+// - Expected:
+//   - Every reading of `HeapSys − HeapReleased` is below baseline + 32 MiB.
+//   - The maximum and every reading are logged with `t.Logf`, so WI 5.4 can compare them with the live RSS of TC-HP-130.
+//   - The ring still holds 21,600 points per slot at the end: the ticks overwrote, not grew.
+func TestTCHP134_TheSamplerWithASummaryAndA(t *testing.T) {
+	t.Skip("TC-HP-134: SKIP-only stub; un-skip when WI 4.5 lands")
+}
+
+// TC-HP-E33: The subvolumes of one btrfs filesystem are listed once, with numbers, never not visible. Owner WI 4.2. Requirements: FR-7, FR-12.
+//
+// - Setup:
+//   - Variant (a): UBU F-FS with the root line replaced in both files by a btrfs line: `maj:min` `0:31`, root `/@`, source `/dev/sda2`, super options `rw,subvol=/@`. `/home` is added with `addMount(…, both)`: btrfs, `sameDevAs("/")` (`0:31`), root `/@home`, super options `rw,subvol=/@home`. F-STATFS answers `/` and `/home` with distinct rows.
+//   - Variant (b): the capture's ext4 root is unchanged. `/home` is added with `both`: btrfs, a fresh `0:31`, root `/@home`.
+//   - `Usage` has no device field (A-38), so `tools/stat-mounts.txt`'s `%d` cannot affect either variant.
 //
 // - Steps: filesystems handler with `limit 1000`, per variant.
 // - Expected:
-//   - `/tmp/hidden` is listed with `fsType ext4`.
-//   - Its `sizeBytes`, `usedBytes`, `availableBytes`, `usedPercent`, `inodesTotal`, `inodesFree` and `inodesUsed` are null. Their reason in both variants is `not visible: /tmp/hidden is hidden in nexusd's mount namespace` (Finding 2). Variant (ii) relies on an extension of Finding 2 that test-strategy.md Open Item 5 asks the architect to confirm.
-//   - None of the root row's numbers appears in the `/tmp/hidden` item.
-//   - Every other mount, `/` included, keeps its numbers, so the `Dev` comparison is not vacuous.
-//   - `assertExplicit` passes.
-//   - F-FS recorded no access to `tmp/hidden`.
-func TestTCHPE31_AMountPointHiddenInNexusdsMountNamespace(t *testing.T) {
-	t.Skip("TC-HP-E31: SKIP-only stub; un-skip when WI 4.2 lands")
+//   - Variant (a): one item for `0:31`, at `/`, with `fsType btrfs` and `/`'s F-STATFS numbers. There is no `/home` item (one filesystem is listed once; FR-7, A-21) and no `not visible:` reason anywhere. F-STATFS's count is 1 for `/` and 0 for `/home`: one seam call per filesystem.
+//   - Variant (b): `/home` is listed with `fsType btrfs` and its F-STATFS numbers, count 1.
+func TestTCHPE33_TheSubvolumesOfOneBtrfsFilesystem(t *testing.T) {
+	t.Skip("TC-HP-E33: SKIP-only stub; un-skip when WI 4.2 lands")
 }

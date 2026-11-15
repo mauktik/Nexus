@@ -1,6 +1,6 @@
 // Stub-style: SKIP-only (system-provider)
 //
-// Stubs of planning/system-provider/test-cases.md TC-HP-52, TC-HP-53, TC-HP-54, TC-HP-55, TC-HP-56, TC-HP-57, TC-HP-58, TC-HP-59, TC-HP-60, TC-HP-E12, TC-HP-E13.
+// Stubs of planning/system-provider/test-cases.md TC-HP-52, TC-HP-53, TC-HP-54, TC-HP-55, TC-HP-56, TC-HP-57, TC-HP-58, TC-HP-59, TC-HP-60, TC-HP-E12, TC-HP-E13, TC-HP-133, TC-HP-136, TC-HP-137.
 // Owner WIs: 3.2. Each stub compiles today and skips; the
 // developer of the owning work item replaces the skip and the comment with
 // the test. An un-skipped passing test is the GREEN signal
@@ -10,11 +10,15 @@ package host
 
 import "testing"
 
-// TC-HP-52: History capacity is historyDuration over sampleInterval and overwrites the oldest. Owner WI 3.2. Requirements: FR-13, NFR-2.
+// TC-HP-52: History capacity is historyDuration over sampleInterval, capped at 21,600 stored points, and overwrites the oldest. Owner WI 3.2. Requirements: FR-13, NFR-2.
 //
-// - Setup: capacities from `(1h, 10s)`, `(24h, 2s)`, `(10s, 10s)`.
-// - Steps: build each; append `capacity + 1` points with cpuPercent = i.
-// - Expected: capacities 360, 43,200, 1; after the extra append the ring holds `capacity` points, the oldest has cpuPercent 1 (point 0 overwritten), the newest `capacity`.
+// - Setup: configurations `(1h, 10s)`, `(24h, 2s)`, `(12h, 2s)` and `(10s, 10s)`. For each, the test computes `n = historyDuration / sampleInterval`, `k = ceil(n / MaxHistoryPoints)` and `capacity = ceil(n / k)` with A-40's formula, using the package's `MaxHistoryPoints`. Samples are `sampleInterval` apart from `T0 = 2026-01-01T00:00:00Z`.
+// - Steps: build each history; append `k × capacity + k` samples with cpuPercent = i (i from 0) and every other value present.
+// - Expected:
+//   - `(k, capacity)` is `(1, 360)`, `(2, 21,600)`, `(1, 21,600)` and `(1, 1)`. The computed values must equal these literals, which guards the formula.
+//   - For k = 1: the ring holds `capacity` points. The oldest has cpuPercent 1 (point 0 was overwritten), and the newest has cpuPercent `capacity`.
+//   - For k = 2 (24 h at 2 s): `capacity + 1` points were committed, and the ring holds `capacity`. The oldest stored point is the mean of samples 2 and 3 (cpuPercent 2.5) with sample 3's timestamp. The newest is the mean of samples `2·capacity` and `2·capacity + 1`, with the last sample's timestamp. The test computes both from the appended series.
+//   - `Query` with no step reports `stepSeconds ≥ k × sampleInterval` for each.
 func TestTCHP52_HistoryCapacityIsHistoryDurationOverSampleIntervalAnd(t *testing.T) {
 	t.Skip("TC-HP-52: SKIP-only stub; un-skip when WI 3.2 lands")
 }
@@ -48,9 +52,9 @@ func TestTCHP55_BucketsWithoutSamplesAreNull(t *testing.T) {
 
 // TC-HP-56: At most 500 points per series. Owner WI 3.2. Requirements: FR-13.
 //
-// - Setup: capacity 43,200 at 2 s, full.
+// - Setup: 24 h at 2 s (k = 2, capacity 21,600; A-40), full.
 // - Steps: `Query(window 86400, step 0, [cpu])`.
-// - Expected: `stepSeconds ≥ ceil(86400/500) = 173` (the right side computed in-test); every series has ≤ 500 values.
+// - Expected: `stepSeconds ≥ max(ceil(86400/500), k × 2) = 173` (the right side computed in-test); every series has ≤ 500 values.
 func TestTCHP56_AtMost500PointsPerSeries(t *testing.T) {
 	t.Skip("TC-HP-56: SKIP-only stub; un-skip when WI 3.2 lands")
 }
@@ -85,8 +89,8 @@ func TestTCHP59_EntitySlotsGoToDevicesFirstAnd(t *testing.T) {
 // TC-HP-60: History memory stays within the NFR-2 bounds. Owner WI 3.2. Requirements: NFR-2, FR-13.
 //
 // - Setup: `runtime.GC()` and `runtime.ReadMemStats` before and after.
-// - Steps: build capacity 43,200 with 32 interfaces and 32 disks and fill it; separately capacity 360 filled.
-// - Expected: the `HeapAlloc` delta (history kept alive with `runtime.KeepAlive`) is under the live-history budget A-27 records, and under 1 MiB at capacity 360. The budget is 16 MiB if A-27 adopts Finding 6 option (a), because twice the live heap must stay under 32 MiB, and 28 MiB if it adopts option (b). The stub holds it in one constant, `liveHistoryBudget`, with a comment citing A-27. This TC bounds the live heap only; TC-HP-133 bounds the heap including GC headroom, which is what NFR-2's RSS bound needs.
+// - Steps: build 24 h at 2 s (k = 2, capacity 21,600; A-40) with 32 interfaces and 32 disks, and fill it (43,200 appends); separately, build 1 h at 10 s (360 points) and fill it.
+// - Expected: the `HeapAlloc` delta (history kept alive with `runtime.KeepAlive`) is under `liveHistoryBudget` = 16 MiB for the full 24 h ring, and under 1 MiB at 360 points. A-27 chose Finding 6 option (a): twice the live heap must stay under NFR-2's 32 MiB. The test holds the budget in the one constant `liveHistoryBudget`, with a comment citing A-27. This TC bounds the live heap only. TC-HP-133 and TC-HP-134 bound the heap including GC headroom, which NFR-2's RSS bound needs.
 func TestTCHP60_HistoryMemoryStaysWithinTheNFR2(t *testing.T) {
 	t.Skip("TC-HP-60: SKIP-only stub; un-skip when WI 3.2 lands")
 }
@@ -107,4 +111,59 @@ func TestTCHPE12_QueryingBeyondTheStartOfHistoryAnd(t *testing.T) {
 // - Expected: no race report; each query result is internally consistent (`points == len(values)` per series, timestamps increasing).
 func TestTCHPE13_ConcurrentAppendsAndQueriesAreRaceFree(t *testing.T) {
 	t.Skip("TC-HP-E13: SKIP-only stub; un-skip when WI 3.2 lands")
+}
+
+// TC-HP-133: A full 24 h history under repeated appends and full-window queries keeps the heap under 32 MiB. Owner WI 3.2. Requirements: NFR-2, FR-13.
+//
+// - Setup:
+//   - Finding 6 adds this test, and Finding 16 gives it the architecture's WI 3.2 shape: history only, with no sampler and no handlers, so its owner can pass it. It is the T0 stand-in for NFR-2's RSS bound, which TC-HP-60's live-heap bound does not cover. TC-HP-134 keeps the sampler-plus-handlers shape under WI 4.5.
+//   - `debug.SetGCPercent(100)` (restored in cleanup), which models the default `GOGC`.
+//   - Baseline: `runtime.GC()`, `debug.FreeOSMemory()`, then `runtime.ReadMemStats`.
+//
+// - Steps:
+//  1. Build a history for 24 h at 2 s (k = 2, capacity 21,600; A-40) with 32 interfaces and 32 disks. Fill it to 21,600 stored points (43,200 appends, every value present).
+//  2. Run 100 rounds of one `Append` followed by one `Query(window 86400, step 0, [cpu, load, memory, swap, network, disk])`.
+//  3. Read `runtime.ReadMemStats` after each round, with no forced GC. Separately, measure the `TotalAlloc` delta of one full-window query.
+//
+// - Expected:
+//   - Every reading of `HeapSys − HeapReleased` is below baseline + 32 MiB. The maximum is logged with `t.Logf`, so WI 5.4 can compare it with TC-HP-130's live RSS.
+//   - One full-window query allocates under 1 MiB (`TotalAlloc` delta), so a query creates no ring-sized garbage (WI 3.2).
+//   - The ring still holds 21,600 points at the end.
+func TestTCHP133_AFull24hHistoryUnderRepeatedQueriesKeeps(t *testing.T) {
+	t.Skip("TC-HP-133: SKIP-only stub; un-skip when WI 3.2 lands")
+}
+
+// TC-HP-136: A pair-averaged point keeps the values either sample has. Owner WI 3.2. Requirements: FR-13, FR-12, NFR-2.
+//
+// - Setup: an empty history for 24 h at 2 s (k = 2; A-40), `T0 = 2026-01-01T00:00:00Z`.
+// - Steps:
+//  1. Append sample A at T0 + 2 s: cpuPercent 10, load1 1.0, memUsed null, memAvailable 4e9, swapUsed null; interface `eth0` rx 100 B/s; `eth1` absent.
+//  2. `Query(now = T0 + 2 s, window 3600, step 4)`.
+//  3. Append sample B at T0 + 4 s: cpuPercent 20, load1 null, memUsed 1e9, memAvailable 6e9, swapUsed null; `eth0` absent; `eth1` rx 300 B/s.
+//  4. `Query(now = T0 + 4 s, window 3600, step 4, [cpu, load, memory, swap, network])`.
+//
+// - Expected:
+//   - Step 2: no stored point yet. A single pending sample is not committed (WI 3.2: `Append` commits after k samples), so every bucket is null.
+//   - Step 4: exactly one stored point, with B's timestamp (T0 + 4 s). Its values are cpuPercent 15, load1 1.0, memUsed 1e9, memAvailable 5e9, swapUsed null, `eth0` rx 100 and `eth1` rx 300. Each value is the mean of the samples that have it, and null only where neither has it. Values are compared as float32 within a relative 1e-6.
+//   - The null is JSON `null` in `values` and passes `assertExplicit` (the `series[].values` exemption).
+func TestTCHP136_APairAveragedPointKeepsTheValues(t *testing.T) {
+	t.Skip("TC-HP-136: SKIP-only stub; un-skip when WI 3.2 lands")
+}
+
+// TC-HP-137: A resize across storage resolutions keeps the old points and buckets both resolutions correctly. Owner WI 3.2. Requirements: FR-13, NFR-2.
+//
+// - Setup: a history for 12 h at 2 s (k = 1, capacity 21,600; A-40), `T0 = 2026-01-01T00:00:00Z`.
+// - Steps:
+//  1. Append 600 samples at T0 + 2 s·i (i = 1..600), cpuPercent = i.
+//  2. `Resize` to 24 h at 2 s (k = 2, capacity 21,600).
+//  3. Append 600 samples at T0 + 1200 s + 2 s·j (j = 1..600), cpuPercent = 600 + j.
+//  4. `Query(now = T0 + 2400 s, window 3600, step 60, [cpu])`.
+//  5. `Query(now = T0 + 2400 s, window 1000, step 0, [cpu])`, a window inside the k = 2 span.
+//
+// - Expected:
+//   - The ring holds 900 points: the first 600 at their 2 s resolution, then 300 pair means, each with the later sample's timestamp (the mean of cpuPercent `600 + 2m − 1` and `600 + 2m`). The test computes this stored-point list from A-40's rule.
+//   - Step 4: each bucket equals the mean of the stored points whose timestamps fall in it, computed in-test from that stored-point list rather than from the raw samples. This includes the bucket that straddles T0 + 1200 s.
+//   - Step 5: `stepSeconds` is 4 (the stored resolution, k × 2 s; A-40), and no bucket in the window is null.
+func TestTCHP137_AResizeAcrossStorageResolutionsKeepsThe(t *testing.T) {
+	t.Skip("TC-HP-137: SKIP-only stub; un-skip when WI 3.2 lands")
 }
