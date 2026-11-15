@@ -35,6 +35,9 @@ import (
 
 const (
 	composeFixture = "/harness/fixtures/compose/compose.yaml"
+	// composeEnvFixture is composeFixture with app also reading the
+	// service-level env_file app.env, which newComposeProjectFrom writes.
+	composeEnvFixture = "/harness/fixtures/compose/compose-envfile.yaml"
 	// composeRoot holds the projects: nexusd's sandbox sees it, while
 	// PrivateTmp hides the host's /tmp.
 	composeRoot   = "/srv/nx-compose"
@@ -173,6 +176,17 @@ func removeComposeProject(name string) {
 // file and starts the project.
 func newComposeProject(t *testing.T, name, dir, host string, def imageDef) *composeProject {
 	t.Helper()
+	return newComposeProjectFrom(t, composeFixture, name, dir, host, def)
+}
+
+// composeAppEnv is what newComposeProjectFrom writes to app.env for
+// composeEnvFixture.
+const composeAppEnv = "NX_GREETING=nx-envfile-one\n"
+
+// newComposeProjectFrom is newComposeProject with the fixture file
+// fixture; for composeEnvFixture it also writes app.env (composeAppEnv).
+func newComposeProjectFrom(t *testing.T, fixture, name, dir, host string, def imageDef) *composeProject {
+	t.Helper()
 	requireDocker(t)
 	startRegistries(t)
 	removeComposeProject(name)
@@ -186,14 +200,19 @@ func newComposeProject(t *testing.T, name, dir, host string, def imageDef) *comp
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	fixture, err := os.ReadFile(composeFixture)
+	body, err := os.ReadFile(fixture)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := &composeProject{name: name, dir: dir, file: filepath.Join(dir, "compose.yaml"),
 		envFile: filepath.Join(dir, "nx.env"), host: host, appRepo: "nx/" + name + "-app"}
-	if err := os.WriteFile(c.file, fixture, 0o644); err != nil {
+	if err := os.WriteFile(c.file, body, 0o644); err != nil {
 		t.Fatal(err)
+	}
+	if fixture == composeEnvFixture {
+		if err := os.WriteFile(filepath.Join(dir, "app.env"), []byte(composeAppEnv), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	c.appRef = host + "/" + c.appRepo + ":moving"
 	buildImage(t, c.appRef, name+" app one "+time.Now().String(), def)
@@ -830,6 +849,79 @@ func TestDockerComposeUpdateRefusesAnEditedDefinition(t *testing.T) {
 	}
 	if logs := n.opLogs(op.ID); strings.Contains(logs, `"up"`) {
 		t.Fatalf("docker compose up ran:\n%s", logs)
+	}
+}
+
+// wantEnv requires that container name's environment has entry.
+func wantEnv(t *testing.T, name, entry string) {
+	t.Helper()
+	if env := dockerInspectField(t, name, "{{json .Config.Env}}"); !strings.Contains(env, strconv.Quote(entry)) {
+		t.Fatalf("%s's environment %s lacks %s", name, env, entry)
+	}
+}
+
+// CR-29 with a service-level env_file (compose-hash-false-refusal): a
+// service whose definition reads app.env, created by docker compose up from
+// files nobody edited since, is updated: Succeeded, changed, on the
+// registry's new digest by independent docker inspect, and the new
+// container still has the env file's variable. `docker compose config
+// --hash app` hashes the service with its env_file unresolved, so it never
+// equals the label up wrote; comparing them refused every such service.
+func TestDockerComposeUpdatesAnEnvFileService(t *testing.T) {
+	c := newComposeProjectFrom(t, composeEnvFixture, "nxcenv", filepath.Join(composeRoot, "tcenv"), regOpen, updPlain)
+	app := c.container("app")
+	id := containerID(t, app)
+	wantEnv(t, app, strings.TrimSpace(composeAppEnv))
+	newD := c.pushApp(t, updPlain)
+	n := upNexusd(t, "tcenv", "")
+	op := wantOp(t, n, app)
+	res := wantSucceeded(t, op)
+	newID := containerID(t, app)
+	got := repoDigest(t, dockerInspectField(t, app, "{{.Image}}"), c.host+"/"+c.appRepo)
+	if !res.Changed || res.RolledBack || res.NewDigest != newD || got != newD || res.PreviousDigest != c.oldDigest {
+		t.Fatalf("result %+v; inspect RepoDigest %s, registry %s -> %s", res, got, c.oldDigest, newD)
+	}
+	if newID == id || res.ContainerID != newID || res.PreviousContainerID != id {
+		t.Fatalf("result ids %s <- %s, inspect %s <- %s", res.ContainerID, res.PreviousContainerID, newID, id)
+	}
+	wantEnv(t, app, strings.TrimSpace(composeAppEnv))
+	if logs := n.opLogs(op.ID); strings.Contains(logs, "nx-envfile-") {
+		t.Fatalf("the env file's value is in the operation output:\n%s", logs)
+	}
+}
+
+// CR-29 with a service-level env_file: after the env file's contents are
+// edited, the update ends Failed not-updatable before anything is pulled
+// or recreated, as for an edited compose.yaml: docker compose up would
+// deploy the new value with the image. The same service, unedited, is
+// first updated (it is current, so Succeeded and not recreated), so the
+// refusal is the edit's. Neither the operation output nor the refusal
+// carries the env file's values.
+func TestDockerComposeUpdateRefusesAnEditedEnvFile(t *testing.T) {
+	c := newComposeProjectFrom(t, composeEnvFixture, "nxcenved", filepath.Join(composeRoot, "tcenved"), regOpen, updPlain)
+	app := c.container("app")
+	id := containerID(t, app)
+	n := upNexusd(t, "tcenved", "")
+	if res := wantSucceeded(t, wantOp(t, n, app)); res.Changed || res.ContainerID != id || containerID(t, app) != id {
+		t.Fatalf("the unedited, current service: result %+v, app %s, was %s", res, containerID(t, app), id)
+	}
+
+	c.pushApp(t, updPlain)
+	if err := os.WriteFile(filepath.Join(c.dir, "app.env"), []byte("NX_GREETING=nx-envfile-two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	op := wantOp(t, n, app)
+	wantFailed(t, op, problem.NotUpdatable)
+	if containerID(t, app) != id {
+		t.Fatalf("app was recreated: %s, was %s", containerID(t, app), id)
+	}
+	wantEnv(t, app, strings.TrimSpace(composeAppEnv))
+	logs := n.opLogs(op.ID)
+	if strings.Contains(logs, `"up"`) {
+		t.Fatalf("docker compose up ran:\n%s", logs)
+	}
+	if strings.Contains(logs+op.Error.Detail, "nx-envfile-") {
+		t.Fatalf("the env file's value is in the operation output or the refusal %q:\n%s", op.Error.Detail, logs)
 	}
 }
 

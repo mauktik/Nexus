@@ -89,18 +89,75 @@ func TestComposeTrustRefusesAProjectNotOwnedByRoot(t *testing.T) {
 	}
 }
 
-// fakeComposeHash is a docker executable whose `compose ... config --hash S`
-// prints out; any other verb fails.
-func fakeComposeHash(t *testing.T, out string) string {
+// fakeComposeConfig is a docker executable that answers `compose ...
+// config --format json S` with configJSON, or fails when configJSON is
+// failConfig, and `compose ... config --hash S` with hashOut; any other
+// verb fails. Each command line is appended to the returned log.
+func fakeComposeConfig(t *testing.T, configJSON, hashOut string) (docker, calls string) {
 	t.Helper()
-	fake := filepath.Join(t.TempDir(), "docker")
-	writeExec(t, fake, "#!/bin/sh\ncase \"$*\" in\n*config*) cat <<'EOF'\n"+out+"\nEOF\n;;\n*) exit 9 ;;\nesac\n", 0o755)
-	return fake
+	dir := t.TempDir()
+	cfg, calls := filepath.Join(dir, "config.json"), filepath.Join(dir, "calls")
+	if err := os.WriteFile(cfg, []byte(configJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	answer := "cat '" + cfg + "'"
+	if configJSON == failConfig {
+		answer = "echo 'service \"app\" has neither an image nor a build context specified' >&2; exit 15"
+	}
+	docker = filepath.Join(dir, "docker")
+	writeExec(t, docker, "#!/bin/sh\necho \"$*\" >> '"+calls+"'\ncase \"$*\" in\n"+
+		"*'config --format json'*) "+answer+" ;;\n"+
+		"*'config --hash'*) cat <<'EOF'\n"+hashOut+"\nEOF\n;;\n*) exit 9 ;;\nesac\n", 0o755)
+	return docker, calls
+}
+
+const failConfig = "<fail>"
+
+// composeRecording is a recorded `docker compose config --format json app`
+// from testdata, with the config-hash label `docker compose up` wrote on
+// the app container of the same project and what `config --hash app`
+// printed for it. Recorded with upstream Compose v5.0.2 and v2.40.3 on
+// Docker Engine 29.2.1: envfile is a service with `env_file: [.env]` and
+// an environment entry the file also sets; envrich adds an env_file with
+// a quoted value, environment and labels with characters Go's JSON
+// escapes, pull_policy, depends_on and deploy.replicas; envfile-edited is
+// envfile after its .env was edited, against the label of the container
+// created before the edit.
+type composeRecording struct{ file, label, configHash string }
+
+var (
+	recEnvFileV5 = composeRecording{"compose-config-v5.0.2-envfile.json",
+		"36351f00e754fe23eff1aedf4365cdc8c5270266a06b293491ad41189a933bba",
+		"app 9f0e18c70fdc4cadd4d20a09b24a7ec3a7234ae6958494692a54a2c3bdcad2a4"}
+	recEnvFileV2 = composeRecording{"compose-config-v2.40.3-envfile.json",
+		"36351f00e754fe23eff1aedf4365cdc8c5270266a06b293491ad41189a933bba",
+		"app 09ecde85eefb6f5c837ece9ae94ee9204834849d47de9393f8fb61e18e0be097"}
+	recEnvRichV5 = composeRecording{"compose-config-v5.0.2-envrich.json",
+		"4f73e874e90d818637fd19d0755eae3f25b02c9b350fba12f716fd1fb083e5db",
+		"app 3824a812666d6a7c58f119186cbde754f84da926092611c151013d6b817f1e27"}
+	recEnvRichV2 = composeRecording{"compose-config-v2.40.3-envrich.json",
+		"4f73e874e90d818637fd19d0755eae3f25b02c9b350fba12f716fd1fb083e5db",
+		"app 36fb01f832943ef6a3189794c84e326262e469600f742a6e937d56b97b7df75f"}
+	// The edited .env changes neither the label nor config --hash.
+	recEnvEditedV5 = composeRecording{"compose-config-v5.0.2-envfile-edited.json",
+		"36351f00e754fe23eff1aedf4365cdc8c5270266a06b293491ad41189a933bba",
+		"app 357705de080f033a31234d602fc8c1fa432c5c4786819045ddcfc3d0b8a0251f"}
+)
+
+func (r composeRecording) config(t *testing.T) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", r.file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
 
 // CR-29: a service whose definition changed since its container was created
 // is refused before anything is pulled; an unchanged one, and one that
-// cannot be compared, go on.
+// cannot be compared, go on. The definition is Compose's own env-resolved
+// one: for a service with env_file, `config --hash` never prints the label
+// `up` wrote, and does not change when the file does.
 func TestComposeChangedComparesTheConfigHash(t *testing.T) {
 	tg := composeTarget{Project: "media", Service: "app", WorkingDir: t.TempDir(), ConfigFiles: []string{"/x/compose.yaml"}}
 	hashOld := strings.Repeat("a", 64)
@@ -109,29 +166,60 @@ func TestComposeChangedComparesTheConfigHash(t *testing.T) {
 		return labeled(map[string]string{composeHashLabel: h})
 	}
 	for _, tc := range []struct {
-		name   string
-		output string
-		c      container.InspectResponse
-		want   string // "" proceeds; else a substring of the refusal
+		name       string
+		config     string
+		hashOut    string
+		c          container.InspectResponse
+		want       string // "" proceeds; else a substring of the refusal
+		hashCalled bool   // config --hash ran
 	}{
-		{"unchanged", "app " + hashOld, withHash(hashOld), ""},
-		{"unchanged, bare hash", hashOld, withHash(hashOld), ""},
-		{"edited", "app " + hashNew, withHash(hashOld), "changed since container app was created"},
-		{"no label on the container", "app " + hashNew, labeled(nil), ""},
-		{"output not understood", "a b c d", withHash(hashOld), ""},
+		{"v5.0.2 env_file, unchanged", recEnvFileV5.config(t), recEnvFileV5.configHash, withHash(recEnvFileV5.label), "", false},
+		{"v2.40.3 env_file, unchanged", recEnvFileV2.config(t), recEnvFileV2.configHash, withHash(recEnvFileV2.label), "", false},
+		{"v5.0.2 escapes and cleared fields, unchanged", recEnvRichV5.config(t), recEnvRichV5.configHash,
+			withHash(recEnvRichV5.label), "", false},
+		{"v2.40.3 escapes and cleared fields, unchanged", recEnvRichV2.config(t), recEnvRichV2.configHash,
+			withHash(recEnvRichV2.label), "", false},
+		{"v5.0.2 env file edited", recEnvEditedV5.config(t), recEnvEditedV5.configHash, withHash(recEnvEditedV5.label),
+			"its hash was 36351f00e754, and is now 135ae176f289", true},
+		{"config --hash agrees", recEnvFileV5.config(t), "app " + hashOld, withHash(hashOld), "", true},
+		{"config --hash agrees, bare hash", recEnvFileV5.config(t), hashOld, withHash(hashOld), "", true},
+		{"edited", recEnvFileV5.config(t), "app " + hashNew, withHash(hashOld), "changed since container app was created", true},
+		{"edited, config --hash not understood", recEnvFileV5.config(t), "a b c d", withHash(hashOld),
+			"changed since container app was created", true},
+		{"no label on the container", recEnvFileV5.config(t), "app " + hashNew, labeled(nil), "", false},
+		{"config not understood", "a b c d", "app " + hashNew, withHash(hashOld), "", false},
+		{"service not in the config", `{"services":{"db":{"image":"x"}}}`, "app " + hashNew, withHash(hashOld), "", false},
+		{"service not an object", `{"services":{"app":["x"]}}`, "app " + hashNew, withHash(hashOld), "", false},
+		{"config fails", failConfig, "app " + hashOld, withHash(hashOld), "docker compose config --format json failed", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var out bytes.Buffer
 			u := &updater{in: helperInput{Name: "app", ComposeTimeout: time.Minute}, out: &out}
-			got := u.composeChanged(context.Background(), fakeComposeHash(t, tc.output), tg, tc.c)
+			docker, calls := fakeComposeConfig(t, tc.config, tc.hashOut)
+			got := u.composeChanged(context.Background(), docker, tg, tc.c)
 			if (tc.want == "") != (got == "") || !strings.Contains(got, tc.want) {
-				t.Fatalf("got %q, want %q", got, tc.want)
+				t.Fatalf("got %q, want %q; output %q", got, tc.want, out.String())
+			}
+			ran, _ := os.ReadFile(calls)
+			if strings.Contains(string(ran), "config --hash") != tc.hashCalled {
+				t.Errorf("commands run %q, want config --hash run %v", ran, tc.hashCalled)
+			}
+			// The resolved definition carries the env files' values: none
+			// of it is written to the output or the refusal.
+			for _, secret := range []string{`"environment"`, "NX_GREETING", "hello", "edited\""} {
+				if strings.Contains(out.String()+got, secret) {
+					t.Errorf("%q in the output %q or the refusal %q", secret, out.String(), got)
+				}
 			}
 		})
 	}
-	// The command that reads the hash is an argument vector with the
-	// service as --hash's value.
+	// The commands that read the definition are argument vectors with the
+	// service as their last element.
 	if got := composeArgv("docker", tg, "config", "--hash"); got[len(got)-2] != "--hash" || got[len(got)-1] != "app" {
+		t.Errorf("argv %q", got)
+	}
+	if got := composeArgv("docker", tg, "config", "--format", "json"); !slices.Equal(got[len(got)-4:],
+		[]string{"config", "--format", "json", "app"}) {
 		t.Errorf("argv %q", got)
 	}
 }

@@ -1,0 +1,13 @@
+# Compose hash fix T1 fixture (test/integration/docker_compose_test.go): the
+# project of compose.yaml, with app also reading the service-level
+# env_file app.env, which the tests write next to this file. Compose's
+# `config --hash` hashes such a service with its env_file entry unresolved,
+# while `up` labels it with the file's variables merged into environment.
+services:
+  app:
+    image: ${NX_APP_IMAGE:?set NX_APP_IMAGE in the environment file}
+    stop_grace_period: 3s
+    env_file: [app.env]
+  other:
+    image: ${NX_OTHER_IMAGE:?set NX_OTHER_IMAGE in the environment file}
+    stop_grace_period: 3s
