@@ -1,0 +1,11 @@
+Runlevel: sysinit
+Runlevel: shutdown
+Runlevel: nonetwork
+Runlevel: default
+ docker                                                [  started 00:02:59 (0) ]
+Runlevel: boot
+ harness-cgroups                                                   [  started  ]
+ syslog                                                            [  started  ]
+Dynamic Runlevel: hotplugged
+Dynamic Runlevel: needed/wanted
+Dynamic Runlevel: manual

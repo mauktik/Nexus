@@ -1,0 +1,143 @@
+=== RUN   TestTCHP114_EveryOpUnderTheExactHardenedUnit
+    hostprov_tc_test.go:878: requires systemd (detected openrc)
+--- SKIP: TestTCHP114_EveryOpUnderTheExactHardenedUnit (0.00s)
+=== RUN   TestTCHP115_EveryFieldIsPopulatedOrExplicitlyUnavailable
+    hostprov_tc_test.go:891: requires systemd (detected openrc)
+--- SKIP: TestTCHP115_EveryFieldIsPopulatedOrExplicitlyUnavailable (0.00s)
+=== RUN   TestTCHP116_NoSandboxDenialCrashOrRestartDuring
+    hostprov_tc_test.go:901: requires systemd (detected openrc)
+--- SKIP: TestTCHP116_NoSandboxDenialCrashOrRestartDuring (0.00s)
+=== RUN   TestTCHP117_PID1SMountinfoIsReadableUnder
+    hostprov_tc_test.go:969: requires systemd (detected openrc)
+--- SKIP: TestTCHP117_PID1SMountinfoIsReadableUnder (0.00s)
+=== RUN   TestTCHP118_AFailedTransientUnitAppearsInFailedServices
+    hostprov_tc_test.go:1147: requires systemd (detected openrc)
+--- SKIP: TestTCHP118_AFailedTransientUnitAppearsInFailedServices (0.00s)
+=== RUN   TestTCHP119_TheRebootRequiredMarkerDrivesRebootRequiredSystemd
+    hostprov_tc_test.go:1183: requires systemd (detected openrc)
+--- SKIP: TestTCHP119_TheRebootRequiredMarkerDrivesRebootRequiredSystemd (0.00s)
+=== RUN   TestTCHP120_ACPUBurnerAppearsInTopByCpuSystemd
+    hostprov_tc_test.go:1251: requires systemd (detected openrc)
+--- SKIP: TestTCHP120_ACPUBurnerAppearsInTopByCpuSystemd (0.00s)
+=== RUN   TestTCHP121_DisableByReloadStopsTheProviderRe
+    hostprov_tc_test.go:1285: requires systemd (detected openrc)
+--- SKIP: TestTCHP121_DisableByReloadStopsTheProviderRe (0.00s)
+=== RUN   TestTCHP122_EveryOpUnderOpenRCAgreesWithBusyBox
+    hostprov_tc_test.go:1397: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/init.d/nexusd
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd at boot: rc-update add nexusd default
+        install.sh:   start nexusd now: rc-service nexusd start
+    hostprov_tc_test.go:1397: nexusd under the shipped OpenRC script: /etc/init.d/nexusd sha256 7ccb3febb85e7625daf3927b520609fad6111d7c47a8074dec4d4cc5a5241273, PID 2788
+    hostprov_tc_test.go:1397: host sampler ready 1.901s after the start
+    hostprov_tc_test.go:1398: identity hostname      "68cb34b36902" = host's tools
+    hostprov_tc_test.go:1398: identity os.id         "alpine" = host's tools
+    hostprov_tc_test.go:1398: identity os.versionId  "3.24.4" = host's tools
+    hostprov_tc_test.go:1398: identity os.prettyName "Alpine Linux v3.24" = host's tools
+    hostprov_tc_test.go:1398: identity kernelRelease "6.8.0-100-generic" = host's tools
+    hostprov_tc_test.go:1398: identity architecture  "aarch64" = host's tools
+    hostprov_tc_test.go:1398: cpu logicalCpus 4 = nproc
+    hostprov_tc_test.go:1398: memory totalBytes 8308944896 = free -b
+    hostprov_tc_test.go:1398: memory availableBytes 7367032832 within 1% of free -b's 7367278592 / 7367032832
+    hostprov_tc_test.go:1398: filesystem /                        overlay  size 63088406528 = df; used 32644354048 in df's 32644354048..32644354048 ± 4096
+    hostprov_tc_test.go:1398: filesystem /dev/shm                 tmpfs    size 67108864 = df; used 0 in df's 0..0 ± 4096
+    hostprov_tc_test.go:1398: filesystem /run                     tmpfs    size 4154470400 = df; used 200704 in df's 200704..200704 ± 4096
+    hostprov_tc_test.go:1398: filesystem /var/lib/docker          ext4     size 63088406528 = df; used 32644354048 in df's 32644354048..32644354048 ± 4096
+    hostprov_tc_test.go:1398: disk vda      size 21474836480 rotational true removable false = tools
+    hostprov_tc_test.go:1398: disk vdb      size 64424509440 rotational true removable false = tools
+    hostprov_tc_test.go:1398: disk vdc      size 55689216 rotational true removable false = tools
+    hostprov_tc_test.go:1398: interface docker0      ["172.18.0.1/16"] = ip -j addr
+    hostprov_tc_test.go:1398: interface eth0         ["172.17.0.2/16"] = ip -j addr
+    hostprov_tc_test.go:1398: interface lo           ["127.0.0.1/8" "::1/128"] = ip -j addr
+    hostprov_tc_test.go:1398: defaultGateways ["ipv4 172.17.0.1 eth0 0"] = ip -j route
+    hostprov_tc_test.go:1399: /harness/out/host-unavailable-openrc.txt: 19 unavailable fields (op, json path, reason):
+        host.summary.get	$.items[0].properties.cpu.model	not reported: no model name in /proc/cpuinfo
+        host.summary.get	$.items[0].properties.health.rebootRequired	not supported: reboot-required in an Alpine container, whose kernel is the container host's
+        host.summary.get	$.items[0].properties.network.interfaces[0].ipv6	not reported: no IPv6 address
+        host.summary.get	$.items[0].properties.network.interfaces[1].ipv6	not reported: no IPv6 address
+        host.identity.get	$.items[0].properties.clock.source	not supported: no supported time-sync query (systemd-timedated, chrony)
+        host.identity.get	$.items[0].properties.clock.synchronized	not supported: no supported time-sync query (systemd-timedated, chrony)
+        host.cpu.get	$.items[0].properties.frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+        host.cpu.get	$.items[0].properties.model	not reported: no model name in /proc/cpuinfo
+        host.cpu.get	$.items[0].properties.temperatures	not reported: no temperature sensors (common in VMs)
+        host.cpu.get	$.items[0].properties.perCpu[0].frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+        host.cpu.get	$.items[0].properties.perCpu[1].frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+        host.cpu.get	$.items[0].properties.perCpu[2].frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+        host.cpu.get	$.items[0].properties.perCpu[3].frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+        host.disks.list	$.items[0].properties.model	not reported: no /sys/block/vda/device/model
+        host.disks.list	$.items[1].properties.model	not reported: no /sys/block/vdb/device/model
+        host.disks.list	$.items[2].properties.model	not reported: no /sys/block/vdc/device/model
+        host.interfaces.list	$.items[0].properties.speedMbps	not reported: no link speed at /sys/class/net/docker0/speed
+        host.interfaces.list	$.items[2].properties.speedMbps	not reported: no link speed at /sys/class/net/lo/speed
+        host.health.get	$.items[0].properties.rebootRequired.state	not supported: reboot-required in an Alpine container, whose kernel is the container host's
+--- PASS: TestTCHP122_EveryOpUnderOpenRCAgreesWithBusyBox (3.24s)
+=== RUN   TestTCHP123_ACrashedOpenRCServiceAppearsInFailedServices
+    hostprov_tc_test.go:1411: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/init.d/nexusd
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd at boot: rc-update add nexusd default
+        install.sh:   start nexusd now: rc-service nexusd start
+    hostprov_tc_test.go:1411: nexusd under the shipped OpenRC script: /etc/init.d/nexusd sha256 7ccb3febb85e7625daf3927b520609fad6111d7c47a8074dec4d4cc5a5241273, PID 3235
+    hostprov_tc_test.go:1411: host sampler ready 1.984s after the start
+    hostprov_tc_test.go:1443: killed nx-host-crash PID 3469; rc-status --crashed ["nx-host-crash"]; failedServices count 1 names ["nx-host-crash"] source openrc
+--- PASS: TestTCHP123_ACrashedOpenRCServiceAppearsInFailedServices (3.34s)
+=== RUN   TestTCHP124_InTheAlpineContainerRebootRequiredIsUnknown
+    hostprov_tc_test.go:1459: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/init.d/nexusd
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd at boot: rc-update add nexusd default
+        install.sh:   start nexusd now: rc-service nexusd start
+    hostprov_tc_test.go:1459: nexusd under the shipped OpenRC script: /etc/init.d/nexusd sha256 7ccb3febb85e7625daf3927b520609fad6111d7c47a8074dec4d4cc5a5241273, PID 3784
+    hostprov_tc_test.go:1459: host sampler ready 1.998s after the start
+    hostprov_tc_test.go:1464: rebootRequired {State:unknown Check:none Evidence:in a docker container: the running kernel 6.8.0-100-generic is the container host's, so /lib/modules/6.8.0-100-generic says nothing Packages:[] Unavailable:map[state:not supported: reboot-required in an Alpine container, whose kernel is the container host's]}; virtualization type docker kind container evidence "/.dockerenv"; /.dockerenv exists true
+--- PASS: TestTCHP124_InTheAlpineContainerRebootRequiredIsUnknown (3.35s)
+=== RUN   TestTCHP125_TC182SweepsTheTenHostOps
+    install_test.go:772: requires systemd (detected openrc)
+--- SKIP: TestTCHP125_TC182SweepsTheTenHostOps (0.00s)
+=== RUN   TestTCHP126_IdentityReportsTheHarnessSInitSystem
+    hostprov_tc_test.go:1513: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/init.d/nexusd
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd at boot: rc-update add nexusd default
+        install.sh:   start nexusd now: rc-service nexusd start
+    hostprov_tc_test.go:1513: nexusd under the shipped OpenRC script: /etc/init.d/nexusd sha256 7ccb3febb85e7625daf3927b520609fad6111d7c47a8074dec4d4cc5a5241273, PID 4177
+    hostprov_tc_test.go:1513: host sampler ready 2.011s after the start
+    hostprov_tc_test.go:1520: identity initSystem openrc os.id alpine versionId 3.24.4; detectedInit openrc; os-release ID alpine; capabilities initSystem openrc os {ID:alpine VersionID:3.24.4 PrettyName:Alpine Linux v3.24}
+--- PASS: TestTCHP126_IdentityReportsTheHarnessSInitSystem (3.34s)
+=== RUN   TestTCHP131_TheDocumentedSandboxUnavailableListMatchesWhat
+    hostprov_tc_test.go:1536: TC-HP-131: SKIP-only stub; un-skip when WI 5.4 lands
+--- SKIP: TestTCHP131_TheDocumentedSandboxUnavailableListMatchesWhat (0.00s)
+=== RUN   TestTCHPE28_ProcessesOfOtherUsersAreSampledUnder
+    hostprov_tc_test.go:1545: requires systemd (detected openrc)
+--- SKIP: TestTCHPE28_ProcessesOfOtherUsersAreSampledUnder (0.00s)
+=== RUN   TestTCHPE29_ClockSynchronizationUnderTheUnitMatchesTimedatectl
+    hostprov_tc_test.go:1562: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/init.d/nexusd
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd at boot: rc-update add nexusd default
+        install.sh:   start nexusd now: rc-service nexusd start
+    hostprov_tc_test.go:1562: nexusd under the shipped OpenRC script: /etc/init.d/nexusd sha256 7ccb3febb85e7625daf3927b520609fad6111d7c47a8074dec4d4cc5a5241273, PID 4569
+    hostprov_tc_test.go:1562: host sampler ready 1.994s after the start
+    hostprov_tc_test.go:1588: clock synchronized "unknown" source "" reason "not supported: no supported time-sync query (systemd-timedated, chrony)"; /usr/bin/chronyc exists false
+--- PASS: TestTCHPE29_ClockSynchronizationUnderTheUnitMatchesTimedatectl (3.34s)
+PASS

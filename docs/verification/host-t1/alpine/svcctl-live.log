@@ -1,0 +1,8 @@
+=== RUN   TestLiveMatrix
+    svcctl_test.go:846: openrc stop: exit 0, output " * WARNING: nginx is already stopped\n"; Status {Known:true State:stopped Since:<nil> MainPID:0 Raw:* status: stopped}
+    svcctl_test.go:847: openrc start: exit 0, output "Service 'acpid' needs non existent service 'dev'\nService 'hwdrivers' needs non existent service 'dev'\nService 'machine-id' needs non existent service 'dev'\nService 'watchdog' needs non existent service 'dev'\n * Caching service dependencies ... [ ok ]\n * /run/nginx: creating directory\n * /run/nginx: correcting owner\n * Starting nginx ... [ ok ]\n"; Status {Known:true State:running Since:<nil> MainPID:4933 Raw:* status: started}
+    svcctl_test.go:848: openrc reload: exit 0, output " * Reloading nginx configuration ... [ ok ]\n"; Status {Known:true State:running Since:<nil> MainPID:4933 Raw:* status: started}
+    svcctl_test.go:849: openrc restart: exit 0, output " * Stopping nginx ... [ ok ]\n * Starting nginx ... [ ok ]\n"; Status {Known:true State:running Since:<nil> MainPID:5060 Raw:* status: started}
+    svcctl_test.go:850: openrc stop: exit 0, output " * Stopping nginx ... [ ok ]\n"; Status {Known:true State:stopped Since:<nil> MainPID:0 Raw:* status: stopped}
+--- PASS: TestLiveMatrix (1.77s)
+PASS
