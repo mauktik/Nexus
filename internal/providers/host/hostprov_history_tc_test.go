@@ -1,6 +1,6 @@
 // Stub-style: SKIP-only (system-provider)
 //
-// Stubs of planning/system-provider/test-cases.md TC-HP-52, TC-HP-53, TC-HP-54, TC-HP-55, TC-HP-56, TC-HP-57, TC-HP-58, TC-HP-59, TC-HP-60, TC-HP-E12, TC-HP-E13, TC-HP-133, TC-HP-136, TC-HP-137.
+// Stubs of planning/system-provider/test-cases.md TC-HP-52, TC-HP-53, TC-HP-54, TC-HP-55, TC-HP-56, TC-HP-57, TC-HP-58, TC-HP-59, TC-HP-60, TC-HP-E12, TC-HP-E13, TC-HP-133, TC-HP-136, TC-HP-137, TC-HP-138.
 // Owner WIs: 3.2. Each stub compiles today and skips; the
 // developer of the owning work item replaces the skip and the comment with
 // the test. An un-skipped passing test is the GREEN signal
@@ -166,4 +166,13 @@ func TestTCHP136_APairAveragedPointKeepsTheValues(t *testing.T) {
 //   - Step 5: `stepSeconds` is 4 (the stored resolution, k × 2 s; A-40), and no bucket in the window is null.
 func TestTCHP137_AResizeAcrossStorageResolutionsKeepsThe(t *testing.T) {
 	t.Skip("TC-HP-137: SKIP-only stub; un-skip when WI 3.2 lands")
+}
+
+// TC-HP-138: A resize from k = 2 to k = 1 with a pending sample commits it and history keeps recording. Owner WI 3.2. Requirements: FR-13, NFR-2.
+//
+// - Setup: a history for 24 h at 2 s (k = 2), T0 = 2026-01-01T00:00:00Z.
+// - Steps: append 601 samples (one pending); Resize to 12 h at 2 s (k = 1); append 10 more; Query over the boundary.
+// - Expected: 300 pair means, then sample 601 alone at its own timestamp, then 10 single points; newest stored point is sample 611; no null bucket across the boundary.
+func TestTCHP138_AResizeFromK2ToK1WithAPendingSample(t *testing.T) {
+	t.Skip("TC-HP-138: SKIP-only stub; un-skip when WI 3.2 lands")
 }
