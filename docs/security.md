@@ -340,13 +340,23 @@ A Compose update also recreates the service from the files as they are now,
 evaluated in `nexusd`'s minimal environment (`PATH`, `HOME`, `DOCKER_HOST`
 and `DOCKER_CONFIG`), not the shell that first ran `docker compose up`. To
 stop an unrelated edit or a blank `${VAR}` from being deployed with the
-image, the update compares `docker compose config --hash <service>` with the
-`com.docker.compose.config-hash` label that Compose recorded on the
-container, and refuses a service whose definition was edited since `up`
-(CR-29). The refusal is `not-updatable` (HTTP 422) and changes nothing: apply
-the edit with `docker compose up -d` yourself, then update again. A container
-without the label, or output that cannot be read, is let through, and the
-operation log says so.
+image, the update hashes the service's definition the way `docker compose
+up` does, from Compose's own resolved definition (`docker compose config
+--format json <service>`, with the `env_file:` files' variables merged into
+its environment), and compares that with the `com.docker.compose.config-hash`
+label that Compose recorded on the container. It refuses a service whose
+definition was edited since `up` (CR-29), and that includes an edit to the
+contents of an `env_file:` the service names. `docker compose config --hash`
+is not the comparison: for a service with `env_file:` it hashes the file
+entry rather than the file's variables, so it never matches the label and
+does not change when the file does. It is consulted only when the resolved
+definition does not match, and its agreement with the label lets the update
+through. The resolved definition carries the env files' values, so it is
+never written to the operation log or to an error. The refusal is
+`not-updatable` (HTTP 422) and changes nothing: apply the edit with `docker
+compose up -d` yourself, then update again. A container without the label,
+or a definition that cannot be read, is let through, and the operation log
+says so.
 
 ## Pi-hole
 

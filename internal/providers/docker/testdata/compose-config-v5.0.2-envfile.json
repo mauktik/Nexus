@@ -1,0 +1,26 @@
+{
+  "name": "nxrec-v502-envboth",
+  "networks": {
+    "default": {
+      "name": "nxrec-v502-envboth_default",
+      "ipam": {}
+    }
+  },
+  "services": {
+    "app": {
+      "command": [
+        "sleep",
+        "3600"
+      ],
+      "entrypoint": null,
+      "environment": {
+        "BAZ": "2",
+        "FOO": "bar"
+      },
+      "image": "golang:1.26-alpine",
+      "networks": {
+        "default": null
+      }
+    }
+  }
+}

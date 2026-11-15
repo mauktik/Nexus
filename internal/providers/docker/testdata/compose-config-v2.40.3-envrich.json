@@ -1,0 +1,59 @@
+{
+  "name": "nxrec-v2403-envrich",
+  "networks": {
+    "default": {
+      "name": "nxrec-v2403-envrich_default",
+      "ipam": {}
+    }
+  },
+  "services": {
+    "app": {
+      "command": [
+        "sleep",
+        "3600"
+      ],
+      "depends_on": {
+        "db": {
+          "condition": "service_started",
+          "required": true
+        }
+      },
+      "deploy": {
+        "replicas": 1,
+        "resources": {
+          "limits": {
+            "memory": "67108864"
+          }
+        },
+        "placement": {}
+      },
+      "entrypoint": null,
+      "environment": {
+        "ACCENT": "café",
+        "GREETING": "a\u003cb \u0026 c\u003ed",
+        "NX_GREETING": "hello",
+        "QUOTED": "x y"
+      },
+      "image": "golang:1.26-alpine",
+      "labels": {
+        "nx.note": "x\u0026y"
+      },
+      "networks": {
+        "default": null
+      },
+      "pull_policy": "missing",
+      "stop_grace_period": "3s"
+    },
+    "db": {
+      "command": [
+        "sleep",
+        "3600"
+      ],
+      "entrypoint": null,
+      "image": "golang:1.26-alpine",
+      "networks": {
+        "default": null
+      }
+    }
+  }
+}
