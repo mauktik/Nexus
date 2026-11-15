@@ -1057,11 +1057,11 @@ func TestTCHP135_TheCommittedCapturesAreRedacted(t *testing.T) {
 //  3. Wait (`eventually`) until F-STATFS's `/mnt/late` call has returned and the key is cleared. Set its delay to 0, and call it a fourth time.
 //
 // - Expected:
-//   - Step 1 (the join branch, A-42): both calls return the same `Usage` with no error in 40–200 ms, and neither gets `still pending`. F-STATFS's count for `/mnt/slow` is 1.
+//   - Step 1 (the join branch, A-42): both calls return the same `Usage` with no error, at least 40 ms after they start and under the 250 ms timeout, and neither gets `still pending`. F-STATFS's count for `/mnt/slow` is 1.
 //   - Step 2:
-//   - The first call returns `timed out after 250ms: statfs /mnt/late` 250–350 ms after t0.
-//   - The second call joined a call aged 100 ms. It returns the same reason at the first call's deadline (start + `sourceTimeout`): 120–220 ms after its own start, never 250 ms after it.
-//   - The third call finds the call in flight for 300 ms, which is `sourceTimeout` or longer (the stuck branch). It returns `still pending: statfs /mnt/late` within 10 ms.
+//   - The first call returns `timed out after 250ms: statfs /mnt/late` at least 250 ms after its start and under the 400 ms the seam takes.
+//   - The second call joined a call aged 100 ms. It returns the same reason at the first call's deadline (the first call's start + `sourceTimeout`): no earlier than that deadline, and under 250 ms after its own start. A joiner that waits a fresh `sourceTimeout` of its own takes at least 250 ms, so that bound is the line between the two; the correct path ends near 150 ms, 100 ms inside it.
+//   - The third call finds the call in flight for 300 ms, which is `sourceTimeout` or longer (the stuck branch). It returns `still pending: statfs /mnt/late` in under 100 ms, before the seam returns.
 //   - F-STATFS's count for `/mnt/late` stays 1, and `runtime.NumGoroutine()` stays at or below baseline + 1 throughout.
 //   - Step 3 (the start branch): the fourth call starts a new seam call (count 2) and returns the row.
 //   - Goroutines return to the baseline.
@@ -1085,14 +1085,16 @@ func TestTCHPE32_ConcurrentCallsJoinAHealthyInFlight(t *testing.T) {
 		}
 	}
 	type result struct {
-		u    Usage
-		err  error
-		took time.Duration
+		u          Usage
+		err        error
+		start, end time.Time
+		took       time.Duration
 	}
 	call := func(mount string) result {
 		s := time.Now()
 		u, err := src.statfs(ctx, mount)
-		return result{u, err, time.Since(s)}
+		e := time.Now()
+		return result{u, err, s, e, e.Sub(s)}
 	}
 	async := func(mount string) <-chan result {
 		ch := make(chan result, 1)
@@ -1155,8 +1157,17 @@ func TestTCHPE32_ConcurrentCallsJoinAHealthyInFlight(t *testing.T) {
 	if r := reasonFor("/mnt/late", r2.err); r != timedOut {
 		t.Errorf("second call: reason %q", r)
 	}
-	if r2.took < 120*time.Millisecond || r2.took >= 300*time.Millisecond {
-		t.Errorf("second call took %v, want at least 120ms (the first call's deadline) and under 300ms (the seam's return)", r2.took)
+	// The joiner must end at the first call's deadline, never at a fresh
+	// timeout of its own. Both bounds are exact, not tuned windows: the
+	// first call's flight starts no earlier than r1.start, so its deadline
+	// is no earlier than r1.start+250ms; and a joiner on its own timer
+	// cannot fire before r2.start+250ms. The correct path ends about
+	// 100ms (the join offset) inside the upper bound.
+	if deadline := r1.start.Add(250 * time.Millisecond); r2.end.Before(deadline) {
+		t.Errorf("second call ended %v before the first call's deadline", deadline.Sub(r2.end))
+	}
+	if r2.took >= 250*time.Millisecond {
+		t.Errorf("second call took %v, want under 250ms: it joined at %v and must end at the first call's deadline, not a fresh 250ms timeout of its own", r2.took, r2.start.Sub(r1.start))
 	}
 	if r := reasonFor("/mnt/late", third.err); r != "still pending: statfs /mnt/late" {
 		t.Errorf("third call: reason %q", r)

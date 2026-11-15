@@ -1,7 +1,6 @@
 package host
 
 import (
-	"errors"
 	"strconv"
 
 	"github.com/mauktik/nexus/internal/providers/host/hostparse"
@@ -89,13 +88,10 @@ func (p *Provider) processUID(pid int, startTime uint64) owner {
 		return o
 	}
 	b, err := p.src.read(name)
-	if err == nil {
-		err = p.sameProcess(pid, startTime)
-	}
-	if errors.Is(err, errPidReused) {
-		o.uidWhy = prefixNotPresent + "/proc/" + strconv.Itoa(pid) + " (process exited)"
-	} else if err != nil {
+	if err != nil {
 		o.uidWhy = reasonFor(name, err)
+	} else if why := p.sameProcess(pid, startTime); why != "" {
+		o.uidWhy = why
 	} else if uid, err := hostparse.PidStatusUID(b); err != nil {
 		o.uidWhy = prefixUnrecognized + displayPath(name)
 	} else {
@@ -108,24 +104,26 @@ func (p *Provider) processUID(pid int, startTime uint64) owner {
 	return o
 }
 
-// errPidReused is a pid whose process is no longer the sampled one.
-var errPidReused = errors.New("process exited")
-
-// sameProcess is nil when /proc/<pid>/stat still shows the sampled
-// process's starttime. A stat that cannot be read gives that read's
-// error, and one that shows another process (or cannot be parsed, so the
-// process cannot be told) gives errPidReused.
-func (p *Provider) sameProcess(pid int, startTime uint64) error {
+// sameProcess is "" when /proc/<pid>/stat still shows the sampled
+// process's starttime. Otherwise it is the reason the owner is not shown:
+// the stat read's own reason, unrecognized format for a stat that cannot
+// be parsed (the process cannot be told), or process exited for one that
+// shows another process.
+func (p *Provider) sameProcess(pid int, startTime uint64) string {
 	name, err := segPath(segPID, pathProc, strconv.Itoa(pid), "stat")
 	if err != nil {
-		return err
+		return reasonNotAllowed
 	}
 	b, err := p.src.read(name)
 	if err != nil {
-		return err
+		return reasonFor(name, err)
 	}
-	if st, err := hostparse.PidStat(b); err != nil || st.StartTime != startTime {
-		return errPidReused
+	st, err := hostparse.PidStat(b)
+	if err != nil {
+		return prefixUnrecognized + displayPath(name)
 	}
-	return nil
+	if st.StartTime != startTime {
+		return prefixNotPresent + "/proc/" + strconv.Itoa(pid) + " (process exited)"
+	}
+	return ""
 }
