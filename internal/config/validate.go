@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	hostspec "github.com/mauktik/nexus/internal/providers/host/spec"
 	nexusdspec "github.com/mauktik/nexus/internal/providers/nexusd/spec"
 	"github.com/mauktik/nexus/internal/providers/scripts/spec"
 	"github.com/mauktik/nexus/internal/release"
@@ -105,6 +106,7 @@ func (c *Config) validate(errs *collector) {
 	v.nginx(c.Providers.Nginx.Settings, c.Limits.MaxBodyBytes)
 	v.nexusd(c.Providers.Nexusd.Settings)
 	v.piholeDNSFile("providers.pihole.dnsFile", c.Providers.Pihole.Settings.DNSFile)
+	v.host(c.Providers.Host.Settings)
 }
 
 // NginxSuffixPattern is what includeSuffix and disabledSuffix must match: a
@@ -187,6 +189,38 @@ func (v validator) nexusd(n NexusdConfig) {
 		}
 		first[k] = i
 	}
+}
+
+// host checks the host section against the spec's bounds (FR-11, FR-12,
+// FR-13). The history must hold at least one sample, so its lower bound is
+// sampleInterval; an out-of-range sampleInterval is reported on its own.
+func (v validator) host(h HostProviderConfig) {
+	const p = "providers.host"
+	if h.SampleInterval < hostspec.MinSampleInterval || h.SampleInterval > hostspec.MaxSampleInterval {
+		v.failf(p+".sampleInterval", "must be between %s and %s, got %s", shortDuration(hostspec.MinSampleInterval),
+			shortDuration(hostspec.MaxSampleInterval), shortDuration(h.SampleInterval))
+	}
+	if h.HistoryDuration < h.SampleInterval || h.HistoryDuration > hostspec.MaxHistoryDuration {
+		v.failf(p+".historyDuration", "must be between sampleInterval (%s) and %s, got %s",
+			shortDuration(h.SampleInterval), shortDuration(hostspec.MaxHistoryDuration), shortDuration(h.HistoryDuration))
+	}
+	if h.SourceTimeout < hostspec.MinSourceTimeout || h.SourceTimeout > hostspec.MaxSourceTimeout {
+		v.failf(p+".sourceTimeout", "must be between %s and %s, got %s", shortDuration(hostspec.MinSourceTimeout),
+			shortDuration(hostspec.MaxSourceTimeout), shortDuration(h.SourceTimeout))
+	}
+}
+
+// shortDuration spells d as it is written in the file: whole hours as 24h
+// and whole seconds as 60s, where time.Duration.String gives 24h0m0s and
+// 1m0s. Anything else, such as 250ms, is left to String.
+func shortDuration(d time.Duration) string {
+	switch {
+	case d != 0 && d%time.Hour == 0:
+		return strconv.FormatInt(int64(d/time.Hour), 10) + "h"
+	case d != 0 && d%time.Second == 0:
+		return strconv.FormatInt(int64(d/time.Second), 10) + "s"
+	}
+	return d.String()
 }
 
 // PiholeDNSDir is the directory dnsmasq, run by Pi-hole FTL, loads extra

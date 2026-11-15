@@ -21,6 +21,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	hostspec "github.com/mauktik/nexus/internal/providers/host/spec"
 	nexusdspec "github.com/mauktik/nexus/internal/providers/nexusd/spec"
 )
 
@@ -89,12 +90,13 @@ type MCP struct {
 // so the provider can decode it strictly into its own type through
 // Section.Decode, which is the closure handed to Provider.Configure.
 type Providers struct {
-	Docker  Section[DockerConfig]  `yaml:"docker"`
-	Apt     Section[AptConfig]     `yaml:"apt"`
-	Scripts Section[ScriptsConfig] `yaml:"scripts"`
-	Nginx   Section[NginxConfig]   `yaml:"nginx"`
-	Nexusd  Section[NexusdConfig]  `yaml:"nexusd"`
-	Pihole  Section[PiholeConfig]  `yaml:"pihole"`
+	Docker  Section[DockerConfig]       `yaml:"docker"`
+	Apt     Section[AptConfig]          `yaml:"apt"`
+	Scripts Section[ScriptsConfig]      `yaml:"scripts"`
+	Nginx   Section[NginxConfig]        `yaml:"nginx"`
+	Nexusd  Section[NexusdConfig]       `yaml:"nexusd"`
+	Pihole  Section[PiholeConfig]       `yaml:"pihole"`
+	Host    Section[HostProviderConfig] `yaml:"host"`
 }
 
 // DockerConfig is the docker provider section.
@@ -175,6 +177,19 @@ type NexusdUpdateConfig struct {
 type PiholeConfig struct {
 	Enabled bool   `yaml:"enabled"`
 	DNSFile string `yaml:"dnsFile"` // The dnsmasq file Nexus owns, directly in PiholeDNSDir
+}
+
+// HostProviderConfig is the host provider section: a read-only overview of
+// the host, with a sampler that runs only while the provider is enabled.
+type HostProviderConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// SampleInterval is how often the sampler reads the host's counters.
+	SampleInterval time.Duration `yaml:"sampleInterval"`
+	// HistoryDuration is how far back the in-memory metrics history goes.
+	HistoryDuration time.Duration `yaml:"historyDuration"`
+	// SourceTimeout bounds one read of a single data source, such as a
+	// statfs call or a command.
+	SourceTimeout time.Duration `yaml:"sourceTimeout"`
 }
 
 // Script is one catalog entry.
@@ -281,6 +296,11 @@ func Default() Config {
 				},
 			}},
 			Pihole: Section[PiholeConfig]{Settings: PiholeConfig{DNSFile: "/etc/dnsmasq.d/03-custom-dns-names.conf"}},
+			Host: Section[HostProviderConfig]{Settings: HostProviderConfig{
+				SampleInterval:  hostspec.DefaultSampleInterval,
+				HistoryDuration: hostspec.DefaultHistoryDuration,
+				SourceTimeout:   hostspec.DefaultSourceTimeout,
+			}},
 		},
 	}
 }
