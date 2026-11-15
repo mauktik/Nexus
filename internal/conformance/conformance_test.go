@@ -931,16 +931,21 @@ var (
 // tokens). Self-update is no longer out of scope (OOS-11): it is in scope
 // through the nexusd provider, whose op IDs and routes use none of these
 // words. "self" and "selfupdate" stay as guards against any other
-// self-modifying surface. "metrics" (base OOS-4) is no longer a guard: the
-// host provider's host.metrics.get serves a read-only, in-memory history
-// (system-provider FR-13); persistent and exported metrics stay out of
-// scope (system-provider OOS-3), and no op ID or route here is either.
+// self-modifying surface. "metrics" (base OOS-4) stays a guard for every
+// other op; the one exemption is allowedMetricsOp below.
 var forbiddenWords = []string{
 	"create", "exec", "execute", "run", "shell", "reboot", "shutdown", "poweroff", "halt",
 	"repository", "repositories", "repo", "repos", "sources", "key", "keys",
 	"reconcile", "drift", "deploy", "deployment", "deployments", "template", "templates",
 	"schedule", "schedules", "cron", "self", "selfupdate", "token", "tokens",
+	"metrics",
 }
+
+// allowedMetricsOp is the single op that may carry the word "metrics": the
+// host provider's read-only, in-memory history (system-provider FR-13).
+// Persistent or exported metrics stay out of scope (system-provider OOS-3),
+// so any other op ID or route with the word still fails.
+const allowedMetricsOp = "host.metrics.get"
 
 func normalize(name string) string {
 	return strings.NewReplacer("_", "", "-", "").Replace(strings.ToLower(name))
@@ -974,6 +979,9 @@ func executionSurface(t *testing.T, op def.Op) []string {
 		out = append(out, fmt.Sprintf("%s: %s route", op.ID, method))
 	}
 	for _, w := range slices.Concat(words(op.ID), words(route)) {
+		if w == "metrics" && op.ID == allowedMetricsOp {
+			continue
+		}
 		if slices.Contains(forbiddenWords, w) {
 			out = append(out, fmt.Sprintf("%s: %q in op ID or route %s", op.ID, w, route))
 		}
