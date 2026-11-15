@@ -9,18 +9,39 @@
 package host
 
 import (
+	"bytes"
 	"encoding/hex"
+	"errors"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
+	"maps"
 	"net/netip"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"testing/fstest"
+	"time"
+
+	"github.com/mauktik/nexus/internal/svcctl"
 )
+
+// releaseFileCaptured is the OS release file the captures hold as the
+// expected-value source of identity.os. The allow-list refuses it: the
+// provider takes the OS from internal/platform (orchestrator note on
+// TestNoReleaseSpecificLogic).
+const releaseFileCaptured = "etc/os-release"
 
 // TC-HP-21: Both captures are complete and documented. Owner WI 2.1. Requirements: NFR-4, NFR-5, CON-5.
 //
@@ -221,7 +242,63 @@ func TestTCHP22_NoSensitiveFileIsCommittedInThe(t *testing.T) {
 // - Steps: walk each capture's `fs/` (unrecorded handle). For each regular file, look up its access kind (Finding 1). Call `src.read(path)` for a read entry, and `src.stat(path)` for a stat-only entry such as `usr/bin/chronyc` or `run/systemd/timesync`.
 // - Expected: every file is allowed (the capture holds only allow-listed paths); each read entry reads with content byte-equal to the file; each stat-only entry stats without error; F-FS's recorder shows each path exactly once, with the matching access kind.
 func TestTCHP23_EveryAllowListedCaptureFileReadsThrough(t *testing.T) {
-	t.Skip("TC-HP-23: SKIP-only stub; un-skip when WI 2.2 lands")
+	for _, c := range hostCaptures {
+		t.Run(c.dir, func(t *testing.T) {
+			ffs := fixtureFS(t, c.dir)
+			src := newSource(ffs, 250*time.Millisecond, newFakeStatfs(t, c.dir).Statfs)
+			capture := os.DirFS(filepath.Join("testdata", c.dir, "fs")) // the unrecorded handle
+			var want []fsCall
+			files := 0
+			err := fs.WalkDir(capture, ".", func(name string, d fs.DirEntry, err error) error {
+				if err != nil || !d.Type().IsRegular() {
+					return err
+				}
+				files++
+				kinds := allowedKinds(name)
+				switch {
+				case name == releaseFileCaptured:
+					// Captured as the expected-value source of the OS fields,
+					// which the provider takes from internal/platform: the
+					// allow-list refuses it, so the provider cannot read the
+					// release file itself.
+					if _, err := src.read(name); !errors.Is(err, errNotAllowed) {
+						t.Errorf("read %s: err = %v, want the allow-list's refusal", name, err)
+					}
+				case kinds&accRead != 0:
+					want = append(want, fsCall{op: "open", name: name})
+					got, err := src.read(name)
+					if err != nil {
+						t.Errorf("read %s: %v", name, err)
+						return nil
+					}
+					raw, err := fs.ReadFile(capture, name)
+					if err != nil {
+						return err
+					}
+					if !bytes.Equal(got, raw) {
+						t.Errorf("read %s: %d bytes differ from the capture's %d", name, len(got), len(raw))
+					}
+				case kinds&accStatOnly != 0:
+					want = append(want, fsCall{op: "stat", name: name})
+					if _, err := src.stat(name); err != nil {
+						t.Errorf("stat %s: %v", name, err)
+					}
+				default:
+					t.Errorf("%s/fs/%s is captured but not allow-listed for read or stat-only (kinds %v)", c.dir, name, kinds)
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if files < 50 {
+				t.Fatalf("walked only %d files", files)
+			}
+			if got := ffs.recorded(); !slices.Equal(got, want) {
+				t.Errorf("F-FS recorded %d calls, want each allowed file once with its kind (%d):\ngot  %v\nwant %v", len(got), len(want), got, want)
+			}
+		})
+	}
 }
 
 // TC-HP-24: Reads ignore a zero procfs size and cap at 4 MiB. Owner WI 2.2. Requirements: NFR-4, FR-12.
@@ -230,7 +307,37 @@ func TestTCHP23_EveryAllowListedCaptureFileReadsThrough(t *testing.T) {
 // - Steps: `src.read("proc/meminfo")`; `src.read("proc/stat")` after the replace.
 // - Expected: `proc/meminfo` returns the full capture content despite size 0; the 5 MiB read returns an error (not a truncated success), and F-FS's byte counter shows at most 4 MiB + 1 byte read.
 func TestTCHP24_ReadsIgnoreAZeroProcfsSizeAnd(t *testing.T) {
-	t.Skip("TC-HP-24: SKIP-only stub; un-skip when WI 2.2 lands")
+	ffs := fixtureFS(t, capUBU)
+	src := newSource(ffs, 250*time.Millisecond, nil)
+	fi, err := ffs.Stat("proc/meminfo")
+	if err != nil || fi.Size() != 0 {
+		t.Fatalf("F-FS Stat(proc/meminfo) = %v, %v; want procfs size 0", fi, err)
+	}
+	got, err := src.read("proc/meminfo")
+	if want := ffs.rawRead("proc/meminfo"); err != nil || len(want) == 0 || !bytes.Equal(got, want) {
+		t.Fatalf("read proc/meminfo = %d bytes, %v; want the capture's %d bytes", len(got), err, len(want))
+	}
+
+	line := strings.SplitAfter(string(ffs.rawRead("proc/stat")), "\n")[0] // the captured cpu line
+	big := bytes.Repeat([]byte(line), 5<<20/len(line)+1)
+	if len(big) < 5<<20 {
+		t.Fatalf("synthetic proc/stat is %d bytes, want at least 5 MiB", len(big))
+	}
+	ffs.replace("proc/stat", big)
+	ffs.resetRecorder()
+	got, err = src.read("proc/stat")
+	if err == nil || got != nil {
+		t.Fatalf("read of a 5 MiB proc/stat = %d bytes, %v; want an error, not a truncated success", len(got), err)
+	}
+	if !errors.Is(err, errTooLarge) {
+		t.Errorf("err = %v, want errTooLarge", err)
+	}
+	if r := reasonFor("proc/stat", err); r != "unrecognized format: /proc/stat" {
+		t.Errorf("reason = %q", r)
+	}
+	if n := ffs.bytesRead("proc/stat"); n > maxReadBytes+1 || maxReadBytes != 4<<20 {
+		t.Errorf("F-FS served %d bytes of proc/stat (bound %d), want at most 4 MiB + 1", n, maxReadBytes)
+	}
 }
 
 // TC-HP-25: Reason classification uses the fixed vocabulary and never quotes content. Owner WI 2.2. Requirements: FR-12, NFR-6.
@@ -239,7 +346,59 @@ func TestTCHP24_ReadsIgnoreAZeroProcfsSizeAnd(t *testing.T) {
 // - Steps: `reasonFor(path, err)` for: `&fs.PathError{Op:"open", Path:"proc/1/mountinfo", Err: syscall.EACCES}`, the same with `EPERM`, with `ENOENT`, a `bounded` timeout of 2 s on `statfs /mnt/x`, and a parse error carrying the line `secret-token-xyz`.
 // - Expected: `permission denied: /proc/1/mountinfo` (twice), `not present: /proc/1/mountinfo`, `timed out after 2s: statfs /mnt/x`, `unrecognized format: /proc/stat`; no reason contains `secret-token-xyz`; every reason starts with one of the prefixes of the architecture's Error Handling table (the test holds the table's prefix column as a list, with no count).
 func TestTCHP25_ReasonClassificationUsesTheFixedVocabularyAnd(t *testing.T) {
-	t.Skip("TC-HP-25: SKIP-only stub; un-skip when WI 2.2 lands")
+	// The prefix column of architecture.md's Error Handling table.
+	tablePrefixes := []string{
+		"warming up", "stale: last sample ", "not running", "permission denied: ",
+		"not present: ", "timed out after ", "still pending: ", "not visible: ",
+		"unrecognized format: ", "counter reset: ", "not reported: ", "command failed: ",
+		"not supported: ", "internal error: access not allow-listed",
+	}
+	const secret = "secret-token-xyz"
+	pathErr := func(e syscall.Errno) error {
+		return &fs.PathError{Op: "open", Path: "proc/1/mountinfo", Err: e}
+	}
+	cases := []struct {
+		what string
+		err  error
+		want string
+	}{
+		{"proc/1/mountinfo", pathErr(syscall.EACCES), "permission denied: /proc/1/mountinfo"},
+		{"proc/1/mountinfo", pathErr(syscall.EPERM), "permission denied: /proc/1/mountinfo"},
+		{"proc/1/mountinfo", pathErr(syscall.ENOENT), "not present: /proc/1/mountinfo"},
+		{"statfs /mnt/x", &timeoutError{what: "statfs /mnt/x", after: 2 * time.Second}, "timed out after 2s: statfs /mnt/x"},
+		{"proc/stat", fmt.Errorf("hostparse: malformed line %q", secret), "unrecognized format: /proc/stat"},
+		{"proc/stat", fmt.Errorf("parse: %w", &fs.PathError{Op: "parse", Path: secret, Err: errors.New(secret)}), "unrecognized format: /proc/stat"},
+	}
+	for _, c := range cases {
+		got := reasonFor(c.what, c.err)
+		if got != c.want {
+			t.Errorf("reasonFor(%q, %v) = %q, want %q", c.what, c.err, got, c.want)
+		}
+		if strings.Contains(got, secret) {
+			t.Errorf("reason %q quotes content", got)
+		}
+	}
+
+	// Every reason the source layer can give starts with a table prefix.
+	reasons := []string{
+		reasonWarmingUp, reasonNotRunning, reasonStale(42 * time.Second),
+		reasonNotVisible("/tmp/x"), reasonCounterReset("eth0"), reasonNotReported("no sensors"),
+		reasonCommandExit("/usr/bin/timedatectl", 1),
+		reasonFor("proc/1/cmdline", &fs.PathError{Op: "open", Path: "proc/1/cmdline", Err: errNotAllowed}),
+		reasonFor("statfs /mnt/x", &pendingError{what: "statfs /mnt/x"}),
+		reasonFor("statfs", errNotSupported("statfs on plan9")),
+		reasonFor("/usr/bin/chronyc", fmt.Errorf("%w: %w", svcctl.ErrNotStarted, &fs.PathError{Op: "fork/exec", Path: "/usr/bin/chronyc", Err: syscall.ENOENT})),
+		reasonFor("/usr/bin/chronyc", fmt.Errorf("%w: %w", svcctl.ErrNotStarted, &fs.PathError{Op: "fork/exec", Path: "/usr/bin/chronyc", Err: syscall.EACCES})),
+		reasonFor("sys/class/net/lo/speed", &fs.PathError{Op: "read", Path: "sys/class/net/lo/speed", Err: syscall.EINVAL}),
+	}
+	for _, c := range cases {
+		reasons = append(reasons, reasonFor(c.what, c.err))
+	}
+	for _, r := range reasons {
+		if !slices.ContainsFunc(tablePrefixes, func(p string) bool { return strings.HasPrefix(r, p) }) {
+			t.Errorf("reason %q starts with no prefix of the Error Handling table", r)
+		}
+	}
 }
 
 // TC-HP-26: No file read bypasses the allow-list. Owner WI 2.2. Requirements: NFR-6, CON-1.
@@ -248,7 +407,122 @@ func TestTCHP25_ReasonClassificationUsesTheFixedVocabularyAnd(t *testing.T) {
 // - Steps: parse every non-test `.go` file of `internal/providers/host` (excluding `hostparse/`, which takes `[]byte`) with `go/parser`; find calls to `os.Open`, `os.OpenFile`, `os.ReadFile`, `os.ReadDir`, `os.Stat`, `os.Lstat`, `os.Readlink`, `os.DirFS`, `ioutil.*`, `syscall.Open`, `filepath.Walk*`.
 // - Expected: the only hit is the default `os.DirFS("/")` in `provider.go`'s `New`; a planted file with `os.ReadFile("/etc/shadow")` in a temp copy of the package is caught (self-test).
 func TestTCHP26_NoFileReadBypassesTheAllowList(t *testing.T) {
-	t.Skip("TC-HP-26: SKIP-only stub; un-skip when WI 2.2 lands")
+	hits := scanFileAccess(t, ".")
+	for _, h := range hits {
+		if h.file == "provider.go" && h.call == "os.DirFS" {
+			continue // the default Options.FS in New, wrapped by the allow-list
+		}
+		t.Errorf("%s: %s bypasses the allow-list", h.pos, h.call)
+	}
+	if n := len(slices.DeleteFunc(slices.Clone(hits), func(h accessHit) bool { return h.call != "os.DirFS" })); n > 1 {
+		t.Errorf("os.DirFS appears %d times, want only New's default", n)
+	}
+
+	// Self-test: a planted read, also under an import alias, is caught in a
+	// copy of the package.
+	dir := t.TempDir()
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	copied := 0
+	for _, e := range entries {
+		if e.Type().IsRegular() && strings.HasSuffix(e.Name(), ".go") && !strings.HasSuffix(e.Name(), "_test.go") {
+			b, err := os.ReadFile(e.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, e.Name()), b, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			copied++
+		}
+	}
+	if copied == 0 {
+		t.Fatal("no package files copied")
+	}
+	planted := "package host\n\nimport (\n\t\"os\"\n\txos \"os\"\n\t\"path/filepath\"\n)\n\n" +
+		"func planted() {\n\t_, _ = os.ReadFile(\"/etc/shadow\")\n\t_, _ = xos.Open(\"/etc/gshadow\")\n" +
+		"\t_ = filepath.WalkDir(\"/\", nil)\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "planted.go"), []byte(planted), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var caught []string
+	for _, h := range scanFileAccess(t, dir) {
+		if h.file == "planted.go" {
+			caught = append(caught, h.call)
+		}
+	}
+	if want := []string{"os.ReadFile", "os.Open", "filepath.WalkDir"}; !slices.Equal(caught, want) {
+		t.Errorf("self-test caught %v in planted.go, want %v", caught, want)
+	}
+}
+
+// accessHit is a direct file-system call found in a non-test source file.
+type accessHit struct{ pos, file, call string }
+
+// bannedAccess lists, per import path, the functions that reach the file
+// system without the allow-list ("*": every function of the package).
+var bannedAccess = map[string][]string{
+	"os":            {"Open", "OpenFile", "ReadFile", "ReadDir", "Stat", "Lstat", "Readlink", "DirFS", "OpenRoot", "OpenInRoot"},
+	"io/ioutil":     {"*"},
+	"syscall":       {"Open", "Openat"},
+	"path/filepath": {"Walk", "WalkDir"},
+}
+
+// scanFileAccess parses every non-test .go file of dir (hostparse/, which
+// takes []byte, and testdata/ are other directories and not scanned) and
+// returns its calls to bannedAccess functions, resolving import names.
+func scanFileAccess(t *testing.T, dir string) []accessHit {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	var hits []accessHit
+	parsed := 0
+	for _, e := range entries {
+		if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, filepath.Join(dir, e.Name()), nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parse %s: %v", e.Name(), err)
+		}
+		parsed++
+		names := map[string]string{} // local name -> import path
+		for _, imp := range f.Imports {
+			p, _ := strconv.Unquote(imp.Path.Value)
+			local := path.Base(p)
+			if imp.Name != nil {
+				local = imp.Name.Name
+			}
+			names[local] = p
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			id, ok := sel.X.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			p, ok := names[id.Name]
+			if !ok {
+				return true
+			}
+			if banned := bannedAccess[p]; slices.Contains(banned, "*") || slices.Contains(banned, sel.Sel.Name) {
+				hits = append(hits, accessHit{pos: fset.Position(sel.Pos()).String(), file: e.Name(), call: path.Base(p) + "." + sel.Sel.Name})
+			}
+			return true
+		})
+	}
+	if parsed == 0 {
+		t.Fatalf("%s: no non-test Go files parsed", dir)
+	}
+	return hits
 }
 
 // TC-HP-27: Default statfs, uname and addresses are unsupported off Linux. Owner WI 2.2. Requirements: CON-5, FR-3.
@@ -257,7 +531,28 @@ func TestTCHP26_NoFileReadBypassesTheAllowList(t *testing.T) {
 // - Steps: call the default statfs and uname functions.
 // - Expected: both return an error whose reason is `not supported: …`; `GOOS=linux go vet ./internal/providers/host/...` passes (asserted by `make vet`, noted here).
 func TestTCHP27_DefaultStatfsUnameAndAddressesAreUnsupported(t *testing.T) {
-	t.Skip("TC-HP-27: SKIP-only stub; un-skip when WI 2.2 lands")
+	if runtime.GOOS == "linux" {
+		t.Skip("TC-HP-27 checks the non-Linux defaults; statfs_test.go covers Linux")
+	}
+	if u, err := defaultStatfs("/"); err == nil || !strings.HasPrefix(reasonFor("statfs /", err), "not supported: ") {
+		t.Errorf("defaultStatfs = %+v, %v; want a not supported error", u, err)
+	} else if r := reasonFor("statfs /", err); r != "not supported: statfs on "+runtime.GOOS {
+		t.Errorf("reason = %q", r)
+	}
+	if m, err := defaultUname(); err == nil || reasonFor("uname", err) != "not supported: uname on "+runtime.GOOS {
+		t.Errorf("defaultUname = %q, %v; want not supported: uname on %s", m, err, runtime.GOOS)
+	}
+	// Addresses come from the portable net package, so the default works
+	// here too (WI 2.2 addrs.go has no per-platform variant).
+	addrs, err := defaultAddrs()
+	if err != nil {
+		t.Fatalf("defaultAddrs: %v", err)
+	}
+	if !slices.ContainsFunc(slices.Collect(maps.Values(addrs)), func(ps []netip.Prefix) bool {
+		return slices.Contains(ps, netip.MustParsePrefix("127.0.0.1/8"))
+	}) {
+		t.Errorf("defaultAddrs = %v, want the loopback 127.0.0.1/8", addrs)
+	}
 }
 
 // TC-HP-E6: Bounded blocking reads give up after the source timeout. Owner WI 2.2. Requirements: FR-12, NFR-1.
@@ -270,7 +565,73 @@ func TestTCHP27_DefaultStatfsUnameAndAddressesAreUnsupported(t *testing.T) {
 //   - The `temp2_input` call is not affected by the other key and returns its capture content.
 //   - After `release()`, the abandoned goroutine exits (baseline restored), the key is cleared, and the last call reads the path again (`Open` count 2).
 func TestTCHPE6_BoundedBlockingReadsGiveUpAfterThe(t *testing.T) {
-	t.Skip("TC-HP-E6: SKIP-only stub; un-skip when WI 2.2 lands")
+	const (
+		temp1 = "sys/class/hwmon/hwmon0/temp1_input"
+		temp2 = "sys/class/hwmon/hwmon0/temp2_input"
+	)
+	ffs := fixtureFS(t, capUBU)
+	// Both captures have no hwmon data (WI 2.1 note (e)), so the sensor
+	// files are synthetic.
+	ffs.replace(temp1, []byte("45000\n"))
+	ffs.replace(temp2, []byte("47000\n"))
+	release := ffs.block(temp1)
+	src := newSource(ffs, 250*time.Millisecond, nil)
+	ctx := t.Context()
+	baseline := runtime.NumGoroutine()
+
+	start := time.Now()
+	_, err := src.readBounded(ctx, temp1)
+	if el := time.Since(start); el > 350*time.Millisecond {
+		t.Errorf("first call took %v, want at most 350ms", el)
+	}
+	if r := reasonFor(temp1, err); r != "timed out after 250ms: /sys/class/hwmon/hwmon0/temp1_input" {
+		t.Errorf("first call: reason %q (err %v)", r, err)
+	}
+	if n := runtime.NumGoroutine(); n > baseline+1 {
+		t.Errorf("goroutines %d after the first call, want at most baseline %d + 1", n, baseline)
+	}
+
+	var wg sync.WaitGroup
+	errs := make([]error, 3)
+	took := make([]time.Duration, 3)
+	for i := range 3 {
+		wg.Go(func() {
+			s := time.Now()
+			_, errs[i] = src.readBounded(ctx, temp1)
+			took[i] = time.Since(s)
+		})
+	}
+	wg.Wait()
+	for i := range 3 {
+		if r := reasonFor(temp1, errs[i]); r != "still pending: /sys/class/hwmon/hwmon0/temp1_input" {
+			t.Errorf("repeat %d: reason %q", i, r)
+		}
+		if took[i] > 10*time.Millisecond {
+			t.Errorf("repeat %d took %v, want at most 10ms", i, took[i])
+		}
+	}
+	if n := runtime.NumGoroutine(); n > baseline+1 {
+		t.Errorf("goroutines %d after the repeats, want at most baseline %d + 1", n, baseline)
+	}
+	if n := ffs.count("open", temp1); n != 1 {
+		t.Errorf("F-FS opened %s %d times while in flight, want 1", temp1, n)
+	}
+
+	if b, err := src.readBounded(ctx, temp2); err != nil || string(b) != "47000\n" {
+		t.Errorf("other key: %q, %v; want its content", b, err)
+	}
+
+	release()
+	waitGoroutines(t, baseline)
+	if src.inFlight("/" + temp1) {
+		t.Error("the key is still in flight after the call returned")
+	}
+	if b, err := src.readBounded(ctx, temp1); err != nil || string(b) != "45000\n" {
+		t.Errorf("after release: %q, %v; want a fresh read", b, err)
+	}
+	if n := ffs.count("open", temp1); n != 2 {
+		t.Errorf("F-FS opened %s %d times, want 2", temp1, n)
+	}
 }
 
 // TC-HP-E7: Source directory listing keeps sysfs symlink entries. Owner WI 2.2. Requirements: FR-8, FR-9, CON-5.
@@ -279,7 +640,49 @@ func TestTCHPE6_BoundedBlockingReadsGiveUpAfterThe(t *testing.T) {
 // - Steps: `src.readDir("sys/class/net")`, `src.readDir("sys/block")`.
 // - Expected: every capture entry is returned, including those whose `IsDir()` is false; names equal the capture's directory names.
 func TestTCHPE7_SourceDirectoryListingKeepsSysfsSymlinkEntries(t *testing.T) {
-	t.Skip("TC-HP-E7: SKIP-only stub; un-skip when WI 2.2 lands")
+	ffs := fixtureFS(t, capUBU)
+	src := newSource(ffs, 250*time.Millisecond, nil)
+	for _, dir := range []string{"sys/class/net", "sys/block"} {
+		got, err := src.readDir(dir)
+		if err != nil {
+			t.Fatalf("readDir %s: %v", dir, err)
+		}
+		want := captureDirNames(t, capUBU, dir)
+		if len(want) == 0 {
+			t.Fatalf("capture %s/fs/%s is empty", capUBU, dir)
+		}
+		var names []string
+		symlinks := 0
+		for _, e := range got {
+			names = append(names, e.Name())
+			if !e.IsDir() && e.Type()&fs.ModeSymlink != 0 {
+				symlinks++
+			}
+		}
+		if !slices.Equal(names, want) {
+			t.Errorf("readDir %s = %v, want the capture's %v", dir, names, want)
+		}
+		if symlinks != len(want) {
+			t.Errorf("readDir %s: %d symlink entries (IsDir false), want all %d: F-FS shapes class entries as on a kernel", dir, symlinks, len(want))
+		}
+	}
+}
+
+// captureDirNames lists testdata/<capture>/fs/<dir> directly (unrecorded).
+func captureDirNames(t *testing.T, capture, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join("testdata", capture, "fs", filepath.FromSlash(dir)))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, e := range entries {
+		out = append(out, e.Name())
+	}
+	return out
 }
 
 // TC-HP-ERR10: The allow-list refuses sensitive and escaping paths without reading. Owner WI 2.2. Requirements: NFR-6, CON-1.
@@ -291,7 +694,50 @@ func TestTCHPE7_SourceDirectoryListingKeepsSysfsSymlinkEntries(t *testing.T) {
 //
 // - Expected: each returns an internal (programming-bug) error naming the path and the access kind; F-FS recorded none of them, of any kind.
 func TestTCHPERR10_TheAllowListRefusesSensitiveAndEscaping(t *testing.T) {
-	t.Skip("TC-HP-ERR10: SKIP-only stub; un-skip when WI 2.2 lands")
+	ffs := fixtureFS(t, capUBU)
+	src := newSource(ffs, 250*time.Millisecond, nil)
+	refused := func(name, kind string, err error) {
+		t.Helper()
+		if !errors.Is(err, errNotAllowed) {
+			t.Errorf("%s %q: err = %v, want the allow-list's refusal", kind, name, err)
+			return
+		}
+		if msg := err.Error(); !strings.Contains(msg, name) || !strings.Contains(msg, "("+kind+")") {
+			t.Errorf("%s %q: error %q does not name the path and the access kind", kind, name, msg)
+		}
+		if r := reasonFor(name, err); r != "internal error: access not allow-listed" {
+			t.Errorf("%s %q: reason %q", kind, name, r)
+		}
+	}
+	for _, name := range []string{
+		"sys/class/dmi/id/product_serial", "sys/class/dmi/id/product_uuid", "sys/class/dmi/id/board_serial",
+		"sys/class/dmi/id/chassis_serial", "sys/class/dmi/id/chassis_asset_tag",
+		"proc/1/cmdline", "proc/self/cmdline", "proc/1/environ", "proc/1234/environ",
+		"proc/kmsg", "dev/kmsg", "proc/net/arp", "etc/shadow", "../etc/shadow", "/proc/stat",
+		"proc//stat", "proc/./stat", "proc/1/root/etc/shadow", "proc/1/cwd/x",
+		"sys/class/net/../../../etc/shadow", "proc/kcore", "proc/1/mem",
+	} {
+		_, err := src.read(name)
+		refused(name, "read", err)
+	}
+	_, err := src.readDir("etc")
+	refused("etc", "list", err)
+	_, err = src.stat("etc/shadow")
+	refused("etc/shadow", "stat", err)
+	_, err = src.read("usr/bin/chronyc")
+	refused("usr/bin/chronyc", "read", err)
+	_, err = src.readDir("usr/bin")
+	refused("usr/bin", "list", err)
+	_, err = src.read("proc")
+	refused("proc", "read", err)
+	_, err = src.readDir("proc/1")
+	refused("proc/1", "list", err)
+	_, err = src.readLink("etc/passwd")
+	refused("etc/passwd", "link", err)
+
+	if got := ffs.recorded(); len(got) != 0 {
+		t.Errorf("F-FS recorded %v; a refused access must never reach it", got)
+	}
 }
 
 // TC-HP-ERR11: Dynamic path segments are validated. Owner WI 2.2. Requirements: NFR-6.
@@ -300,7 +746,56 @@ func TestTCHPERR10_TheAllowListRefusesSensitiveAndEscaping(t *testing.T) {
 // - Steps: build paths through the source's segment helper with interface/disk/pid/hwmon segments `.`, `..`, `a/b`, `""`, `eth0\x00`, `self` for a pid pattern other than `proc/self/mountinfo`.
 // - Expected: each refused before any F-FS call; valid segments (`eth0`, `nvme0n1`, `1234`, `hwmon0`) accepted.
 func TestTCHPERR11_DynamicPathSegmentsAreValidated(t *testing.T) {
-	t.Skip("TC-HP-ERR11: SKIP-only stub; un-skip when WI 2.2 lands")
+	ffs := fixtureFS(t, capUBU)
+	src := newSource(ffs, 250*time.Millisecond, nil)
+	builders := []struct {
+		what  string
+		build func(seg string) (string, error)
+	}{
+		{"interface", func(s string) (string, error) { return segPath(segName, "sys/class/net", s, "mtu") }},
+		{"disk", func(s string) (string, error) { return segPath(segName, "sys/block", s, "size") }},
+		{"pid", func(s string) (string, error) { return segPath(segPID, "proc", s, "stat") }},
+		{"hwmon", func(s string) (string, error) { return segPath(segName, "sys/class/hwmon", s, "name") }},
+	}
+	for _, b := range builders {
+		bad := []string{".", "..", "a/b", "", "eth0\x00"}
+		if b.what == "pid" {
+			bad = append(bad, "self", "thread-self", "-1", "1a")
+		}
+		for _, seg := range bad {
+			if name, err := b.build(seg); err == nil || !errors.Is(err, errNotAllowed) {
+				t.Errorf("%s segment %q: built %q, %v; want a refusal", b.what, seg, name, err)
+			}
+		}
+	}
+	if got := ffs.recorded(); len(got) != 0 {
+		t.Fatalf("F-FS recorded %v before any valid segment", got)
+	}
+
+	for _, v := range []struct {
+		build int
+		seg   string
+		want  string
+	}{
+		{0, "eth0", "sys/class/net/eth0/mtu"},
+		{1, "nvme0n1", "sys/block/nvme0n1/size"},
+		{2, "1234", "proc/1234/stat"},
+		{3, "hwmon0", "sys/class/hwmon/hwmon0/name"},
+	} {
+		name, err := builders[v.build].build(v.seg)
+		if err != nil || name != v.want {
+			t.Errorf("%s segment %q: %q, %v; want %q", builders[v.build].what, v.seg, name, err, v.want)
+			continue
+		}
+		// The built path passes the allow-list and reaches F-FS (eth0
+		// exists in the capture; the others are absent there).
+		if _, err := src.read(name); errors.Is(err, errNotAllowed) {
+			t.Errorf("read %s: refused by the allow-list", name)
+		}
+		if ffs.count("open", name) != 1 {
+			t.Errorf("read %s did not reach F-FS", name)
+		}
+	}
 }
 
 // TC-HP-ERR12: A hung statfs times out, and a second call reports it still pending. Owner WI 2.2. Requirements: FR-7, FR-12, NFR-1.
@@ -309,7 +804,52 @@ func TestTCHPERR11_DynamicPathSegmentsAreValidated(t *testing.T) {
 // - Steps: `src.statfs(ctx, "/mnt/nfs")` (WI 2.2) and time it; call again at once, when the call in flight is already `sourceTimeout` old (the stuck branch, A-42); `release()`; wait until the first goroutine finished; call a third time.
 // - Expected: first: `timed out after 250ms: statfs /mnt/nfs` within 350 ms; second: `still pending: statfs /mnt/nfs` within 10 ms, F-STATFS count still 1, and `runtime.NumGoroutine()` at most baseline + 1 (Finding 3); third: a new call (count 2) that returns the release result, the `Usage` F-STATFS was configured with, `IsDir` included.
 func TestTCHPERR12_AHungStatfsTimesOutAndA(t *testing.T) {
-	t.Skip("TC-HP-ERR12: SKIP-only stub; un-skip when WI 2.2 lands")
+	ffs := fixtureFS(t, capUBU)
+	st := newFakeStatfs(t, capUBU)
+	want := Usage{IsDir: true, Blocks: 1000, Bfree: 400, Bavail: 300, Files: 50, Ffree: 20, Frsize: 4096}
+	st.set("/mnt/nfs", want)
+	release := st.hang("/mnt/nfs")
+	src := newSource(ffs, 250*time.Millisecond, st.Statfs)
+	ctx := t.Context()
+	baseline := runtime.NumGoroutine()
+
+	start := time.Now()
+	_, err := src.statfs(ctx, "/mnt/nfs")
+	if el := time.Since(start); el > 350*time.Millisecond {
+		t.Errorf("first call took %v, want at most 350ms", el)
+	}
+	if r := reasonFor("/mnt/nfs", err); r != "timed out after 250ms: statfs /mnt/nfs" {
+		t.Errorf("first call: reason %q", r)
+	}
+
+	start = time.Now()
+	_, err = src.statfs(ctx, "/mnt/nfs")
+	if el := time.Since(start); el > 10*time.Millisecond {
+		t.Errorf("second call took %v, want at most 10ms", el)
+	}
+	if r := reasonFor("/mnt/nfs", err); r != "still pending: statfs /mnt/nfs" {
+		t.Errorf("second call: reason %q", r)
+	}
+	if n := st.count("/mnt/nfs"); n != 1 {
+		t.Errorf("F-STATFS count %d while hung, want 1", n)
+	}
+	if n := runtime.NumGoroutine(); n > baseline+1 {
+		t.Errorf("goroutines %d, want at most baseline %d + 1", n, baseline)
+	}
+
+	release()
+	waitGoroutines(t, baseline)
+	eventually(t, time.Second, func() bool { return !src.inFlight("statfs /mnt/nfs") }, "key cleared")
+	got, err := src.statfs(ctx, "/mnt/nfs")
+	if err != nil || got != want {
+		t.Errorf("third call = %+v, %v; want %+v", got, err, want)
+	}
+	if n := st.count("/mnt/nfs"); n != 2 {
+		t.Errorf("F-STATFS count %d, want 2 (a new call)", n)
+	}
+	if got := ffs.recorded(); len(got) != 0 {
+		t.Errorf("F-FS recorded %v; the statfs seam never goes through the FS", got)
+	}
 }
 
 // TC-HP-E30: List and stat-only allow-list entries accept their own access kind. Owner WI 2.2. Requirements: NFR-6, FR-5, FR-6, FR-8, FR-11.
@@ -326,7 +866,73 @@ func TestTCHPERR12_AHungStatfsTimesOutAndA(t *testing.T) {
 //   - Each stat returns a `fs.FileInfo` when the path is present, and a `*fs.PathError` with `fs.ErrNotExist` when it is absent.
 //   - F-FS recorded every call with its access kind, so the allow-list let it through to the filesystem.
 func TestTCHPE30_ListAndStatOnlyAllowListEntriesAccept(t *testing.T) {
-	t.Skip("TC-HP-E30: SKIP-only stub; un-skip when WI 2.2 lands")
+	clock := []string{"usr/bin/chronyc", "run/systemd/timesync", "run/chrony/chronyd.pid", "run/ntpd.pid"}
+	for _, present := range []bool{false, true} {
+		t.Run(fmt.Sprintf("clock sources present=%v", present), func(t *testing.T) {
+			ffs := fixtureFS(t, capUBU)
+			if present {
+				for _, p := range clock {
+					ffs.replace(p, nil)
+				}
+			}
+			src := newSource(ffs, 250*time.Millisecond, nil)
+			var want []fsCall
+
+			// Step 1: every list entry.
+			lists := []string{"proc", "sys/class/net", "sys/block"}
+			for _, d := range captureDirNames(t, capUBU, "sys/block") {
+				lists = append(lists, "sys/block/"+d)
+			}
+			lists = append(lists, "sys/class/hwmon")
+			for _, h := range captureDirNames(t, capUBU, "sys/class/hwmon") {
+				lists = append(lists, "sys/class/hwmon/"+h)
+			}
+			lists = append(lists, "sys/class/thermal")
+			for _, dir := range lists {
+				want = append(want, fsCall{op: "readdir", name: dir})
+				entries, err := src.readDir(dir)
+				if err != nil {
+					t.Errorf("readDir %s: %v", dir, err)
+					continue
+				}
+				var names []string
+				for _, e := range entries {
+					names = append(names, e.Name())
+				}
+				if wantNames := captureDirNames(t, capUBU, dir); !slices.Equal(names, wantNames) {
+					t.Errorf("readDir %s = %v, want the capture's %v", dir, names, wantNames)
+				}
+				if dir == "proc" && !slices.ContainsFunc(names, func(n string) bool { return n != "1" && allDigits(n) }) {
+					t.Errorf("readDir proc = %v, want the capture's pid directories", names)
+				}
+			}
+
+			// Step 2: every clock stat-only entry, present or absent.
+			for _, p := range clock {
+				want = append(want, fsCall{op: "stat", name: p})
+				fi, err := src.stat(p)
+				var pe *fs.PathError
+				switch {
+				case errors.Is(err, errNotAllowed):
+					t.Errorf("stat %s: refused by the allow-list", p)
+				case present && (err != nil || fi == nil):
+					t.Errorf("stat %s (present) = %v, %v; want a FileInfo", p, fi, err)
+				case !present && (!errors.As(err, &pe) || !errors.Is(err, fs.ErrNotExist)):
+					t.Errorf("stat %s (absent) err = %v, want a *fs.PathError with fs.ErrNotExist", p, err)
+				}
+			}
+
+			// Step 3: a read entry also allows Stat.
+			want = append(want, fsCall{op: "stat", name: "proc/stat"})
+			if _, err := src.stat("proc/stat"); err != nil {
+				t.Errorf("stat proc/stat: %v", err)
+			}
+
+			if got := ffs.recorded(); !slices.Equal(got, want) {
+				t.Errorf("F-FS recorded\n%v\nwant\n%v", got, want)
+			}
+		})
+	}
 }
 
 // TC-HP-135: The committed captures are redacted. Owner WI 2.1. Requirements: NFR-6, NFR-5.
@@ -460,7 +1066,116 @@ func TestTCHP135_TheCommittedCapturesAreRedacted(t *testing.T) {
 //   - Step 3 (the start branch): the fourth call starts a new seam call (count 2) and returns the row.
 //   - Goroutines return to the baseline.
 func TestTCHPE32_ConcurrentCallsJoinAHealthyInFlight(t *testing.T) {
-	t.Skip("TC-HP-E32: SKIP-only stub; un-skip when WI 2.2 lands")
+	st := newFakeStatfs(t, capUBU)
+	rootRow := st.row("/")
+	st.set("/mnt/slow", rootRow)
+	st.set("/mnt/late", rootRow)
+	st.delay("/mnt/slow", 50*time.Millisecond)
+	st.delay("/mnt/late", 400*time.Millisecond)
+	src := newSource(fixtureFS(t, capUBU), 250*time.Millisecond, st.Statfs)
+	ctx := t.Context()
+	baseline := runtime.NumGoroutine()
+
+	// The test's own goroutines are counted apart from bounded's.
+	var mine atomic.Int64
+	checkGoroutines := func(when string) {
+		t.Helper()
+		if n := runtime.NumGoroutine() - int(mine.Load()); n > baseline+1 {
+			t.Errorf("%s: %d goroutines besides the test's, want at most baseline %d + 1", when, n, baseline)
+		}
+	}
+	type result struct {
+		u    Usage
+		err  error
+		took time.Duration
+	}
+	call := func(mount string) result {
+		s := time.Now()
+		u, err := src.statfs(ctx, mount)
+		return result{u, err, time.Since(s)}
+	}
+	async := func(mount string) <-chan result {
+		ch := make(chan result, 1)
+		mine.Add(1)
+		go func() {
+			defer mine.Add(-1)
+			ch <- call(mount)
+		}()
+		return ch
+	}
+
+	// Step 1: two calls released together join one healthy seam call.
+	barrier := make(chan struct{})
+	var wg sync.WaitGroup
+	slow := make([]result, 2)
+	for i := range 2 {
+		mine.Add(1)
+		wg.Go(func() {
+			defer mine.Add(-1)
+			<-barrier
+			slow[i] = call("/mnt/slow")
+		})
+	}
+	close(barrier)
+	wg.Wait()
+	for i, r := range slow {
+		if r.err != nil || r.u != rootRow {
+			t.Errorf("step 1 call %d = %+v, %v; want the root row", i, r.u, r.err)
+		}
+		if r.took < 40*time.Millisecond || r.took > 200*time.Millisecond {
+			t.Errorf("step 1 call %d took %v, want 40-200ms", i, r.took)
+		}
+	}
+	if n := st.count("/mnt/slow"); n != 1 {
+		t.Errorf("F-STATFS count for /mnt/slow = %d, want 1 (joined)", n)
+	}
+	waitGoroutines(t, baseline)
+
+	// Step 2: a 400 ms call, joined at 100 ms and found stuck at 300 ms.
+	t0 := time.Now()
+	first := async("/mnt/late")
+	time.Sleep(100*time.Millisecond - time.Since(t0))
+	checkGoroutines("first call in flight")
+	second := async("/mnt/late")
+	time.Sleep(300*time.Millisecond - time.Since(t0))
+	checkGoroutines("second call joined")
+	third := call("/mnt/late")
+	r1, r2 := <-first, <-second
+	checkGoroutines("after the three calls")
+
+	const timedOut = "timed out after 250ms: statfs /mnt/late"
+	if r := reasonFor("/mnt/late", r1.err); r != timedOut {
+		t.Errorf("first call: reason %q", r)
+	}
+	if r1.took < 250*time.Millisecond || r1.took > 350*time.Millisecond {
+		t.Errorf("first call took %v, want 250-350ms", r1.took)
+	}
+	if r := reasonFor("/mnt/late", r2.err); r != timedOut {
+		t.Errorf("second call: reason %q", r)
+	}
+	if r2.took < 120*time.Millisecond || r2.took > 220*time.Millisecond {
+		t.Errorf("second call took %v, want 120-220ms (the first call's deadline)", r2.took)
+	}
+	if r := reasonFor("/mnt/late", third.err); r != "still pending: statfs /mnt/late" {
+		t.Errorf("third call: reason %q", r)
+	}
+	if third.took > 10*time.Millisecond {
+		t.Errorf("third call took %v, want at most 10ms", third.took)
+	}
+	if n := st.count("/mnt/late"); n != 1 {
+		t.Errorf("F-STATFS count for /mnt/late = %d, want 1", n)
+	}
+
+	// Step 3: once the seam returns and the key clears, a fresh call.
+	eventually(t, time.Second, func() bool { return !src.inFlight("statfs /mnt/late") }, "the /mnt/late key cleared")
+	st.delay("/mnt/late", 0)
+	if r := call("/mnt/late"); r.err != nil || r.u != rootRow {
+		t.Errorf("fourth call = %+v, %v; want the root row", r.u, r.err)
+	}
+	if n := st.count("/mnt/late"); n != 2 {
+		t.Errorf("F-STATFS count for /mnt/late = %d, want 2", n)
+	}
+	waitGoroutines(t, baseline)
 }
 
 // hostCaptures are the two committed WI 2.1 captures under testdata/.
