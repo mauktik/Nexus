@@ -425,6 +425,11 @@ collect_and_remove() {
 			docker exec "$container" systemctl list-units --all --no-pager --plain >"$LOGS/units.log" 2>&1 || true
 		fi
 		docker exec "$container" cat /var/log/nginx/error.log >"$LOGS/nginx-error.log" 2>&1 || true
+		# Files the tests write for the logs (system-provider TC-HP-115 and
+		# TC-HP-122: host-unavailable-<init>.txt), when any test wrote one.
+		if docker exec "$container" test -d /harness/out; then
+			docker cp "$container:/harness/out/." "$LOGS/" >/dev/null 2>&1 || true
+		fi
 		docker logs "$container" >"$LOGS/container.log" 2>&1 || true
 		docker rm -f -v "$container" >/dev/null 2>&1 || true
 		if [ -n "$(docker ps -aq --filter "name=^${name}\$")" ]; then

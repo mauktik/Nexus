@@ -43,12 +43,15 @@ import (
 	"time"
 
 	"github.com/mauktik/nexus/internal/apitypes"
+	"github.com/mauktik/nexus/internal/catalog"
 	"github.com/mauktik/nexus/internal/detach"
 	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/providers/apt"
 	aptspec "github.com/mauktik/nexus/internal/providers/apt/spec"
 	dockerspec "github.com/mauktik/nexus/internal/providers/docker/spec"
+	hostspec "github.com/mauktik/nexus/internal/providers/host/spec"
+	ngxspec "github.com/mauktik/nexus/internal/providers/nginx/spec"
 	"github.com/mauktik/nexus/internal/providers/scripts/spec"
 )
 
@@ -737,13 +740,26 @@ func auditDirectives(t *testing.T) {
 	t.Logf("installed unit [Service]: %d lines; every WI 3.5 directive present or recorded", len(have))
 }
 
+// tc182 is TC-182's outcome in this process. TC-HP-125 runs TC-182, and
+// so does TestEveryProviderOpUnderExactUnit: whichever runs it first does,
+// and the other reports that run's result instead of a second run.
+var tc182 struct {
+	by      string   // the test that ran it; empty until it has run
+	failed  bool     // it failed
+	hostOps []string // the host ops, each answered 200, in catalog order
+	swept   int      // catalog ops of the enabled providers exercised
+	catalog int      // catalog ops of the enabled providers
+}
+
 // TC-182: under the exact unit, installed by install.sh with no drop-in,
-// every catalog operation of docker, apt, scripts and nginx (nginx-provider
+// every catalog operation of docker, apt, scripts, nginx (nginx-provider
 // TC-112: ngxEveryOp, against the image's nginx with includeDir
-// /etc/nginx/conf.d), plus the core operation reads and cancel, reaches its
-// expected outcome through REST,
+// /etc/nginx/conf.d) and host (system-provider TC-HP-125: providers.host
+// at sampleInterval 2s, each op answering 200), plus the core operation
+// reads and cancel, reaches its expected outcome through REST,
 // with scripts in a home directory and a Compose project under /home
 // (ProtectHome=read-only), and nothing is denied; then the directive audit.
+// The ops exercised must be exactly the catalog's ops of those providers.
 //
 // The scripts are in deploy's own home, which the run-as-user ancestor rule
 // accepts. By default a Compose project's every ancestor must be root-owned
@@ -754,6 +770,21 @@ func auditDirectives(t *testing.T) {
 // updates.
 func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 	requireInit(t, platform.Systemd)
+	if tc182.by != "" {
+		t.Logf("TC-182 ran in this process under %s: %d of %d catalog ops, host ops %q", tc182.by, tc182.swept,
+			tc182.catalog, tc182.hostOps)
+		if tc182.failed {
+			t.Fatalf("TC-182 failed under %s", tc182.by)
+		}
+		return
+	}
+	tc182.by = t.Name()
+	t.Cleanup(func() {
+		if t.Skipped() {
+			tc182.by = ""
+		}
+		tc182.failed = t.Failed()
+	})
 	freshHost(t)
 	ensureUsers(t)
 	const (
@@ -788,7 +819,8 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 	cfgDir := configDir(t, "tc182", "")
 	cfg := func(dockerExtra string) string {
 		return fmt.Sprintf("host: {name: harness}\nlisten: [%q]\ntls: {mode: off}\nproviders:\n"+
-			"  docker: {enabled: true, socket: %s, configDir: %s%s}\n  apt:\n    enabled: true\n%s  scripts:\n    enabled: true\n    catalog:\n%s",
+			"  docker: {enabled: true, socket: %s, configDir: %s%s}\n  host: {enabled: true, sampleInterval: 2s}\n"+
+			"  apt:\n    enabled: true\n%s  scripts:\n    enabled: true\n    catalog:\n%s",
 			exactAddr, dockerSocket, cfgDir, dockerExtra, ngxSection(""),
 			catalogYAML(entry{id: "tc182-hello", path: hello, runAs: "deploy", dir: home},
 				entry{id: "tc182-wait", path: wait, runAs: "deploy", dir: home}))
@@ -812,7 +844,7 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 	since := time.Now().Add(-time.Second)
 	pid := startExact(t)
 	n := exactNexusd(t, append([]string{dockerspec.ReadScope, dockerspec.WriteScope, aptspec.ReadScope,
-		aptspec.WriteScope, aptspec.InstallScope, spec.ReadScope, spec.RunScope}, ngxScopes...)...)
+		aptspec.WriteScope, aptspec.InstallScope, spec.ReadScope, spec.RunScope, hostspec.ReadScope}, ngxScopes...)...)
 	var done []string
 	ok := func(op string, format string, args ...any) {
 		t.Helper()
@@ -844,10 +876,10 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 		}
 		enabled++
 	}
-	if enabled != 4 {
-		t.Fatalf("%d providers enabled, want docker, apt, scripts and nginx", enabled)
+	if enabled != 5 {
+		t.Fatalf("%d providers enabled, want docker, apt, scripts, nginx and host", enabled)
 	}
-	ok("capabilities", "%d providers enabled (docker, apt, scripts, nginx)", enabled)
+	ok("capabilities", "%d providers enabled (docker, apt, scripts, nginx, host)", enabled)
 
 	// docker
 	var list apitypes.List[dockerspec.Container]
@@ -1030,6 +1062,41 @@ func TestEveryProviderOpUnderExactUnit(t *testing.T) {
 		t.Helper()
 		ok(op, format, args...)
 	})
+
+	// host (system-provider TC-HP-125): each of the ten ops answers 200
+	// with its items; their values are TC-HP-114's.
+	for _, op := range hostspec.Spec().Ops {
+		path := "/v1/providers/" + hostspec.Name + "/" + op.ResourceType
+		code, b := n.get(path)
+		var l struct {
+			Items []json.RawMessage `json:"items"`
+		}
+		if code != http.StatusOK || json.Unmarshal(b, &l) != nil || len(l.Items) == 0 {
+			t.Fatalf("%s (GET %s): %d %s", op.ID, path, code, b)
+		}
+		tc182.hostOps = append(tc182.hostOps, op.ID)
+		ok(op.ID, "200, %d item(s)", len(l.Items))
+	}
+
+	// Every catalog op of the enabled providers was exercised.
+	var cat, missing []string
+	for _, ps := range catalog.All() {
+		if !slices.Contains([]string{dockerspec.Name, aptspec.Name, spec.Name, ngxspec.Name, hostspec.Name}, ps.Name) {
+			continue
+		}
+		for _, op := range ps.Ops {
+			cat = append(cat, op.ID)
+			if !slices.Contains(done, op.ID) {
+				missing = append(missing, op.ID)
+			}
+		}
+	}
+	tc182.catalog = len(cat)
+	tc182.swept = len(cat) - len(missing)
+	t.Logf("%d of the catalog's %d ops of docker, apt, scripts, nginx and host exercised", tc182.swept, len(cat))
+	if len(missing) > 0 {
+		t.Fatalf("catalog ops not exercised: %q", missing)
+	}
 
 	// Step 2: nothing denied, nexusd never restarted, then the audit.
 	sinceArg := "@" + strconv.FormatInt(since.Unix(), 10)
