@@ -61,6 +61,50 @@ What the captures establish (ASM-7, L-26, L-27):
   and exits 0 without changing state.
 - `rc-service -C nginx status` exits 0 (started), 3 (stopped) or 32 (crashed).
 
+Failed-service listings (system-provider WI 1.4, captured 2026-11-15 UTC).
+These rows come from the current T1 harness images, not the hosts above:
+
+- **ubuntu-harness**: image `nexus-harness:ubuntu-latest`
+  (`sha256:8151dbce5e8fcd2a47632dc861e92a82159c1707cfddc0db4aab0ac4a780bacd`,
+  linux/arm64, kernel 6.8.0-100-generic), started with `docker run -d
+  --privileged --cgroupns=host --tmpfs /run --tmpfs /run/lock`, so systemd
+  runs as PID 1. In that container `getty@tty1.service` and
+  `systemd-modules-load.service` fail on their own (`systemctl
+  is-system-running` printed `degraded`).
+  - *failed*: `systemd-run --unit tc-hp-fail /bin/false` (it printed `Running
+    as unit: tc-hp-fail.service`; `systemctl show -p ActiveState -p Result
+    tc-hp-fail.service` then printed `ActiveState=failed`, `Result=exit-code`),
+    then the capture.
+  - *none*: `systemctl reset-failed` (`is-system-running` then printed
+    `running`), then the capture.
+  - Unit-name limit: in a fresh container of the same image, `systemd-run
+    --unit <name> /bin/false` accepted a 255-character `<a...>.service` name
+    (listed by `list-units --state=failed` with a first field of 255
+    characters) and refused 256 and 300 characters with `Failed to mangle unit
+    name: Invalid argument`. ListFailed drops names longer than 255.
+- **alpine-harness**: image `nexus-harness:alpine-alpine-latest`
+  (`sha256:a084582138555accaec580b638c1452c887ef3129265301fd65c4ddeb4eca609`,
+  linux/arm64, kernel 6.8.0-100-generic), started with `docker run -d
+  --privileged --cgroupns=private --tmpfs /run --tmpfs /run/lock`; BusyBox
+  init is PID 1 and runs OpenRC (`rc-status -r` printed `default`).
+  `rc-status --version` printed `rc-status (OpenRC [DOCKER]) 0.63.2`;
+  `command -v rc-status` printed `/bin/rc-status` (A-17).
+  - *none*: the capture on the fresh container, before anything was planted.
+  - *crashed*: `/etc/init.d/tc-hp-crash`, a `start-stop-daemon` service
+    (`command=/bin/sleep`, `command_args=3600`, `command_background=yes`,
+    `pidfile=/run/tc-hp-crash.pid`), `rc-service tc-hp-crash start`, then
+    `kill -9` of its pid (`rc-service tc-hp-crash status` printed `* status:
+    crashed`, exit 32); and `rc-service nginx start`, then `pkill -9 -f
+    "nginx: (master|worker) process"` (`status: crashed`, exit 32); then the
+    capture.
+  - So A-16 holds on OpenRC 0.63.2: none crashed is exit 1 with empty output,
+    and crashed services are exit 0 with one bare name per line.
+
+The commands ran like the ones above: `docker exec <container> env -i
+PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C <tool> ...`, combined output into
+the file, the `docker exec` exit status recorded as `Exit`. Both containers
+were removed afterwards.
+
 | File | Host | Distribution | Init | nginx | Command | Exit | Date |
 |---|---|---|---|---|---|---|---|
 | `systemd/show-running.txt` | ubuntu-container | Ubuntu 26.04.1 LTS | systemd 259 (259.9-0ubuntu0.1) | nginx 1.28.3-2ubuntu1.12 | `systemctl show --timestamp=unix -p LoadState -p ActiveState -p SubState -p MainPID -p StateChangeTimestamp -- nginx.service` (nginx running) | 0 | 2026-11-13 |
@@ -118,3 +162,7 @@ What the captures establish (ASM-7, L-26, L-27):
 | `openrc/reload-crashed.txt` | alpine-container | Alpine Linux 3.21.10 | OpenRC 0.55.1-r2 | nginx 1.26.3-r3 | `rc-service -C nginx reload` (nginx crashed) | 1 | 2026-11-13 |
 | `openrc/daemon-record` | alpine-container | Alpine Linux 3.21.10 | OpenRC 0.55.1-r2 | nginx 1.26.3-r3 | `cp /run/openrc/daemons/nginx/001` (nginx started with rc-service; master PID 190) | - | 2026-11-13 |
 | `openrc/nginx.pid` | alpine-container | Alpine Linux 3.21.10 | OpenRC 0.55.1-r2 | nginx 1.26.3-r3 | `cp /run/nginx/nginx.pid` (same start as daemon-record) | - | 2026-11-13 |
+| `systemd/list-units-failed.txt` | ubuntu-harness | Ubuntu 26.04.1 LTS | systemd 259 (259.9-0ubuntu0.1) | nginx 1.28.3-2ubuntu1.12 | `systemctl list-units --state=failed --plain --no-legend --no-pager --full` (transient unit tc-hp-fail.service planted with `systemd-run --unit tc-hp-fail /bin/false`; getty@tty1 and systemd-modules-load failed on their own) | 0 | 2026-11-15 |
+| `systemd/list-units-failed-none.txt` | ubuntu-harness | Ubuntu 26.04.1 LTS | systemd 259 (259.9-0ubuntu0.1) | nginx 1.28.3-2ubuntu1.12 | `systemctl list-units --state=failed --plain --no-legend --no-pager --full` (after `systemctl reset-failed`; no failed unit) | 0 | 2026-11-15 |
+| `openrc/rc-status-crashed.txt` | alpine-harness | Alpine Linux 3.24.4 | OpenRC 0.63.2-r0 | nginx 1.30.6-r0 | `rc-status --crashed` (start-stop-daemon service tc-hp-crash and nginx started, then killed with SIGKILL behind OpenRC) | 0 | 2026-11-15 |
+| `openrc/rc-status-crashed-none.txt` | alpine-harness | Alpine Linux 3.24.4 | OpenRC 0.63.2-r0 | nginx 1.30.6-r0 | `rc-status --crashed` (no service crashed) | 1 | 2026-11-15 |
