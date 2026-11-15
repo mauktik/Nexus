@@ -32,9 +32,12 @@ type cpuRates struct {
 	usage, user, system, iowait, steal rateVal
 }
 
-// diskRates is one /proc/diskstats device over the interval.
+// diskRates is one /proc/diskstats device over the interval. major and
+// minor are its maj:min in the newer sample, so a reader can join on name
+// and maj:min (WI 4.2).
 type diskRates struct {
 	readBps, writeBps, readIOPS, writeIOPS rateVal
+	major, minor                           uint32
 }
 
 // ifaceRates is one interface over the interval.
@@ -124,21 +127,24 @@ func compute(prev, cur sample, elapsed time.Duration, pageSize int) *snapshot {
 		snap.disks = make(map[string]diskRates, len(cur.disks))
 		for name, d := range cur.disks {
 			p, ok := prev.disks[name]
+			var r diskRates
 			switch {
 			case warm || !ok:
 				w := missing(reasonWarmingUp)
-				snap.disks[name] = diskRates{w, w, w, w}
+				r = diskRates{readBps: w, writeBps: w, readIOPS: w, writeIOPS: w}
 			case p.Major != d.Major || p.Minor != d.Minor:
-				r := missing(reasonCounterReset(name))
-				snap.disks[name] = diskRates{r, r, r, r}
+				c := missing(reasonCounterReset(name))
+				r = diskRates{readBps: c, writeBps: c, readIOPS: c, writeIOPS: c}
 			default:
-				snap.disks[name] = diskRates{
+				r = diskRates{
 					readBps:   perSecond(name, p.SectorsRead, d.SectorsRead, hostparse.SectorSize, secs),
 					writeBps:  perSecond(name, p.SectorsWritten, d.SectorsWritten, hostparse.SectorSize, secs),
 					readIOPS:  perSecond(name, p.ReadsCompleted, d.ReadsCompleted, 1, secs),
 					writeIOPS: perSecond(name, p.WritesCompleted, d.WritesCompleted, 1, secs),
 				}
 			}
+			r.major, r.minor = d.Major, d.Minor
+			snap.disks[name] = r
 		}
 	}
 

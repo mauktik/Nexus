@@ -370,7 +370,7 @@ type FilesystemProperties struct {
 	InodesTotal    *uint64     `json:"inodesTotal" jsonschema:"Null for a filesystem without inode counts."`
 	InodesUsed     *uint64     `json:"inodesUsed"`
 	InodesFree     *uint64     `json:"inodesFree"`
-	ReadOnly       bool        `json:"readOnly"`
+	ReadOnly       *bool       `json:"readOnly" jsonschema:"From the host's /proc/1/mountinfo; null when that file cannot be read."`
 	Unavailable    Unavailable `json:"unavailable,omitempty" jsonschema:"Fields of this object that could not be read, each with the reason; such a field is null, or [] for a list."`
 }
 
