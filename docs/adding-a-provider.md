@@ -14,7 +14,10 @@ mechanisms they already have. Those include four generic mechanisms added
 for the `nexusd` provider: `def.KindUpload` with `CLI.Upload`,
 `CLI.ReconnectWindow`, `provider.DaemonUser` and audit facts
 (`audit.AddFact`); see
-[section 5](#5-generic-mechanisms-added-for-nexusd). A provider that needs
+[section 5](#5-generic-mechanisms-added-for-nexusd). The `host` provider
+added one more, `provider.Background`, for work that runs between requests;
+see [section 6](#6-generic-mechanism-added-for-the-host-provider-providerbackground).
+A provider that needs
 a new kind of mechanism changes core, and that change must be generic, not
 keyed on the provider's name, and documented here.
 
@@ -268,3 +271,36 @@ provider's name, so any provider can use it.
   records, such as an upload's SHA-256 or a signature verdict. They are
   bounded in number and length and written as they are, so they must never
   hold a secret or key material.
+
+## 6. Generic mechanism added for the host provider: `provider.Background`
+
+The `host` provider samples the host every few seconds to compute rates and
+keep a metrics history, so it needed work that runs inside `nexusd` between
+requests, which no earlier provider did. It was added to core as a generic
+mechanism, `provider.Background` (`internal/provider/background.go`), run by
+the daemon (`internal/daemon/background.go`). It is keyed on configuration
+enablement, not on the provider's name, so any provider can use it.
+
+- **The contract.** A provider that implements
+  `RunBackground(ctx context.Context)` has it called by the daemon in a
+  goroutine of its own. `RunBackground` must return promptly once `ctx` is
+  done, recover its own panics per unit of work, and release what it holds
+  when it returns. A panic that still escapes is recovered and logged at
+  error with the provider's name and stack; the provider stays enabled and
+  serving, and its run starts again only when a reload next enables it.
+- **When it runs.** A run starts when the provider's section is
+  `enabled: true`: at startup, after READY=1 and restart recovery, and after
+  each successful reload (SIGHUP or the `nexusd` provider's `reload`) that
+  enables it. A reload that disables it cancels `ctx` and waits up to
+  5 seconds for the run to return before the reload answers. A reload that
+  keeps it enabled leaves the run alone, so its state survives, and a reload
+  that fails changes nothing. At shutdown, runs are cancelled after the HTTP
+  server has stopped and before the operation manager and the state
+  database, and waited for at most 5 seconds in all, inside the 10-second
+  shutdown deadline. A run still going after its bound is logged at warn and
+  left to return; a newer run of the same provider owns its state.
+- **When it never runs.** It is never called for a disabled provider, by
+  `nexusd validate-config` or `CheckConfig` (which configure throwaway
+  providers), or when `nexusd` cannot open its listeners. Preflight does not
+  gate it: an enabled provider whose preflight failed still has its run, so
+  `RunBackground` checks its own prerequisites.

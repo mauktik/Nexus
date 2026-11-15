@@ -8,7 +8,11 @@
 
 package buildsys
 
-import "testing"
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 // TC-HP-8: adding-a-provider.md documents the generic Background contract. Owner WI 1.1. Requirements: CON-4, FR-1.
 //
@@ -16,7 +20,29 @@ import "testing"
 // - Steps: read `docs/adding-a-provider.md`; find the section titled "Generic mechanism added for the host provider: `provider.Background`".
 // - Expected: the section exists and contains `RunBackground`, "enabled", "reload", "validate-config", and states it is keyed on configuration enablement, not on the provider's name; `internal/daemon/daemon.go` no longer contains the sentence "Nothing runs in the background between requests" unqualified (it names `Background`).
 func TestTCHP8_AddingAProviderMdDocumentsTheGeneric(t *testing.T) {
-	t.Skip("TC-HP-8: SKIP-only stub; un-skip when WI 1.1 lands")
+	root := repoRoot(t)
+	guide := readFile(t, filepath.Join(root, "docs", "adding-a-provider.md"))
+	s := section(guide, "Generic mechanism added for the host provider: `provider.Background`")
+	if s == "" {
+		t.Fatal("docs/adding-a-provider.md has no \"Generic mechanism added for the host provider: " +
+			"`provider.Background`\" section")
+	}
+	requireAll(t, "the provider.Background section", s, "`RunBackground`", "enabled", "reload",
+		"validate-config", "keyed on configuration enablement, not on the provider's name")
+
+	// The Run comment names the exception instead of saying, unqualified,
+	// that nothing runs between requests.
+	daemon := oneLine(readFile(t, filepath.Join(root, "internal", "daemon", "daemon.go")))
+	const claim = "Nothing runs in the background between requests"
+	if i := strings.Index(daemon, claim); i >= 0 {
+		sentence := daemon[i:]
+		if end := strings.Index(sentence, ". "); end >= 0 {
+			sentence = sentence[:end]
+		}
+		if !strings.Contains(sentence, "Background") {
+			t.Errorf("internal/daemon/daemon.go still says %q without naming Background: %q", claim, sentence)
+		}
+	}
 }
 
 // TC-HP-112: Hand-written docs cover scope, ops, keys and the sandbox list. Owner WI 5.2. Requirements: FR-2, FR-15, NFR-5, NFR-7, CON-4.
