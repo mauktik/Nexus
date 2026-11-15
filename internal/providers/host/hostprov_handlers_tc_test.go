@@ -1,6 +1,6 @@
 // Stub-style: SKIP-only (system-provider)
 //
-// Stubs of planning/system-provider/test-cases.md TC-HP-71, TC-HP-72, TC-HP-73, TC-HP-74, TC-HP-75, TC-HP-76, TC-HP-77, TC-HP-78, TC-HP-79, TC-HP-80, TC-HP-81, TC-HP-82, TC-HP-83, TC-HP-84, TC-HP-85, TC-HP-86, TC-HP-87, TC-HP-88, TC-HP-89, TC-HP-90, TC-HP-91, TC-HP-92, TC-HP-93, TC-HP-94, TC-HP-95, TC-HP-96, TC-HP-97, TC-HP-98, TC-HP-99, TC-HP-100, TC-HP-101, TC-HP-102, TC-HP-103, TC-HP-E18, TC-HP-E19, TC-HP-E20, TC-HP-E21, TC-HP-E22, TC-HP-E23, TC-HP-E24, TC-HP-E25, TC-HP-E26, TC-HP-ERR18, TC-HP-ERR19, TC-HP-ERR20, TC-HP-ERR21, TC-HP-ERR22, TC-HP-ERR23, TC-HP-ERR24, TC-HP-ERR25, TC-HP-ERR26, TC-HP-ERR27, TC-HP-ERR28.
+// Stubs of planning/system-provider/test-cases.md TC-HP-71, TC-HP-72, TC-HP-73, TC-HP-74, TC-HP-75, TC-HP-76, TC-HP-77, TC-HP-78, TC-HP-79, TC-HP-80, TC-HP-81, TC-HP-82, TC-HP-83, TC-HP-84, TC-HP-85, TC-HP-86, TC-HP-87, TC-HP-88, TC-HP-89, TC-HP-90, TC-HP-91, TC-HP-92, TC-HP-93, TC-HP-94, TC-HP-95, TC-HP-96, TC-HP-97, TC-HP-98, TC-HP-99, TC-HP-100, TC-HP-101, TC-HP-102, TC-HP-103, TC-HP-E18, TC-HP-E19, TC-HP-E20, TC-HP-E21, TC-HP-E22, TC-HP-E23, TC-HP-E24, TC-HP-E25, TC-HP-E26, TC-HP-ERR18, TC-HP-ERR19, TC-HP-ERR20, TC-HP-ERR21, TC-HP-ERR22, TC-HP-ERR23, TC-HP-ERR24, TC-HP-ERR25, TC-HP-ERR26, TC-HP-ERR27, TC-HP-ERR28, TC-HP-E31.
 // Owner WIs: 4.1, 4.2, 4.3, 4.4, 4.5. Each stub compiles today and skips; the
 // developer of the owning work item replaces the skip and the comment with
 // the test. An un-skipped passing test is the GREEN signal
@@ -108,9 +108,9 @@ func TestTCHP79_FilesystemsOnBothCapturesAgreeWithStatfs(t *testing.T) {
 
 // TC-HP-80: The exclusion list and bind-mount dedupe. Owner WI 4.2. Requirements: FR-7.
 //
-// - Setup: UBU F-FS with `replace("proc/1/mountinfo", …)` = the capture's lines plus, for each fstype of A-21, one synthetic line derived from a real line of that type (or from the root line with the fstype changed), plus: overlays under each container-runtime dir, `squashfs` at `/snap/core/1`, tmpfs at `/tmp`, `/run`, `/dev/shm`, `/var/tmp`, a file bind at `/etc/hosts` (F-FS: not a directory), and a bind of the root device at `/mnt/bind` (same `maj:min`, root `/home`).
+// - Setup: UBU F-FS with `replace("proc/1/mountinfo", …)` = the capture's lines plus, for each fstype of A-21, one synthetic line derived from a real line of that type (or from the root line with the fstype changed), plus: overlays under each container-runtime dir, `squashfs` at `/snap/core/1`, tmpfs at `/tmp`, `/run`, `/dev/shm`, `/var/tmp`, a file bind at `/etc/hosts`, and a bind of the root device at `/mnt/bind` (same `maj:min`, root `/home`). The file bind is not a directory according to F-STATFS: its `/etc/hosts` entry has `IsDir=false` and the root line's `Dev`. F-FS has no entry for any mount point (Finding 2).
 // - Steps: filesystems handler.
-// - Expected: none of the excluded types or paths listed; tmpfs at `/tmp`, `/run`, `/dev/shm` listed, `/var/tmp` tmpfs not; `/etc/hosts` not; the root device listed once at `/` (root `/` preferred over `/mnt/bind`); an overlay at `/` itself (container root) is listed.
+// - Expected: none of the excluded types or paths listed; tmpfs at `/tmp`, `/run`, `/dev/shm` listed, `/var/tmp` tmpfs not; `/etc/hosts` not, and the reason it is dropped is F-STATFS `IsDir=false`: the variant with `IsDir=true` for `/etc/hosts` lists it; F-FS recorded no access to `etc/hosts`, `mnt/bind` or any other mount point; the root device listed once at `/` (root `/` preferred over `/mnt/bind`); an overlay at `/` itself (container root) is listed.
 func TestTCHP80_TheExclusionListAndBindMountDedupe(t *testing.T) {
 	t.Skip("TC-HP-80: SKIP-only stub; un-skip when WI 4.2 lands")
 }
@@ -319,7 +319,11 @@ func TestTCHP101_MetricsOperationOverARunningSampler(t *testing.T) {
 //
 // - Setup: host stack per capture with F-FS recording (F-SPY-FS).
 // - Steps: Preflight; `RunBackground` with 3 ticks; every one of the ten handlers once (lists with limit 1000); stop.
-// - Expected: every recorded path matches the allow-list (`allowed(path)` true, checked after the fact); no recorded path matches `(?i)(cmdline|environ|serial|uuid|asset_tag|kmsg|shadow|/arp$|neigh|/mem$|kcore|/fd/|/maps$)`; recorded paths include `proc/1/mountinfo`, `sys/class/dmi/id/sys_vendor` and at least one `proc/<pid>/stat` (non-vacuous).
+// - Expected:
+//   - Every recorded access matches an allow-list entry of its access kind, checked after the fact with `allowedAs(path, kind)` (Finding 1): an `Open` needs a read entry, a `ReadDir` a list entry, and a `Stat` or `ReadLink` a read or stat-only entry.
+//   - No recorded path matches `(?i)(cmdline|environ|serial|uuid|asset_tag|kmsg|shadow|/arp$|neigh|/mem$|kcore|/fd/|/maps$)`.
+//   - No recorded path is a mount point of the capture's mountinfo, other than allow-listed files that happen to be mount points. Mount points are reached only through F-STATFS (Finding 2).
+//   - The recording is non-vacuous. It includes an `Open` of `proc/1/mountinfo`, of `sys/class/dmi/id/sys_vendor` and of at least one `proc/<pid>/stat`, a `ReadDir` of `proc` (process scan), and a `Stat` of at least one clock-source marker (`run/systemd/timesync` on UBU, from the clock-source check; `usr/bin/chronyc` on ALP, from the chronyc check).
 func TestTCHP102_NothingOutsideTheAllowListIsEver(t *testing.T) {
 	t.Skip("TC-HP-102: SKIP-only stub; un-skip when WI 4.5 lands")
 }
@@ -416,18 +420,24 @@ func TestTCHPE26_ListsOverTheSummaryBoundAreCut(t *testing.T) {
 
 // TC-HP-ERR18: Clock command failures are reported with a reason. Owner WI 4.1. Requirements: FR-5, FR-12.
 //
-// - Setup: UBU with F-RUN for timedatectl: (a) exit 1 with `Failed to connect to bus`; (b) an `ErrNotStarted` (ENOENT) error; (c) `hang` (timeout 250 ms); (d) exit 0 with `maybe`.
+// - Setup: UBU with F-RUN for timedatectl: (a) exit 1 with `Failed to connect to bus`; (b) an `ErrNotStarted` (ENOENT) error; (c) `hang` (timeout 250 ms); (d) exit 0 with `maybe`; (e) an `ErrNotStarted` whose cause is `EACCES` (not ENOENT). F-RUN builds (b) and (e) as `fmt.Errorf("%w: %w", svcctl.ErrNotStarted, &fs.PathError{Op: "fork/exec", Path: argv0, Err: cause})`, the shape `realRun` returns (`internal/svcctl/svcctl.go:205`).
 // - Steps: identity handler.
-// - Expected: `clock.synchronized` unavailable with (a) `command failed: /usr/bin/timedatectl exit 1`, (b) `not present: /usr/bin/timedatectl` (open item 2), (c) `timed out after 250ms: /usr/bin/timedatectl`, (d) `unrecognized format: …`; the handler returns within 350 ms in (c); the rest of identity is populated; the output never contains the command's text (`Failed to connect`).
+// - Expected: `clock.synchronized` unavailable with (a) `command failed: /usr/bin/timedatectl exit 1`, (b) `not present: /usr/bin/timedatectl` (Finding 7), (c) `timed out after 250ms: /usr/bin/timedatectl`, (d) `unrecognized format: …`, (e) `command failed: /usr/bin/timedatectl not started` (Finding 7); the handler returns within 350 ms in (c); the rest of identity is populated; the output never contains the command's text (`Failed to connect`).
 func TestTCHPERR18_ClockCommandFailuresAreReportedWithA(t *testing.T) {
 	t.Skip("TC-HP-ERR18: SKIP-only stub; un-skip when WI 4.1 lands")
 }
 
 // TC-HP-ERR19: A blocked sensor read times out without holding the CPU op. Owner WI 4.1. Requirements: FR-6, FR-12, NFR-1.
 //
-// - Setup: UBU (or a capture-derived hwmon) with F-FS `block` on one `temp*_input`; timeout 250 ms.
-// - Steps: CPU handler; measure.
-// - Expected: returns within 350 ms; the blocked sensor is absent from `temperatures` (or null `celsius`) with `timed out after 250ms: /sys/class/hwmon/…`; other sensors present.
+// - Setup: UBU (or a capture-derived hwmon) with F-FS `block` on one `temp*_input`; timeout 250 ms; goroutine baseline taken with `runtime.NumGoroutine()` before the first call.
+// - Steps: call the CPU handler 5 times in sequence while the sensor stays blocked; measure each; then `release()`.
+// - Expected:
+//   - Each call returns within 350 ms.
+//   - Call 1: the blocked sensor is absent from `temperatures` (or has null `celsius`) with `timed out after 250ms: /sys/class/hwmon/…`. Other sensors are present.
+//   - Calls 2 to 5: the same sensor reports `still pending: /sys/class/hwmon/…` (Finding 3).
+//   - F-FS recorded exactly one `Open` of that sensor path across the 5 calls.
+//   - After call 5, `runtime.NumGoroutine()` is at most baseline + 1: one goroutine per stuck source, not one per request.
+//   - After `release`, the goroutine count returns to the baseline (`eventually`).
 func TestTCHPERR19_ABlockedSensorReadTimesOutWithout(t *testing.T) {
 	t.Skip("TC-HP-ERR19: SKIP-only stub; un-skip when WI 4.1 lands")
 }
@@ -452,9 +462,9 @@ func TestTCHPERR21_WithoutPID1SMountinfoReadOnly(t *testing.T) {
 
 // TC-HP-ERR22: One hung mount does not hold up the list. Owner WI 4.2. Requirements: FR-7, NFR-1.
 //
-// - Setup: UBU with SP-HUNG-NFS; timeout 250 ms.
+// - Setup: UBU with SP-HUNG-NFS (F-STATFS `hang` covers the whole seam call, including the directory check; Finding 2); timeout 250 ms.
 // - Steps: filesystems handler; measure; call again at once.
-// - Expected: first returns within 450 ms (`sourceTimeout` + 200 ms); `/mnt/nfs` listed with size, used, available, usedPercent and inodes null with `timed out after 250ms: statfs /mnt/nfs`; all other mounts populated; the second call answers within 50 ms with `still pending: statfs /mnt/nfs`.
+// - Expected: first returns within 450 ms (`sourceTimeout` + 200 ms); `/mnt/nfs` listed with size, used, available, usedPercent and inodes null with `timed out after 250ms: statfs /mnt/nfs`; all other mounts populated; the second call answers within 50 ms with `still pending: statfs /mnt/nfs`; F-FS recorded no access of any kind to `mnt/nfs` or a path under it, so the directory check did not run outside the bounded call; F-STATFS's count for `/mnt/nfs` is 1.
 func TestTCHPERR22_OneHungMountDoesNotHoldUp(t *testing.T) {
 	t.Skip("TC-HP-ERR22: SKIP-only stub; un-skip when WI 4.2 lands")
 }
@@ -479,16 +489,16 @@ func TestTCHPERR24_UnreadableRouteTablesLeaveGatewaysExplicitlyUnavailable(t *te
 
 // TC-HP-ERR25: Failed-service query failures leave the count unavailable. Owner WI 4.4. Requirements: FR-10, FR-12.
 //
-// - Setup: UBU with F-RUN for the failed-units argv: `hang` (timeout 250 ms); `ErrNotStarted`; exit 1 with bus error text.
+// - Setup: UBU with F-RUN for the failed-units argv: `hang` (timeout 250 ms); `ErrNotStarted` whose cause is ENOENT (the `realRun` shape of TC-HP-ERR18); exit 1 with bus error text.
 // - Steps: health handler.
-// - Expected: `failedServices.count` null and `names []`, both in `unavailable`, with `timed out after 250ms: /usr/bin/systemctl`, `not present: /usr/bin/systemctl`, `command failed: /usr/bin/systemctl exit 1`; the rest of health populated; no command output text in the response.
+// - Expected: `failedServices.count` null and `names []`, both in `unavailable`, with `timed out after 250ms: /usr/bin/systemctl`, `not present: /usr/bin/systemctl` (Finding 7), `command failed: /usr/bin/systemctl exit 1`; the rest of health populated; no command output text in the response.
 func TestTCHPERR25_FailedServiceQueryFailuresLeaveTheCount(t *testing.T) {
 	t.Skip("TC-HP-ERR25: SKIP-only stub; un-skip when WI 4.4 lands")
 }
 
 // TC-HP-ERR26: One hung mount keeps the summary under its bound. Owner WI 4.5. Requirements: FR-4, NFR-1.
 //
-// - Setup: UBU with SP-HUNG-NFS; timeout 250 ms; plus F-RUN `hang` on the failed-units argv.
+// - Setup: UBU with SP-HUNG-NFS (the hang covers the whole seam call, including the directory check; Finding 2); timeout 250 ms; plus F-RUN `hang` on the failed-units argv.
 // - Steps: summary handler; measure.
 // - Expected: returns within 550 ms (`sourceTimeout` + 300 ms) even with two hung sources (collectors run concurrently); `/mnt/nfs` usage and `health.failedServicesCount` null with their `timed out` reasons.
 func TestTCHPERR26_OneHungMountKeepsTheSummaryUnder(t *testing.T) {
@@ -511,4 +521,24 @@ func TestTCHPERR27_MetricsInputRefusalsInTheHandler(t *testing.T) {
 // - Expected: the first four violations and the nested one are reported (except `l: []` with a reason, which is valid); the `series.values` null and the last, well-formed object pass.
 func TestTCHPERR28_AssertExplicitCatchesEachKindOfViolation(t *testing.T) {
 	t.Skip("TC-HP-ERR28: SKIP-only stub; un-skip when WI 4.1 lands")
+}
+
+// TC-HP-E31: A mount point hidden in nexusd's mount namespace reports not visible, never numbers. Owner WI 4.2. Requirements: FR-7, FR-12.
+//
+// - Setup:
+//   - UBU F-FS with `replace("proc/1/mountinfo", …)`: the capture's lines plus one ext4 line at `/tmp/hidden`, derived from the root line with a new `maj:min` (`8:99`) and mount ID.
+//   - Variant (i), the PrivateTmp case: F-STATFS answers `/tmp/hidden` with the root row's `Usage`, `IsDir=true`, and the root's `Dev`, which does not match `8:99`. Inside nexusd's namespace the path resolves to the private `/tmp` on the root filesystem.
+//   - Variant (ii): F-STATFS returns `*fs.PathError{Err: ENOENT}` for `/tmp/hidden`. The path does not exist in nexusd's namespace.
+//   - Control: every other mount's `Dev` matches its mountinfo `maj:min`, from the capture's `tools/stat-mounts.txt`.
+//
+// - Steps: filesystems handler with `limit 1000`, per variant.
+// - Expected:
+//   - `/tmp/hidden` is listed with `fsType ext4`.
+//   - Its `sizeBytes`, `usedBytes`, `availableBytes`, `usedPercent`, `inodesTotal`, `inodesFree` and `inodesUsed` are null. Their reason in both variants is `not visible: /tmp/hidden is hidden in nexusd's mount namespace` (Finding 2). Variant (ii) relies on an extension of Finding 2 that test-strategy.md Open Item 5 asks the architect to confirm.
+//   - None of the root row's numbers appears in the `/tmp/hidden` item.
+//   - Every other mount, `/` included, keeps its numbers, so the `Dev` comparison is not vacuous.
+//   - `assertExplicit` passes.
+//   - F-FS recorded no access to `tmp/hidden`.
+func TestTCHPE31_AMountPointHiddenInNexusdsMountNamespace(t *testing.T) {
+	t.Skip("TC-HP-E31: SKIP-only stub; un-skip when WI 4.2 lands")
 }

@@ -86,7 +86,7 @@ func TestTCHP59_EntitySlotsGoToDevicesFirstAnd(t *testing.T) {
 //
 // - Setup: `runtime.GC()` and `runtime.ReadMemStats` before and after.
 // - Steps: build capacity 43,200 with 32 interfaces and 32 disks and fill it; separately capacity 360 filled.
-// - Expected: the `HeapAlloc` delta (history kept alive with `runtime.KeepAlive`) is < 28 MiB and < 1 MiB respectively.
+// - Expected: the `HeapAlloc` delta (history kept alive with `runtime.KeepAlive`) is under the live-history budget A-27 records, and under 1 MiB at capacity 360. The budget is 16 MiB if A-27 adopts Finding 6 option (a), because twice the live heap must stay under 32 MiB, and 28 MiB if it adopts option (b). The stub holds it in one constant, `liveHistoryBudget`, with a comment citing A-27. This TC bounds the live heap only; TC-HP-133 bounds the heap including GC headroom, which is what NFR-2's RSS bound needs.
 func TestTCHP60_HistoryMemoryStaysWithinTheNFR2(t *testing.T) {
 	t.Skip("TC-HP-60: SKIP-only stub; un-skip when WI 3.2 lands")
 }

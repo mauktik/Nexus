@@ -1,6 +1,6 @@
 // Stub-style: SKIP-only (system-provider)
 //
-// Stubs of planning/system-provider/test-cases.md TC-HP-61, TC-HP-62, TC-HP-63, TC-HP-64, TC-HP-65, TC-HP-66, TC-HP-67, TC-HP-68, TC-HP-69, TC-HP-70, TC-HP-E14, TC-HP-E15, TC-HP-E16, TC-HP-E17, TC-HP-ERR14, TC-HP-ERR15, TC-HP-ERR16, TC-HP-ERR17.
+// Stubs of planning/system-provider/test-cases.md TC-HP-61, TC-HP-62, TC-HP-63, TC-HP-64, TC-HP-65, TC-HP-66, TC-HP-67, TC-HP-68, TC-HP-69, TC-HP-70, TC-HP-E14, TC-HP-E15, TC-HP-E16, TC-HP-E17, TC-HP-ERR14, TC-HP-ERR15, TC-HP-ERR16, TC-HP-ERR17, TC-HP-133.
 // Owner WIs: 3.3. Each stub compiles today and skips; the
 // developer of the owning work item replaces the skip and the comment with
 // the test. An un-skipped passing test is the GREEN signal
@@ -155,7 +155,7 @@ func TestTCHPERR14_ACounterDecreaseGivesNoRateFor(t *testing.T) {
 //
 // - Setup: UBU with second-sample changes: an interface's `ifindex` changed (counters higher); a disk's `maj:min` changed; a new interface `veth9` only in the second sample; an interface present only in the first.
 // - Steps: two samples; read rates.
-// - Expected: re-created interface and re-plugged disk: null with `counter reset: …`; `veth9`: null with a non-empty reason (`warming up` or `counter reset:`), never 0 (open item 3); the vanished interface has no rate entry and causes no error.
+// - Expected: re-created interface and re-plugged disk: null with `counter reset: …`; `veth9`: null with exactly `warming up`, never 0 and never `counter reset:` (Finding 7: an entity with fewer than two samples of its own is warming up); the vanished interface has no rate entry and causes no error.
 func TestTCHPERR15_ReCreatedHotPluggedNewAndVanished(t *testing.T) {
 	t.Skip("TC-HP-ERR15: SKIP-only stub; un-skip when WI 3.3 lands")
 }
@@ -176,4 +176,26 @@ func TestTCHPERR16_AReusedPidIsNotRanked(t *testing.T) {
 // - Expected: `RunBackground` still running after tick 1; one error log with a stack; the snapshot after tick 1 is unchanged (seq unchanged or state unchanged); after tick 2 `ready` with `intervalSeconds` 20 (deltas against the last good sample).
 func TestTCHPERR17_APanicInsideATickIsRecovered(t *testing.T) {
 	t.Skip("TC-HP-ERR17: SKIP-only stub; un-skip when WI 3.3 lands")
+}
+
+// TC-HP-133: History at 24 h plus per-tick garbage keeps the heap the Go runtime holds under 32 MiB. Owner WI 3.3. Requirements: NFR-2, FR-13.
+//
+// - Setup:
+//   - Finding 6 adds this test. It is the T0 proxy for NFR-2's RSS bound, which TC-HP-60's live-heap bound does not cover.
+//   - The synthetic large host of test-strategy.md, generated from UBU into `t.TempDir()`: 32 extra interfaces, 32 extra block devices with diskstats lines, and 300 extra pids. The pids are copies of one captured `proc/<pid>/{stat,status}` pair with the pid fields rewritten, so each tick's process scan reads and parses a realistic volume.
+//   - `debug.SetGCPercent(100)` (restored in cleanup), which models the default `GOGC`.
+//   - Baseline: `runtime.GC()`, `debug.FreeOSMemory()`, then `runtime.ReadMemStats`.
+//
+// - Steps:
+//  1. Configure `historyDuration: 24h`, `sampleInterval: 2s`.
+//  2. Fill the history ring to capacity (43,200 points for every slot) through the history API, as TC-HP-60 does.
+//  3. Start `RunBackground`. Fire 200 ticks with F-TICK, alternating `F-FS.advance()` between the two dynamic samples and advancing F-CLK 2 s per tick. After each tick, call the summary handler and `host.metrics.get` for the full window once.
+//  4. Read `runtime.ReadMemStats` after every 20th tick, with no forced GC.
+//
+// - Expected:
+//   - Every reading of `HeapSys − HeapReleased` is below baseline + 32 MiB.
+//   - The maximum and the reading of each sample are logged with `t.Logf`, so WI 5.4 can compare them with the live RSS of TC-HP-130.
+//   - The ring still holds 43,200 points per slot at the end: the ticks overwrote, not grew.
+func TestTCHP133_HistoryAt24hPlusPerTickGarbageKeeps(t *testing.T) {
+	t.Skip("TC-HP-133: SKIP-only stub; un-skip when WI 3.3 lands")
 }

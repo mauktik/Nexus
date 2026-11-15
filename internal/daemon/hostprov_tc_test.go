@@ -56,9 +56,12 @@ func TestTCHP4_AReloadRejectedAtApplyLeavesThe(t *testing.T) {
 
 // TC-HP-5: Shutdown stops the background run after the server and before the operations manager. Owner WI 1.1. Requirements: FR-11, NFR-2.
 //
-// - Setup: TC-HP-1 A, with a spy on `srv.Shutdown` completion and `ops.Shutdown` start (log lines the daemon already writes, read from the `syncBuffer` logger).
+// - Setup: TC-HP-1 A. The order is read from the `syncBuffer` logger and F-BG's return record. The daemon writes no line today before `ops.Shutdown`, so WI 1.1 adds two shutdown log records (Finding 5): `stopping background providers` at the start of `stopAll`, and `stopping operations` immediately before `ops.Shutdown`. The `nexusd stopped` line already comes after `store.Close`.
 // - Steps: `r.signal(t, syscall.SIGTERM)`; `r.wait(t)`.
-// - Expected: F-BG's run returned; the order in the log is server shutdown, background stop, operations shutdown; `Run` returns nil.
+// - Expected:
+//   - F-BG's run returned. When its `ctx` was done, a dial to the daemon's listen address (made by F-BG's on-cancel hook) is refused, so the server had already shut down.
+//   - The log order is `stopping background providers`, F-BG's return, `stopping operations`, `nexusd stopped`. So the background stop finishes before `ops.Shutdown` and before `store.Close`.
+//   - `Run` returns nil.
 func TestTCHP5_ShutdownStopsTheBackgroundRunAfterThe(t *testing.T) {
 	t.Skip("TC-HP-5: SKIP-only stub; un-skip when WI 1.1 lands")
 }
@@ -122,9 +125,18 @@ func TestTCHPERR1_APanickingRunBackgroundIsLoggedAndNexusd(t *testing.T) {
 
 // TC-HP-ERR2: A runner that ignores cancellation cannot hold up reload or shutdown. Owner WI 1.1. Requirements: NFR-4, NFR-2.
 //
-// - Setup: F-BG `stubborn`; `backgroundStopTimeout = 200ms` (test seam; restored in cleanup); `ShutdownTimeout` 1 s.
-// - Steps: reload disabling it; measure; re-enable and SIGTERM; measure; finally `release()` the runner.
-// - Expected: the reload returns in 200–400 ms and logs a warning naming `apt`; shutdown completes within `ShutdownTimeout` + 200 ms and logs it still running; after `release`, goroutines return to baseline.
+// - Setup: F-BG `stubborn`; `backgroundStopTimeout = 200ms` (test seam, a package `var` per Finding 8; restored in cleanup; the test does not call `t.Parallel()`). `ShutdownTimeout` stays the 10 s constant. The shutdown log records `stopping background providers` and `stopping operations` (TC-HP-5) carry timestamps from the `syncBuffer` logger.
+// - Steps:
+//  1. Reload, disabling the runner; measure.
+//  2. Re-enable it; SIGTERM; measure from the signal to `Run` returning.
+//  3. Directly, in package `daemon`: start a second `backgrounds` set with the stubborn F-BG, set `backgroundStopTimeout = 5s`, and call `stopAll` with a context whose deadline is 100 ms away; measure.
+//  4. `release()` every runner.
+//
+// - Expected:
+//   - The reload returns in 200–400 ms and logs a warning naming `apt`.
+//   - At shutdown, `stopping operations` is logged no later than `backgroundStopTimeout` + 100 ms (300 ms) after `stopping background providers` (Finding 5). A warning names `apt` as still running. `Run` returns within 1 s of the signal, far inside `ShutdownTimeout`, so `ops.Shutdown` kept the rest of the deadline.
+//   - Step 3 returns in 100–200 ms. `stopAll` waits for `min(backgroundStopTimeout, ctx deadline)`, not for `backgroundStopTimeout` alone.
+//   - After `release`, goroutines return to the baseline.
 func TestTCHPERR2_ARunnerThatIgnoresCancellationCannotHold(t *testing.T) {
 	t.Skip("TC-HP-ERR2: SKIP-only stub; un-skip when WI 1.1 lands")
 }
