@@ -413,7 +413,7 @@ type Interface = apitypes.Resource[InterfaceProperties]
 
 // InterfaceProperties is one network interface (FR-9).
 type InterfaceProperties struct {
-	Loopback         bool           `json:"loopback"`
+	Loopback         *bool          `json:"loopback" jsonschema:"Null when the interface type cannot be read."`
 	State            string         `json:"state" jsonschema:"The operational state: up, down, unknown or dormant."`
 	MAC              *string        `json:"mac"`
 	MTU              *int           `json:"mtu"`
