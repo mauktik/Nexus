@@ -3,6 +3,9 @@ package docker
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -572,12 +575,21 @@ const composeHashLabel = "com.docker.compose.config-hash"
 // longer the one c was created from, or "" when it is the same or cannot be
 // compared (CR-29). docker compose up recreates the service from the files
 // as they are now, in the helper's minimal environment, so an edit made
-// since, or a ${VAR} the original deploy shell supplied, would be deployed
-// along with the new image. `docker compose config --hash SERVICE` prints
-// the service's current hash, the value Compose stores in the label
-// (docs.docker.com/reference/cli/docker/compose/config/, --hash). Output
-// that cannot be read, or a container without the label, is reported and
-// let through: the check refuses only on a hash it has read.
+// since, a ${VAR} the original deploy shell supplied, or an edit to an
+// env_file the service names would be deployed along with the new image.
+//
+// The label is the hash up computed from the service as Compose resolved
+// it, env_file variables merged into environment. `docker compose config
+// --hash SERVICE` is not that value for a service with env_file: it hashes
+// the env_file entry unresolved, so it never equals the label and does not
+// change when the file does (on Compose v2.24.0 to v5.0.2). The comparison
+// is with serviceConfigHash of `docker compose config --format json`
+// instead, Compose's own resolved definition, which carries the env files'
+// values and so is never written to the output or a refusal. Only when that
+// differs is config --hash asked: its agreement with the label, as for a
+// service with label_file on Compose v5.0.2, lets the update through.
+// Output that cannot be read, or a container without the label, is
+// reported and let through: the check refuses only on a hash it has read.
 func (u *updater) composeChanged(ctx context.Context, docker string, t composeTarget, c container.InspectResponse) string {
 	var recorded string
 	if c.Config != nil {
@@ -587,30 +599,133 @@ func (u *updater) composeChanged(ctx context.Context, docker string, t composeTa
 		u.say("container %s has no %s label; its Compose definition cannot be compared", u.in.Name, composeHashLabel)
 		return ""
 	}
-	// The service is --hash's value: "config --hash SERVICE".
-	out, err := u.composeOutput(ctx, docker, t, "config", "--hash")
+	out, err := u.composeOutput(ctx, docker, t, "config", "--format", "json")
 	if err != nil {
 		return err.Error()
 	}
-	current := ""
+	current, err := serviceConfigHash([]byte(out), t.Service)
+	if err != nil {
+		u.say("docker compose config --format json: %v; the definition of service %s cannot be compared", err, t.Service)
+		return ""
+	}
+	if current == recorded {
+		return ""
+	}
+	if h, err := u.composeConfigHash(ctx, docker, t); err != nil {
+		u.say("%v", err)
+	} else if h == recorded {
+		u.say("the resolved definition of service %s hashes to %s, not its label's %s, but docker compose config "+
+			"--hash prints the label's; going on", t.Service, short(current), short(recorded))
+		return ""
+	}
+	return fmt.Sprintf("the Compose definition of service %s changed since container %s was created (its hash "+
+		"was %s, and is now %s), and an update would deploy the current files, evaluated without the "+
+		"environment of the original deploy, along with the new image. Apply the change with docker compose "+
+		"up -d in %s first", t.Service, u.in.Name, short(recorded), short(current), t.WorkingDir)
+}
+
+// composeConfigHash is what `docker compose config --hash SERVICE` prints
+// for t's service.
+func (u *updater) composeConfigHash(ctx context.Context, docker string, t composeTarget) (string, error) {
+	// The service is --hash's value: "config --hash SERVICE".
+	out, err := u.composeOutput(ctx, docker, t, "config", "--hash")
+	if err != nil {
+		return "", err
+	}
 	lines := strings.Fields(out)
 	switch {
 	case len(lines) == 1:
-		current = lines[0]
+		return lines[0], nil
 	case len(lines) == 2 && lines[0] == t.Service:
-		current = lines[1]
+		return lines[1], nil
 	}
-	if current == "" {
-		u.say("docker compose config --hash did not print a hash for service %s; its definition cannot be compared", t.Service)
-		return ""
+	return "", fmt.Errorf("docker compose config --hash did not print a hash for service %s", t.Service)
+}
+
+// composeHashCleared are the members of a service, as config --format json
+// names them, that Compose clears before it hashes the service for the
+// config-hash label, and composeHashClearedDeploy those of its deploy
+// (ServiceHash, docker/compose v5.0.2 pkg/compose/hash.go). Cleared, they
+// are omitted from the JSON.
+var (
+	composeHashCleared       = []string{"build", "pull_policy", "scale", "depends_on", "profiles"}
+	composeHashClearedDeploy = []string{"replicas"}
+)
+
+// serviceConfigHash is the config-hash label docker compose up writes for
+// service, computed from configJSON, the output of `docker compose config
+// --format json`. up labels the SHA-256 of the service's compact JSON, with
+// the members in composeHashCleared removed; config prints the same JSON,
+// the same members in the same order with the same string escapes,
+// indented. So the hash is of the service's members as printed, compacted,
+// without those. The errors never quote configJSON, which carries the
+// env files' values.
+func serviceConfigHash(configJSON []byte, service string) (string, error) {
+	var project struct {
+		Services map[string]json.RawMessage `json:"services"`
 	}
-	if current != recorded {
-		return fmt.Sprintf("the Compose definition of service %s changed since container %s was created (its hash "+
-			"was %s, and is now %s), and an update would deploy the current files, evaluated without the "+
-			"environment of the original deploy, along with the new image. Apply the change with docker compose "+
-			"up -d in %s first", t.Service, u.in.Name, short(recorded), short(current), t.WorkingDir)
+	if err := json.Unmarshal(configJSON, &project); err != nil {
+		return "", errors.New("the output is not a Compose project in JSON")
 	}
-	return ""
+	def, ok := project.Services[service]
+	if !ok {
+		return "", fmt.Errorf("the output has no service %s", service)
+	}
+	b, err := withoutMembers(def, composeHashCleared, true)
+	if err != nil {
+		return "", fmt.Errorf("the definition of service %s is not a JSON object", service)
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// withoutMembers is the JSON object obj, compacted, without the members
+// named in drop, its members otherwise as they are and in their order;
+// with deploy, its deploy object also loses composeHashClearedDeploy's.
+func withoutMembers(obj json.RawMessage, drop []string, deploy bool) ([]byte, error) {
+	dec := json.NewDecoder(bytes.NewReader(obj))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return nil, errors.New("not a JSON object")
+	}
+	var b bytes.Buffer
+	b.WriteByte('{')
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		key, _ := tok.(string)
+		var v json.RawMessage
+		if err := dec.Decode(&v); err != nil {
+			return nil, err
+		}
+		if slices.Contains(drop, key) {
+			continue
+		}
+		if deploy && key == "deploy" && bytes.HasPrefix(bytes.TrimSpace(v), []byte("{")) {
+			if v, err = withoutMembers(v, composeHashClearedDeploy, false); err != nil {
+				return nil, err
+			}
+		}
+		if b.Len() > 1 {
+			b.WriteByte(',')
+		}
+		// Compose's member names are plain: Marshal writes them as printed.
+		k, err := json.Marshal(key)
+		if err != nil {
+			return nil, err
+		}
+		b.Write(k)
+		b.WriteByte(':')
+		if err := json.Compact(&b, v); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := dec.Token(); err != nil {
+		return nil, err
+	}
+	b.WriteByte('}')
+	return b.Bytes(), nil
 }
 
 // composeOutput runs a Compose command that only reads, and returns its
