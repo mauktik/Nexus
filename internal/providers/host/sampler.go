@@ -2,6 +2,8 @@ package host
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"runtime/debug"
 	"strings"
 	"sync/atomic"
@@ -141,7 +143,7 @@ func (r *samplerRun) sample() {
 
 	r.snap.Store(snap)
 	r.prev, r.seq, r.scanEvery, r.untilScan = cur, snap.seq, scanEvery, untilScan
-	r.hist.Append(histSampleOf(cur, snap))
+	r.hist.Append(histSampleOf(cur, snap, wholeDisks(r.p.src)))
 }
 
 // scanEveryFor is A-11: a process scan that costs more than 0.5% of the
@@ -156,8 +158,12 @@ func scanEveryFor(cost, interval time.Duration) int {
 }
 
 // histSampleOf is the history's record of a sample: CPU % and the entity
-// rates from the snapshot, load and memory from the sample itself.
-func histSampleOf(cur sample, snap *snapshot) histSample {
+// rates from the snapshot, load and memory from the sample itself. Its disks
+// are the whole block devices of whole (wholeDisks), joined on name and
+// maj:min, so a partition or a device the disks op does not list never takes
+// one of the 32 history disk slots (orchestrator ruling after WI 4.2). The
+// snapshot keeps every /proc/diskstats line.
+func histSampleOf(cur sample, snap *snapshot, whole map[string]devOf) histSample {
 	h := histSample{At: cur.at, CPUPercent: snap.cpu.usage.v}
 	if cur.load != nil {
 		h.Load1 = ptr(cur.load.Load1)
@@ -179,9 +185,46 @@ func histSampleOf(cur sample, snap *snapshot) histSample {
 		h.Interfaces = append(h.Interfaces, histEntity{Name: name, Device: cur.ifaces[name].device, A: i.rx.v, B: i.tx.v})
 	}
 	for name, d := range snap.disks {
+		if dev, ok := whole[name]; !ok || dev != (devOf{d.major, d.minor}) {
+			continue
+		}
 		h.Disks = append(h.Disks, histEntity{Name: name, Device: !isVirtualDisk(name), A: d.readBps.v, B: d.writeBps.v})
 	}
 	return h
+}
+
+// wholeDisks is the whole block devices the disks op lists, by kernel name
+// with the maj:min of sys/block/<d>/dev: sys/block less ram*, zram* and
+// loop* without loop/backing_file (collectDisks' rule). A device whose dev
+// cannot be read is left out, and an unlistable sys/block gives none, since
+// no diskstats line can then be told from a partition. Every read is kernel
+// memory, so none is bounded.
+func wholeDisks(src *source) map[string]devOf {
+	entries, err := src.readDir(blockDir)
+	if err != nil {
+		return nil
+	}
+	out := make(map[string]devOf, len(entries))
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, "ram") || strings.HasPrefix(name, "zram") {
+			continue
+		}
+		devPath, err := segPath(segName, blockDir, name, "dev")
+		if err != nil {
+			continue
+		}
+		if strings.HasPrefix(name, "loop") {
+			backing, _ := segPath(segName, blockDir, name, "loop", "backing_file") // name passed segPath
+			if _, err := src.stat(backing); errors.Is(err, fs.ErrNotExist) {
+				continue // an unbacked loop device
+			}
+		}
+		if dev, why := readAttr(src, devPath, parseDev); why == "" {
+			out[name] = dev
+		}
+	}
+	return out
 }
 
 // isVirtualDisk is a loop or device-mapper device, which ranks after real

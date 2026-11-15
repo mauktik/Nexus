@@ -1,7 +1,6 @@
 package host
 
 import (
-	"encoding/json"
 	"fmt"
 	"math"
 	"testing"
@@ -112,54 +111,15 @@ func relClose(got, want float64) bool {
 	return math.Abs(g-w)/math.Abs(w) <= 1e-6
 }
 
-// checkHistoryExplicit is the history-level form of D-5 until the shared
-// assertExplicit (WI 4.x explicit_test.go) exists: it walks the JSON of p
-// and requires that every null field of the properties object is a key of
-// its unavailable map with a non-empty reason, that each key names a null
-// field, and that each series has no null field. series[].values is the one
-// documented place a null may stand without a reason.
+// checkHistoryExplicit runs D-5's shared assertExplicit on a history
+// query's result as host.metrics.get answers it: history.Query leaves the
+// sampler object to the handler, which fills it from the run's snapshot
+// (collectMetrics). The history TCs have no run, so the sampler is the
+// not-running one.
 func checkHistoryExplicit(t *testing.T, p spec.MetricsProperties) {
 	t.Helper()
-	raw, err := json.Marshal(p)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &obj); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	var un map[string]string
-	if u, ok := obj["unavailable"]; ok {
-		if err := json.Unmarshal(u, &un); err != nil {
-			t.Fatalf("unavailable: %v", err)
-		}
-	}
-	for k, v := range obj {
-		if string(v) == "null" {
-			if un[k] == "" {
-				t.Errorf("%s is null with no reason in unavailable %v", k, un)
-			}
-		}
-	}
-	for k := range un {
-		if string(obj[k]) != "null" {
-			t.Errorf("unavailable names %s, which is %s, not null", k, obj[k])
-		}
-	}
-	var series []map[string]json.RawMessage
-	if err := json.Unmarshal(obj["series"], &series); err != nil {
-		t.Fatalf("series: %v (%s)", err, obj["series"])
-	}
-	for i, s := range series {
-		for k, v := range s {
-			if string(v) == "null" {
-				t.Errorf("series[%d].%s is null", i, k)
-			}
-		}
-		if string(s["values"]) == "" || s["values"][0] != '[' {
-			t.Errorf("series[%d].values is %s, not a list", i, s["values"])
-		}
-	}
+	p.Sampler = (*samplerRun)(nil).snapshot().sampler(p.From)
+	assertExplicit(t, p)
 }
 
 // The storage shape over the whole configuration range: k is 1 or 2 and the

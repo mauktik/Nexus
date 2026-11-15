@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -318,7 +319,7 @@ func TestHistSampleOf(t *testing.T) {
 		src := newSource(s.ffs, time.Second, nil)
 		cur = readSample(src, s.clk.Now, s.clk.Now(), false)
 	}()
-	hs := histSampleOf(cur, snap)
+	hs := histSampleOf(cur, snap, wholeDisks(s.p.src))
 	mem := cur.mem
 	if hs.MemUsed == nil || *hs.MemUsed != float64(mem["MemTotal"]-mem["MemAvailable"]) {
 		t.Errorf("MemUsed = %v, want MemTotal − MemAvailable", hs.MemUsed)
@@ -337,7 +338,61 @@ func TestHistSampleOf(t *testing.T) {
 			t.Errorf("disk %s Device = %v, want %v", d.Name, d.Device, want)
 		}
 	}
-	if len(hs.Interfaces) != len(snap.ifaces) || len(hs.Disks) != len(snap.disks) {
-		t.Errorf("history entities %d/%d, want %d/%d", len(hs.Interfaces), len(hs.Disks), len(snap.ifaces), len(snap.disks))
+	// Disk entities are the whole block devices the disks op lists, never a
+	// partition or an unbacked loop (orchestrator ruling after WI 4.2).
+	var disks []string
+	for _, d := range hs.Disks {
+		disks = append(disks, d.Name)
+	}
+	slices.Sort(disks)
+	if want := []string{"vda", "vdb", "vdc"}; len(hs.Interfaces) != len(snap.ifaces) || !slices.Equal(disks, want) {
+		t.Errorf("history entities %d interfaces, disks %v; want %d interfaces, disks %v", len(hs.Interfaces), disks,
+			len(snap.ifaces), want)
+	}
+}
+
+// A partition never takes a history disk slot, even with slots free, and a
+// diskstats line joins a whole device only on its name and its maj:min
+// (orchestrator ruling after WI 4.2). The held disks are exactly the disks
+// op's list.
+func TestHistoryDiskSlotsAreWholeDevicesOnly(t *testing.T) {
+	s := newHostStack(t, capUBU)
+	// vdc's sys/block dev says 253:99, so its diskstats line (253:32) is a
+	// different device that happens to carry the name.
+	s.ffs.replace("sys/block/vdc/dev", []byte("253:99\n"))
+	_, snap := s.ready()
+	for _, part := range []string{"vda1", "vda15", "vda16", "vdb1", "vdc"} {
+		if _, ok := snap.disks[part]; !ok {
+			t.Fatalf("the snapshot lacks %s; the fixture no longer has the partition lines", part)
+		}
+	}
+	h := s.p.run.Load().history()
+	held := heldNames(h, entDisk)
+	if want := []string{"vda", "vdb"}; !slices.Equal(held, want) {
+		t.Errorf("held disk slots %v, want %v (no partition, unbacked loop or maj:min mismatch)", held, want)
+	}
+	var listed []string
+	for _, d := range s.diskList() {
+		if d.Name != "vdc" {
+			listed = append(listed, d.Name)
+		}
+	}
+	if !slices.Equal(held, listed) {
+		t.Errorf("held disk slots %v, the disks op lists %v", held, listed)
+	}
+	p := h.Query(s.clk.Now(), 3600, 0, []string{spec.MetricDisk})
+	if p.EntitiesTruncated.Disks != 0 {
+		t.Errorf("entitiesTruncated.disks %d, want 0", p.EntitiesTruncated.Disks)
+	}
+}
+
+// An unreadable sys/block gives no history disk entities: none of the
+// diskstats lines can be told from a partition.
+func TestHistoryDisksWithoutSysBlock(t *testing.T) {
+	s := newHostStack(t, capUBU)
+	s.ffs.deny("sys/block")
+	s.ready()
+	if held := heldNames(s.p.run.Load().history(), entDisk); len(held) != 0 {
+		t.Errorf("held disk slots %v with sys/block denied, want none", held)
 	}
 }
