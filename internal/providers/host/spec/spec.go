@@ -489,7 +489,7 @@ type FailedServices struct {
 type Process struct {
 	PID         int         `json:"pid"`
 	Command     string      `json:"command" jsonschema:"The command name (comm), at most 15 characters."`
-	UID         int         `json:"uid"`
+	UID         *int        `json:"uid"`
 	User        *string     `json:"user"`
 	CPUPercent  *float64    `json:"cpuPercent" jsonschema:"Over the last sampler interval; 100 is one CPU."`
 	RSSBytes    *uint64     `json:"rssBytes"`
