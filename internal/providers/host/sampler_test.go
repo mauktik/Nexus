@@ -130,11 +130,16 @@ func (s *samplerStack) waitSeq(n uint64) *snapshot {
 	return snap
 }
 
-// fire advances F-CLK by d and delivers one tick of b at the new time.
+// fire advances F-CLK by d and delivers one tick of b at the new time. It
+// returns once the sampler has finished the tick and is idle again: the
+// snapshot is published before the history append, so a test that waited
+// for the snapshot (waitSeq) alone could read the history before the
+// tick's point is in it.
 func (s *samplerStack) fire(b *background, d time.Duration) {
 	s.t.Helper()
 	s.clk.Advance(d)
 	b.tk.Fire(s.clk.Now())
+	b.tk.waitIdle()
 }
 
 // ready starts the sampler and drives it to a ready snapshot over the

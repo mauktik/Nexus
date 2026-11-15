@@ -227,9 +227,30 @@ type fakeTicker struct {
 	mu      sync.Mutex
 	events  []string // "reset <d>" and "stop", in order
 	stopped bool
+	cCalls  int // C() calls: the sampler's loop calls it on every pass, once before each tick and once more after it
+	fired   int // ticks Fire has delivered
 }
 
-func (tk *fakeTicker) C() <-chan time.Time { return tk.c }
+func (tk *fakeTicker) C() <-chan time.Time {
+	tk.mu.Lock()
+	tk.cCalls++
+	tk.mu.Unlock()
+	return tk.c
+}
+
+// waitIdle waits up to 2 s for the receiver to be back in its select after
+// every tick Fire has delivered. RunBackground evaluates C() once as it
+// enters the loop and once per pass, so the receiver is idle when C() has
+// been called fired+1 times: its sample, snapshot and history append for
+// the last tick are all done, and nothing writes until the next Fire.
+func (tk *fakeTicker) waitIdle() {
+	tk.t.Helper()
+	eventually(tk.t, 2*time.Second, func() bool {
+		tk.mu.Lock()
+		defer tk.mu.Unlock()
+		return tk.cCalls >= tk.fired+1
+	}, "receiver idle after the tick")
+}
 
 func (tk *fakeTicker) Reset(d time.Duration) {
 	tk.mu.Lock()
@@ -259,6 +280,9 @@ func (tk *fakeTicker) Fire(now time.Time) {
 	defer timer.Stop()
 	select {
 	case tk.c <- now:
+		tk.mu.Lock()
+		tk.fired++
+		tk.mu.Unlock()
 	case <-timer.C:
 		tk.t.Fatalf("F-TICK: no receiver took the tick within 2s")
 	}
