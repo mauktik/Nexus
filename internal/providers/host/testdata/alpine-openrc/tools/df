@@ -1,0 +1,11 @@
+Filesystem           1-blocks       Used Available Use% Mounted on
+overlay              63088406528 32396767232 27453743104  54% /
+tmpfs                 67108864         0  67108864   0% /dev
+shm                   67108864         0  67108864   0% /dev/shm
+tmpfs                4154470400    143360 4154327040   0% /run
+tmpfs                4154470400         0 4154470400   0% /run/lock
+/dev/vdb1            63088406528 32396767232 27453743104  54% /etc/resolv.conf
+/dev/vdb1            63088406528 32396767232 27453743104  54% /etc/hostname
+/dev/vdb1            63088406528 32396767232 27453743104  54% /etc/hosts
+/dev/vdb1            63088406528 32396767232 27453743104  54% /var/lib/containerd
+/dev/vdb1            63088406528 32396767232 27453743104  54% /var/lib/docker

@@ -1,0 +1,15 @@
+48 directory /
+66 directory /proc
+67 directory /dev
+68 directory /dev/pts
+69 directory /sys
+30 directory /sys/fs/cgroup
+63 directory /dev/mqueue
+70 directory /dev/shm
+71 directory /run
+72 directory /run/lock
+64785 regular file /etc/resolv.conf
+64785 regular file /etc/hostname
+64785 regular file /etc/hosts
+64785 directory /var/lib/containerd
+64785 directory /var/lib/docker

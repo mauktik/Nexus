@@ -1,0 +1,69 @@
+{
+   "blockdevices": [
+      {
+         "name": "vda",
+         "size": 21474836480,
+         "rota": true,
+         "rm": false,
+         "model": null,
+         "type": "disk",
+         "mountpoints": [],
+         "children": [
+            {
+               "name": "vda1",
+               "size": 20400029184,
+               "rota": true,
+               "rm": false,
+               "model": null,
+               "type": "part",
+               "mountpoints": []
+            },{
+               "name": "vda15",
+               "size": 103809536,
+               "rota": true,
+               "rm": false,
+               "model": null,
+               "type": "part",
+               "mountpoints": []
+            },{
+               "name": "vda16",
+               "size": 967836160,
+               "rota": true,
+               "rm": false,
+               "model": null,
+               "type": "part",
+               "mountpoints": []
+            }
+         ]
+      },{
+         "name": "vdb",
+         "size": 64424509440,
+         "rota": true,
+         "rm": false,
+         "model": null,
+         "type": "disk",
+         "mountpoints": [],
+         "children": [
+            {
+               "name": "vdb1",
+               "size": 64422412288,
+               "rota": true,
+               "rm": false,
+               "model": null,
+               "type": "part",
+               "mountpoints": [
+                   "/var/lib/docker", "/var/lib/containerd", "/etc/hosts", "/etc/hostname", "/etc/resolv.conf"
+               ]
+            }
+         ]
+      },{
+         "name": "vdc",
+         "size": 55689216,
+         "rota": true,
+         "rm": false,
+         "model": null,
+         "type": "disk",
+         "mountpoints": []
+      }
+   ]
+}

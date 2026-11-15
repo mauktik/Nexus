@@ -1,0 +1,21 @@
+46 directory /
+62 directory /proc
+56 directory /dev
+57 directory /dev/pts
+58 directory /sys
+30 directory /sys/fs/cgroup
+53 directory /dev/mqueue
+59 directory /dev/shm
+60 directory /run
+61 directory /run/lock
+64785 regular file /etc/resolv.conf
+64785 regular file /etc/hostname
+64785 regular file /etc/hosts
+64785 directory /var/lib/containerd
+64785 directory /var/lib/docker
+73 directory /dev/hugepages
+7 directory /sys/kernel/debug
+12 directory /sys/kernel/tracing
+50 directory /tmp
+23 directory /sys/kernel/config
+36 directory /sys/fs/fuse/connections

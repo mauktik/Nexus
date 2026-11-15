@@ -1,0 +1,59 @@
+Name:	dockerd
+Umask:	0022
+State:	S (sleeping)
+Tgid:	107
+Ngid:	0
+Pid:	107
+PPid:	1
+TracerPid:	0
+Uid:	0	0	0	0
+Gid:	0	0	0	0
+FDSize:	128
+Groups:	0 
+NStgid:	107
+NSpid:	107
+NSpgid:	107
+NSsid:	107
+Kthread:	0
+VmPeak:	 2043196 kB
+VmSize:	 1978108 kB
+VmLck:	       0 kB
+VmPin:	       0 kB
+VmHWM:	   93696 kB
+VmRSS:	   93656 kB
+RssAnon:	   40032 kB
+RssFile:	   53624 kB
+RssShmem:	       0 kB
+VmData:	  150760 kB
+VmStk:	     132 kB
+VmExe:	   44808 kB
+VmLib:	    5424 kB
+VmPTE:	     372 kB
+VmSwap:	       0 kB
+HugetlbPages:	       0 kB
+CoreDumping:	0
+THP_enabled:	1
+untag_mask:	0xffffffffffffff
+Threads:	10
+SigQ:	1/31520
+SigPnd:	0000000000000000
+ShdPnd:	0000000000000000
+SigBlk:	0000000000000000
+SigIgn:	0000000000001000
+SigCgt:	fffffffd7fc1eeff
+CapInh:	0000000000000000
+CapPrm:	000001ffffffffff
+CapEff:	000001ffffffffff
+CapBnd:	000001ffffffffff
+CapAmb:	0000000000000000
+NoNewPrivs:	0
+Seccomp:	0
+Seccomp_filters:	0
+Speculation_Store_Bypass:	vulnerable
+SpeculationIndirectBranch:	unknown
+Cpus_allowed:	f
+Cpus_allowed_list:	0-3
+Mems_allowed:	00000000,00000001
+Mems_allowed_list:	0
+voluntary_ctxt_switches:	442
+nonvoluntary_ctxt_switches:	165

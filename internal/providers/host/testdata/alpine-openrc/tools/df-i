@@ -1,0 +1,11 @@
+Filesystem              Inodes      Used Available Use% Mounted on
+overlay                3932160    505323   3426837  13% /
+tmpfs                  1014275       213   1014062   0% /dev
+shm                    1014275         1   1014274   0% /dev/shm
+tmpfs                  1014275        73   1014202   0% /run
+tmpfs                  1014275         1   1014274   0% /run/lock
+/dev/vdb1              3932160    505323   3426837  13% /etc/resolv.conf
+/dev/vdb1              3932160    505323   3426837  13% /etc/hostname
+/dev/vdb1              3932160    505323   3426837  13% /etc/hosts
+/dev/vdb1              3932160    505323   3426837  13% /var/lib/containerd
+/dev/vdb1              3932160    505323   3426837  13% /var/lib/docker
