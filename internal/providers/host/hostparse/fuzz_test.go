@@ -1,11 +1,16 @@
 package hostparse
 
 import (
+	"bytes"
 	"math"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 )
 
 // One fuzz target per parser (NFR-4, TC-HP-39). Each target is named
@@ -17,9 +22,13 @@ import (
 // Fuzz<Parser> function below. TestTCHP39_EveryParserHasAFuzzTargetSeeded
 // finds every exported parser taking []byte and fails without one.
 
+// fuzzSeedDirs are the capture directories fuzzSeedGlobs patterns are
+// relative to: the two samples and tools/ (command outputs).
+var fuzzSeedDirs = []string{"fs", "t1", "tools"}
+
 // fuzzSeedGlobs maps a fuzz target to the capture files that seed it: glob
-// patterns relative to each capture's fs/ and t1/ directories. Every match in
-// both captures is added.
+// patterns relative to each of fuzzSeedDirs in each capture. Every regular
+// file matched in either capture is added.
 var fuzzSeedGlobs = map[string][]string{
 	"FuzzProcStat":     {"proc/stat"},
 	"FuzzMeminfo":      {"proc/meminfo"},
@@ -35,7 +44,33 @@ var fuzzSeedGlobs = map[string][]string{
 	"FuzzMountinfo":    {"proc/[0-9]*/mountinfo", "proc/self/mountinfo"},
 	"FuzzPidStat":      {"proc/[0-9]*/stat"},
 	"FuzzPidStatusUID": {"proc/[0-9]*/status"},
+
+	// WI 2.4. The captures have no hwmon, thermal or cpufreq file, so
+	// FuzzMillidegrees also takes the integer topology files.
+	"FuzzScalarInt": {"sys/class/net/*/mtu", "sys/class/net/*/ifindex", "sys/class/net/*/type",
+		"sys/class/net/*/speed", "sys/devices/system/cpu/cpu*/topology/*", "sys/block/*/dev"},
+	"FuzzScalarString": {"sys/class/dmi/id/*", "sys/class/net/*/operstate", "run/systemd/container",
+		"proc/sys/kernel/osrelease"},
+	"FuzzMillidegrees": {"sys/class/hwmon/*/temp*_input", "sys/class/thermal/thermal_zone*/temp",
+		"sys/devices/system/cpu/cpu*/topology/core_id"},
+	"FuzzOperstate":                  {"sys/class/net/*/operstate"},
+	"FuzzLinkSpeed":                  {"sys/class/net/*/speed"},
+	"FuzzBlockSize":                  {"sys/block/*/size", "sys/block/*/*/size"},
+	"FuzzRotational":                 {"sys/block/*/queue/rotational"},
+	"FuzzRemovable":                  {"sys/block/*/removable"},
+	"FuzzResolvConf":                 {"etc/resolv.conf", "run/systemd/resolve/resolv.conf"},
+	"FuzzResolvedInUse":              {"etc/resolv.conf", "run/systemd/resolve/resolv.conf"},
+	"FuzzPasswd":                     {"etc/passwd"},
+	"FuzzTimezone":                   {"etc/localtime", "etc/timezone", "readlink-localtime"},
+	"FuzzTimedatectlNTPSynchronized": {"timedatectl", "systemd-detect-virt"},
+	"FuzzChronyTracking":             {"timedatectl", "systemd-detect-virt", "nproc"},
 }
+
+// wi24FuzzTargets are the WI 2.4 targets, whose seeds TC-HP-E10 runs
+// through every WI 2.4 parser.
+var wi24FuzzTargets = []string{"FuzzScalarInt", "FuzzScalarString", "FuzzMillidegrees", "FuzzOperstate",
+	"FuzzLinkSpeed", "FuzzBlockSize", "FuzzRotational", "FuzzRemovable", "FuzzResolvConf",
+	"FuzzResolvedInUse", "FuzzPasswd", "FuzzTimezone", "FuzzTimedatectlNTPSynchronized", "FuzzChronyTracking"}
 
 // fuzzSyntheticSeeds are edge inputs the captures do not hold (both are
 // aarch64 containers on one VM kernel): x86 cpuinfo, an IPv6 default route,
@@ -58,6 +93,39 @@ var fuzzSyntheticSeeds = map[string][]string{
 		"1 (a) (b) S 0 1 1 0 -1 4194560 4678 31755 0 2 6 8 6 13 20 0 1 0 246582732 25800704 3738\n",
 		"1 () S 0 1 1 0 -1 4194560 4678 31755 0 2 6 8 6 13 20 0 1 0 246582732 25800704 3738\n",
 	},
+
+	// WI 2.4: the synthetic tables of TC-HP-40..47 (sysfs_test.go and
+	// hostprov_sysfs_tc_test.go).
+	"FuzzScalarInt":    {"1800000\n", "-1\n", "0x10", "9223372036854775808"},
+	"FuzzScalarString": {"Package id 0\n", "a\xffb\n", "\n"},
+	"FuzzMillidegrees": {"45000\n", "-5250\n", "45.0\n", "99999999999999999999\n"},
+	"FuzzOperstate":    {"up\n", "down", "unknown", "dormant", "notpresent", "lowerlayerdown", "testing", "garbage"},
+	"FuzzLinkSpeed":    {"1000\n", "-1", "0", "-5", "abc"},
+	"FuzzBlockSize":    {"41943040\n", "-1", "36028797018963968", "18446744073709551616"},
+	"FuzzRotational":   {"0\n", "1\n", "2", "true"},
+	"FuzzRemovable":    {"0\n", "1\n", "01", "-1"},
+	"FuzzResolvConf": {
+		"# c\n; nameserver 9.9.9.9\nsearch example.com\noptions edns0\nnameserver not-an-address\nnameserver fe80::1%eth0\n",
+		strings.Repeat("nameserver 10.0.0.1\n", 17),
+	},
+	// etc and run separated by NUL; without NUL there is no run file.
+	"FuzzResolvedInUse": {
+		"nameserver 127.0.0.53\noptions edns0 trust-ad\n\x00nameserver 192.168.5.1\n",
+		"nameserver 127.0.0.54\n\x00",
+		"nameserver 127.0.0.53\nnameserver 1.1.1.1\n\x00nameserver 1.1.1.1\n",
+		"nameserver 127.0.0.53\n",
+	},
+	"FuzzPasswd": {
+		"x\na:b:notanumber:0:g:/h:/s\n+::::::\nroot:x:0:0:root:/root:/bin/sh\r\nbig:x:4294967296:0::/:/bin/sh\n",
+	},
+	"FuzzTimezone":                   {"Europe/Berlin\n", "/usr/share/zoneinfo/../../etc/passwd", "TZif2"},
+	"FuzzTimedatectlNTPSynchronized": {"yes\n", "no\n", "maybe", "NTPSynchronized=yes\n", "yes\nno\n"},
+	"FuzzChronyTracking": {
+		chronyTrackingSynced, chronyTrackingUnsynced,
+		withLeap("Insert second"), withLeap("Delete second"), withLeap("Invalid"),
+		"00000000,,0,0.0,0.0,0.0,0.0,0.000,0.000,0.000,1.0,1.0,0.0\n",
+		"506 Cannot talk to daemon\n",
+	},
 }
 
 // addCaptureSeeds adds every capture file matching f's fuzzSeedGlobs entry,
@@ -70,9 +138,12 @@ func addCaptureSeeds(f *testing.F) {
 	}
 	n := 0
 	for _, c := range captures {
-		for _, dir := range []string{"fs", "t1"} {
+		for _, dir := range fuzzSeedDirs {
 			for _, g := range globs {
 				for _, m := range globCap(f, c, filepath.Join(dir, g)) {
+					if fi, err := os.Stat(m); err != nil || !fi.Mode().IsRegular() {
+						continue
+					}
 					b, err := os.ReadFile(m)
 					if err != nil {
 						f.Fatalf("read seed: %v", err)
@@ -260,6 +331,173 @@ func FuzzPidStatusUID(f *testing.F) {
 	f.Fuzz(func(t *testing.T, b []byte) {
 		if _, err := PidStatusUID(b); err != nil {
 			return
+		}
+	})
+}
+
+func FuzzScalarInt(f *testing.F) {
+	addCaptureSeeds(f)
+	f.Fuzz(func(t *testing.T, b []byte) {
+		if _, err := ScalarInt(b); err != nil {
+			return
+		}
+	})
+}
+
+func FuzzScalarString(f *testing.F) {
+	addCaptureSeeds(f)
+	f.Fuzz(func(t *testing.T, b []byte) {
+		s := ScalarString(b)
+		if !utf8.ValidString(s) || s != strings.TrimSpace(s) {
+			t.Fatalf("ScalarString = %q", s)
+		}
+	})
+}
+
+func FuzzMillidegrees(f *testing.F) {
+	addCaptureSeeds(f)
+	f.Fuzz(func(t *testing.T, b []byte) {
+		c, err := Millidegrees(b)
+		if err == nil && (math.IsNaN(c) || math.IsInf(c, 0)) {
+			t.Fatalf("Millidegrees = %v", c)
+		}
+	})
+}
+
+func FuzzOperstate(f *testing.F) {
+	addCaptureSeeds(f)
+	f.Fuzz(func(t *testing.T, b []byte) {
+		if s := Operstate(b); !slices.Contains([]string{"up", "down", "unknown", "dormant"}, s) {
+			t.Fatalf("Operstate = %q", s)
+		}
+	})
+}
+
+func FuzzLinkSpeed(f *testing.F) {
+	addCaptureSeeds(f)
+	f.Fuzz(func(t *testing.T, b []byte) {
+		if v, ok := LinkSpeed(b); (ok && v <= 0) || (!ok && v != 0) {
+			t.Fatalf("LinkSpeed = %d, %v", v, ok)
+		}
+	})
+}
+
+func FuzzBlockSize(f *testing.F) {
+	addCaptureSeeds(f)
+	f.Fuzz(func(t *testing.T, b []byte) {
+		if v, err := BlockSize(b); err == nil && v%SectorSize != 0 {
+			t.Fatalf("BlockSize = %d is not whole sectors", v)
+		}
+	})
+}
+
+func FuzzRotational(f *testing.F) {
+	addCaptureSeeds(f)
+	f.Fuzz(func(t *testing.T, b []byte) {
+		if v, err := Rotational(b); err != nil && v {
+			t.Fatalf("Rotational: true with error %v", err)
+		}
+	})
+}
+
+func FuzzRemovable(f *testing.F) {
+	addCaptureSeeds(f)
+	f.Fuzz(func(t *testing.T, b []byte) {
+		if v, err := Removable(b); err != nil && v {
+			t.Fatalf("Removable: true with error %v", err)
+		}
+	})
+}
+
+func FuzzResolvConf(f *testing.F) {
+	addCaptureSeeds(f)
+	f.Fuzz(func(t *testing.T, b []byte) {
+		a := ResolvConf(b)
+		if len(a) > MaxNameservers {
+			t.Fatalf("%d nameservers", len(a))
+		}
+		for _, x := range a {
+			if !x.IsValid() {
+				t.Fatalf("invalid address")
+			}
+		}
+	})
+}
+
+// FuzzResolvedInUse splits its input at the first NUL into the etc and run
+// files; without a NUL the run file is absent.
+func FuzzResolvedInUse(f *testing.F) {
+	addCaptureSeeds(f)
+	f.Fuzz(func(t *testing.T, b []byte) {
+		etc, run, found := bytes.Cut(b, []byte{0})
+		if !found {
+			run = nil
+		} else if run == nil {
+			run = []byte{}
+		}
+		if !ResolvedInUse(etc, run) {
+			return
+		}
+		servers := ResolvConf(etc)
+		if run == nil || len(servers) == 0 {
+			t.Fatalf("in use without run file or etc server")
+		}
+		for _, s := range servers {
+			if s.Unmap() != netip.MustParseAddr("127.0.0.53") && s.Unmap() != netip.MustParseAddr("127.0.0.54") {
+				t.Fatalf("in use with etc server %v", s)
+			}
+		}
+	})
+}
+
+func FuzzPasswd(f *testing.F) {
+	addCaptureSeeds(f)
+	f.Fuzz(func(t *testing.T, b []byte) {
+		for uid, name := range Passwd(b) {
+			if name == "" || strings.ContainsAny(name, ":\n") || !utf8.ValidString(name) {
+				t.Fatalf("uid %d: name %q", uid, name)
+			}
+		}
+	})
+}
+
+// FuzzTimezone uses its input as /etc/localtime, /etc/timezone and the link
+// target at once.
+func FuzzTimezone(f *testing.F) {
+	addCaptureSeeds(f)
+	if b, err := os.ReadFile(filepath.Join("..", "testdata", "tz", "America_New_York")); err == nil {
+		f.Add(b)
+	}
+	now := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	f.Fuzz(func(t *testing.T, b []byte) {
+		tz, err := Timezone(b, b, string(b), now)
+		if tz.Name != "" && !validZoneName(tz.Name) && tz.NameSource != TZSourceDefault {
+			t.Fatalf("name %q", tz.Name)
+		}
+		if err == nil && tz.Source == "" {
+			t.Fatalf("no error but no source")
+		}
+	})
+}
+
+func FuzzTimedatectlNTPSynchronized(f *testing.F) {
+	addCaptureSeeds(f)
+	f.Fuzz(func(t *testing.T, b []byte) {
+		v, err := TimedatectlNTPSynchronized(b)
+		if err == nil && v != (strings.TrimSpace(string(b)) == "yes") {
+			t.Fatalf("%q = %v", b, v)
+		}
+		if err != nil && v {
+			t.Fatalf("true with error %v", err)
+		}
+	})
+}
+
+func FuzzChronyTracking(f *testing.F) {
+	addCaptureSeeds(f)
+	f.Fuzz(func(t *testing.T, b []byte) {
+		if v, err := ChronyTracking(b); err != nil && v {
+			t.Fatalf("true with error %v", err)
 		}
 	})
 }

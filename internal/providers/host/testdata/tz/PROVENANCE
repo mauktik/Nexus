@@ -1,0 +1,6 @@
+file: America_New_York
+source: /usr/share/zoneinfo/America/New_York in image nexus-harness:ubuntu-latest (sha256:24f93bbb5d6f8b26edb91d7e626211cd932106625a751ab1c5c1ad558d9b26b6, the ubuntu-systemd capture's image), tzdata 2026e-0ubuntu0.26.04.1
+command: docker run --rm --entrypoint cat nexus-harness:ubuntu-latest /usr/share/zoneinfo/America/New_York
+sha256: e9ed07d7bee0c76a9d442d091ef1f01668fee7c4f26014c0a868b19fe6c18a95
+date: 2026-11-15
+use: TC-HP-45 (hostparse Timezone offsets); copied unmodified, a TZif tzfile (tzfile(5))
