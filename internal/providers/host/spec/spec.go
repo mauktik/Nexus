@@ -195,12 +195,12 @@ type MetricsInput struct {
 	Metric        []string `json:"metric,omitempty" jsonschema:"Metrics to return, each at most once: cpu, load, memory, swap, network (per interface) or disk (per disk). Default cpu, load, memory and swap."`
 }
 
-// OSRelease is the operating system from /etc/os-release, as
+// OSRelease is the operating system from the OS release file read by internal/platform, as
 // internal/platform reads it for system.capabilities.get.
 type OSRelease struct {
-	ID          *string     `json:"id" jsonschema:"The os-release ID, e.g. ubuntu or alpine."`
-	VersionID   *string     `json:"versionId" jsonschema:"The os-release VERSION_ID."`
-	PrettyName  *string     `json:"prettyName" jsonschema:"The os-release PRETTY_NAME."`
+	ID          *string     `json:"id" jsonschema:"The OS release ID, e.g. ubuntu or alpine."`
+	VersionID   *string     `json:"versionId" jsonschema:"The OS release VERSION_ID."`
+	PrettyName  *string     `json:"prettyName" jsonschema:"The OS release PRETTY_NAME."`
 	Unavailable Unavailable `json:"unavailable,omitempty" jsonschema:"Fields of this object that could not be read, each with the reason; such a field is null, or [] for a list."`
 }
 
