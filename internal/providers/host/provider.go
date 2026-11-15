@@ -231,6 +231,18 @@ func (p *Provider) Preflight(context.Context) provider.Status {
 	}}
 }
 
-// Bindings binds the operations. They come with WI 5.1; until then the
-// provider serves none.
-func (p *Provider) Bindings() []provider.Binding { return nil }
+// Bindings binds the ten operations, all sync, in the spec's order.
+func (p *Provider) Bindings() []provider.Binding {
+	return []provider.Binding{
+		provider.Sync(spec.SummaryGet, p.summary),
+		provider.Sync(spec.IdentityGet, p.identity),
+		provider.Sync(spec.CPUGet, p.cpu),
+		provider.Sync(spec.MemoryGet, p.memory),
+		provider.Sync(spec.FilesystemsList, p.filesystems),
+		provider.Sync(spec.DisksList, p.disks),
+		provider.Sync(spec.InterfacesList, p.interfaces),
+		provider.Sync(spec.NetConfigGet, p.netconfig),
+		provider.Sync(spec.HealthGet, p.health),
+		provider.Sync(spec.MetricsGet, p.metrics),
+	}
+}

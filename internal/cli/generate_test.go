@@ -72,6 +72,11 @@ var fr29Examples = []struct{ line, op string }{
 	{"nexus capability get", "system.capabilities.get"},
 }
 
+// singularS are nouns whose final s is no plural: hostfs is the host
+// provider's filesystems noun, fs for filesystem (system-provider FR-14,
+// A-2).
+var singularS = []string{"hostfs"}
+
 // TC-158: every op command is <noun> <verb>, singular noun, approved verb;
 // FR-29's examples resolve; get with a name selects Get, without one List.
 func TestGeneratedTreeObeysGrammar(t *testing.T) {
@@ -84,7 +89,8 @@ func TestGeneratedTreeObeysGrammar(t *testing.T) {
 		case depth == 1 && c.Name() == "help":
 		case depth == 1:
 			noun := c.Name()
-			if noun == "" || strings.HasSuffix(noun, "s") || strings.ToLower(noun) != noun || strings.ContainsAny(noun, "-_ ") {
+			plural := strings.HasSuffix(noun, "s") && !slices.Contains(singularS, noun)
+			if noun == "" || plural || strings.ToLower(noun) != noun || strings.ContainsAny(noun, "-_ ") {
 				t.Errorf("noun %q is not a singular lower-case word", noun)
 			}
 			if !c.HasSubCommands() {

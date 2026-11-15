@@ -61,8 +61,15 @@ func TestNewDefaultsBeforeConfigure(t *testing.T) {
 	if got := p.Spec(); got.Name != spec.Name || got.ReadScope != spec.ReadScope || len(got.Ops) != 10 {
 		t.Errorf("Spec = %s %s with %d ops, want the spec package's", got.Name, got.ReadScope, len(got.Ops))
 	}
-	if b := p.Bindings(); b != nil {
-		t.Errorf("Bindings = %d bindings, want nil until WI 5.1", len(b))
+	// WI 5.1: one sync binding per op, in the spec's order.
+	b := p.Bindings()
+	if len(b) != len(spec.Spec().Ops) {
+		t.Fatalf("Bindings = %d bindings, want one per op (%d)", len(b), len(spec.Spec().Ops))
+	}
+	for i, op := range spec.Spec().Ops {
+		if b[i].Op().ID != op.ID || b[i].Kind() != provider.BindSync {
+			t.Errorf("binding %d = %s %s, want %s sync", i, b[i].Op().ID, b[i].Kind(), op.ID)
+		}
 	}
 }
 

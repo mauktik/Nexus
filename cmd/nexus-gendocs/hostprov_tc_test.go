@@ -1,20 +1,70 @@
-// Stub-style: SKIP-only (system-provider)
-//
-// Stubs of planning/system-provider/test-cases.md TC-HP-111.
-// Owner WIs: 5.1. Each stub compiles today and skips; the
-// developer of the owning work item replaces the skip and the comment with
-// the test. An un-skipped passing test is the GREEN signal
-// (planning/system-provider/test-strategy.md, RED Stub Style).
+// Tests for planning/system-provider/test-cases.md TC-HP-111 (WI 5.1): the
+// generated reference pages of the host provider are checked in and
+// current.
 
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	host "github.com/mauktik/nexus/internal/providers/host/spec"
+)
 
 // TC-HP-111: Generated CLI and API docs are current. Owner WI 5.1. Requirements: NFR-7, FR-14.
 //
-// - Setup: the checked-in `docs/`.
-// - Steps: run `TestGeneratedDocsAreCurrent`; list `docs/cli/nexus_host*.md`; read `docs/api.md`.
-// - Expected: docs are current; there are 20 files (`nexus_<noun>.md` and `nexus_<noun>_get.md` for ten nouns); `docs/api.md` has the ten operation IDs; `docs/cli/nexus.md` links each noun.
+// TestGeneratedDocsAreCurrent checks every generated file is current; this
+// checks the host pages are among them.
 func TestTCHP111_GeneratedCLIAndAPIDocsAreCurrent(t *testing.T) {
-	t.Skip("TC-HP-111: SKIP-only stub; un-skip when WI 5.1 lands")
+	docs := repoDocs(t)
+	if problems := check(docs, mustGenerate(t, nil)); len(problems) > 0 {
+		t.Fatalf("generated documentation is stale; run `make docs`:\n  %s", strings.Join(problems, "\n  "))
+	}
+
+	// Two pages per noun: nexus_<noun>.md and nexus_<noun>_get.md. The glob
+	// also matches the configured-hosts command's pages (nexus_host.md and
+	// nexus_host_<verb>.md), which are not the provider's.
+	var want []string
+	nouns := map[string]bool{}
+	for _, op := range host.Spec().Ops {
+		nouns[op.CLI.Noun] = true
+		want = append(want, "nexus_"+op.CLI.Noun+".md", "nexus_"+op.CLI.Noun+"_"+op.CLI.Verb+".md")
+	}
+	paths, err := filepath.Glob(filepath.Join(docs, "cli", "nexus_host*.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, p := range paths {
+		if name := filepath.Base(p); name != "nexus_host.md" && !strings.HasPrefix(name, "nexus_host_") {
+			got = append(got, name)
+		}
+	}
+	slices.Sort(got)
+	slices.Sort(want)
+	if len(nouns) != 10 || len(got) != 20 || !slices.Equal(got, want) {
+		t.Errorf("docs/cli/nexus_host*.md = %v (%d), want the 20 pages %v", got, len(got), want)
+	}
+
+	api, err := os.ReadFile(filepath.Join(docs, "api.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	index, err := os.ReadFile(filepath.Join(docs, "cli", "nexus.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, op := range host.Spec().Ops {
+		if !strings.Contains(string(api), "Operation ID: `"+op.ID+"`") {
+			t.Errorf("docs/api.md lacks operation %s", op.ID)
+		}
+	}
+	for noun := range nouns {
+		if link := "(nexus_" + noun + ".md)"; !strings.Contains(string(index), link) {
+			t.Errorf("docs/cli/nexus.md does not link %s", link)
+		}
+	}
 }
