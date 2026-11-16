@@ -289,7 +289,7 @@ func (b bearer) RoundTrip(r *http.Request) (*http.Response, error) {
 //
 // The test case's "insufficient-scope" is the registered forbidden problem
 // with requiredScope, the only problem a missing scope produces.
-func TestTCHPERR29_HostOperationsRefuseTokensWithoutSystemRead(t *testing.T) {
+func TestTCHPERR29_HostOperationsRefuseTokensWithoutHostRead(t *testing.T) {
 	listen := freeListen(t)
 	c := startComposed(t, listen, hostOnlyConfig(listen))
 	other := c.token(t, "containers", "containers:read")
