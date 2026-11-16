@@ -454,9 +454,9 @@ func captureVirtFacts(t *testing.T, c string) VirtFacts {
 // - Expected:
 //   - `/.dockerenv` → docker/container; `/run/.containerenv` → podman/container; `run/systemd/container` = `lxc` → lxc/container; `fuse.lxcfs` on `/proc/meminfo` → lxc; `/proc/vz` without `/proc/bc` → openvz; osrelease containing `microsoft` → wsl;
 //   - a container marker plus DMI `QEMU` → the container (containers first);
-//   - `sys/hypervisor/type` `xen` → xen/vm; each DMI table row → its type/vm (`innotek GmbH` → oracle; `Microsoft Corporation` + `Virtual Machine` → microsoft);
+//   - `sys/hypervisor/type` `xen` → xen/vm; each DMI table row → its type/vm (`innotek GmbH` and `VirtualBox` → oracle; `Google Compute Engine` → google; `Apple Virtualization` → apple; `Microsoft Corporation` + `Virtual Machine` → microsoft); a bare-metal `Oracle Corporation` server, a `Google` Chromebook and an Apple Mac → none;
 //   - hypervisor flag with no table match → unknown/vm; nothing → none/none;
-//   - each capture equals its `tools/systemd-detect-virt` output; `evidence` names the marker used.
+//   - each capture equals its `tools/systemd-detect-virt` output, and its VM facts alone (no container marker) are apple/vm (colima's VM); `evidence` names the marker used.
 func TestTCHP46_VirtualizationClassification(t *testing.T) {
 	lxcfs := []Mount{
 		{MountPoint: "/", FSType: "ext4"},
@@ -485,13 +485,17 @@ func TestTCHP46_VirtualizationClassification(t *testing.T) {
 		{"KVM product over QEMU vendor", VirtFacts{SysVendor: "QEMU", ProductName: "KVM"}, "kvm", "vm", "/sys/class/dmi/id/product_name: KVM"},
 		{"OpenStack", VirtFacts{SysVendor: "OpenStack Foundation", ProductName: "OpenStack Compute"}, "kvm", "vm", "/sys/class/dmi/id/product_name: OpenStack Compute"},
 		{"VMware", VirtFacts{SysVendor: "VMware, Inc.", ProductName: "VMware20,1"}, "vmware", "vm", "/sys/class/dmi/id/product_name: VMware20,1"},
-		{"innotek", VirtFacts{SysVendor: "innotek GmbH", ProductName: "VirtualBox"}, "oracle", "vm", "/sys/class/dmi/id/sys_vendor: innotek GmbH"},
-		{"Oracle", VirtFacts{SysVendor: "Oracle Corporation"}, "oracle", "vm", "/sys/class/dmi/id/sys_vendor: Oracle Corporation"},
+		{"innotek", VirtFacts{SysVendor: "innotek GmbH"}, "oracle", "vm", "/sys/class/dmi/id/sys_vendor: innotek GmbH"},
+		{"VirtualBox product", VirtFacts{SysVendor: "Oracle Corporation", ProductName: "VirtualBox"}, "oracle", "vm", "/sys/class/dmi/id/product_name: VirtualBox"},
+		{"Oracle bare metal", VirtFacts{SysVendor: "Oracle Corporation", ProductName: "ORACLE SERVER X9-2"}, "none", "none", "no virtualization marker"},
 		{"Hyper-V", VirtFacts{SysVendor: "Microsoft Corporation", ProductName: "Virtual Machine"}, "microsoft", "vm", "/sys/class/dmi/id/sys_vendor: Microsoft Corporation, product_name: Virtual Machine"},
 		{"Surface is no VM", VirtFacts{SysVendor: "Microsoft Corporation", ProductName: "Surface Pro 9"}, "none", "none", "no virtualization marker"},
 		{"Xen DMI", VirtFacts{SysVendor: "Xen", ProductName: "HVM domU"}, "xen", "vm", "/sys/class/dmi/id/sys_vendor: Xen"},
 		{"Amazon EC2", VirtFacts{SysVendor: "Amazon EC2", ProductName: "t3.micro"}, "amazon", "vm", "/sys/class/dmi/id/sys_vendor: Amazon EC2"},
-		{"Google", VirtFacts{SysVendor: "Google", ProductName: "Google Compute Engine"}, "google", "vm", "/sys/class/dmi/id/product_name: Google Compute Engine"},
+		{"Google Compute Engine", VirtFacts{SysVendor: "Google", ProductName: "Google Compute Engine"}, "google", "vm", "/sys/class/dmi/id/product_name: Google Compute Engine"},
+		{"Chromebook", VirtFacts{SysVendor: "Google", ProductName: "Eve"}, "none", "none", "no virtualization marker"},
+		{"Apple Virtualization", VirtFacts{SysVendor: "Apple Inc.", ProductName: "Apple Virtualization Generic Platform"}, "apple", "vm", "/sys/class/dmi/id/product_name: Apple Virtualization Generic Platform"},
+		{"Apple Mac is no VM", VirtFacts{SysVendor: "Apple Inc.", ProductName: "MacBookPro18,3"}, "none", "none", "no virtualization marker"},
 		{"Parallels", VirtFacts{SysVendor: "Parallels Software International Inc.", ProductName: "Parallels Virtual Platform"}, "parallels", "vm", "/sys/class/dmi/id/product_name: Parallels Virtual Platform"},
 		{"BHYVE", VirtFacts{SysVendor: "FreeBSD", ProductName: "BHYVE"}, "bhyve", "vm", "/sys/class/dmi/id/product_name: BHYVE"},
 		{"hypervisor flag, no table match", VirtFacts{SysVendor: "Some Vendor", ProductName: "Some Board", HypervisorFlag: true}, "unknown", "vm", "cpuinfo hypervisor flag"},
@@ -521,9 +525,20 @@ func TestTCHP46_VirtualizationClassification(t *testing.T) {
 		} else {
 			t.Fatal(err)
 		}
-		got := Classify(captureVirtFacts(t, c))
+		facts := captureVirtFacts(t, c)
+		got := Classify(facts)
 		if got.Type != want || got.Kind != VirtKindContainer || got.Evidence != "/.dockerenv" {
 			t.Errorf("%s: Classify = %+v, want type %q (container, /.dockerenv)", c, got, want)
+		}
+		// Both captures ran in docker on colima's Apple Virtualization VM;
+		// without the container markers the VM's DMI is what remains, and
+		// systemd-detect-virt --vm calls that apple (src/basic/virt.c).
+		facts = VirtFacts{HypervisorType: facts.HypervisorType, SysVendor: facts.SysVendor,
+			ProductName: facts.ProductName, HypervisorFlag: facts.HypervisorFlag}
+		vmWant := Virtualization{Type: "apple", Kind: VirtKindVM,
+			Evidence: "/sys/class/dmi/id/product_name: Apple Virtualization Generic Platform"}
+		if got := Classify(facts); got != vmWant {
+			t.Errorf("%s VM facts only: Classify = %+v, want %+v", c, got, vmWant)
 		}
 	}
 }

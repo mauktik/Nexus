@@ -41,21 +41,29 @@ type Virtualization struct {
 var containerNames = []string{"lxc", "lxc-libvirt", "systemd-nspawn", "docker", "podman", "rkt", "wsl", "proot", "pouch"}
 
 // dmiTable maps a DMI value prefix to its type, as systemd's
-// dmi_vendor_table does (src/basic/virt.c), restricted to the rows A-33
-// lists. Microsoft is handled apart, since a Surface laptop has the same
-// sys_vendor as a Hyper-V guest.
+// dmi_vendor_table does (src/basic/virt.c, systemd commit 7386493f), restricted
+// to the rows A-33 lists. The Google and Oracle rows are systemd's exact
+// strings ("Google Compute Engine"; "innotek GmbH", "VirtualBox"), not a
+// bare vendor prefix, so a Chromebook (sys_vendor Google) is not a VM.
+// systemd's "Oracle Corporation" row, meant for VirtualBox's board_vendor,
+// is left out: board_vendor is not read here, a VirtualBox guest already
+// matches on product_name VirtualBox, and the row would call an Oracle
+// bare-metal server (sys_vendor Oracle Corporation) a VM. Microsoft is
+// handled apart, since a Surface laptop has the same sys_vendor as a
+// Hyper-V guest.
 var dmiTable = []struct{ prefix, typ string }{
 	{"KVM", "kvm"},
 	{"OpenStack", "kvm"},
 	{"QEMU", "qemu"},
 	{"VMware", "vmware"},
 	{"innotek GmbH", "oracle"},
-	{"Oracle", "oracle"},
+	{"VirtualBox", "oracle"},
 	{"Xen", "xen"},
 	{"Amazon EC2", "amazon"},
-	{"Google", "google"},
+	{"Google Compute Engine", "google"},
 	{"Parallels", "parallels"},
 	{"BHYVE", "bhyve"},
+	{"Apple Virtualization", "apple"},
 }
 
 // Classify turns markers into a virtualization answer. Containers are
