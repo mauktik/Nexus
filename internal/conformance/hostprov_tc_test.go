@@ -35,8 +35,8 @@ func TestTCHP105_TheConformanceSuiteCoversTheHostProvider(t *testing.T) {
 		t.Fatalf("the stack serves %d host ops, want the spec's 10", len(served))
 	}
 
-	// Scope: a token without system:read is refused naming it, and one
-	// holding exactly system:read is answered 200.
+	// Scope: a token without host:read is refused naming it, and one
+	// holding exactly host:read is answered 200.
 	reader := s.exact[host.ReadScope]
 	if reader == "" {
 		t.Fatalf("no token holds exactly %s", host.ReadScope)

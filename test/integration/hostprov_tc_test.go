@@ -91,7 +91,7 @@ func hostConfig(enabled bool, extra string) string {
 // hostSetupSystemd installs nexusd with install.sh on a wiped host, writes
 // the config with extra providers, starts the exact unit (requireExactUnit:
 // the installed unit is byte-equal to deploy/nexusd.service, no drop-in)
-// and waits until the sampler is ready. The token holds system:read and
+// and waits until the sampler is ready. The token holds host:read and
 // scopes.
 func hostSetupSystemd(t *testing.T, extra string, scopes ...string) *hostDaemon {
 	t.Helper()
@@ -113,7 +113,7 @@ func hostSetupSystemd(t *testing.T, extra string, scopes ...string) *hostDaemon 
 }
 
 // hostSetupOpenRC is hostSetupSystemd on OpenRC: install.sh, the config,
-// lib.sh start-nexusd (the shipped script), a system:read token minted by
+// lib.sh start-nexusd (the shipped script), a host:read token minted by
 // nexusd itself, and the sampler ready.
 func hostSetupOpenRC(t *testing.T) *hostDaemon {
 	t.Helper()
@@ -871,7 +871,7 @@ func hostWaitTop(t *testing.T, d *hostDaemon, pid int) hostspec.Process {
 
 // TC-HP-114: Every op under the exact hardened unit agrees with the host's own tools (systemd). Owner WI 5.3. Requirements: NFR-5, NFR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, CON-1, CON-5.
 //
-// - Setup: `requireInit(t, platform.Systemd)`; `freshHost`; `runInstall`; `writeConfig` with `providers.host: {enabled: true, sampleInterval: 2s}`; `startExact`; `exactNexusd(t, "system:read")`; wait until `host.summary.get`'s `sampler.state` is `ready` (`waitUntil`, 10 s).
+// - Setup: `requireInit(t, platform.Systemd)`; `freshHost`; `runInstall`; `writeConfig` with `providers.host: {enabled: true, sampleInterval: 2s}`; `startExact`; `exactNexusd(t, "host:read")`; wait until `host.summary.get`'s `sampler.state` is `ready` (`waitUntil`, 10 s).
 // - Steps: call all ten ops over REST (lists with `limit=1000`); run `hostname`, `cat /etc/os-release`, `uname -r`, `uname -m`, `nproc`, `free -b`, `df -B1 --output=target,size,used,avail,pcent`, `lsblk -b -J -o NAME,SIZE,ROTA,RM,TYPE`, `ip -j addr`, `ip -j route`, `ip -j -6 route` immediately before and after.
 // - Expected: hostname, os ID/VERSION_ID/PRETTY_NAME, kernel, arch, logicalCpus exact; `availableBytes` within ±1% of free's available and `totalBytes` exact; each listed filesystem's size equals df exactly and used within one block (or the before/after df bracket); each lsblk disk's size/rota/rm equal; each interface's addresses with prefixes equal `ip -j addr`; default gateways equal `ip -j route`; every op answered 200.
 func TestTCHP114_EveryOpUnderTheExactHardenedUnit(t *testing.T) {
@@ -1388,7 +1388,7 @@ func TestTCHP121_DisableByReloadStopsTheProviderRe(t *testing.T) {
 
 // TC-HP-122: Every op under OpenRC agrees with BusyBox and the host's files. Owner WI 5.3. Requirements: NFR-5, NFR-3, CON-5, FR-4, FR-5, FR-6, FR-7, FR-9.
 //
-// - Setup: `requireInit(t, platform.OpenRC)`; `freshHost`; `runInstall`; `writeConfig` (as TC-HP-114); `lib(t, "start-nexusd")`; `createToken(t, "tc-hp", "system:read")`.
+// - Setup: `requireInit(t, platform.OpenRC)`; `freshHost`; `runInstall`; `writeConfig` (as TC-HP-114); `lib(t, "start-nexusd")`; `createToken(t, "tc-hp", "host:read")`.
 // - Steps: call all ten ops; compare with `hostname`, `/etc/os-release`, `uname -r -m`, `nproc` (or `grep -c ^processor /proc/cpuinfo`), `free -b`, `df -B1` (or `df -k` × 1024), `ip -o addr`, `ip route`, `ip -6 route`.
 // - Expected: the same comparisons and tolerances as TC-HP-114 (no lsblk; disk sizes against `/sys/block/*/size` × 512 read by the test); the inline walker of TC-HP-115 passes and writes `host-unavailable-openrc.txt`; `rc-service nexusd status` stays `started` with the same PID (`openrcMainPID`).
 //
@@ -1479,7 +1479,7 @@ func TestTCHP124_InTheAlpineContainerRebootRequiredIsUnknown(t *testing.T) {
 
 // TC-HP-125: TC-182 sweeps the ten host ops under the exact unit. Owner WI 5.3. Requirements: NFR-5, CON-1, FR-2.
 //
-// - Setup: TC-182 with `host: {enabled: true, sampleInterval: 2s}` added to its config and `system:read` to its token scopes.
+// - Setup: TC-182 with `host: {enabled: true, sampleInterval: 2s}` added to its config and `host:read` to its token scopes.
 // - Steps: run TC-182.
 // - Expected: the count of exercised ops equals the catalog's op count including the ten host ops; each host op answered 200.
 //

@@ -5,7 +5,7 @@
 // The provider is a read-only overview of the host nexusd runs on: identity,
 // CPU, memory, filesystems, block devices, network, health flags and a short
 // in-memory metrics history (FR-4 to FR-13). Every operation is read-only,
-// sync and idempotent under system:read (FR-2, CON-2). No input is free text,
+// sync and idempotent under host:read (FR-2, CON-2). No input is free text,
 // a path, a device name or a command (NFR-6, base FR-25): each is a bounded
 // integer, an enum or an opaque cursor.
 //
@@ -29,7 +29,7 @@ import (
 // scope.
 const (
 	Name      = "host"
-	ReadScope = "system:read"
+	ReadScope = "host:read"
 )
 
 // Resource types: the route segment of each operation.

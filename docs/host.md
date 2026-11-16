@@ -24,15 +24,10 @@ and field.
 ## Naming
 
 The provider is named `host`, its operations are `host.*`, and its one
-scope is `system:read`. The name `system` is reserved by core for the
+scope is `host:read`. The name `system` is reserved by core for the
 built-in operations `system.capabilities.get`, `system.operations.*` and
-`system.audit.list`, so the provider cannot use it (ASM-1). The scope keeps
-the name `system:read` because scope names are independent of provider
-names, as the `docker` provider's `containers:read` is. This choice is to be
-confirmed before merge; if it changes, only the names change.
-
-`system:read` gates only the `host.*` operations. It does not gate the
-`system.*` operations, whose scopes are unchanged.
+`system.audit.list`, so the provider cannot use it (ASM-1), and its scope
+is named after the provider, as `nginx:read` and `pihole:read` are.
 
 The CLI nouns all start with `host`, because `nexus host` is the client's
 list of configured hosts: `hostsummary`, `hostidentity`, `hostcpu`,
@@ -95,8 +90,8 @@ and `historyDurationSeconds`.
 ## Operations
 
 Every operation is read-only, synchronous and idempotent, and needs
-`system:read`. A token without it is refused with `forbidden` (HTTP 403,
-CLI exit 3), whose `requiredScope` is `system:read`. No input is free text,
+`host:read`. A token without it is refused with `forbidden` (HTTP 403,
+CLI exit 3), whose `requiredScope` is `host:read`. No input is free text,
 a path, a device name or a command: each is a bounded integer, an enum or
 an opaque cursor.
 
@@ -365,7 +360,7 @@ Each reason starts with one of these prefixes, which are stable:
 | `still pending: <what>` | The same source has been stuck for `sourceTimeout` or longer since an earlier call, so nothing new was started |
 | `not visible: <mount> is hidden in nexusd's mount namespace` | The host mount is not the filesystem a lookup of that path reaches in `nexusd`'s namespace, so no syscall was made on it |
 | `unrecognized format: <path>` | The source was read but did not parse |
-| `counter reset: <entity>` | A counter decreased, or the entity changed identity (interface index, device number, process start time), between two samples |
+| `counter reset: <entity>` | A counter decreased (for a CPU, a column other than idle and iowait, or the total), or the entity changed identity (interface index, device number, process start time), between two samples |
 | `not reported: <why>` | Legitimately absent, such as no inode counts, a virtual NIC's speed or no sensors |
 | `command failed: <command> exit N` | A command ran and exited non-zero |
 | `command failed: <command> not started` | A command could not be started for another reason |
@@ -382,7 +377,7 @@ A field reading `warming up` or `counter reset:` is always null, never 0.
 ### Whole-operation errors
 
 - `capability-unavailable`: the provider is disabled or unavailable.
-- `forbidden`: the token lacks `system:read` (`requiredScope` names it).
+- `forbidden`: the token lacks `host:read` (`requiredScope` names it).
 - `validation-failed`: an input out of range, or a cursor this server did
   not issue.
 - `dependency-unavailable`: only a list's own source is missing:
@@ -415,6 +410,12 @@ three intervals, and with `not running` when it is not running.
 A counter that decreases, an interface whose index changes, a disk whose
 device number changes or a PID reused by a new process is a reset: that
 interval gives no value for it (`counter reset:`), and the next one does.
+The CPU `idle` and `iowait` columns are the exception: the kernel can step
+them back ([proc(5)](https://man7.org/linux/man-pages/man5/proc_stat.5.html)
+says of iowait "The value in this field may decrease in certain
+conditions"), so a decrease in either counts as no idle or iowait time for
+that interval and the CPU percentages are still given. A decrease in any
+other CPU column, or in the CPU total, is a reset.
 
 The process scan reads `/proc/<pid>/stat` and `/proc/<pid>/status` for
 every process. When one scan costs more than 0.5% of the interval, it runs
@@ -526,17 +527,24 @@ checked first, because a container on a VM sees the VM's DMI:
 | DMI `product_name`, then `sys_vendor`, starting with `KVM` or `OpenStack` | `kvm` | `vm` |
 | ... with `QEMU` | `qemu` | `vm` |
 | ... with `VMware` | `vmware` | `vm` |
-| ... with `innotek GmbH` or `Oracle` | `oracle` | `vm` |
+| ... with `innotek GmbH` or `VirtualBox` | `oracle` | `vm` |
 | ... with `Xen` | `xen` | `vm` |
 | ... with `Amazon EC2` | `amazon` | `vm` |
-| ... with `Google` | `google` | `vm` |
+| ... with `Google Compute Engine` | `google` | `vm` |
 | ... with `Parallels` | `parallels` | `vm` |
 | ... with `BHYVE` | `bhyve` | `vm` |
+| ... with `Apple Virtualization` | `apple` | `vm` |
 | The `hypervisor` CPU flag in `/proc/cpuinfo` | `unknown` | `vm` |
 | None of these | `none` | `none` |
 
-The first row that matches wins. A hypervisor not in the DMI table, such
-as Apple's Virtualization framework, is `none` unless the CPU flag is set.
+The first row that matches wins. The DMI strings are those of systemd's
+own table (`src/basic/virt.c`), matched as prefixes, so a Chromebook
+(vendor `Google`) or an Oracle server (vendor `Oracle Corporation`) is not a
+VM. systemd also lists `Oracle Corporation`, for VirtualBox's board vendor;
+the provider does not read the board vendor and leaves that row out, so an
+Oracle bare-metal server is `none` here where `systemd-detect-virt` would
+say `oracle`. A hypervisor not in the table is `none` unless the CPU flag
+is set.
 When `nexusd` runs in a container, `/proc` and `/sys` describe what the
 container sees, and the provider reports that as it is.
 

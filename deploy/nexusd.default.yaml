@@ -169,7 +169,7 @@ providers:
   # one sampler reads the host's counters every sampleInterval to compute
   # usage, rates and a metrics history; disabled, no sampler runs. The
   # history is in memory only, so it is lost on restart and starts empty at
-  # each enable. Reads need system:read. Linux only; elsewhere the provider
+  # each enable. Reads need host:read. Linux only; elsewhere the provider
   # reports unavailable.
   host:
     enabled: false             # Off until enabled here

@@ -120,7 +120,7 @@ func TestTCHP108_CompositionCapabilitiesOpenAPICLICatalogAndThe(t *testing.T) {
 		}
 	}
 
-	// OpenAPI: exactly the ten GET routes, each requiring system:read.
+	// OpenAPI: exactly the ten GET routes, each requiring host:read.
 	var doc struct {
 		Paths map[string]map[string]struct {
 			OperationID   string `json:"operationId"`
@@ -285,7 +285,7 @@ func (b bearer) RoundTrip(r *http.Request) (*http.Response, error) {
 	return http.DefaultTransport.RoundTrip(r)
 }
 
-// TC-HP-ERR29: Host operations refuse tokens without system:read on every surface. Owner WI 5.1. Requirements: FR-2.
+// TC-HP-ERR29: Host operations refuse tokens without host:read on every surface. Owner WI 5.1. Requirements: FR-2.
 //
 // The test case's "insufficient-scope" is the registered forbidden problem
 // with requiredScope, the only problem a missing scope produces.
@@ -311,7 +311,7 @@ func TestTCHPERR29_HostOperationsRefuseTokensWithoutSystemRead(t *testing.T) {
 	} else if status == http.StatusForbidden || status == http.StatusUnauthorized {
 		t.Errorf("GET summary with %s: %d %s, want past authorization", spec.ReadScope, status, b)
 	}
-	// system.* needs no system:read.
+	// system.* needs no host:read.
 	getOK(t, c.base+"/v1/capabilities", other)
 
 	// MCP.

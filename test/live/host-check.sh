@@ -135,9 +135,9 @@ Options:
   -h, --help            this text
 
 Environment:
-  NEXUS_TOKEN  a token with system:read (not needed with --nexus-host).
+  NEXUS_TOKEN  a token with host:read (not needed with --nexus-host).
                Create it on the host, and revoke it afterwards:
-                 nexusd token create --name host-check --scope system:read --expires 1d
+                 nexusd token create --name host-check --scope host:read --expires 1d
                  nexusd token revoke host-check
   NEXUS_URL    nexusd's URL, such as https://vm.lan:7443 (default on the
                host: https:// and the first listen address in
@@ -717,7 +717,7 @@ plan() {
 		log "  - save $CONF to $H_STATE (0600), set providers.host.enabled false, restart nexusd,"
 		log "    and sample nexusd's RSS and CPU every 60 s for $BASELINE s (the disabled baseline);"
 		log "  - set enabled true, historyDuration 24h, sampleInterval 2s, validate and reload;"
-		log "  - create the token $SOAK_TOKEN_NAME (system:read, 2 days) on the host, in a client"
+		log "  - create the token $SOAK_TOKEN_NAME (host:read, 2 days) on the host, in a client"
 		log "    config under $H_STATE, and start a poll on the host: hostsummary, hosthealth and a"
 		log "    24 h hostmetric every 10 s, nexusd's VmRSS and CPU logged every 60 s to $H_STATE/rss.log;"
 		log "  - leave it running: finish with --rss-24h finish after 24 h (or earlier, recorded NOT-RUN)."
@@ -1835,7 +1835,7 @@ mut_rss_start() {
 	valid_num "$_port" || { mut_conf_restore; refuse "nexusd's listen port is not a number: $(shown "$_port")"; }
 	# The soak's own token: created on the host and handed to the host's
 	# nexus CLI on a pipe, never printed or carried here.
-	hrun "$NEXUSD token revoke $SOAK_TOKEN_NAME >/dev/null 2>&1; mkdir -p $H_STATE/xdg && chmod 0700 $H_STATE/xdg && $NEXUSD token create --name $SOAK_TOKEN_NAME --scope system:read --expires 2d 2>/dev/null | XDG_CONFIG_HOME=$H_STATE/xdg $(shown "$HOST_NEXUS") host add soak --url https://$(shown "$_h"):$_port --fingerprint \"\$($NEXUSD tls fingerprint)\" --token-stdin 2>&1 | tail -n 1"
+	hrun "$NEXUSD token revoke $SOAK_TOKEN_NAME >/dev/null 2>&1; mkdir -p $H_STATE/xdg && chmod 0700 $H_STATE/xdg && $NEXUSD token create --name $SOAK_TOKEN_NAME --scope host:read --expires 2d 2>/dev/null | XDG_CONFIG_HOME=$H_STATE/xdg $(shown "$HOST_NEXUS") host add soak --url https://$(shown "$_h"):$_port --fingerprint \"\$($NEXUSD tls fingerprint)\" --token-stdin 2>&1 | tail -n 1"
 	[ "$HX_RC" -eq 0 ] || { mut_conf_restore; refuse "could not set up the soak's client on the host"; }
 	poller_script >"$TMPD/poller.sh"
 	hx_in "cat >$H_STATE/poller.sh && chmod 0700 $H_STATE/poller.sh" <"$TMPD/poller.sh"
@@ -1962,7 +1962,7 @@ detect_init
 setup_client_rc=0
 setup_client || setup_client_rc=1
 token_env_check
-[ "$setup_client_rc" = 0 ] || [ "$YES" = 0 ] || refuse "NEXUS_TOKEN is not set (or pass --nexus-host). Create one on the host: nexusd token create --name host-check --scope system:read --expires 1d"
+[ "$setup_client_rc" = 0 ] || [ "$YES" = 0 ] || refuse "NEXUS_TOKEN is not set (or pass --nexus-host). Create one on the host: nexusd token create --name host-check --scope host:read --expires 1d"
 
 hx "[ -e $H_STATE/state ]"
 _state=$HX_RC

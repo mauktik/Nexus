@@ -3287,7 +3287,7 @@ Response `202` (`application/json`):
 Get the host's CPU detail.
 
 - Operation ID: `host.cpu.get`
-- Scope: Requires system:read.
+- Scope: Requires host:read.
 - Risk: read-only
 - Long-running: no
 
@@ -3631,7 +3631,7 @@ Response `200` (`application/json`):
 List the host's block devices.
 
 - Operation ID: `host.disks.list`
-- Scope: Requires system:read.
+- Scope: Requires host:read.
 - Risk: read-only
 - Long-running: no
 
@@ -3882,7 +3882,7 @@ Response `200` (`application/json`):
 List the host's filesystems.
 
 - Operation ID: `host.filesystems.list`
-- Scope: Requires system:read.
+- Scope: Requires host:read.
 - Risk: read-only
 - Long-running: no
 
@@ -4059,7 +4059,7 @@ Response `200` (`application/json`):
 Get the host's health flags and top processes.
 
 - Operation ID: `host.health.get`
-- Scope: Requires system:read.
+- Scope: Requires host:read.
 - Risk: read-only
 - Long-running: no
 
@@ -4423,7 +4423,7 @@ Response `200` (`application/json`):
 Get the host's identity.
 
 - Operation ID: `host.identity.get`
-- Scope: Requires system:read.
+- Scope: Requires host:read.
 - Risk: read-only
 - Long-running: no
 
@@ -4751,7 +4751,7 @@ Response `200` (`application/json`):
 List the host's network interfaces.
 
 - Operation ID: `host.interfaces.list`
-- Scope: Requires system:read.
+- Scope: Requires host:read.
 - Risk: read-only
 - Long-running: no
 
@@ -5056,7 +5056,7 @@ Response `200` (`application/json`):
 Get the host's memory detail.
 
 - Operation ID: `host.memory.get`
-- Scope: Requires system:read.
+- Scope: Requires host:read.
 - Risk: read-only
 - Long-running: no
 
@@ -5556,7 +5556,7 @@ Response `200` (`application/json`):
 Get the host's metrics history.
 
 - Operation ID: `host.metrics.get`
-- Scope: Requires system:read.
+- Scope: Requires host:read.
 - Risk: read-only
 - Long-running: no
 
@@ -5807,7 +5807,7 @@ Response `200` (`application/json`):
 Get the host's gateways and DNS resolvers.
 
 - Operation ID: `host.netconfig.get`
-- Scope: Requires system:read.
+- Scope: Requires host:read.
 - Risk: read-only
 - Long-running: no
 
@@ -5992,7 +5992,7 @@ Response `200` (`application/json`):
 Get the host overview.
 
 - Operation ID: `host.summary.get`
-- Scope: Requires system:read.
+- Scope: Requires host:read.
 - Risk: read-only
 - Long-running: no
 

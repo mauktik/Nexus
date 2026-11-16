@@ -24,6 +24,12 @@ container run exits 1. What is still owed:
 | NFR-2 at 24 h / 2 s, a full 24 h fill | TC-HP-130 | **PENDING**: mandatory; only a short container soak was run |
 | A btrfs live readback (A-21, A-38) | | **PENDING**: no btrfs host was available; every transcript says so |
 
+**Scope rename.** The provider's read scope was renamed from `system:read`
+to `host:read` at confirm-before-merge (A-1). The committed transcripts and
+logs under [host-live/](host-live/) and [host-t1/](host-t1/) predate the
+rename and show the old name; they are kept as the record of those runs.
+New runs create the token with `host:read`.
+
 - [What the check proves](#what-the-check-proves)
 - [Before you start](#before-you-start)
 - [What the script touches](#what-the-script-touches)
@@ -61,10 +67,10 @@ On each host:
   [host.md](../host.md#configuration)) and reloaded. Leave
   `sampleInterval` and `historyDuration` at their defaults (10 s, 1 h):
   `--overhead` measures at the defaults and refuses otherwise.
-- A token with `system:read`, created on the host:
+- A token with `host:read`, created on the host:
 
   ```
-  nexusd token create --name host-check --scope system:read --expires 1d
+  nexusd token create --name host-check --scope host:read --expires 1d
   ```
 
   Pass it in `NEXUS_TOKEN`. As `nginx-check.sh` does, the script first
@@ -105,7 +111,7 @@ refuse`, which TC-HP-132 checks.
 | --- | --- | --- |
 | `--with-faults` | Writes `/var/run/reboot-required` and `.pkgs` (Debian and Ubuntu, and only when no marker exists); runs a transient unit `nx-host-check-<8 hex>` that fails (`/bin/false`), or on OpenRC writes `/etc/init.d/nx-host-check-<8 hex>` (a `sleep`), starts it and kills it with SIGKILL so `rc-status --crashed` lists it | Removed at once after each readback: `rm` of the marker, `systemctl reset-failed`, or `rc-service ... zap` and `rm` of the script. On SIGINT or SIGTERM, the EXIT trap does the same; after SIGKILL, `--yes --cleanup` does it from the state file |
 | `--overhead` | Saves `/etc/nexus/nexusd.yaml` (0600), sets `providers.host.enabled: false`, **restarts nexusd** (a clean baseline), and restores the file byte for byte, then reloads | The restore; on an interrupt, the EXIT trap; after SIGKILL, `--yes --cleanup` |
-| `--rss-24h start` | As `--overhead` for the baseline, then `enabled: true`, `historyDuration: 24h`, `sampleInterval: 2s` and a reload; creates a token `host-check-soak` (`system:read`, 2 days) on the host, piped straight into the host's `nexus host add`, never printed; starts a poll on the host (`/var/lib/nexus-host-check/poller.sh`) | `--rss-24h finish`: stops the poll, revokes the token, restores the configuration and reloads. On an interrupt during the start, the EXIT trap restores the configuration |
+| `--rss-24h start` | As `--overhead` for the baseline, then `enabled: true`, `historyDuration: 24h`, `sampleInterval: 2s` and a reload; creates a token `host-check-soak` (`host:read`, 2 days) on the host, piped straight into the host's `nexus host add`, never printed; starts a poll on the host (`/var/lib/nexus-host-check/poller.sh`) | `--rss-24h finish`: stops the poll, revokes the token, restores the configuration and reloads. On an interrupt during the start, the EXIT trap restores the configuration |
 | `--cleanup` | Nothing new | Undoes what an interrupted `--with-faults` or `--overhead` run left |
 
 The state of an opt-in run is in `/var/lib/nexus-host-check/` (0700). A

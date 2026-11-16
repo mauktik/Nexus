@@ -62,7 +62,7 @@ func TestTCHP15_ProvidersHostDefaultsYAMLAndCommentsAgree(t *testing.T) {
 	if !strings.Contains(c, "changes nothing") && !strings.Contains(c, "read-only") {
 		t.Errorf("providers.host comment does not say it changes nothing (or is read-only):\n%s", c)
 	}
-	for _, s := range []string{"sampler", "in memory", "restart", "system:read", "Linux"} {
+	for _, s := range []string{"sampler", "in memory", "restart", "host:read", "Linux"} {
 		if !strings.Contains(c, s) {
 			t.Errorf("providers.host comment does not contain %q:\n%s", s, c)
 		}

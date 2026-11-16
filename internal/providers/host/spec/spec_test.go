@@ -71,11 +71,11 @@ func opByID(t *testing.T, id string) def.Op {
 }
 
 // TC-HP-9: the ten operations match the golden rows, in table order, and
-// the provider declares system:read and no other scope (FR-2, FR-14, CON-2).
+// the provider declares host:read and no other scope (FR-2, FR-14, CON-2).
 func TestTCHP9_TheTenOperationsMatchTheGoldenRows(t *testing.T) {
 	s := spec.Spec()
-	if s.Name != "host" || s.ReadScope != "system:read" {
-		t.Errorf("spec = %q read scope %q, want host and system:read", s.Name, s.ReadScope)
+	if s.Name != "host" || s.ReadScope != "host:read" {
+		t.Errorf("spec = %q read scope %q, want host and host:read", s.Name, s.ReadScope)
 	}
 	if len(s.Ops) != len(table) {
 		t.Fatalf("spec has %d ops, the table %d", len(s.Ops), len(table))
@@ -84,10 +84,10 @@ func TestTCHP9_TheTenOperationsMatchTheGoldenRows(t *testing.T) {
 		if got, want := rowOf(t, op), table[i]; got != want {
 			t.Errorf("row %d:\n got %+v\nwant %+v", i+1, got, want)
 		}
-		if op.Provider != "host" || op.Kind != def.KindList || op.Scope != (def.Scope{Name: "system:read"}) ||
+		if op.Provider != "host" || op.Kind != def.KindList || op.Scope != (def.Scope{Name: "host:read"}) ||
 			op.Risk != def.RiskReadOnly || op.Mode != def.ModeSync || !op.Idempotent {
 			t.Errorf("%s: provider %q kind %q scope %+v risk %q mode %q idempotent %v; want host, list, "+
-				"system:read, read-only, sync, idempotent", op.ID, op.Provider, op.Kind, op.Scope, op.Risk, op.Mode,
+				"host:read, read-only, sync, idempotent", op.ID, op.Provider, op.Kind, op.Scope, op.Risk, op.Mode,
 				op.Idempotent)
 		}
 		if op.Action != "" || op.Path != "" || op.OperationControl || op.WhatIf || len(op.Sensitive) > 0 ||
@@ -105,7 +105,7 @@ func TestConstants(t *testing.T) {
 		got, exp any
 	}{
 		{"Name", spec.Name, "host"},
-		{"ReadScope", spec.ReadScope, "system:read"},
+		{"ReadScope", spec.ReadScope, "host:read"},
 		{"SummaryType", spec.SummaryType, "summary"},
 		{"IdentityType", spec.IdentityType, "identity"},
 		{"CPUType", spec.CPUType, "cpu"},

@@ -114,7 +114,7 @@ The pihole provider adds these 26 tools:
 - Local A records: `list_pihole_records`, `get_pihole_record`, `add_pihole_record`, `update_pihole_record`, `remove_pihole_record`.
 - Batch: `apply_pihole_dns_changes`.
 
-The host provider adds these 3 tools, all read-only and under `system:read`:
+The host provider adds these 3 tools, all read-only and under `host:read`:
 
 - `get_host_summary`: the host overview (`host.summary.get`).
 - `get_host_health`: reboot required, failed services, OOM kills and the top processes (`host.health.get`).

@@ -56,25 +56,22 @@ func TestTCHP8_AddingAProviderMdDocumentsTheGeneric(t *testing.T) {
 // - Setup: none.
 // - Steps: read the files; read `handWritten` in `cmd/nexus-gendocs/main_test.go`.
 // - Expected:
-//   - `security.md` has a Scopes-table row for `system:read` naming host identity, network addresses, gateway, DNS resolvers, mount points, process names and owners, and a note that `system:read` does not gate `system.*`; a section "What the host provider reads" naming `CAP_DAC_READ_SEARCH`, cmdline, environ, serial numbers, kernel log, clock syscalls, OpenRC root;
-//   - `host.md` contains all ten op IDs, all four config keys, the twelve reason prefixes, the heading "Unavailable under the systemd sandbox", the exclusion fstypes, and the naming note (`host`, `system:read`);
+//   - `security.md` has a Scopes-table row for `host:read` naming host identity, network addresses, gateway, DNS resolvers, mount points, process names and owners; a section "What the host provider reads" naming `CAP_DAC_READ_SEARCH`, cmdline, environ, serial numbers, kernel log, clock syscalls, OpenRC root;
+//   - `host.md` contains all ten op IDs, all four config keys, the twelve reason prefixes, the heading "Unavailable under the systemd sandbox", the exclusion fstypes, and the naming note (`host`, `host:read`);
 //   - `mcp.md` lists the three tools as untrusted and states 68 tools and the measured token figure;
-//   - `adding-a-provider.md` lists `host`; README links `docs/host.md` and lists `system:read`; `handWritten` contains `host.md`.
+//   - `adding-a-provider.md` lists `host`; README links `docs/host.md` and lists `host:read`; `handWritten` contains `host.md`.
 func TestTCHP112_HandWrittenDocsCoverScopeOpsKeys(t *testing.T) {
 	root := repoRoot(t)
 	read := func(rel string) string { return readFile(t, filepath.Join(root, filepath.FromSlash(rel))) }
 
-	// security.md: the Scopes row, the system.* note and the reads section.
+	// security.md: the Scopes row and the reads section.
 	security := read("docs/security.md")
-	row := regexp.MustCompile("(?m)^\\|\\s*`system:read`\\s*\\|.*$").FindString(security)
+	row := regexp.MustCompile("(?m)^\\|\\s*`host:read`\\s*\\|.*$").FindString(security)
 	if row == "" {
-		t.Error("docs/security.md's Scopes table has no row for `system:read`")
+		t.Error("docs/security.md's Scopes table has no row for `host:read`")
 	}
-	requireAll(t, "docs/security.md's system:read row", row, "host identity", "network addresses", "gateway",
+	requireAll(t, "docs/security.md's host:read row", row, "host identity", "network addresses", "gateway",
 		"DNS resolvers", "mount points", "process names and owners")
-	if !regexp.MustCompile("`system:read`[^.]*does not gate[^.]*`system\\.\\*`").MatchString(oneLine(security)) {
-		t.Error("docs/security.md does not note that `system:read` does not gate the `system.*` operations")
-	}
 	reads := section(security, "What the host provider reads")
 	if reads == "" {
 		t.Error(`docs/security.md has no "What the host provider reads" section`)
@@ -117,7 +114,7 @@ func TestTCHP112_HandWrittenDocsCoverScopeOpsKeys(t *testing.T) {
 	if naming == "" {
 		t.Error(`docs/host.md has no "Naming" section`)
 	}
-	requireAll(t, "docs/host.md's naming note", naming, "`host`", "`system:read`", "`system`", "ASM-1")
+	requireAll(t, "docs/host.md's naming note", naming, "`host`", "`host:read`", "`system`", "ASM-1")
 
 	// mcp.md: the three tools as untrusted, 68 tools and the token figure.
 	mcp := read("docs/mcp.md")
@@ -140,7 +137,7 @@ func TestTCHP112_HandWrittenDocsCoverScopeOpsKeys(t *testing.T) {
 		t.Error("docs/adding-a-provider.md's intro does not list `host` among the providers")
 	}
 	readme := read("README.md")
-	requireAll(t, "README.md", readme, "(docs/host.md)", "`system:read`")
+	requireAll(t, "README.md", readme, "(docs/host.md)", "`host:read`")
 	gendocs := read("cmd/nexus-gendocs/main_test.go")
 	hw := regexp.MustCompile(`(?m)^var handWritten = \[\]string\{(.*)\}$`).FindStringSubmatch(gendocs)
 	if hw == nil || !strings.Contains(hw[1], `"host.md"`) {
