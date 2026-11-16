@@ -41,11 +41,11 @@ func TestComputeCPUShares(t *testing.T) {
 	}
 }
 
-// Any decreasing column is a reset of that line only, never a negative or
-// wrapped share (A-9).
-func TestComputeCPUColumnDecreaseIsAReset(t *testing.T) {
+// A decreasing busy column (user, nice, system, irq, softirq, steal) is a
+// reset of that line only, never a negative or wrapped share (A-9).
+func TestComputeCPUBusyColumnDecreaseIsAReset(t *testing.T) {
 	p := hostparse.CPUTimes{User: 100, Idle: 1000, IOWait: 50}
-	c := hostparse.CPUTimes{User: 110, Idle: 1090, IOWait: 49}
+	c := hostparse.CPUTimes{User: 99, Idle: 1090, IOWait: 50}
 	ok := hostparse.CPUTimes{User: 110, Idle: 1090, IOWait: 50}
 	snap := compute(cpuSample(t0, p, p, p), cpuSample(t0.Add(time.Second), ok, c, ok), time.Second, 4096)
 	if snap.perCPU[0].usage.why != "counter reset: cpu0" || snap.perCPU[0].usage.v != nil {
@@ -56,6 +56,62 @@ func TestComputeCPUColumnDecreaseIsAReset(t *testing.T) {
 	}
 	if v := snap.cpu.usage.v; v == nil || *v != 10 {
 		t.Errorf("total = %+v, want 10", snap.cpu.usage)
+	}
+	for _, col := range []struct {
+		name string
+		set  func(*hostparse.CPUTimes)
+	}{
+		{"nice", func(x *hostparse.CPUTimes) { x.Nice-- }},
+		{"system", func(x *hostparse.CPUTimes) { x.System-- }},
+		{"irq", func(x *hostparse.CPUTimes) { x.IRQ-- }},
+		{"softirq", func(x *hostparse.CPUTimes) { x.SoftIRQ-- }},
+		{"steal", func(x *hostparse.CPUTimes) { x.Steal-- }},
+	} {
+		b := hostparse.CPUTimes{User: 100, Nice: 5, System: 5, Idle: 1000, IOWait: 50, IRQ: 5, SoftIRQ: 5, Steal: 5}
+		n := b
+		n.User, n.Idle = 110, 1090
+		col.set(&n)
+		if got := cpuShare("cpu", b, n).usage; got.why != "counter reset: cpu" || got.v != nil {
+			t.Errorf("%s decrease = %+v, want counter reset: cpu", col.name, got)
+		}
+	}
+	// Total decreasing (here because iowait fell by more than the rest rose)
+	// is still a reset.
+	if got := cpuShare("cpu", hostparse.CPUTimes{User: 100, IOWait: 500}, hostparse.CPUTimes{User: 101, IOWait: 0}).usage; got.why != "counter reset: cpu" || got.v != nil {
+		t.Errorf("total decrease = %+v, want counter reset: cpu", got)
+	}
+}
+
+// idle and iowait may decrease (proc(5): iowait "may decrease in certain
+// conditions"); a decrease is clamped to a zero delta, not a reset, and the
+// shares are of the clamped total (A-9).
+func TestComputeCPUIdleOrIOWaitDecreaseIsClamped(t *testing.T) {
+	p := hostparse.CPUTimes{User: 100, Idle: 1000, IOWait: 50}
+	for _, tc := range []struct {
+		name                string
+		c                   hostparse.CPUTimes
+		usage, user, iowait float64
+	}{
+		// Δuser 10, Δidle −5 → 0, Δiowait 30: total 40.
+		{"idle decrease", hostparse.CPUTimes{User: 110, Idle: 995, IOWait: 80}, 25, 25, 75},
+		// Δuser 10, Δidle 30, Δiowait −5 → 0: total 40.
+		{"iowait decrease", hostparse.CPUTimes{User: 110, Idle: 1030, IOWait: 45}, 25, 25, 0},
+	} {
+		snap := compute(cpuSample(t0, p, p), cpuSample(t0.Add(time.Second), tc.c, tc.c), time.Second, 4096)
+		for _, x := range []struct {
+			what string
+			got  rateVal
+			want float64
+		}{
+			{"usage", snap.cpu.usage, tc.usage},
+			{"user", snap.cpu.user, tc.user},
+			{"iowait", snap.cpu.iowait, tc.iowait},
+			{"cpu0 usage", snap.perCPU[0].usage, tc.usage},
+		} {
+			if x.got.why != "" || x.got.v == nil || *x.got.v != x.want {
+				t.Errorf("%s: %s = %+v, want %v with no reason", tc.name, x.what, x.got, x.want)
+			}
+		}
 	}
 }
 

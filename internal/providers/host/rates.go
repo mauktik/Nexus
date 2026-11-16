@@ -82,7 +82,8 @@ type snapshot struct {
 //   - a counter that decreased, an interface whose ifindex changed, a disk
 //     whose maj:min changed or a pid whose starttime changed gives
 //     "counter reset: <entity>" for that entity and interval, with no wrap
-//     arithmetic;
+//     arithmetic; the CPU idle and iowait columns are the exception, and a
+//     decrease in either counts as no time (cpuShare);
 //   - an entity absent from cur has no entry.
 //
 // pageSize converts rss pages to bytes.
@@ -179,27 +180,42 @@ func cpuMissing(why string) cpuRates {
 }
 
 // cpuShare is A-6: busy = Δtotal − Δidle − Δiowait over Δtotal, and each
-// split column's delta over Δtotal, in percent. Any column that decreased
-// is a reset.
+// split column's delta over Δtotal, in percent (A-9). A decrease in a busy
+// column (user, nice, system, irq, softirq, steal) or in the total is a
+// reset. idle and iowait are not monotonic: proc(5) says of iowait "The
+// value in this field may decrease in certain conditions", and the kernel's
+// idle accounting can step back the same way, so a decrease in either is
+// clamped to a zero delta, and Δtotal is the sum of the clamped deltas.
 func cpuShare(entity string, p, c hostparse.CPUTimes) cpuRates {
-	pc := []uint64{p.User, p.Nice, p.System, p.Idle, p.IOWait, p.IRQ, p.SoftIRQ, p.Steal}
-	cc := []uint64{c.User, c.Nice, c.System, c.Idle, c.IOWait, c.IRQ, c.SoftIRQ, c.Steal}
-	for i := range pc {
-		if cc[i] < pc[i] {
+	pb := []uint64{p.User, p.Nice, p.System, p.IRQ, p.SoftIRQ, p.Steal}
+	cb := []uint64{c.User, c.Nice, c.System, c.IRQ, c.SoftIRQ, c.Steal}
+	for i := range pb {
+		if cb[i] < pb[i] {
 			return cpuMissing(reasonCounterReset(entity))
 		}
 	}
-	total := float64(c.Total() - p.Total())
+	if c.Total() < p.Total() {
+		return cpuMissing(reasonCounterReset(entity))
+	}
+	clamped := func(a, b uint64) uint64 {
+		if b < a {
+			return 0
+		}
+		return b - a
+	}
+	busy := float64(c.Busy() - p.Busy())
+	iowait := float64(clamped(p.IOWait, c.IOWait))
+	total := busy + float64(clamped(p.Idle, c.Idle)) + iowait
 	if total == 0 {
 		return cpuMissing(reasonNotReported(entity + " counted no time in the interval"))
 	}
-	share := func(a, b uint64) rateVal { return have(float64(b-a) / total * 100) }
+	share := func(d float64) rateVal { return have(d / total * 100) }
 	return cpuRates{
-		usage:  share(p.Busy(), c.Busy()),
-		user:   share(p.User, c.User),
-		system: share(p.System, c.System),
-		iowait: share(p.IOWait, c.IOWait),
-		steal:  share(p.Steal, c.Steal),
+		usage:  share(busy),
+		user:   share(float64(c.User - p.User)),
+		system: share(float64(c.System - p.System)),
+		iowait: share(iowait),
+		steal:  share(float64(c.Steal - p.Steal)),
 	}
 }
 
