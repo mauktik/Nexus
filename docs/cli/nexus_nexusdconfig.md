@@ -2,7 +2,7 @@
 
 # nexus nexusdconfig
 
-Verbs: get
+Verbs: get, update
 
 ## Usage
 
@@ -28,6 +28,7 @@ nexus nexusdconfig [flags]
 | Command | Description |
 | --- | --- |
 | [`nexus nexusdconfig get`](nexus_nexusdconfig_get.md) | List nexusd's configuration keys, or with NAME, get a nexusd configuration key |
+| [`nexus nexusdconfig update`](nexus_nexusdconfig_update.md) | Set nexusd configuration keys |
 
 ## See also
 

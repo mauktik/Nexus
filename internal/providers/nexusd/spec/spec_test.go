@@ -19,8 +19,8 @@ import (
 
 // TC-SM-19: Spec lists exactly the seven ops of the Operation catalog table,
 // with their kind, route segments, scope, risk, mode, CLI command and MCP
-// tool, followed by the three token ops and the two config reads of
-// nexusd-remote-admin's table (TC-RA-26, TC-RA-60).
+// tool, followed by the three token ops, the two config reads and config set
+// of nexusd-remote-admin's table (TC-RA-26, TC-RA-60, TC-RA-67).
 func TestSpecListsTheOps(t *testing.T) {
 	type row struct {
 		id, resourceType, action string
@@ -43,6 +43,7 @@ func TestSpecListsTheOps(t *testing.T) {
 		{"nexusd.tokens.remove", "tokens", "remove", def.KindResourceAction, "nexusd:admin", def.RiskDestructive, def.ModeSync, "nexusdtoken", "remove", ""},
 		{"nexusd.config.list", "config", "", def.KindList, "nexusd:admin", def.RiskReadOnly, def.ModeSync, "nexusdconfig", "get", ""},
 		{"nexusd.config.get", "config", "", def.KindGet, "nexusd:admin", def.RiskReadOnly, def.ModeSync, "nexusdconfig", "get", ""},
+		{"nexusd.actions.update-config", "", "update-config", def.KindProviderAction, "nexusd:admin", def.RiskMutating, def.ModeLongRunning, "nexusdconfig", "update", ""},
 	}
 
 	s := spec.Spec()
@@ -86,6 +87,7 @@ func TestSpecListsTheOps(t *testing.T) {
 		{"ConfigType", spec.ConfigType, "config"},
 		{"MaxRemoteTokens", spec.MaxRemoteTokens, 256},
 		{"TokenMutationsPerMinute", spec.TokenMutationsPerMinute, 10},
+		{"MaxConfigChanges", spec.MaxConfigChanges, 32},
 		{"MaxConfigValueBytes", spec.MaxConfigValueBytes, 4096},
 		{"LaneKey", spec.LaneKey, "nexusd"},
 		{"DefaultMaxUploadBytes", spec.DefaultMaxUploadBytes, 64 << 20},
@@ -230,9 +232,9 @@ func TestInputsAreConstrained(t *testing.T) {
 			}
 		}
 	}
-	if strs != 7 {
-		t.Errorf("found %d string inputs, want 7 (uploadId, signature, token add's name, scopes[] and expires, "+
-			"token remove's name and config get's name)", strs)
+	if strs != 8 {
+		t.Errorf("found %d string inputs, want 8 (uploadId, signature, token add's name, scopes[] and expires, "+
+			"token remove's name, config get's name and config set's changes[])", strs)
 	}
 
 	update := schemaOf(t, spec.Update.Op())
@@ -321,7 +323,8 @@ func schemaOf(t *testing.T, op def.Op) *jsonschema.Resolved {
 
 // TC-SM-21: restart, update and rollback declare a 60 s reconnect window and
 // the others none; only update carries the CLI.Upload binding, which names
-// the upload op; the lane ops are cancelable only while queued.
+// the upload op; the lane ops, config set included, are cancelable only
+// while queued.
 func TestReconnectWindowsAndUploadBinding(t *testing.T) {
 	windows := map[string]time.Duration{
 		"nexusd.actions.restart":  60 * time.Second,
@@ -379,7 +382,8 @@ func TestReconnectWindowsAndUploadBinding(t *testing.T) {
 		t.Errorf("upload op has CLI %+v MCP %+v, want neither", up.CLI, up.MCP)
 	}
 
-	for _, op := range []def.Op{spec.Reload.Op(), spec.Restart.Op(), spec.Update.Op(), spec.Rollback.Op()} {
+	for _, op := range []def.Op{spec.Reload.Op(), spec.Restart.Op(), spec.Update.Op(), spec.Rollback.Op(),
+		spec.UpdateConfig.Op()} {
 		if op.Cancel != def.CancelQueuedOnly {
 			t.Errorf("%s: cancel %q, want %q", op.ID, op.Cancel, def.CancelQueuedOnly)
 		}

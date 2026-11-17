@@ -47,7 +47,7 @@ nexus [flags]
 | [`nexus hostnetconfig`](nexus_hostnetconfig.md) | Verbs: get |
 | [`nexus hostsummary`](nexus_hostsummary.md) | Verbs: get |
 | [`nexus nexusd`](nexus_nexusd.md) | Verbs: get, validate-config, reload, restart, update, rollback |
-| [`nexus nexusdconfig`](nexus_nexusdconfig.md) | Verbs: get |
+| [`nexus nexusdconfig`](nexus_nexusdconfig.md) | Verbs: get, update |
 | [`nexus nexusdtoken`](nexus_nexusdtoken.md) | Verbs: get, add, remove |
 | [`nexus nginx`](nexus_nginx.md) | Verbs: get, start, stop, restart, reload |
 | [`nexus nginxconfig`](nexus_nginxconfig.md) | Verbs: test |
@@ -108,6 +108,7 @@ nexus [flags]
 | [`nexus nexusd update`](nexus_nexusd_update.md) | Update nexusd from a signed release |
 | [`nexus nexusd validate-config`](nexus_nexusd_validate-config.md) | Validate the nexusd configuration file |
 | [`nexus nexusdconfig get`](nexus_nexusdconfig_get.md) | List nexusd's configuration keys, or with NAME, get a nexusd configuration key |
+| [`nexus nexusdconfig update`](nexus_nexusdconfig_update.md) | Set nexusd configuration keys |
 | [`nexus nexusdtoken add`](nexus_nexusdtoken_add.md) | Add a nexusd bearer token |
 | [`nexus nexusdtoken get`](nexus_nexusdtoken_get.md) | List nexusd's bearer tokens |
 | [`nexus nexusdtoken remove`](nexus_nexusdtoken_remove.md) | Revoke a nexusd bearer token |

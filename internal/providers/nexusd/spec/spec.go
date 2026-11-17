@@ -18,6 +18,12 @@
 // The config reads (list, get) return the keys of the on-disk configuration
 // file by dotted key path, a path in the config schema and never a file
 // path, with secret values redacted (nexusd-remote-admin FR-6).
+//
+// Config set (update-config) changes scalar keys of that file as KEY=VALUE
+// assignments, backs the file up and reloads it in the nexusd lane. Keys on
+// ConfigDenyList, whose values name a file, directory or service among
+// them, and list or mapping keys are never settable remotely
+// (nexusd-remote-admin FR-7, FR-12).
 package spec
 
 import (
@@ -51,12 +57,17 @@ const (
 	TokenMutationsPerMinute = 10
 )
 
-// MaxConfigValueBytes bounds one configuration value set remotely (NFR-5).
-// internal/config's Edit enforces it.
-const MaxConfigValueBytes = 4096
+// Config set bounds (NFR-5): at most MaxConfigChanges assignments per call,
+// and MaxConfigValueBytes per value set remotely, which internal/config's
+// Edit enforces.
+const (
+	MaxConfigChanges    = 32
+	MaxConfigValueBytes = 4096
+)
 
-// LaneKey is the lane reload, restart, update and rollback share with the
-// reject policy, so only one of them is queued or running at a time (FR-11).
+// LaneKey is the lane reload, restart, update, rollback and config set share
+// with the reject policy, so only one of them is queued or running at a time
+// (FR-11; nexusd-remote-admin FR-7).
 const LaneKey = "nexusd"
 
 // Upload size bounds: the default and the ceiling of
@@ -106,6 +117,7 @@ type DaemonProperties struct {
 	// configured, so update can verify a package (FR-15).
 	UpdateConfigured bool         `json:"updateConfigured"`
 	SelfManagement   Availability `json:"selfManagement"` // Whether restart, update and rollback can run
+	ConfigSet        Availability `json:"configSet"`      // Whether update-config can run (systemd hosts only)
 }
 
 // Previous is the rollback binary, nexusd.prev.
@@ -283,14 +295,106 @@ type ConfigKeyProperties struct {
 	Source    string `json:"source"`    // file or default
 }
 
+// ConfigUpdateInput is the input of nexusd.actions.update-config.
+type ConfigUpdateInput struct {
+	Changes []string `json:"changes" jsonschema:"Assignments KEY=VALUE, such as providers.host.enabled=true: KEY is a dotted key of the configuration schema."`
+	// BaseSHA256 is set by the Admission hook (D-7): the hex SHA-256 of the
+	// bytes admission validated. It is never in the schema or the record, so
+	// it is empty after a restart.
+	BaseSHA256 string `json:"-"`
+}
+
+// ConfigUpdateResult is the result of nexusd.actions.update-config. Its
+// warnings name changed keys that may lock this client out.
+type ConfigUpdateResult struct {
+	apitypes.ActionResult
+	Changes []ConfigChange `json:"changes"`
+	// RestartRequired are the keys whose change takes effect only after a
+	// restart.
+	RestartRequired []string `json:"restartRequired"`
+	BackupPath      string   `json:"backupPath,omitempty"` // The file as it was before the change
+	Restored        bool     `json:"restored"`             // False on success; true appears in config-apply-failed
+}
+
+// ConfigChange is one assignment's key with its value before and after.
+type ConfigChange struct {
+	Key string `json:"key"`
+	Old any    `json:"old"`
+	New any    `json:"new"`
+}
+
+// ConfigDeny is one entry of ConfigDenyList: Key, or every key under it when
+// Subtree, cannot be set remotely, or only to Value when Value is set.
+type ConfigDeny struct {
+	Key     string
+	Value   string
+	Subtree bool
+	Reason  string
+}
+
+// pathReason is the reason of every deny-list key whose value names a file,
+// directory, file-name suffix or service.
+const pathReason = "its value names a file, directory or service that nexus uses as root; it changes only by " +
+	"editing the file"
+
+// ConfigDenyList are the keys config set refuses, before any type rule
+// (FR-12 as amended by the user decision of 2026-11-17; A-13, A-35). A
+// string key added to the schema must be classified here or as settable
+// (a test fails until it is).
+var ConfigDenyList = []ConfigDeny{
+	{Key: "providers.nexusd.update.trustedKeys", Reason: "release keys change only by editing the file on the " +
+		"host, so a stolen nexusd:admin token cannot also trust its own signing key"},
+	{Key: "providers.nexusd.enabled", Value: "false", Reason: "it would disable remote administration with no " +
+		"remote way back"},
+	{Key: "providers.scripts.catalog", Subtree: true, Reason: "the catalog defines commands run as root; it " +
+		"changes only by editing the file"},
+	{Key: "tls.certFile", Reason: pathReason},
+	{Key: "tls.keyFile", Reason: pathReason},
+	{Key: "providers.docker.socket", Reason: pathReason},
+	{Key: "providers.docker.configDir", Reason: pathReason},
+	{Key: "providers.nginx.includeDir", Reason: pathReason},
+	{Key: "providers.nginx.includeSuffix", Reason: pathReason},
+	{Key: "providers.nginx.disabledSuffix", Reason: pathReason},
+	{Key: "providers.nginx.service", Reason: pathReason},
+	{Key: "providers.pihole.dnsFile", Reason: pathReason},
+}
+
+// LockoutKeyPrefixes are the key prefixes whose change may lock the client
+// out once nexusd restarts; config set warns about each (ASM-3).
+var LockoutKeyPrefixes = []string{"tls.", "auth."}
+
 // configKeyPattern matches a dotted key of the config schema: 1 to 8
 // segments, each a lowercase letter then up to 63 letters or digits. It
 // never matches a file path ("/", "..", a leading or trailing dot).
 const configKeyPattern = `^[a-z][A-Za-z0-9]{0,63}(\.[a-z][A-Za-z0-9]{0,63}){0,7}$`
 
+// configChangePattern matches one config set assignment: a key of
+// configKeyPattern, "=", then a value without control characters, which
+// may be empty. configChangeMaxLen is the longest key (8 segments of 64
+// characters and 7 dots, 519), "=" and a MaxConfigValueBytes value; the
+// value's own bound is admission's.
+const (
+	configChangePattern = `^[a-z][A-Za-z0-9]{0,63}(\.[a-z][A-Za-z0-9]{0,63}){0,7}=[^\x00-\x1f\x7f]*$`
+	configChangeMaxLen  = MaxConfigValueBytes + 520
+)
+
 func refineConfigName(s *jsonschema.Schema) {
 	if p := s.Properties["name"]; p != nil {
 		p.Pattern = configKeyPattern
+	}
+}
+
+func refineConfigUpdate(s *jsonschema.Schema) {
+	p := s.Properties["changes"]
+	if p == nil {
+		return
+	}
+	// An array, never null: null would reach admission as no assignments.
+	lo, hi := 1, MaxConfigChanges
+	p.Type, p.Types, p.MinItems, p.MaxItems = "array", nil, &lo, &hi
+	if p.Items != nil {
+		n := configChangeMaxLen
+		p.Items.Pattern, p.Items.MaxLength = configChangePattern, &n
 	}
 }
 
@@ -351,8 +455,8 @@ func refineUpload(s *jsonschema.Schema) {
 // Description fragments shared by the lane ops.
 const (
 	adminNote = " Requires nexusd:admin, which is root-equivalent."
-	laneNote  = " Reload, restart, update and rollback share one lane: a second request while one is queued or " +
-		"running answers 409 naming the blocking operation. It can be canceled only while queued."
+	laneNote  = " Reload, restart, update, rollback and config set share one lane: a second request while one is " +
+		"queued or running answers 409 naming the blocking operation. It can be canceled only while queued."
 	// interruptNote is FR-11's statement of what a daemon restart does to
 	// other providers' operations.
 	interruptNote = " Restarting nexusd neither waits for nor cancels other operations: in-process operations " +
@@ -582,10 +686,37 @@ var (
 	})
 )
 
+// UpdateConfig is config set (nexusd-remote-admin FR-7, FR-12). It is not an
+// MCP tool. A set that changes nothing ends at admission (D-7).
+var UpdateConfig = def.Define[ConfigUpdateInput, ConfigUpdateResult](def.Op{
+	ID: Name + ".actions.update-config", Provider: Name, Kind: def.KindProviderAction, Action: "update-config",
+	Summary: "Set nexusd configuration keys",
+	Description: "Sets keys of nexusd's configuration file, each change a KEY=VALUE such as " +
+		"providers.host.enabled=true, where KEY is a dotted key of the configuration schema, and reloads it. " +
+		"Before any operation exists it is refused with 422 config-invalid and located errors when a key is " +
+		"unknown (naming the nearest valid parent), cannot be set remotely (release keys, " +
+		"providers.nexusd.enabled=false, the scripts catalog, and every key whose value names a file, directory " +
+		"or service), is a list or a mapping, or has a value of the wrong type, or when the edited file would " +
+		"be invalid; and with 503 config-set-unavailable on a host without systemd self-management, such as " +
+		"OpenRC. A set that changes nothing answers 200 with changed false and creates no operation. Side " +
+		"effects: the current file is saved as <config file>.bak, returned as backupPath, the edited file " +
+		"replaces it, and nexusd reloads it. It never restarts nexusd: restartRequired lists the changed keys " +
+		"that take effect only at the next restart, and a changed tls or auth key adds a warning that it may " +
+		"lock this client out then. If the reload refuses the new file, the backup is restored and the " +
+		"operation fails with config-apply-failed and restored true; if the restore is not confirmed either, " +
+		"it fails with config-restore-failed naming backupPath. Long-running: answers 202 with an operation. " +
+		"It runs in a systemd unit outside the sandbox, and the daemon records the outcome." + laneNote +
+		adminNote,
+	Scope: def.Scope{Name: AdminScope}, Risk: def.RiskMutating, Mode: def.ModeLongRunning,
+	Cancel: def.CancelQueuedOnly, CompletesAtAdmission: true,
+	CLI:    def.CLIBinding{Noun: "nexusdconfig", Verb: "update", Variadic: "changes", EchoWarnings: true},
+	Refine: refineConfigUpdate,
+})
+
 // Spec returns the nexusd provider's declarations for the catalog.
 func Spec() def.ProviderSpec {
 	return def.ProviderSpec{Name: Name, ReadScope: ReadScope, Ops: []def.Op{
 		List.Op(), ValidateConfig.Op(), Reload.Op(), Restart.Op(), Update.Op(), Rollback.Op(), Upload.Op(),
-		TokensList.Op(), TokensAdd.Op(), TokensRemove.Op(), ConfigList.Op(), ConfigGet.Op(),
+		TokensList.Op(), TokensAdd.Op(), TokensRemove.Op(), ConfigList.Op(), ConfigGet.Op(), UpdateConfig.Op(),
 	}}
 }

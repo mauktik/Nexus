@@ -23,14 +23,14 @@ type row struct {
 	cli, tool        string
 }
 
-// golden is the Operation catalog table, row for row (86 rows: the 25 of
+// golden is the Operation catalog table, row for row (87 rows: the 25 of
 // the base table, the 7 nexusd rows of the self-management table and the 26
 // pihole rows of the pihole-dns-zones table, then the nginx operations table
 // (planning/nginx-provider/architecture.md, 13 rows), the host table
 // (planning/system-provider/architecture.md, Operation catalog, 10 rows) and
-// the nexusd token and config read rows of the remote-admin table
-// (planning/nexusd-remote-admin/architecture.md, Operation catalog, 3 + 2
-// rows, after nexusd.uploads.add)).
+// the nexusd token, config read and config set rows of the remote-admin
+// table (planning/nexusd-remote-admin/architecture.md, Operation catalog,
+// 3 + 2 + 1 rows, after nexusd.uploads.add)).
 // Rows are in catalog.All() order, so the host rows come after pihole's. Any
 // added op must update it on purpose.
 var golden = []row{
@@ -88,6 +88,7 @@ var golden = []row{
 	{"nexusd.tokens.remove", "POST /providers/nexusd/tokens/{name}/remove", "nexusd:admin", def.RiskDestructive, def.ModeSync, "nexusdtoken remove name", ""},
 	{"nexusd.config.list", "GET /providers/nexusd/config", "nexusd:admin", def.RiskReadOnly, def.ModeSync, "nexusdconfig get", ""},
 	{"nexusd.config.get", "GET /providers/nexusd/config/{name}", "nexusd:admin", def.RiskReadOnly, def.ModeSync, "nexusdconfig get name", ""},
+	{"nexusd.actions.update-config", "POST /providers/nexusd/actions/update-config", "nexusd:admin", def.RiskMutating, def.ModeLongRunning, "nexusdconfig update", ""},
 	{"pihole.status.get", "GET /providers/pihole/status", "pihole:read", def.RiskReadOnly, def.ModeSync, "pihole get", "get_pihole_status"},
 	{"pihole.summary.get", "GET /providers/pihole/summary", "pihole:read", def.RiskReadOnly, def.ModeSync, "piholesummary get", "get_pihole_summary"},
 	{"pihole.blocking.get", "GET /providers/pihole/blocking", "pihole:read", def.RiskReadOnly, def.ModeSync, "piholeblocking get", "get_pihole_blocking"},
@@ -154,8 +155,8 @@ func rowOf(t *testing.T, op def.Op) row {
 // TC-146: the catalog matches the Operation catalog table exactly.
 func TestCatalogMatchesGoldenTable(t *testing.T) {
 	ops := catalog.Ops()
-	if len(golden) != 58+13+10+3+2 {
-		t.Fatalf("golden table has %d rows, the architectures' have 58+13+10+3+2", len(golden))
+	if len(golden) != 58+13+10+3+2+1 {
+		t.Fatalf("golden table has %d rows, the architectures' have 58+13+10+3+2+1", len(golden))
 	}
 	if len(ops) != len(golden) {
 		t.Errorf("catalog has %d ops, the table %d", len(ops), len(golden))

@@ -158,9 +158,11 @@ func jsonLines(t *testing.T, what, s string) []map[string]any {
 
 // patternSamples hold, for the ops whose inputs carry schema patterns, a
 // value each pattern admits and the flags the op requires. The default "web"
-// positional and an empty flag set do not pass their validation.
+// positional, "curl" trailing argument and an empty flag set do not pass
+// their validation.
 var patternSamples = map[string]struct {
 	positional string
+	variadic   string
 	flags      []string
 }{
 	"pihole.domains.get":               {positional: "1"},
@@ -175,6 +177,7 @@ var patternSamples = map[string]struct {
 	"pihole.actions.add-zone":          {flags: []string{"--zone", "home.local"}},
 	"pihole.actions.add-record":        {flags: []string{"--fqdn", "nas.home.local", "--ipv4", "192.168.7.9"}},
 	"pihole.actions.apply-dns-changes": {flags: []string{"--changes", "add-record:nas.home.local=192.168.7.9"}},
+	"nexusd.actions.update-config":     {variadic: "host.name=web"},
 }
 
 // argsFor is a valid invocation of each op of a generated command.
@@ -195,7 +198,11 @@ func argsFor(c *opCommand, op def.Op) []string {
 	args = append(args, sample.flags...)
 	b, _ := newBinding(c)
 	if b != nil && b.variadic && b.required {
-		args = append(args, "curl")
+		if sample.variadic != "" {
+			args = append(args, sample.variadic)
+		} else {
+			args = append(args, "curl")
+		}
 	}
 	// A required string input bound to a flag gets a value, unless the
 	// sample already gives that flag a valid one.

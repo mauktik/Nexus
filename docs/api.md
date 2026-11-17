@@ -52,6 +52,7 @@ Only `GET /healthz` needs no token; it reports liveness only and is not part of 
 | [`POST /v1/providers/nexusd/actions/restart`](#op-nexusd-actions-restart) | `nexusd.actions.restart` | mutating | Restart nexusd |
 | [`POST /v1/providers/nexusd/actions/rollback`](#op-nexusd-actions-rollback) | `nexusd.actions.rollback` | destructive | Roll nexusd back to the previous binary |
 | [`POST /v1/providers/nexusd/actions/update`](#op-nexusd-actions-update) | `nexusd.actions.update` | mutating | Update nexusd from a signed release |
+| [`POST /v1/providers/nexusd/actions/update-config`](#op-nexusd-actions-update-config) | `nexusd.actions.update-config` | mutating | Set nexusd configuration keys |
 | [`POST /v1/providers/nexusd/actions/validate-config`](#op-nexusd-actions-validate-config) | `nexusd.actions.validate-config` | read-only | Validate the nexusd configuration file |
 | [`GET /v1/providers/nexusd/config`](#op-nexusd-config-list) | `nexusd.config.list` | read-only | List nexusd's configuration keys |
 | [`GET /v1/providers/nexusd/config/{name}`](#op-nexusd-config-get) | `nexusd.config.get` | read-only | Get a nexusd configuration key |
@@ -6577,7 +6578,7 @@ Reload the nexusd configuration.
 - Risk: mutating
 - Long-running: yes: answers 202 with an operation to poll
 
-Re-reads and applies nexusd's configuration file, as SIGHUP does, serialized with SIGHUP. An invalid file is refused with 422 config-invalid and its errors, and no operation is created. Side effects: the new configuration is applied, all or nothing: if a provider refuses its section the operation fails with config-apply-failed and the configuration in force is unchanged. The result lists restartRequired, the top-level keys that take effect only after a restart. Long-running: answers 202 with an operation. Reload, restart, update and rollback share one lane: a second request while one is queued or running answers 409 naming the blocking operation. It can be canceled only while queued. Requires nexusd:admin, which is root-equivalent.
+Re-reads and applies nexusd's configuration file, as SIGHUP does, serialized with SIGHUP. An invalid file is refused with 422 config-invalid and its errors, and no operation is created. Side effects: the new configuration is applied, all or nothing: if a provider refuses its section the operation fails with config-apply-failed and the configuration in force is unchanged. The result lists restartRequired, the top-level keys that take effect only after a restart. Long-running: answers 202 with an operation. Reload, restart, update, rollback and config set share one lane: a second request while one is queued or running answers 409 naming the blocking operation. It can be canceled only while queued. Requires nexusd:admin, which is root-equivalent.
 
 Parameters:
 
@@ -6670,7 +6671,7 @@ Restart nexusd.
 - Risk: mutating
 - Long-running: yes: answers 202 with an operation to poll
 
-Restarts nexusd.service and checks its health: active, running the expected version, answering /healthz, and still so 5 seconds later, within providers.nexusd.healthTimeout. Side effects: the daemon stops and starts; the API is unreachable meanwhile. Unhealthy fails with restart-unhealthy, without rollback. Long-running: answers 202 with an operation. It runs in a systemd unit (systemd hosts only, not OpenRC) outside the sandbox, and the daemon that is running when the unit ends records the outcome. The CLI keeps reconnecting for up to 60 seconds while nexusd restarts. Restarting nexusd neither waits for nor cancels other operations: in-process operations of other providers end outcome-unknown, and detached operations survive. Reload, restart, update and rollback share one lane: a second request while one is queued or running answers 409 naming the blocking operation. It can be canceled only while queued. Requires nexusd:admin, which is root-equivalent.
+Restarts nexusd.service and checks its health: active, running the expected version, answering /healthz, and still so 5 seconds later, within providers.nexusd.healthTimeout. Side effects: the daemon stops and starts; the API is unreachable meanwhile. Unhealthy fails with restart-unhealthy, without rollback. Long-running: answers 202 with an operation. It runs in a systemd unit (systemd hosts only, not OpenRC) outside the sandbox, and the daemon that is running when the unit ends records the outcome. The CLI keeps reconnecting for up to 60 seconds while nexusd restarts. Restarting nexusd neither waits for nor cancels other operations: in-process operations of other providers end outcome-unknown, and detached operations survive. Reload, restart, update, rollback and config set share one lane: a second request while one is queued or running answers 409 naming the blocking operation. It can be canceled only while queued. Requires nexusd:admin, which is root-equivalent.
 
 Parameters:
 
@@ -6753,7 +6754,7 @@ Roll nexusd back to the previous binary.
 - Risk: destructive
 - Long-running: yes: answers 202 with an operation to poll
 
-Swaps nexusd with the rollback binary nexusd.prev, and the unit file with its saved copy when there is one, so a rollback can itself be rolled back. Refused with rollback-unavailable when there is no nexusd.prev, and with config-invalid when it rejects the current configuration. Side effects: the installed binary changes and nexusd restarts onto the previous version; if that is unhealthy the swap is undone and the operation fails with rollback-failed. Long-running: answers 202 with an operation. It runs in a systemd unit (systemd hosts only, not OpenRC) outside the sandbox, and the daemon that is running when the unit ends records the outcome. The CLI keeps reconnecting for up to 60 seconds while nexusd restarts. Restarting nexusd neither waits for nor cancels other operations: in-process operations of other providers end outcome-unknown, and detached operations survive. Reload, restart, update and rollback share one lane: a second request while one is queued or running answers 409 naming the blocking operation. It can be canceled only while queued. Requires nexusd:admin, which is root-equivalent.
+Swaps nexusd with the rollback binary nexusd.prev, and the unit file with its saved copy when there is one, so a rollback can itself be rolled back. Refused with rollback-unavailable when there is no nexusd.prev, and with config-invalid when it rejects the current configuration. Side effects: the installed binary changes and nexusd restarts onto the previous version; if that is unhealthy the swap is undone and the operation fails with rollback-failed. Long-running: answers 202 with an operation. It runs in a systemd unit (systemd hosts only, not OpenRC) outside the sandbox, and the daemon that is running when the unit ends records the outcome. The CLI keeps reconnecting for up to 60 seconds while nexusd restarts. Restarting nexusd neither waits for nor cancels other operations: in-process operations of other providers end outcome-unknown, and detached operations survive. Reload, restart, update, rollback and config set share one lane: a second request while one is queued or running answers 409 naming the blocking operation. It can be canceled only while queued. Requires nexusd:admin, which is root-equivalent.
 
 Parameters:
 
@@ -6840,7 +6841,7 @@ Update nexusd from a signed release.
 - Risk: mutating
 - Long-running: yes: answers 202 with an operation to poll
 
-Installs the release tarball staged as uploadId. Before any operation exists it is refused with update-not-configured (no trusted key), upload-not-found, update-signature-invalid, update-package-invalid, or 409 version-downgrade (an older version without allowDowngrade); the same version succeeds with changed false. Side effects: the current binary and unit file are saved as the rollback copy, the package's install.sh runs as root, and nexusd restarts once onto the new version. If install, restart or the health check fails, the previous binary is restored and the operation fails with update-failed and rolledBack true, or update-rollback-failed if the restore also fails. Long-running: answers 202 with an operation. It runs in a systemd unit (systemd hosts only, not OpenRC) outside the sandbox, and the daemon that is running when the unit ends records the outcome. The CLI keeps reconnecting for up to 60 seconds while nexusd restarts. Restarting nexusd neither waits for nor cancels other operations: in-process operations of other providers end outcome-unknown, and detached operations survive. Reload, restart, update and rollback share one lane: a second request while one is queued or running answers 409 naming the blocking operation. It can be canceled only while queued. Requires nexusd:admin, which is root-equivalent.
+Installs the release tarball staged as uploadId. Before any operation exists it is refused with update-not-configured (no trusted key), upload-not-found, update-signature-invalid, update-package-invalid, or 409 version-downgrade (an older version without allowDowngrade); the same version succeeds with changed false. Side effects: the current binary and unit file are saved as the rollback copy, the package's install.sh runs as root, and nexusd restarts once onto the new version. If install, restart or the health check fails, the previous binary is restored and the operation fails with update-failed and rolledBack true, or update-rollback-failed if the restore also fails. Long-running: answers 202 with an operation. It runs in a systemd unit (systemd hosts only, not OpenRC) outside the sandbox, and the daemon that is running when the unit ends records the outcome. The CLI keeps reconnecting for up to 60 seconds while nexusd restarts. Restarting nexusd neither waits for nor cancels other operations: in-process operations of other providers end outcome-unknown, and detached operations survive. Reload, restart, update, rollback and config set share one lane: a second request while one is queued or running answers 409 naming the blocking operation. It can be canceled only while queued. Requires nexusd:admin, which is root-equivalent.
 
 Parameters:
 
@@ -6926,6 +6927,217 @@ Response `202` (`application/json`):
             "previousVersion",
             "newVersion",
             "rolledBack"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Operation"
+    }
+  ]
+}
+```
+
+<a id="op-nexusd-actions-update-config"></a>
+
+### `POST /v1/providers/nexusd/actions/update-config`
+
+Set nexusd configuration keys.
+
+- Operation ID: `nexusd.actions.update-config`
+- Scope: Requires nexusd:admin.
+- Risk: mutating
+- Long-running: yes: answers 202 with an operation to poll
+
+Sets keys of nexusd's configuration file, each change a KEY=VALUE such as providers.host.enabled=true, where KEY is a dotted key of the configuration schema, and reloads it. Before any operation exists it is refused with 422 config-invalid and located errors when a key is unknown (naming the nearest valid parent), cannot be set remotely (release keys, providers.nexusd.enabled=false, the scripts catalog, and every key whose value names a file, directory or service), is a list or a mapping, or has a value of the wrong type, or when the edited file would be invalid; and with 503 config-set-unavailable on a host without systemd self-management, such as OpenRC. A set that changes nothing answers 200 with changed false and creates no operation. Side effects: the current file is saved as <config file>.bak, returned as backupPath, the edited file replaces it, and nexusd reloads it. It never restarts nexusd: restartRequired lists the changed keys that take effect only at the next restart, and a changed tls or auth key adds a warning that it may lock this client out then. If the reload refuses the new file, the backup is restored and the operation fails with config-apply-failed and restored true; if the restore is not confirmed either, it fails with config-restore-failed naming backupPath. Long-running: answers 202 with an operation. It runs in a systemd unit outside the sandbox, and the daemon records the outcome. Reload, restart, update, rollback and config set share one lane: a second request while one is queued or running answers 409 naming the blocking operation. It can be canceled only while queued. Requires nexusd:admin, which is root-equivalent.
+
+Parameters:
+
+| Name | In | Required | Schema | Description |
+| --- | --- | --- | --- | --- |
+| `Idempotency-Key` | header | no | `{"type":"string","maxLength":255}` | Makes a retry safe: a repeat with the same key and request returns the original operation, and the same key with a different request is refused with idempotency-key-reused. |
+
+Request body (`application/json`, required):
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 4616,
+        "pattern": "^[a-z][A-Za-z0-9]{0,63}(\\.[a-z][A-Za-z0-9]{0,63}){0,7}=[^\\x00-\\x1f\\x7f]*$"
+      },
+      "description": "Assignments KEY=VALUE, such as providers.host.enabled=true: KEY is a dotted key of the configuration schema.",
+      "minItems": 1,
+      "maxItems": 32
+    }
+  },
+  "required": [
+    "changes"
+  ],
+  "additionalProperties": false
+}
+```
+
+Responses:
+
+- `200`: Completed at admission: nothing needed an operation, so none was created. The body is the result.
+- `202`: Accepted: the operation was created, or an earlier one with the same Idempotency-Key is returned. Poll it at Location until its status is terminal. Headers: `Location`, `Retry-After`.
+- `400`: Problem: validation-failed.
+- `401`: Problem: unauthorized. Headers: `WWW-Authenticate`.
+- `403`: Problem: forbidden.
+- `404`: Problem: route-not-found.
+- `405`: Problem: method-not-allowed. Headers: `Allow`.
+- `409`: Problem: conflict.
+- `413`: Problem: payload-too-large.
+- `422`: Problem: idempotency-key-reused.
+- `429`: Problem: rate-limited. Headers: `Retry-After`.
+- `500`: Problem: internal-error.
+- `503`: Problem: audit-unavailable, capability-unavailable, dependency-unavailable.
+- `507`: Problem: storage-limit-reached.
+- `default`: Any other problem, such as one the provider reports, as problem details of a registered type.
+
+Response `200` (`application/json`):
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "changed": {
+      "type": "boolean"
+    },
+    "warnings": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "changes": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "old": true,
+          "new": true
+        },
+        "required": [
+          "key",
+          "old",
+          "new"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "restartRequired": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "backupPath": {
+      "type": "string"
+    },
+    "restored": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "changed",
+    "changes",
+    "restartRequired",
+    "restored"
+  ],
+  "additionalProperties": false
+}
+```
+
+Response `202` (`application/json`):
+
+```json
+{
+  "properties": {
+    "result": {
+      "description": "The op's output once the operation has Succeeded; null until then.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "changed": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "changes": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "old": true,
+                  "new": true
+                },
+                "required": [
+                  "key",
+                  "old",
+                  "new"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "restartRequired": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "backupPath": {
+              "type": "string"
+            },
+            "restored": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "changed",
+            "changes",
+            "restartRequired",
+            "restored"
           ],
           "additionalProperties": false
         },
@@ -7306,6 +7518,21 @@ Response `200` (`application/json`):
                   "available"
                 ],
                 "additionalProperties": false
+              },
+              "configSet": {
+                "type": "object",
+                "properties": {
+                  "available": {
+                    "type": "boolean"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "available"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -7316,7 +7543,8 @@ Response `200` (`application/json`):
               "executablePath",
               "previous",
               "updateConfigured",
-              "selfManagement"
+              "selfManagement",
+              "configSet"
             ],
             "additionalProperties": false
           }

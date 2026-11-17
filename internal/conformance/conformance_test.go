@@ -104,8 +104,10 @@ var catalogStubs = map[string]func(*testprovider.Spy) provider.Provider{
 			testprovider.InProcess(s, nginx.Update),
 		)
 	},
-	// reload is InProcess and restart, update and rollback Detached in the
-	// real provider; InProcess stubs both (testprovider.InProcess).
+	// reload is InProcess and restart, update, rollback and update-config
+	// Detached in the real provider; InProcess stubs both
+	// (testprovider.InProcess). update-config declares CompletesAtAdmission,
+	// which only provider.Detached requires an Admission hook for.
 	nexusd.Name: func(s *testprovider.Spy) provider.Provider {
 		return testprovider.NewStub(nexusd.Spec(),
 			testprovider.Sync(s, nexusd.List),
@@ -120,6 +122,7 @@ var catalogStubs = map[string]func(*testprovider.Spy) provider.Provider{
 			testprovider.Sync(s, nexusd.TokensRemove),
 			testprovider.Sync(s, nexusd.ConfigList),
 			testprovider.Sync(s, nexusd.ConfigGet),
+			testprovider.InProcess(s, nexusd.UpdateConfig),
 		)
 	},
 	pihole.Name: func(s *testprovider.Spy) provider.Provider {
@@ -1221,7 +1224,8 @@ func TestTCSM94_TheConformanceSuiteCoversNexusdThrough(t *testing.T) {
 		}
 	}
 	want := []string{nexusd.Reload.Op().ID, nexusd.Restart.Op().ID, nexusd.Update.Op().ID,
-		nexusd.Rollback.Op().ID, nexusd.Upload.Op().ID, nexusd.TokensAdd.Op().ID, nexusd.TokensRemove.Op().ID}
+		nexusd.Rollback.Op().ID, nexusd.Upload.Op().ID, nexusd.TokensAdd.Op().ID, nexusd.TokensRemove.Op().ID,
+		nexusd.UpdateConfig.Op().ID}
 	slices.Sort(mutating)
 	slices.Sort(want)
 	if !slices.Equal(mutating, want) {

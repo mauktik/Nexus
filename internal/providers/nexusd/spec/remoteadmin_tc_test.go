@@ -17,6 +17,7 @@ import (
 	"go/token"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -404,7 +405,145 @@ func TestTCRA61_TheConfigKeyNamePatternAcceptsEverySchemaKeyAnd(t *testing.T) {
 //   - Lane: the `LaneKey` doc mentions config set.
 //   - Catalog: one more golden row, and `catalogStubs` has a `testprovider.InProcess` entry (which has no Admission hook; only `provider.Detached` requires one).
 func TestTCRA67_TheConfigSetOpIsDeclaredAsTheCatalogTableStates(t *testing.T) {
-	t.Skip("TC-RA-67: SKIP-only stub; un-skip when WI 4.1 lands")
+	// Step 1: the declaration, right after nexusd.config.get.
+	ops := spec.Spec().Ops
+	get := slices.IndexFunc(ops, func(op def.Op) bool { return op.ID == "nexusd.config.get" })
+	at := slices.IndexFunc(ops, func(op def.Op) bool { return op.ID == "nexusd.actions.update-config" })
+	if at < 0 || get < 0 {
+		t.Fatalf("Spec() has no nexusd.actions.update-config (%d) or nexusd.config.get (%d)", at, get)
+	}
+	if at != get+1 {
+		t.Errorf("update-config is op %d of Spec(), want %d (after nexusd.config.get)", at, get+1)
+	}
+	op := ops[at]
+	if op.ID != spec.UpdateConfig.Op().ID {
+		t.Errorf("spec.UpdateConfig is %s", spec.UpdateConfig.Op().ID)
+	}
+	method, path, err := openapi.Route(op)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := method + " " + path; got != "POST /v1/providers/nexusd/actions/update-config" {
+		t.Errorf("route %q", got)
+	}
+	if op.Kind != def.KindProviderAction || op.Action != "update-config" || op.ResourceType != "" ||
+		op.Risk != def.RiskMutating || !op.Mutating() || op.Mode != def.ModeLongRunning ||
+		op.Cancel != def.CancelQueuedOnly || !op.CompletesAtAdmission || op.SyncMutation || op.Audited ||
+		op.Scope != (def.Scope{Name: spec.AdminScope}) || op.MCP != nil {
+		t.Errorf("declaration %+v; want a mutating long-running provider action update-config, cancelable "+
+			"while queued, CompletesAtAdmission, scope nexusd:admin, no MCP", op)
+	}
+	if want := (def.CLIBinding{Noun: "nexusdconfig", Verb: "update", Variadic: "changes", EchoWarnings: true}); op.CLI != want {
+		t.Errorf("CLI %+v, want %+v", op.CLI, want)
+	}
+
+	// Step 2: the generated input schema is changes alone, bounded.
+	r := schemaOf(t, op)
+	var props []string
+	for name := range r.Schema().Properties {
+		props = append(props, name)
+	}
+	if !slices.Equal(props, []string{"changes"}) {
+		t.Errorf("input properties %q, want only changes (no baseSha256)", props)
+	}
+	ch := r.Schema().Properties["changes"]
+	if ch == nil || ch.MinItems == nil || *ch.MinItems != 1 || ch.MaxItems == nil ||
+		*ch.MaxItems != spec.MaxConfigChanges || ch.Items == nil || ch.Items.Pattern == "" ||
+		ch.Items.MaxLength == nil || *ch.Items.MaxLength != spec.MaxConfigValueBytes+520 {
+		t.Fatalf("changes schema %+v, want minItems 1, maxItems %d, an item pattern and item maxLength %d",
+			ch, spec.MaxConfigChanges, spec.MaxConfigValueBytes+520)
+	}
+	if spec.MaxConfigChanges != 32 {
+		t.Errorf("MaxConfigChanges = %d, want 32", spec.MaxConfigChanges)
+	}
+	if err := r.Validate(map[string]any{"changes": []any{"a=b"}, "baseSha256": "x"}); err == nil {
+		t.Error("an input carrying baseSha256 was accepted")
+	}
+
+	// Step 3: the baseline never reaches the wire.
+	b, err := json.Marshal(spec.ConfigUpdateInput{Changes: []string{"a=b"}, BaseSHA256: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != `{"changes":["a=b"]}` {
+		t.Errorf("ConfigUpdateInput JSON %s, want {\"changes\":[\"a=b\"]}", b)
+	}
+	if f, ok := reflect.TypeFor[spec.ConfigUpdateInput]().FieldByName("BaseSHA256"); !ok || f.Tag.Get("json") != "-" {
+		t.Errorf("BaseSHA256 field %+v, want json:\"-\"", f)
+	}
+
+	// The wire types.
+	if f, ok := reflect.TypeFor[spec.DaemonProperties]().FieldByName("ConfigSet"); !ok ||
+		f.Tag.Get("json") != "configSet" || f.Type != reflect.TypeFor[spec.Availability]() {
+		t.Errorf("DaemonProperties.ConfigSet %+v, want an Availability tagged configSet", f)
+	}
+	res, err := json.Marshal(spec.ConfigUpdateResult{
+		Changes: []spec.ConfigChange{{Key: "host.name", Old: "a", New: "b"}}, RestartRequired: []string{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(res), `{"changed":false,"changes":[{"key":"host.name","old":"a","new":"b"}],`+
+		`"restartRequired":[],"restored":false}`; got != want {
+		t.Errorf("ConfigUpdateResult JSON\n got %s\nwant %s", got, want)
+	}
+	if f, ok := reflect.TypeFor[spec.ConfigUpdateResult]().FieldByName("BackupPath"); !ok ||
+		f.Tag.Get("json") != "backupPath,omitempty" {
+		t.Errorf("ConfigUpdateResult.BackupPath %+v, want json backupPath,omitempty", f)
+	}
+	if op.OutputType() != reflect.TypeFor[spec.ConfigUpdateResult]() {
+		t.Errorf("output type %v, want spec.ConfigUpdateResult", op.OutputType())
+	}
+
+	// The description.
+	for _, s := range []string{"422 config-invalid", "unknown", "cannot be set remotely", "list or a mapping",
+		"wrong type", "config-set-unavailable", "OpenRC", "200 with changed false", "no operation",
+		"Side effects:", "never restarts", "restartRequired", "backupPath", ".bak", "config-apply-failed",
+		"restored true", "config-restore-failed", "Long-running", "nexusd:admin", "root-equivalent"} {
+		if !strings.Contains(op.Description, s) {
+			t.Errorf("description lacks %q", s)
+		}
+	}
+
+	// The lane: every lane op's description and the LaneKey doc name config set.
+	for _, lane := range []def.Op{spec.Reload.Op(), spec.Restart.Op(), spec.Update.Op(), spec.Rollback.Op(), op} {
+		if !strings.Contains(lane.Description, "rollback and config set share one lane") {
+			t.Errorf("%s: description does not say config set shares the lane", lane.ID)
+		}
+	}
+	if doc := laneKeyDoc(t); !strings.Contains(doc, "config set") {
+		t.Errorf("LaneKey doc %q does not mention config set", doc)
+	}
+	// The golden row and its count are TestCatalogMatchesGoldenTable's and
+	// TestTCHP104's (internal/catalog); the catalogStubs InProcess entry is
+	// TestTCSM94_TheConformanceSuiteCoversNexusdThrough's (every nexusd op
+	// is served).
+}
+
+// laneKeyDoc returns the doc comment of spec.LaneKey, read from spec.go.
+func laneKeyDoc(t *testing.T) string {
+	t.Helper()
+	f, err := parser.ParseFile(token.NewFileSet(), "spec.go", nil, parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range f.Decls {
+		g, ok := d.(*ast.GenDecl)
+		if !ok || g.Tok != token.CONST {
+			continue
+		}
+		for _, s := range g.Specs {
+			vs := s.(*ast.ValueSpec)
+			if len(vs.Names) == 1 && vs.Names[0].Name == "LaneKey" {
+				if vs.Doc != nil {
+					return vs.Doc.Text()
+				}
+				return g.Doc.Text()
+			}
+		}
+	}
+	t.Fatal("spec.go declares no LaneKey")
+	return ""
 }
 
 // TC-RA-68: The deny-list keys exist in the schema, and the table holds the FR-12 entries and every path-valued key. Owner WI 4.1. Requirements: FR-12, ASM-3, NFR-5.
@@ -422,7 +561,82 @@ func TestTCRA67_TheConfigSetOpIsDeclaredAsTheCatalogTableStates(t *testing.T) {
 //   - `listen` is not in the table. It is refused as a list (OOS-3, TC-RA-ERR28), by the user decision that `listen` is not settable remotely.
 //   - `spec.LockoutKeyPrefixes` is `["tls.", "auth."]`, with no `listen` entry.
 func TestTCRA68_TheDenyListKeysExistInTheSchemaAndTheTableHolds(t *testing.T) {
-	t.Skip("TC-RA-68: SKIP-only stub; un-skip when WI 4.1 lands")
+	const pathReason = "its value names a file, directory or service that nexus uses as root; it changes only by " +
+		"editing the file"
+	type entry struct {
+		key, value string
+		subtree    bool
+	}
+	want := []entry{
+		{"providers.nexusd.update.trustedKeys", "", false},
+		{"providers.nexusd.enabled", "false", false},
+		{"providers.scripts.catalog", "", true},
+	}
+	paths := []string{"tls.certFile", "tls.keyFile", "providers.docker.socket", "providers.docker.configDir",
+		"providers.nginx.includeDir", "providers.nginx.includeSuffix", "providers.nginx.disabledSuffix",
+		"providers.nginx.service", "providers.pihole.dnsFile"}
+	for _, k := range paths {
+		want = append(want, entry{k, "", false})
+	}
+	var got []entry
+	for i, d := range spec.ConfigDenyList {
+		got = append(got, entry{d.Key, d.Value, d.Subtree})
+		// Step 1: every key is in the schema, with a reason.
+		if _, err := config.LookupKey(d.Key); err != nil {
+			t.Errorf("deny-list key %s: %v", d.Key, err)
+		}
+		switch {
+		case strings.TrimSpace(d.Reason) == "":
+			t.Errorf("deny-list key %s has no reason", d.Key)
+		case i < 3 && d.Reason == pathReason:
+			t.Errorf("deny-list key %s has the path reason, want its own", d.Key)
+		case i >= 3 && d.Reason != pathReason:
+			t.Errorf("deny-list key %s reason %q, want the shared path reason %q", d.Key, d.Reason, pathReason)
+		}
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("ConfigDenyList\n got %+v\nwant %+v", got, want)
+	}
+
+	// Step 2: every string key of the schema is classified (A-13).
+	settable := []string{"host.name", "tls.mode"}
+	var remainder []string
+	strs := 0
+	for _, k := range config.LeafKeys() {
+		if k.Kind != config.KindString {
+			continue
+		}
+		strs++
+		denied := slices.ContainsFunc(spec.ConfigDenyList, func(d spec.ConfigDeny) bool {
+			return d.Value == "" && (d.Key == k.Path || d.Subtree && strings.HasPrefix(k.Path, d.Key+"."))
+		})
+		switch {
+		case denied:
+		case slices.Contains(settable, k.Path):
+			remainder = append(remainder, k.Path)
+		default:
+			t.Errorf("string key %s is neither on spec.ConfigDenyList nor a reviewed settable string: classify "+
+				"it (deny it if its value names a file, directory, suffix or service; A-13)", k.Path)
+		}
+	}
+	if !slices.Equal(remainder, settable) {
+		t.Errorf("settable string keys %q, want exactly %q", remainder, settable)
+	}
+	if strs != len(paths)+len(settable) {
+		t.Errorf("%d string keys in the schema, want %d (the nine denied and the two settable)", strs,
+			len(paths)+len(settable))
+	}
+
+	// listen is refused as a list (OOS-3), not by the deny-list.
+	if slices.ContainsFunc(spec.ConfigDenyList, func(d spec.ConfigDeny) bool { return d.Key == "listen" }) {
+		t.Error("listen is on the deny-list; it is refused as a list")
+	}
+	if k, err := config.LookupKey("listen"); err != nil || k.Kind != config.KindList {
+		t.Errorf("LookupKey(listen) = %+v, %v; want a list", k, err)
+	}
+	if !slices.Equal(spec.LockoutKeyPrefixes, []string{"tls.", "auth."}) {
+		t.Errorf("LockoutKeyPrefixes %q, want [tls. auth.]", spec.LockoutKeyPrefixes)
+	}
 }
 
 // TC-RA-E7: The expires pattern accepts the local command's forms and bounds its length. Owner WI 2.2. Requirements: FR-1, NFR-5.
@@ -488,5 +702,54 @@ func TestTCRAE7_TheExpiresPatternAcceptsTheLocalCommandSFormsAnd(t *testing.T) {
 //   - Accepted: `providers.host.enabled=true`, `host.name=` (the empty value is allowed by the pattern), 32 items, and the 4096-byte value.
 //   - Rejected: `=x`, `Providers.x=1`, the control character, `[]`, 33 items, and the item over `maxLength`.
 func TestTCRAE17_TheChangesItemPatternAndCountBounds(t *testing.T) {
-	t.Skip("TC-RA-E17: SKIP-only stub; un-skip when WI 4.1 lands")
+	r := schemaOf(t, spec.UpdateConfig.Op())
+	items := func(n int) []any {
+		out := make([]any, n)
+		for i := range out {
+			out[i] = "host.name=h" + strconv.Itoa(i)
+		}
+		return out
+	}
+	maxLen := spec.MaxConfigValueBytes + 520
+	// The longest key the pattern takes: 8 segments of 64 characters.
+	longKey := strings.TrimSuffix(strings.Repeat("a"+strings.Repeat("b", 63)+".", 8), ".")
+	if n := len(longKey) + 1 + spec.MaxConfigValueBytes; n != maxLen {
+		t.Fatalf("the longest key, = and a %d-byte value are %d characters, want maxLength %d",
+			spec.MaxConfigValueBytes, n, maxLen)
+	}
+	over := "host.name=" + strings.Repeat("a", maxLen-len("host.name=")+1)
+	if len(over) != maxLen+1 {
+		t.Fatalf("fixture over maxLength has %d characters", len(over))
+	}
+	for _, c := range []struct {
+		name    string
+		changes []any
+		ok      bool
+	}{
+		{"a boolean", []any{"providers.host.enabled=true"}, true},
+		{"an empty value", []any{"host.name="}, true},
+		{"32 items", items(32), true},
+		{"a 4096-byte value", []any{"host.name=" + strings.Repeat("a", spec.MaxConfigValueBytes)}, true},
+		{"the longest key and value", []any{longKey + "=" + strings.Repeat("a", spec.MaxConfigValueBytes)}, true},
+		{"no key", []any{"=x"}, false},
+		{"an uppercase first letter", []any{"Providers.x=1"}, false},
+		{"a control character", []any{"a.b=c\u0001"}, false},
+		{"a newline", []any{"a.b=c\n"}, false},
+		{"DEL", []any{"a.b=c\u007f"}, false},
+		{"no =", []any{"host.name"}, false},
+		{"no items", []any{}, false},
+		{"33 items", items(33), false},
+		{"over maxLength", []any{over}, false},
+	} {
+		if err := r.Validate(map[string]any{"changes": c.changes}); (err == nil) != c.ok {
+			t.Errorf("%s: error %v, want accepted %t", c.name, err, c.ok)
+		}
+	}
+	if err := r.Validate(map[string]any{}); err == nil {
+		t.Error("an input without changes was accepted")
+	}
+	// null would reach admission as no assignments, past minItems.
+	if err := r.Validate(map[string]any{"changes": nil}); err == nil {
+		t.Error("changes null was accepted")
+	}
 }
