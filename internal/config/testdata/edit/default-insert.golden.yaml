@@ -1,0 +1,166 @@
+# nexusd configuration. Install as /etc/nexus/nexusd.yaml, owned by root:root
+# with mode 0600: running as root, nexusd refuses the file if any group or
+# other permission bit is set, because script env values can be secrets.
+# install.sh writes this file there only when no config exists, and never
+# changes an existing one.
+#
+# Every key is listed with its default. Unknown keys are errors.
+# Check a change with: nexusd validate-config --config /etc/nexus/nexusd.yaml
+
+host:
+  name: "" # Empty means the OS hostname
+# Loopback only. Exposing nexusd on the LAN is an explicit choice.
+listen: ["127.0.0.1:7443"]
+# auto generates a self-signed ECDSA P-256 certificate on first start, in
+# /var/lib/nexus/tls/ (mode 0600), and logs its SHA-256 fingerprint for client
+# pinning; `nexusd tls fingerprint` prints it again. files serves certFile and
+# keyFile. off serves plain HTTP and is refused unless every listen address is
+# a loopback IP such as 127.0.0.1 or [::1]; 0.0.0.0 and [::] are not, and
+# there is no override. TLS 1.2 is the minimum version.
+tls:
+  mode: auto # auto | files | off
+  certFile: "" # Required in files mode, rejected otherwise
+  keyFile: "" # Required in files mode, rejected otherwise
+  extraSANs: [] # Extra names or IPs for the generated certificate
+limits:
+  maxBodyBytes: 1048576
+  storageBudgetBytes: 1073741824
+  outputCapBytes: 10485760
+auth:
+  failureLimitPerMinute: 10 # Authentication failures per source
+audit:
+  retentionDays: 90
+mcp:
+  allowedOrigins: []
+providers:
+  # Existing containers on this host's Docker Engine, through its local Unix
+  # socket only (API version negotiated): a TCP address or URL is refused,
+  # and the socket is never exposed. Every Engine call is bounded at 30s, so
+  # an Engine that is down or hung makes only this provider answer
+  # dependency-unavailable; nexusd recovers when it returns, with no restart.
+  docker:
+    enabled: false
+    socket: /run/docker.sock # Absolute path of the Engine's Unix socket
+    configDir: /root/.docker # Registry credentials: only `auths` in config.json is read
+    updateHealthTimeout: 60s # How long an updated container may take to become healthy
+    updateMaxRuntime: 1h # Bound on one container update
+    # A Compose update runs docker compose as root on the project's files, so
+    # by default the working directory, every directory above it, the -f and
+    # --env-file files and .env must be root-owned with no other writer.
+    # trustedOwners lets the users named here own them too, for example a
+    # project in /home/deploy/stacks/app. Each name must exist on the host;
+    # listing root changes nothing. Group write is still allowed only when
+    # the group holds no one but root and that path's owner, a named ACL
+    # writer must be root or that owner, and a world-writable directory
+    # (sticky or not) is still refused. A user listed here is trusted as
+    # root: whoever can write a project that root runs is root-equivalent,
+    # as is any member of the docker group. See docs/security.md.
+    compose:
+      trustedOwners: [] # User names, e.g. [deploy]
+  # Packages through the fixed binaries /usr/bin/apt-get, apt-cache,
+  # dpkg-query and dpkg, in the C locale, never prompting. Reads list
+  # installed and upgradable packages and show one package; refresh runs
+  # apt-get update in its own systemd unit, queued behind any other apt
+  # operation. Needs apt, dpkg and systemd; without them the provider reports
+  # unavailable and the rest of nexusd is unaffected. The upgradable list is
+  # cached until the dpkg status, the package indexes, the apt sources or
+  # preferences change. Capabilities report whether a reboot is required,
+  # from /var/run/reboot-required: unknown when nothing on the host writes it.
+  apt:
+    enabled: false
+    lockWait: 300s # How long a mutation waits for the dpkg lock
+    maxRuntime: 6h # Bound on one apt operation, after which it reports outcome-unknown
+  # DNS names served by a Pi-hole v5 on this host. Nexus owns one dnsmasq
+  # file, dnsFile, and never edits Pi-hole's own files. dnsFile must be an
+  # absolute path directly in /etc/dnsmasq.d, with a name dnsmasq loads (not
+  # starting with ".", ending with "~", or both starting and ending with "#"),
+  # and not one Pi-hole manages: 01-pihole.conf, 02-pihole-dhcp.conf,
+  # 04-pihole-static-dhcp.conf, 05-pihole-custom-cname.conf or 06-rfc6761.conf.
+  pihole:
+    enabled: false
+    dnsFile: /etc/dnsmasq.d/03-custom-dns-names.conf # The dnsmasq file Nexus owns
+  # The script catalog. Scripts are defined only here: no API, MCP or CLI call
+  # can add, change or remove one. Reads return every field except env values,
+  # which are listed by name only. A reload (SIGHUP) swaps the whole catalog;
+  # a running script keeps the definition it started with.
+  #
+  # Required per entry: id (letters, digits, ".", "_" and "-", at most 64,
+  # starting with a letter or digit), description, path (absolute), runAs and
+  # workingDirectory (absolute). Defaults: timeout 1h, concurrency 1,
+  # terminationGrace 30s (between SIGTERM and SIGKILL on cancel or timeout).
+  # A string parameter requires a pattern. sensitive: true requires env and
+  # forbids arg, because argv is visible in /proc. A parameter with neither
+  # arg nor env is positional, in declared order. Scripts run only under
+  # systemd; without it the provider reports unavailable.
+  scripts:
+    enabled: false
+    catalog: []
+    # Example entry:
+    # catalog:
+    #   - id: deploy-api
+    #     description: Pull main and redeploy the API container
+    #     path: /opt/deploy/deploy-api.sh
+    #     runAs: deploy
+    #     workingDirectory: /opt/deploy
+    #     timeout: 1h
+    #     concurrency: 1
+    #     terminationGrace: 30s
+    #     env: {PATH: "/home/deploy/.local/bin:/usr/local/bin:/usr/bin:/bin"}
+    #     parameters:
+    #       - {name: branch, type: string, pattern: '^[A-Za-z0-9._/][A-Za-z0-9._/-]*$', arg: "--branch"}
+    #       - {name: apiKey, type: string, pattern: '^[A-Za-z0-9]+$', sensitive: true, env: API_KEY}
+  # nginx through its init-system service (systemd or OpenRC) and the site
+  # files in one include directory. nexusd does not read nginx.conf: it must
+  # already contain an include of that directory with the suffix glob,
+  #   include <includeDir>/*<includeSuffix>;
+  # which with the defaults is `include /etc/nginx/http.d/*.conf;` on Alpine
+  # and `include /etc/nginx/conf.d/*.conf;` on Debian and Ubuntu. A site NAME
+  # is the file <includeDir>/NAME<includeSuffix>; disabling it renames it to
+  # NAME<includeSuffix><disabledSuffix>, which that glob does not match. For
+  # example, on Alpine site example.com is /etc/nginx/http.d/example.com.conf,
+  # and /etc/nginx/http.d/example.com.conf.disabled when disabled. Needs the
+  # nginx binary at /usr/sbin/nginx and the service known to the init system;
+  # without them the provider reports unavailable.
+  nginx:
+    enabled: false # Off until enabled here
+    includeDir: "" # Absolute; empty means /etc/nginx/http.d on Alpine, /etc/nginx/conf.d elsewhere
+    includeSuffix: .conf # Suffix the include glob matches: a dot then letters or digits
+    disabledSuffix: .disabled # Appended to disable a site: a dot then letters or digits, not ending in includeSuffix
+    service: nginx # Service name: nginx.service on systemd, /etc/init.d/nginx on OpenRC
+    testTimeout: 30s # Bound on one nginx -t config test
+    stateTimeout: 30s # How long start, stop or restart may take to reach the commanded state
+    reloadVerifyTimeout: 15s # How long nginx may take to show it loaded the new configuration after a reload
+    maxConfigBytes: 262144 # Largest site file read or written (256 KiB); at most limits.maxBodyBytes
+  # nexusd itself: get and validate-config read it (nexusd:read); reload,
+  # restart, update and rollback change it and require nexusd:admin, which is
+  # root-equivalent. Restart, update and rollback run in a systemd unit
+  # outside the sandbox and need nexusd running as nexusd.service: systemd
+  # hosts only, not OpenRC.
+  nexusd:
+    enabled: false
+    healthTimeout: 30s # 5s..10m: how long a restarted nexusd may take to become healthy
+    update:
+      maxUploadBytes: 67108864 # 1 MiB..256 MiB: largest release tarball accepted for update
+      # The Ed25519 public keys a release's .sig must verify under: the
+      # standard base64 of each raw 32-byte key. Empty means update is refused
+      # with update-not-configured. On the machine that builds releases,
+      # `make release-key` creates the signing key (kept off this host) and
+      # prints the line to put here, for example
+      #   trustedKeys: ["<base64>"]
+      # Keys change only by editing this file: no API, MCP or CLI call can add
+      # or remove one. To rotate, list the old and new keys, then remove the
+      # old one. A malformed or duplicate key is an error.
+      trustedKeys: []
+  # A read-only overview of this host: identity, CPU, memory, filesystems,
+  # block devices, network and health flags, read from /proc, /sys, statfs
+  # and a few fixed commands. It changes nothing on the host. While enabled,
+  # one sampler reads the host's counters every sampleInterval to compute
+  # usage, rates and a metrics history; disabled, no sampler runs. The
+  # history is in memory only, so it is lost on restart and starts empty at
+  # each enable. Reads need host:read. Linux only; elsewhere the provider
+  # reports unavailable.
+  host:
+    enabled: false # Off until enabled here
+    sampleInterval: 10s # 2s..60s: how often the sampler reads the host
+    historyDuration: 1h # sampleInterval..24h: how far back the in-memory history goes
+    sourceTimeout: 2s

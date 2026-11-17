@@ -202,7 +202,7 @@ type Script struct {
 	Timeout          time.Duration     `yaml:"timeout"`
 	Concurrency      int               `yaml:"concurrency"`
 	TerminationGrace time.Duration     `yaml:"terminationGrace"`
-	Env              map[string]string `yaml:"env"` // Values can be secrets
+	Env              map[string]string `yaml:"env" sensitive:"true"` // Values can be secrets
 	Parameters       []Parameter       `yaml:"parameters"`
 }
 
@@ -316,14 +316,30 @@ func Load(path string) (*Config, error) {
 func load(path string, euid int) (*Config, error) {
 	data, err := readChecked(path, euid)
 	if err != nil {
-		return nil, ErrorList{{File: path, Msg: err.Error()}}
+		return nil, err
 	}
 	return Parse(data, path)
 }
 
-// readChecked opens the file once and checks the opened descriptor, so the
+// ReadFile reads the file at path with Load's ownership and mode check, and
+// returns its bytes for Parse, Edit or Inspect. Load is ReadFile then Parse.
+// A failure is an ErrorList naming the file.
+func ReadFile(path string) ([]byte, error) {
+	return readChecked(path, os.Geteuid())
+}
+
+// readChecked is ReadFile with the effective uid injected, for tests.
+func readChecked(path string, euid int) ([]byte, error) {
+	data, err := readOpened(path, euid)
+	if err != nil {
+		return nil, ErrorList{{File: path, Msg: err.Error()}}
+	}
+	return data, nil
+}
+
+// readOpened opens the file once and checks the opened descriptor, so the
 // mode that is checked belongs to the bytes that are read.
-func readChecked(path string, euid int) (data []byte, err error) {
+func readOpened(path string, euid int) (data []byte, err error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("cannot read configuration: %w", unwrapPath(err))
