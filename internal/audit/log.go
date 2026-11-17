@@ -53,6 +53,10 @@ const (
 	// OutcomeStored is an upload whose body was stored. It follows the
 	// upload's requested record and names it in RequestID.
 	OutcomeStored = "stored"
+	// OutcomeCompleted is a SyncMutation or Audited call that succeeded. It
+	// follows the call's requested record, names it in RequestID, and
+	// carries the call's audit facts.
+	OutcomeCompleted = "completed"
 )
 
 // Redacted replaces the value of every sensitive path.

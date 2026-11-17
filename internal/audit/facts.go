@@ -13,7 +13,7 @@ import (
 const (
 	MaxFactKeyBytes   = 64
 	MaxFactValueBytes = 256
-	MaxFacts          = 32
+	MaxFacts          = 64 // A-22: a 32-assignment config set records every old value plus backupPath
 )
 
 type factsKey struct{}

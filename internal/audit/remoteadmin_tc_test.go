@@ -1,26 +1,48 @@
-// Stub-style: SKIP-only (nexusd-remote-admin)
-//
-// Stubs of planning/nexusd-remote-admin/test-cases.md TC-RA-12.
-// Owner WIs: 1.3. Each stub compiles today and skips; the developer of
-// the owning work item replaces the skip and the comment with the test,
-// keeping the function name so that grep TestTCRA traces it. An
-// un-skipped passing test is the GREEN signal
-// (planning/nexusd-remote-admin/test-strategy.md, RED Stub Style).
+// Tests of planning/nexusd-remote-admin/test-cases.md TC-RA-12 (WI 1.3).
 
 package audit_test
 
-import "testing"
+import (
+	"context"
+	"fmt"
+	"strings"
+	"testing"
 
-// TC-RA-12: OutcomeCompleted exists and MaxFacts is 64, enforced through the constant. Owner WI 1.3. Requirements: FR-13, NFR-5.
-//
-//   - Setup: A context from `audit.WithFacts`.
-//   - Steps:
-//     1. Add `audit.MaxFacts + 1` distinct facts `k0..kN`.
-//     2. Read `audit.Facts(ctx)`.
-//   - Expected:
-//   - `audit.OutcomeCompleted == "completed"` and `audit.MaxFacts == 64`.
-//   - Exactly `audit.MaxFacts` facts are kept, with `kN` dropped.
-//   - A key of `MaxFactKeyBytes + 1` bytes and a value of `MaxFactValueBytes + 1` bytes are truncated or refused, as the existing bound does.
+	"github.com/mauktik/nexus/internal/audit"
+)
+
+// TC-RA-12 (FR-13, NFR-5): OutcomeCompleted exists and MaxFacts is 64,
+// enforced through the constant.
 func TestTCRA12_OutcomeCompletedExistsAndMaxFactsIs64Enforced(t *testing.T) {
-	t.Skip("TC-RA-12: SKIP-only stub; un-skip when WI 1.3 lands")
+	if audit.OutcomeCompleted != "completed" {
+		t.Errorf("OutcomeCompleted = %q, want completed", audit.OutcomeCompleted)
+	}
+	if audit.MaxFacts != 64 {
+		t.Errorf("MaxFacts = %d, want 64", audit.MaxFacts)
+	}
+
+	ctx := audit.WithFacts(context.Background())
+	last := fmt.Sprintf("k%d", audit.MaxFacts)
+	for i := range audit.MaxFacts + 1 {
+		audit.AddFact(ctx, fmt.Sprintf("k%d", i), "v")
+	}
+	got := audit.Facts(ctx)
+	if len(got) != audit.MaxFacts {
+		t.Fatalf("%d facts kept after %d distinct adds, want %d", len(got), audit.MaxFacts+1, audit.MaxFacts)
+	}
+	if _, ok := got[last]; ok {
+		t.Fatalf("fact %s past the bound was kept", last)
+	}
+	if _, ok := got["k0"]; !ok {
+		t.Fatal("fact k0 within the bound was dropped")
+	}
+
+	ctx = audit.WithFacts(context.Background())
+	audit.AddFact(ctx, strings.Repeat("k", audit.MaxFactKeyBytes+1), strings.Repeat("v", audit.MaxFactValueBytes+1))
+	for k, v := range audit.Facts(ctx) {
+		if len(k) != audit.MaxFactKeyBytes || len(v) != audit.MaxFactValueBytes {
+			t.Fatalf("stored key %d bytes, value %d bytes; want %d and %d",
+				len(k), len(v), audit.MaxFactKeyBytes, audit.MaxFactValueBytes)
+		}
+	}
 }

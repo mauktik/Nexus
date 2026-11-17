@@ -120,18 +120,22 @@ type InvokeResult struct {
 // FromTarget op), capability, input validation, then the handler with panic
 // containment (Data Flow). Long-running ops continue with idempotency, the
 // storage check (the limit flag of internal/storage, through
-// Options.StorageCheck), Admit and lanes. Only a new mutation meets the
-// storage check: reads, replays, read-risk requests, whatIf and cancel
-// continue at the limit (A-68).
+// Options.StorageCheck), Admit (or a detached binding's Admission hook) and
+// lanes. Only a new long-running mutation or upload meets the storage
+// check: reads, replays, read-risk requests, whatIf, cancel and SyncMutation
+// ops continue at the limit (A-68).
 //
 // It writes the audit records of these steps (FR-24): denied for every
-// failed authentication or scope check, refused for a mutating request any
-// later step refuses, and requested, durably, before a sync mutating
-// handler runs, and stored once an upload's body is stored. Requested,
-// refused and stored records carry the audit facts provider code added to
-// the call's context (FR-16). A failed requested write refuses the call with
-// audit-unavailable; a failed denied or refused write changes nothing,
-// because nothing executes, and is logged.
+// failed authentication or scope check, refused for an audited request
+// (mutating, or a read declaring def.Op.Audited) any later step refuses,
+// requested, durably, before an audited sync handler runs, completed once a
+// SyncMutation or Audited handler, or an Admission hook that answered Done,
+// succeeded, and stored once an upload's body is stored. Requested,
+// refused, completed and stored records carry the audit facts provider code
+// added to the call's context (FR-16). A failed requested write refuses the
+// call with audit-unavailable; a failed denied, refused, completed or stored
+// write changes nothing, because the response is already decided, and is
+// logged.
 type Dispatcher struct {
 	reg        *Registry
 	log        *slog.Logger
@@ -195,14 +199,15 @@ func (d *Dispatcher) Invoke(ctx context.Context, req InvokeRequest) (InvokeResul
 		return InvokeResult{}, d.refuse(ctx, op, req, perr)
 	}
 	// The collector exists before any provider code runs (Admit, Receive or
-	// a handler); the requested, refused and stored records of this call
-	// carry what it collected so far (FR-16). Reads write no records, so
-	// their facts go nowhere.
+	// a handler); the requested, refused, completed and stored records of
+	// this call carry what it collected so far (FR-16). Reads that are not
+	// Audited write no records, so their facts go nowhere.
 	ctx = audit.WithFacts(ctx)
 
 	b := e.Binding
+	var requestID string
 	if k := b.Kind(); k == provider.BindSync || k == provider.BindStream {
-		if _, perr := d.requested(ctx, op, req); perr != nil {
+		if requestID, perr = d.requested(ctx, op, req); perr != nil {
 			return InvokeResult{}, perr
 		}
 	}
@@ -213,10 +218,15 @@ func (d *Dispatcher) Invoke(ctx context.Context, req InvokeRequest) (InvokeResul
 	case provider.BindSync:
 		out, err := d.callSync(ctx, b, in)
 		if err != nil {
-			// A mutating sync op (system.operations.cancel) that refuses
-			// after its request record, such as not-cancelable, is audited
-			// refused.
-			return InvokeResult{}, d.refuse(ctx, op, req, d.sanitize(ctx, op, err))
+			// An audited sync op (system.operations.cancel, a SyncMutation or
+			// an Audited read) that refuses after its requested record, such
+			// as not-cancelable, is audited refused, naming that record.
+			return InvokeResult{}, d.refuseAfter(ctx, op, req, d.sanitize(ctx, op, err), requestID)
+		}
+		if op.SyncMutation || op.Audited {
+			// The output reaches only the response body: it is never
+			// persisted, replayed or logged (CON-3).
+			d.completed(ctx, op, req, requestID)
 		}
 		return InvokeResult{Status: 200, Body: out}, nil
 	case provider.BindStream:
@@ -230,12 +240,12 @@ func (d *Dispatcher) Invoke(ctx context.Context, req InvokeRequest) (InvokeResul
 		return d.upload(ctx, op, req, b, in)
 	}
 	if funcs, ok := b.InProcess(); ok && d.ops != nil {
-		return d.longRunning(ctx, op, e.Provider, req, in, funcs.Admit, funcs.Lane, ops.Work{
+		return d.longRunning(ctx, op, e.Provider, req, in, admission{admit: funcs.Admit}, funcs.Lane, ops.Work{
 			Run: func(ctx context.Context, r *provider.Run) (any, error) { return funcs.Run(ctx, in, r) },
 		})
 	}
 	if funcs, ok := b.Detached(); ok && d.ops != nil {
-		return d.longRunning(ctx, op, e.Provider, req, in, funcs.Admit, funcs.Lane, ops.Work{
+		return d.longRunning(ctx, op, e.Provider, req, in, admission{admit: funcs.Admit, hook: funcs.Admission}, funcs.Lane, ops.Work{
 			Detached: &ops.DetachedWork{In: in, Decode: b.Decode, Funcs: funcs},
 		})
 	}
@@ -323,10 +333,11 @@ func (d *Dispatcher) noteLimited(req InvokeRequest, rec systemspec.AuditRecord) 
 	}
 }
 
-// refuse records a mutating call refused after authorization and returns
+// refuse records an audited call refused after authorization and returns
 // perr. A validation failure is recorded with the failing field paths and
 // no parameter values, because unvalidated input cannot be redacted
-// reliably. Reads, and what-if requests, are not audited (Data Flow).
+// reliably. Reads that are not Audited, and what-if requests, are not
+// audited (Data Flow).
 func (d *Dispatcher) refuse(ctx context.Context, op def.Op, req InvokeRequest, perr *problem.Error) *problem.Error {
 	return d.refuseAfter(ctx, op, req, perr, "")
 }
@@ -353,7 +364,7 @@ func (d *Dispatcher) refuseAfter(ctx context.Context, op def.Op, req InvokeReque
 	return perr
 }
 
-// requested durably records a validated mutating call before its handler
+// requested durably records a validated audited call before its handler
 // runs, and returns the record's id. When the record cannot be written the
 // call is refused with audit-unavailable: the audit log fails closed
 // (FR-24). This write is also the audit-health check: it is the only way a
@@ -376,6 +387,18 @@ func (d *Dispatcher) requested(ctx context.Context, op def.Op, req InvokeRequest
 		return "", unavailable
 	}
 	return id, nil
+}
+
+// completed records the success of a SyncMutation or Audited call, or of a
+// long-running call its Admission hook answered (D-7). It names the call's
+// requested record and carries the facts collected so far, never the
+// output. The response is already decided, so a failed write is only
+// logged, and the audit log marks itself unhealthy, as for an upload's
+// stored record.
+func (d *Dispatcher) completed(ctx context.Context, op def.Op, req InvokeRequest, requestID string) {
+	rec := d.record(op, req, audit.OutcomeCompleted, "")
+	rec.RequestID, rec.Facts = requestID, audit.Facts(ctx)
+	d.note(rec, nil)
 }
 
 // params is a call's input as recorded: validated, and redacted by the
@@ -419,10 +442,10 @@ func (d *Dispatcher) record(op def.Op, req InvokeRequest, outcome string, slug p
 }
 
 // audited reports whether a call writes requested and refused records:
-// mutating ops, except a what-if request, which mutates nothing (Data
-// Flow, read-risk requests).
+// mutating ops and reads declaring def.Op.Audited, except a what-if
+// request, which mutates nothing (Data Flow, read-risk requests).
 func audited(op def.Op, req InvokeRequest) bool {
-	if !op.Mutating() {
+	if !op.Mutating() && !op.Audited {
 		return false
 	}
 	if op.WhatIf {
@@ -595,6 +618,12 @@ func (d *Dispatcher) validate(op def.Op, b provider.Binding, req InvokeRequest) 
 		if s, _ := obj[f].(string); s != req.Target {
 			return nil, invalidInput(problem.FieldError{Path: pointer(f), Message: "differs from the target the request addressed"})
 		}
+	}
+	if op.SyncMutation && req.IdempotencyKey != "" {
+		// A SyncMutation stores nothing, so it has nothing to replay
+		// (CON-3): a key would promise a retry it cannot honor.
+		return nil, invalidInput(problem.FieldError{Path: "",
+			Message: "Idempotency-Key is not supported by this operation: it answers once and is never replayed"})
 	}
 	in, err := b.Decode(raw)
 	if err != nil {
@@ -854,13 +883,24 @@ func tooLarge(maxBytes int64) *problem.Error {
 // maxIdempotencyKeyLen bounds an Idempotency-Key, which is stored hashed.
 const maxIdempotencyKeyLen = 255
 
-// longRunning is Data Flow steps 4 to 11 for an in-process op, after
+// admission is step 6 of longRunning: the binding's Admit, or the
+// Admission hook of a detached binding that has one, in its place (D-7).
+type admission struct {
+	admit func(ctx context.Context, in any) error
+	hook  func(ctx context.Context, in any) (done bool, out any, next any, err error)
+}
+
+// longRunning is Data Flow steps 4 to 11 for a long-running op, after
 // authorization, capability and validation:
 //
 //  4. idempotency lookup: a hit replays or refuses the reuse, ahead of the
 //     storage check and Admit;
 //  5. storage check;
-//  6. Admit;
+//  6. Admit, or the Admission hook: an answer that is not Done hands Prepare
+//     its input; a Done answer (only from an op declaring
+//     CompletesAtAdmission) still passes steps 7 and 8, then writes
+//     requested and completed and answers 200 with no operation, Prepare
+//     or stored key;
 //  7. lane resolution, then the lane's mutex, under which run
 //  8. the idempotency re-check and the lane conflict check,
 //  9. the requested record, and
@@ -872,7 +912,7 @@ const maxIdempotencyKeyLen = 255
 // skips the storage check, ignores its key, and writes no requested,
 // refused or replayed record; scope, Admit and lane rules still apply.
 func (d *Dispatcher) longRunning(ctx context.Context, op def.Op, prov string, req InvokeRequest, in any,
-	admit func(context.Context, any) error, laneOf func(context.Context, any) (provider.Lane, error),
+	admit admission, laneOf func(context.Context, any) (provider.Lane, error),
 	work ops.Work) (InvokeResult, error) {
 	readRisk := !audited(op, req)
 	key := req.IdempotencyKey
@@ -898,7 +938,23 @@ func (d *Dispatcher) longRunning(ctx context.Context, op def.Op, prov string, re
 		}
 	}
 	// Step 6.
-	if err := d.provide(op, func() error { return admit(ctx, in) }); err != nil {
+	var done bool
+	var out any
+	if admit.hook != nil {
+		var next any
+		if err := d.provide(op, func() (err error) { done, out, next, err = admit.hook(ctx, in); return err }); err != nil {
+			return InvokeResult{}, d.refuse(ctx, op, req, d.sanitize(ctx, op, err))
+		}
+		if done && !op.CompletesAtAdmission {
+			d.log.Error("admission answered done for an op that does not declare CompletesAtAdmission", "op", op.ID)
+			return InvokeResult{}, d.refuse(ctx, op, req, problem.New(problem.InternalError, genericDetail))
+		}
+		if !done && work.Detached != nil {
+			// The request hash, the record's input and the requested params
+			// keep using the original request.
+			work.Detached.In = next
+		}
+	} else if err := d.provide(op, func() error { return admit.admit(ctx, in) }); err != nil {
 		return InvokeResult{}, d.refuse(ctx, op, req, d.sanitize(ctx, op, err))
 	}
 	// Step 7.
@@ -923,6 +979,13 @@ func (d *Dispatcher) longRunning(ctx context.Context, op def.Op, prov string, re
 	requestID, perr := d.requested(ctx, op, req)
 	if perr != nil {
 		return InvokeResult{}, perr
+	}
+	if done {
+		// Completed at admission (D-7): no record, so nothing is stored for
+		// the Idempotency-Key and a retry runs the hook again (A-36).
+		d.completed(ctx, op, req, requestID)
+		adm.Release()
+		return InvokeResult{Status: 200, Body: out}, nil
 	}
 	// Step 10.
 	rec, perr := d.newRecord(op, prov, req)

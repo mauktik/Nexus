@@ -107,12 +107,28 @@ type InProcessSpec[In, Out any] struct {
 	Run   func(context.Context, In, *Run) (Out, error)
 }
 
+// Admitted is what an Admission hook decided.
+type Admitted[In, Out any] struct {
+	// Done ends the call now with Out (200): no operation record, lane
+	// hold, Prepare or unit. Only an op declaring def.Op.CompletesAtAdmission
+	// may answer Done; the Dispatcher refuses it from any other op.
+	Done bool
+	Out  Out
+	// In is the input Prepare runs on when !Done. Fields tagged json:"-"
+	// carry what admission derived; they are never persisted.
+	In In
+}
+
 // DetachedSpec is a long-running operation that runs in a systemd transient
 // unit outside nexusd, so it survives a crash or restart of the daemon
 // (FR-6).
 type DetachedSpec[In, Out any] struct {
 	Admit func(context.Context, In) error         // Optional synchronous pre-checks; return a *problem.Error
 	Lane  func(context.Context, In) (Lane, error) // Optional; nil means NoLane. Runs once, at admission
+	// Admission replaces Admit (setting both panics in Detached). It runs at
+	// Admit's step, before the lane; an error refuses the call as Admit's
+	// does. Required for an op declaring def.Op.CompletesAtAdmission (D-7).
+	Admission func(context.Context, In) (Admitted[In, Out], error)
 	// Prepare builds the process spec and captures any pre-state. Its
 	// context is canceled by a cancel of the queued operation. Required.
 	Prepare func(context.Context, In, *Run) (detach.Spec, error)
@@ -152,6 +168,9 @@ type DetachedFuncs struct {
 	Prepare    func(ctx context.Context, in any, r *Run) (detach.Spec, error)
 	Finalize   func(ctx context.Context, in any, x detach.Exit, r *Run) (any, error)
 	LostDetail func(r *Run, in any) string // Empty when the spec has none
+	// Admission is the spec's Admission hook: done with out, or the input
+	// next that Prepare runs on. Nil when the spec has none.
+	Admission func(ctx context.Context, in any) (done bool, out any, next any, err error)
 }
 
 // UploadBody is the raw request body of a KindUpload call.
@@ -344,6 +363,12 @@ func Detached[In, Out any](op def.Typed[In, Out], s DetachedSpec[In, Out]) Bindi
 	if s.Prepare == nil || s.Finalize == nil {
 		panic(fmt.Sprintf("provider: op %q: DetachedSpec needs Prepare and Finalize", d.ID))
 	}
+	if s.Admit != nil && s.Admission != nil {
+		panic(fmt.Sprintf("provider: op %q: DetachedSpec sets both Admit and Admission; Admission replaces Admit", d.ID))
+	}
+	if d.CompletesAtAdmission && s.Admission == nil {
+		panic(fmt.Sprintf("provider: op %q: declares CompletesAtAdmission, so DetachedSpec needs Admission", d.ID))
+	}
 	funcs := &DetachedFuncs{
 		Admit: func(ctx context.Context, in any) error {
 			v, err := typedInput[In](d, in)
@@ -386,6 +411,22 @@ func Detached[In, Out any](op def.Typed[In, Out], s DetachedSpec[In, Out]) Bindi
 			}
 			return s.LostDetail(r, v)
 		},
+	}
+	if s.Admission != nil {
+		funcs.Admission = func(ctx context.Context, in any) (bool, any, any, error) {
+			v, err := typedInput[In](d, in)
+			if err != nil {
+				return false, nil, nil, err
+			}
+			a, err := s.Admission(ctx, v)
+			if err != nil {
+				return false, nil, nil, err
+			}
+			if a.Done {
+				return true, a.Out, nil, nil
+			}
+			return false, nil, a.In, nil
+		}
 	}
 	return Binding{op: d, kind: BindDetached, decode: decoder[In](), detached: funcs}
 }

@@ -118,7 +118,7 @@ Parameters:
 | Name | In | Required | Schema | Description |
 | --- | --- | --- | --- | --- |
 | `cursor` | query | no | `{"type":"string","maxLength":512,"pattern":"^[A-Za-z0-9_-]*$"}` | Opaque cursor from a previous page's nextCursor. |
-| `filter` | query | no | `{"type":"array","items":{"type":"string","maxLength":256,"pattern":"^(after\|before\|tokenName\|provider\|action\|outcome)=[^\\x00-\\x1f]*$"}}` | Repeatable key=value filter; an undeclared key is refused. Keys: after (Only records after this RFC 3339 time); before (Only records before this RFC 3339 time); tokenName (Name of the token that made the request); provider (Provider of the requested action); action (Operation ID of the requested action); outcome (Record outcome, such as requested, denied, refused, replayed or stored). |
+| `filter` | query | no | `{"type":"array","items":{"type":"string","maxLength":256,"pattern":"^(after\|before\|tokenName\|provider\|action\|outcome)=[^\\x00-\\x1f]*$"}}` | Repeatable key=value filter; an undeclared key is refused. Keys: after (Only records after this RFC 3339 time); before (Only records before this RFC 3339 time); tokenName (Name of the token that made the request); provider (Provider of the requested action); action (Operation ID of the requested action); outcome (Record outcome, such as requested, denied, refused, replayed, stored or completed). |
 | `limit` | query | no | `{"type":"integer","minimum":1,"maximum":1000}` | Page size: default 100, maximum 1000. |
 
 Responses:
@@ -13507,11 +13507,39 @@ Response `202` (`application/json`):
 ```json
 {
   "properties": {
+    "backupPath": {
+      "type": "string"
+    },
+    "restored": {
+      "type": "string"
+    },
     "type": {
       "const": "urn:nexus:problem:config-apply-failed"
     }
   },
   "title": "Configuration apply failed",
+  "description": "Appears only inside a failed operation's error.",
+  "required": [
+    "type"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.config-conflict
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "urn:nexus:problem:config-conflict"
+    }
+  },
+  "title": "Configuration conflict",
   "description": "Appears only inside a failed operation's error.",
   "required": [
     "type"
@@ -13572,6 +13600,62 @@ Response `202` (`application/json`):
     }
   },
   "title": "Configuration invalid",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.config-restore-failed
+
+```json
+{
+  "properties": {
+    "backupPath": {
+      "type": "string"
+    },
+    "type": {
+      "const": "urn:nexus:problem:config-restore-failed"
+    }
+  },
+  "title": "Configuration restore failed",
+  "description": "Appears only inside a failed operation's error.",
+  "required": [
+    "type"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.config-set-unavailable
+
+```json
+{
+  "properties": {
+    "provider": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "status": {
+      "const": 503
+    },
+    "type": {
+      "const": "urn:nexus:problem:config-set-unavailable"
+    }
+  },
+  "title": "Configuration set unavailable",
   "required": [
     "type",
     "status"
@@ -14668,6 +14752,34 @@ Response `202` (`application/json`):
     }
   },
   "title": "Storage limit reached",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.token-limit-reached
+
+```json
+{
+  "properties": {
+    "maxTokens": {
+      "type": "string"
+    },
+    "status": {
+      "const": 409
+    },
+    "type": {
+      "const": "urn:nexus:problem:token-limit-reached"
+    }
+  },
+  "title": "Token limit reached",
   "required": [
     "type",
     "status"

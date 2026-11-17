@@ -71,7 +71,9 @@ type AuditRecord struct {
 	Target    string          `json:"target"`
 	Params    json.RawMessage `json:"params,omitempty"`
 	// Outcome is requested, denied, refused, replayed, stored (an upload
-	// whose body was stored), or an operation state for a state change.
+	// whose body was stored), completed (a SyncMutation or Audited call, or
+	// a long-running call that ended at admission, that succeeded), or an
+	// operation state for a state change.
 	Outcome string `json:"outcome"`
 	Problem string `json:"problem,omitempty"` // Problem slug of a refusal or denial
 	// InvalidFields are the failing input paths of a validation refusal.
@@ -79,8 +81,9 @@ type AuditRecord struct {
 	InvalidFields []string `json:"invalidFields,omitempty"`
 	OperationID   string   `json:"operationId,omitempty"`
 	// RequestID is the id of the requested record this record answers: on
-	// the replayed or refused record of a request that had already written
-	// one, and on the Queued record of the operation that request created.
+	// the replayed, refused, completed or stored record of a request that
+	// had already written one, and on the Queued record of the operation
+	// that request created.
 	// So no requested record stands alone (FR-24, Data Flow step 10).
 	RequestID string `json:"requestId,omitempty"`
 	Count     int    `json:"count,omitempty"` // Denials one aggregate stands for under rate limiting (A-47)
@@ -142,7 +145,7 @@ var (
 		{Key: "tokenName", Description: "Name of the token that made the request."},
 		{Key: "provider", Description: "Provider of the requested action."},
 		{Key: "action", Description: "Operation ID of the requested action."},
-		{Key: "outcome", Description: "Record outcome, such as requested, denied, refused, replayed or stored."},
+		{Key: "outcome", Description: "Record outcome, such as requested, denied, refused, replayed, stored or completed."},
 	}
 )
 

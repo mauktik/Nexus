@@ -89,19 +89,20 @@ func TestTCSM50_TheFactsCollectorIsBoundedIs(t *testing.T) {
 		t.Fatal("Facts returned the collector's own map")
 	}
 
-	// Steps 3 and 4: 50 concurrent adders, then the accessor; the count is
-	// bounded too.
+	// Steps 3 and 4: more concurrent adders than MaxFacts, then the
+	// accessor; the count is bounded too.
 	ctx = audit.WithFacts(bg)
+	adds := audit.MaxFacts + 18
 	var wg sync.WaitGroup
-	for i := range 50 {
+	for i := range adds {
 		wg.Go(func() {
-			audit.AddFact(ctx, fmt.Sprintf("key-%02d", i), "value")
+			audit.AddFact(ctx, fmt.Sprintf("key-%03d", i), "value")
 			_ = audit.Facts(ctx)
 		})
 	}
 	wg.Wait()
 	if n := len(audit.Facts(ctx)); n != audit.MaxFacts {
-		t.Fatalf("%d facts after 50 distinct adds, want the bound %d", n, audit.MaxFacts)
+		t.Fatalf("%d facts after %d distinct adds, want the bound %d", n, adds, audit.MaxFacts)
 	}
 	// Replacing an existing key is allowed at the bound.
 	for k := range audit.Facts(ctx) {
