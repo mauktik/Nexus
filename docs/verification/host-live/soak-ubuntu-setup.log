@@ -1,0 +1,44 @@
++ git rev-parse HEAD: fb475bcaf9523d61e4f98581f33b72db7ce2ae95
++ container nx-wi54-soak-ubuntu-20261115T071703Z, image nexus-harness:ubuntu-latest sha256:83fa6179ebc1573679c680af1f861fcb447b5c2254371dc59d4e00d080fbb465
++ system state: degraded
++ systemd 259 (259.9-0ubuntu0.1)
+Ubuntu 26.04.1 LTS
+aarch64
++ PID 1: /sbin/init 
++ docker cp /private/tmp/claude-501/-Users-devuser-Projects-Nexus/c1dff5bf-5d6a-47af-a04d-54d84132cd94/scratchpad/release nx-wi54-soak-ubuntu-20261115T071703Z:/harness-release
++ docker exec nx-wi54-soak-ubuntu-20261115T071703Z chown -R root:root /harness-release
++ docker exec nx-wi54-soak-ubuntu-20261115T071703Z sh /harness-release/nexusd/install.sh
+install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+/etc/nexus/nexusd.yaml: configuration is valid
+install.sh: next steps:
+install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+install.sh:   start nexusd: systemctl enable --now nexusd.service
++ docker cp /private/tmp/claude-501/-Users-devuser-Projects-Nexus/c1dff5bf-5d6a-47af-a04d-54d84132cd94/scratchpad/bin/nexus-linux nx-wi54-soak-ubuntu-20261115T071703Z:/usr/local/bin/nexus
++ docker exec nx-wi54-soak-ubuntu-20261115T071703Z sh -c chown root:root /usr/local/bin/nexus && chmod 0755 /usr/local/bin/nexus
++ docker exec nx-wi54-soak-ubuntu-20261115T071703Z sed -i /^  host:$/,/^  [a-z]/ s/^    enabled: false /    enabled: true  / /etc/nexus/nexusd.yaml
++ docker exec nx-wi54-soak-ubuntu-20261115T071703Z /usr/local/bin/nexusd validate-config
+/etc/nexus/nexusd.yaml: configuration is valid
++ docker exec nx-wi54-soak-ubuntu-20261115T071703Z sh -c grep -n -A4 '^  host:' /etc/nexus/nexusd.yaml; grep -n '^listen' /etc/nexus/nexusd.yaml
+174:  host:
+175-    enabled: true              # Off until enabled here
+176-    sampleInterval: 10s        # 2s..60s: how often the sampler reads the host
+177-    historyDuration: 1h        # sampleInterval..24h: how far back the in-memory history goes
+178-    sourceTimeout: 2s          # 250ms..5s: bound on one read of a file, statfs call or command
+14:listen: ["127.0.0.1:7443"]
++ docker exec nx-wi54-soak-ubuntu-20261115T071703Z systemctl enable --now nexusd
+Created symlink '/etc/systemd/system/multi-user.target.wants/nexusd.service' → '/etc/systemd/system/nexusd.service'.
++ docker exec nx-wi54-soak-ubuntu-20261115T071703Z systemctl show -p MainPID,ActiveState,NRestarts nexusd
+ActiveState=active
+MainPID=418
+NRestarts=0
++ docker exec nx-wi54-soak-ubuntu-20261115T071703Z sh -c sha256sum /etc/systemd/system/nexusd.service; ls /etc/systemd/system/nexusd.service.d 2>&1 || true
+5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a  /etc/systemd/system/nexusd.service
+ls: cannot access '/etc/systemd/system/nexusd.service.d': No such file or directory
++ healthz: {"status":"ok"}
+Created token "host-check" (id d5957ea7f6b9). It is shown only this once; store it now.
++ token created (name host-check, scope system:read; value in the scratchpad only, 61 bytes)
++ docker exec nx-wi54-soak-ubuntu-20261115T071703Z /usr/local/bin/nexusd tls fingerprint
+4E:38:B8:17:56:C8:99:A5:78:40:E0:6A:CC:85:D2:3A:ED:12:A5:2B:C9:51:B8:C2:1D:5D:D3:F2:93:CF:BC:17
++ container nx-wi54-soak-ubuntu-20261115T071703Z ready

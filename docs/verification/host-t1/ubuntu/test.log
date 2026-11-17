@@ -1,0 +1,346 @@
+=== RUN   TestTCHP114_EveryOpUnderTheExactHardenedUnit
+    hostprov_tc_test.go:878: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    hostprov_tc_test.go:878: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a, no drop-in; MainPID 2390
+    hostprov_tc_test.go:878: host sampler ready 2.111s after the start
+    hostprov_tc_test.go:879: identity hostname      "0bdcaa02ab07" = host's tools
+    hostprov_tc_test.go:879: identity os.id         "ubuntu" = host's tools
+    hostprov_tc_test.go:879: identity os.versionId  "26.04" = host's tools
+    hostprov_tc_test.go:879: identity os.prettyName "Ubuntu 26.04.1 LTS" = host's tools
+    hostprov_tc_test.go:879: identity kernelRelease "6.8.0-100-generic" = host's tools
+    hostprov_tc_test.go:879: identity architecture  "aarch64" = host's tools
+    hostprov_tc_test.go:879: cpu logicalCpus 4 = nproc
+    hostprov_tc_test.go:879: memory totalBytes 8308944896 = free -b
+    hostprov_tc_test.go:879: memory availableBytes 7278354432 within 1% of free -b's 7278731264 / 7278927872
+    hostprov_tc_test.go:879: filesystem /                        overlay  size 63088406528 = df; used 32652955648 in df's 32652947456..32652955648 ± 4096
+    hostprov_tc_test.go:879: filesystem /dev/shm                 tmpfs    size 67108864 = df; used 0 in df's 0..0 ± 4096
+    hostprov_tc_test.go:879: filesystem /run                     tmpfs    size 4154470400 = df; used 73728 in df's 69632..73728 ± 4096
+    hostprov_tc_test.go:879: filesystem /tmp                     tmpfs    size 4154474496 = df; used 4096 in df's 4096..4096 ± 4096
+    hostprov_tc_test.go:879: filesystem /var/lib/docker          ext4     size 63088406528 = df; used 32652955648 in df's 32652947456..32652955648 ± 4096
+    hostprov_tc_test.go:879: disk vda      size 21474836480 rotational true removable false = tools
+    hostprov_tc_test.go:879: disk vdb      size 64424509440 rotational true removable false = tools
+    hostprov_tc_test.go:879: disk vdc      size 55689216 rotational true removable false = tools
+    hostprov_tc_test.go:879: interface docker0      ["172.18.0.1/16"] = ip -j addr
+    hostprov_tc_test.go:879: interface eth0         ["172.17.0.2/16"] = ip -j addr
+    hostprov_tc_test.go:879: interface lo           ["127.0.0.1/8" "::1/128"] = ip -j addr
+    hostprov_tc_test.go:879: defaultGateways ["ipv4 172.17.0.1 eth0 0"] = ip -j route
+--- PASS: TestTCHP114_EveryOpUnderTheExactHardenedUnit (2.74s)
+=== RUN   TestTCHP115_EveryFieldIsPopulatedOrExplicitlyUnavailable
+    hostprov_tc_test.go:891: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    hostprov_tc_test.go:891: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a, no drop-in; MainPID 2641
+    hostprov_tc_test.go:891: host sampler ready 2.095s after the start
+    hostprov_tc_test.go:892: /harness/out/host-unavailable-systemd.txt: 15 unavailable fields (op, json path, reason):
+        host.summary.get	$.items[0].properties.cpu.model	not reported: no model name in /proc/cpuinfo
+        host.summary.get	$.items[0].properties.network.interfaces[0].ipv6	not reported: no IPv6 address
+        host.summary.get	$.items[0].properties.network.interfaces[1].ipv6	not reported: no IPv6 address
+        host.cpu.get	$.items[0].properties.frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+        host.cpu.get	$.items[0].properties.model	not reported: no model name in /proc/cpuinfo
+        host.cpu.get	$.items[0].properties.temperatures	not reported: no temperature sensors (common in VMs)
+        host.cpu.get	$.items[0].properties.perCpu[0].frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+        host.cpu.get	$.items[0].properties.perCpu[1].frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+        host.cpu.get	$.items[0].properties.perCpu[2].frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+        host.cpu.get	$.items[0].properties.perCpu[3].frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+        host.disks.list	$.items[0].properties.model	not reported: no /sys/block/vda/device/model
+        host.disks.list	$.items[1].properties.model	not reported: no /sys/block/vdb/device/model
+        host.disks.list	$.items[2].properties.model	not reported: no /sys/block/vdc/device/model
+        host.interfaces.list	$.items[0].properties.speedMbps	not reported: no link speed at /sys/class/net/docker0/speed
+        host.interfaces.list	$.items[2].properties.speedMbps	not reported: no link speed at /sys/class/net/lo/speed
+--- PASS: TestTCHP115_EveryFieldIsPopulatedOrExplicitlyUnavailable (2.66s)
+=== RUN   TestTCHP116_NoSandboxDenialCrashOrRestartDuring
+    hostprov_tc_test.go:901: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    hostprov_tc_test.go:901: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a, no drop-in; MainPID 2870
+    hostprov_tc_test.go:901: host sampler ready 2.08s after the start
+    hostprov_tc_test.go:902: identity hostname      "0bdcaa02ab07" = host's tools
+    hostprov_tc_test.go:902: identity os.id         "ubuntu" = host's tools
+    hostprov_tc_test.go:902: identity os.versionId  "26.04" = host's tools
+    hostprov_tc_test.go:902: identity os.prettyName "Ubuntu 26.04.1 LTS" = host's tools
+    hostprov_tc_test.go:902: identity kernelRelease "6.8.0-100-generic" = host's tools
+    hostprov_tc_test.go:902: identity architecture  "aarch64" = host's tools
+    hostprov_tc_test.go:902: cpu logicalCpus 4 = nproc
+    hostprov_tc_test.go:902: memory totalBytes 8308944896 = free -b
+    hostprov_tc_test.go:902: memory availableBytes 7280078848 within 1% of free -b's 7280336896 / 7275110400
+    hostprov_tc_test.go:902: filesystem /                        overlay  size 63088406528 = df; used 32652963840 in df's 32652963840..32652963840 ± 4096
+    hostprov_tc_test.go:902: filesystem /dev/shm                 tmpfs    size 67108864 = df; used 0 in df's 0..0 ± 4096
+    hostprov_tc_test.go:902: filesystem /run                     tmpfs    size 4154470400 = df; used 73728 in df's 73728..73728 ± 4096
+    hostprov_tc_test.go:902: filesystem /tmp                     tmpfs    size 4154474496 = df; used 4096 in df's 4096..4096 ± 4096
+    hostprov_tc_test.go:902: filesystem /var/lib/docker          ext4     size 63088406528 = df; used 32652963840 in df's 32652963840..32652963840 ± 4096
+    hostprov_tc_test.go:902: disk vda      size 21474836480 rotational true removable false = tools
+    hostprov_tc_test.go:902: disk vdb      size 64424509440 rotational true removable false = tools
+    hostprov_tc_test.go:902: disk vdc      size 55689216 rotational true removable false = tools
+    hostprov_tc_test.go:902: interface docker0      ["172.18.0.1/16"] = ip -j addr
+    hostprov_tc_test.go:902: interface eth0         ["172.17.0.2/16"] = ip -j addr
+    hostprov_tc_test.go:902: interface lo           ["127.0.0.1/8" "::1/128"] = ip -j addr
+    hostprov_tc_test.go:902: defaultGateways ["ipv4 172.17.0.1 eth0 0"] = ip -j route
+    hostprov_tc_test.go:917: nexusd.service map[ActiveState:active MainPID:2870 NRestarts:0 Result:success]; journal window 11 lines; 0 new kernel lines
+    hostprov_tc_test.go:936: window: Nov 15 06:13:14 0bdcaa02ab07 nexusd[2870]: {"time":"2026-11-15T06:13:14.293455884Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7443"]}
+    hostprov_tc_test.go:936: window: Nov 15 06:13:14 0bdcaa02ab07 nexusd[2870]: {"time":"2026-11-15T06:13:14.293554427Z","level":"INFO","msg":"starting background provider","provider":"host"}
+--- PASS: TestTCHP116_NoSandboxDenialCrashOrRestartDuring (6.70s)
+=== RUN   TestTCHP117_PID1SMountinfoIsReadableUnder
+    hostprov_tc_test.go:971: harness / propagation private; making it shared, as systemd does at boot on a host
+    hostprov_tc_test.go:983: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    hostprov_tc_test.go:983: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a, no drop-in; MainPID 3130
+    hostprov_tc_test.go:983: host sampler ready 2.013s after the start
+    hostprov_tc_test.go:1120: /proc/1/mountinfo: 304 248 0:46 / / rw,relatime shared:264 - overlay overlay rw,lowerdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/3042/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/2314/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/663/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/662/fs,upperdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/3043/fs,workdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/3043/work,nouserxattr
+    hostprov_tc_test.go:1120: /proc/3130/mountinfo: 370 279 0:46 / / ro,nosuid,relatime shared:290 master:264 - overlay overlay rw,lowerdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/3042/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/2314/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/663/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/662/fs,upperdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/3043/fs,workdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/3043/work,nouserxattr
+    hostprov_tc_test.go:984: nsenter -m -t 3130 stat -f /: <nil> "overlayfs 15402443 blocks of 4096"
+    hostprov_tc_test.go:997: step 1: 5 filesystems, readOnly read for each; / readOnly false; listed ["/" "/dev/shm" "/run" "/tmp" "/var/lib/docker"]
+    hostprov_tc_test.go:1034: host df -B1 /mnt/tc-hp:  27234304 155648 24735744 /mnt/tc-hp
+    hostprov_tc_test.go:1120: /proc/1/mountinfo: 282 304 7:0 / /mnt/tc-hp rw,relatime shared:382 - ext4 /dev/loop0 rw
+    hostprov_tc_test.go:1120: /proc/3130/mountinfo: 283 370 7:0 / /mnt/tc-hp rw,relatime shared:383 master:382 - ext4 /dev/loop0 rw
+    hostprov_tc_test.go:1037: nsenter -m -t 3130 stat -f /mnt/tc-hp: <nil> "ext2/ext3 6649 blocks of 4096"
+    hostprov_tc_test.go:1044: step 2: /mnt/tc-hp listed, ext4, sizeBytes 27234304 = df
+    hostprov_tc_test.go:1049: host df -B1 /tmp/tc-hp-hidden:  27234304 155648 24735744 /tmp/tc-hp-hidden
+    hostprov_tc_test.go:1081: step 3: /tmp/tc-hp-hidden {"mountPoint":"/tmp/tc-hp-hidden","source":"/dev/loop1","fsType":"ext4","sizeBytes":null,"usedBytes":null,"availableBytes":null,"usedPercent":null,"inodesTotal":null,"inodesUsed":null,"inodesFree":null,"readOnly":false,"unavailable":{"availableBytes":"not visible: /tmp/tc-hp-hidden is hidden in nexusd's mount namespace","inodesFree":"not visible: /tmp/tc-hp-hidden is hidden in nexusd's mount namespace","inodesTotal":"not visible: /tmp/tc-hp-hidden is hidden in nexusd's mount namespace","inodesUsed":"not visible: /tmp/tc-hp-hidden is hidden in nexusd's mount namespace","sizeBytes":"not visible: /tmp/tc-hp-hidden is hidden in nexusd's mount namespace","usedBytes":"not visible: /tmp/tc-hp-hidden is hidden in nexusd's mount namespace","usedPercent":"not visible: /tmp/tc-hp-hidden is hidden in nexusd's mount namespace"}}
+    hostprov_tc_test.go:1091: step 4: /proc/3130/mountinfo: mount ID 370 parent 279 maj:min 0:46 root / mount point /
+    hostprov_tc_test.go:1091: step 4: /proc/3130/mountinfo: mount ID 395 parent 370 maj:min 0:51 root / mount point /tmp
+    hostprov_tc_test.go:1091: step 4: /proc/3130/mountinfo: mount ID 410 parent 395 maj:min 0:51 root /systemd-private-a2e5b43d6ecf4b62bbdef26dfa9c7fcf-nexusd.service-jVW6kT/tmp mount point /tmp
+    hostprov_tc_test.go:1091: step 4: /proc/3130/mountinfo: mount ID 285 parent 395 maj:min 7:1 root / mount point /tmp/tc-hp-hidden
+    hostprov_tc_test.go:1096: step 4: nsenter -m -t 3130 stat -c %F /tmp/tc-hp-hidden: exit status 1 "stat: cannot statx '/tmp/tc-hp-hidden': No such file or directory" (ENOENT expected)
+    hostprov_tc_test.go:1102: step 5: in nexusd's namespace /tmp/tc-hp-hidden now exists: statfs tmpfs 1014276 blocks of 4096
+    hostprov_tc_test.go:1103: step 5: /tmp/tc-hp-hidden {"mountPoint":"/tmp/tc-hp-hidden","source":"/dev/loop1","fsType":"ext4","sizeBytes":null,"usedBytes":null,"availableBytes":null,"usedPercent":null,"inodesTotal":null,"inodesUsed":null,"inodesFree":null,"readOnly":false,"unavailable":{"availableBytes":"not visible: /tmp/tc-hp-hidden is hidden in nexusd's mount namespace","inodesFree":"not visible: /tmp/tc-hp-hidden is hidden in nexusd's mount namespace","inodesTotal":"not visible: /tmp/tc-hp-hidden is hidden in nexusd's mount namespace","inodesUsed":"not visible: /tmp/tc-hp-hidden is hidden in nexusd's mount namespace","sizeBytes":"not visible: /tmp/tc-hp-hidden is hidden in nexusd's mount namespace","usedBytes":"not visible: /tmp/tc-hp-hidden is hidden in nexusd's mount namespace","usedPercent":"not visible: /tmp/tc-hp-hidden is hidden in nexusd's mount namespace"}}
+--- PASS: TestTCHP117_PID1SMountinfoIsReadableUnder (2.60s)
+=== RUN   TestTCHP118_AFailedTransientUnitAppearsInFailedServices
+    hostprov_tc_test.go:1147: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    hostprov_tc_test.go:1147: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a, no drop-in; MainPID 3371
+    hostprov_tc_test.go:1147: host sampler ready 2.004s after the start
+    hostprov_tc_test.go:1151: systemd-run --unit nx-host-failed /bin/false: <nil> Running as unit: nx-host-failed.service; invocation ID: bd3ce386c5fb487cbb15e25bfafa3f46
+    hostprov_tc_test.go:1166: failedServices count 2 names ["nx-host-failed.service" "systemd-modules-load.service"] source systemd; systemctl --failed: ["nx-host-failed.service       loaded failed failed [systemd-run] /bin/false" "systemd-modules-load.service loaded failed failed Load Kernel Modules"]
+--- PASS: TestTCHP118_AFailedTransientUnitAppearsInFailedServices (2.65s)
+=== RUN   TestTCHP119_TheRebootRequiredMarkerDrivesRebootRequiredSystemd
+    hostprov_tc_test.go:1183: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    hostprov_tc_test.go:1183: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a, no drop-in; MainPID 3603
+    hostprov_tc_test.go:1183: host sampler ready 2.006s after the start
+    hostprov_tc_test.go:1220: marker present: rebootRequired {State:true Check:debian-reboot-required-marker Evidence:/var/run/reboot-required exists Packages:[linux-image-tc-hp] Unavailable:map[]}; apt capabilities rebootRequired true
+    hostprov_tc_test.go:1234: marker writer present: /usr/share/perl5/NeedRestart/UI/Ubuntu.pm
+    hostprov_tc_test.go:1239: marker removed: rebootRequired {State:false Check:debian-reboot-required-marker Evidence:/var/run/reboot-required is absent; marker writer installed: /usr/share/perl5/NeedRestart/UI/Ubuntu.pm Packages:[] Unavailable:map[]}; apt capabilities rebootRequired false; want false
+--- PASS: TestTCHP119_TheRebootRequiredMarkerDrivesRebootRequiredSystemd (2.55s)
+=== RUN   TestTCHP120_ACPUBurnerAppearsInTopByCpuSystemd
+    hostprov_tc_test.go:1251: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    hostprov_tc_test.go:1251: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a, no drop-in; MainPID 3832
+    hostprov_tc_test.go:1251: host sampler ready 2.077s after the start
+    hostprov_tc_test.go:1252: burner ["sh" "-c" "while :; do :; done"] PID 3873
+    hostprov_tc_test.go:1253: topByCpu after 3.939s: PID 3873 command "sh" uid 0 user "root" cpuPercent 99.6
+    hostprov_tc_test.go:1263: cpuPercent 99.6, ps -o pcpu= 99.7
+--- PASS: TestTCHP120_ACPUBurnerAppearsInTopByCpuSystemd (6.55s)
+=== RUN   TestTCHP121_DisableByReloadStopsTheProviderRe
+    hostprov_tc_test.go:1285: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    hostprov_tc_test.go:1285: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a, no drop-in; MainPID 4097
+    hostprov_tc_test.go:1285: host sampler ready 2.086s after the start
+    hostprov_tc_test.go:1296: setup: 3 history points since 2026-11-15 06:13:35.341 +0000 UTC
+    hostprov_tc_test.go:1312: disabled: host.summary.get       503 capability-unavailable: provider host is disabled
+    hostprov_tc_test.go:1312: disabled: host.identity.get      503 capability-unavailable: provider host is disabled
+    hostprov_tc_test.go:1312: disabled: host.cpu.get           503 capability-unavailable: provider host is disabled
+    hostprov_tc_test.go:1312: disabled: host.memory.get        503 capability-unavailable: provider host is disabled
+    hostprov_tc_test.go:1312: disabled: host.filesystems.list  503 capability-unavailable: provider host is disabled
+    hostprov_tc_test.go:1312: disabled: host.disks.list        503 capability-unavailable: provider host is disabled
+    hostprov_tc_test.go:1312: disabled: host.interfaces.list   503 capability-unavailable: provider host is disabled
+    hostprov_tc_test.go:1312: disabled: host.netconfig.get     503 capability-unavailable: provider host is disabled
+    hostprov_tc_test.go:1312: disabled: host.health.get        503 capability-unavailable: provider host is disabled
+    hostprov_tc_test.go:1312: disabled: host.metrics.get       503 capability-unavailable: provider host is disabled
+    hostprov_tc_test.go:1324: step 1: 1794723224.116802 0bdcaa02ab07 nexusd[4097]: {"time":"2026-11-15T06:13:44.11675484Z","level":"INFO","msg":"stopping background provider","provider":"host"}
+    hostprov_tc_test.go:1334: step 1: the sampler stopped 29ms after the reload
+    hostprov_tc_test.go:1361: step 2 (36ms after the reload): metrics points 1 historyStart 2026-11-15 06:13:44.167 +0000 UTC sampler {State:warming-up SampledAt:2026-11-15 06:13:44.167716813 +0000 UTC IntervalSeconds:<nil> AgeSeconds:0x1c190bdbd348 Unavailable:map[intervalSeconds:warming up]}; cpu sampler warming-up usagePercent <nil> ("warming up")
+    hostprov_tc_test.go:1378: step 2, 2 intervals later: metrics points 1 sampler ready; cpu ready usagePercent 0x1c190bcc8738
+--- PASS: TestTCHP121_DisableByReloadStopsTheProviderRe (13.35s)
+=== RUN   TestTCHP122_EveryOpUnderOpenRCAgreesWithBusyBox
+    hostprov_tc_test.go:1397: requires openrc (detected systemd)
+--- SKIP: TestTCHP122_EveryOpUnderOpenRCAgreesWithBusyBox (0.00s)
+=== RUN   TestTCHP123_ACrashedOpenRCServiceAppearsInFailedServices
+    hostprov_tc_test.go:1411: requires openrc (detected systemd)
+--- SKIP: TestTCHP123_ACrashedOpenRCServiceAppearsInFailedServices (0.00s)
+=== RUN   TestTCHP124_InTheAlpineContainerRebootRequiredIsUnknown
+    hostprov_tc_test.go:1459: requires openrc (detected systemd)
+--- SKIP: TestTCHP124_InTheAlpineContainerRebootRequiredIsUnknown (0.00s)
+=== RUN   TestTCHP125_TC182SweepsTheTenHostOps
+    install_test.go:818: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    install_test.go:835: project nxc182 in "/home/nx-tc182-compose": app labels {"com.docker.compose.config-hash":"c7a597af5bbfe4963691209f0885a7d9e4acedff2a5ba43eecff6f8e394354f6","com.docker.compose.container-number":"1","com.docker.compose.depends_on":"","com.docker.compose.image":"sha256:f8b2a839c4641d00138c38054499eebf732a3b25814427155c4fd5de97db7b63","com.docker.compose.oneoff":"False","com.docker.compose.project":"nxc182","com.docker.compose.project.config_files":"/home/nx-tc182-compose/compose.yaml","com.docker.compose.project.environment_file":"/home/nx-tc182-compose/nx.env","com.docker.compose.project.working_dir":"/home/nx-tc182-compose","com.docker.compose.service":"app","com.docker.compose.version":"2.40.3"}
+    install_test.go:839: project nxc182uh in "/home/deploy/nx-tc182-uh": app labels {"com.docker.compose.config-hash":"36831b087a5513f02b239d86ca4263194cc46b62107edc1f46a57cf94f811d96","com.docker.compose.container-number":"1","com.docker.compose.depends_on":"","com.docker.compose.image":"sha256:bb846368f8fb45c69e03eaedd4a93f6d397f6f9b1274ffc62e622c594048fe28","com.docker.compose.oneoff":"False","com.docker.compose.project":"nxc182uh","com.docker.compose.project.config_files":"/home/deploy/nx-tc182-uh/compose.yaml","com.docker.compose.project.environment_file":"/home/deploy/nx-tc182-uh/nx.env","com.docker.compose.project.working_dir":"/home/deploy/nx-tc182-uh","com.docker.compose.service":"app","com.docker.compose.version":"2.40.3"}
+    install_test.go:882: capabilities                 5 providers enabled (docker, apt, scripts, nginx, host)
+    install_test.go:896: docker.containers.list       8 containers, including tc182-lc tc182-upd nxc182-app-1
+    install_test.go:902: docker.containers.get        containerId acacc92061ab = docker inspect
+    install_test.go:907: docker.containers.logs       1 frames with the container's own line
+    install_test.go:908: stop tc182-lc: Succeeded in 296ms, result {"changed":true,"containerId":"acacc92061ab6ade7ad7835e59745e3b26e7b07298cc22234359ed651c552be9"}
+    install_test.go:912: docker.containers.stop       docker inspect Running=false
+    install_test.go:913: start tc182-lc: Succeeded in 73ms, result {"changed":true,"containerId":"acacc92061ab6ade7ad7835e59745e3b26e7b07298cc22234359ed651c552be9"}
+    install_test.go:918: docker.containers.start      docker inspect Running=true
+    install_test.go:919: restart tc182-lc: Succeeded in 308ms, result {"changed":true,"containerId":"acacc92061ab6ade7ad7835e59745e3b26e7b07298cc22234359ed651c552be9"}
+    install_test.go:923: docker.containers.restart    StartedAt moved on
+    install_test.go:928: docker.actions.check-updates tc182-upd and nxc182-app-1 updateAvailable
+    install_test.go:941: docker.containers.update     refused 422 compose-files-missing at /home/deploy (owned by deploy), no operation
+    install_test.go:942: update 01a1ddd7-51aa-775a-b257-3bae097cb83e: Succeeded in 2.535s, result {"changed":true,"containerId":"c2f0a620ce0f432d61ab56336a55df6725ac596b698c2726ec4d806b90ff81ab","previousContainerId":"f23f41f0c141f05c4ed6154db7c7377b3aad33a1ac4f0902725ef319ea6028f8","previousDigest":"sha256:066c5162a008dfc4ed587502d245a4beefad76bfaf547693ac96d8174b4c065e","newDigest":"sha256:960c1638a7299049ddd5348992e6682c2109dcecccf1df7a256d5d860d36f28c","rolledBack":false}
+    install_test.go:946: docker.containers.update     tc182-upd runs sha256:960c1638a729 (registry)
+    install_test.go:947: update 01a1ddd7-5c29-709e-94d1-415a0b3f8a4c: Succeeded in 2.848s, result {"changed":true,"containerId":"e8cf0c688e691cc20aecd19bbac4f0848b82ab4db917beddeb07fab98508ddd7","previousContainerId":"b961a9f24d4361703433c753b479926ffe195dfe8c943cb4925240fa6eebd67d","previousDigest":"sha256:f8b2a839c4641d00138c38054499eebf732a3b25814427155c4fd5de97db7b63","newDigest":"sha256:6d4b398ddde3fd4fc9aa92ebd715f5b87241c8f498851281a86e2783f93efcd9","rolledBack":false}
+    install_test.go:951: docker.containers.update     Compose service nxc182-app-1 (files in /home/nx-tc182-compose) runs sha256:6d4b398ddde3
+    install_test.go:969: update 01a1ddd7-69e0-72de-80f1-2b1dba757a03: Succeeded in 2.522s, result {"changed":true,"containerId":"d03ceadc802229678d50a32bb9688cbed9fe43c74599caa6dcb92b1322dff614","previousContainerId":"eb0ce5eaa352f8c78a403f10629d3ce0f9ee7807150f8670707c0368851ef2ad","previousDigest":"sha256:bb846368f8fb45c69e03eaedd4a93f6d397f6f9b1274ffc62e622c594048fe28","newDigest":"sha256:831db6ca837c8593df95dda2888f3188224c2a1fbbf2683bbd0dcfa9d50d1861","rolledBack":false}
+    install_test.go:973: docker.containers.update     trustedOwners [deploy]: Compose service nxc182uh-app-1 (deploy's files in /home/deploy/nx-tc182-uh) runs sha256:831db6ca837c
+    install_test.go:974: stop tc182-lc: Succeeded in 152ms, result {"changed":true,"containerId":"acacc92061ab6ade7ad7835e59745e3b26e7b07298cc22234359ed651c552be9"}
+    install_test.go:975: remove tc182-lc: Succeeded in 8ms, result {"changed":true,"containerId":"acacc92061ab6ade7ad7835e59745e3b26e7b07298cc22234359ed651c552be9","removedVolumes":[]}
+    install_test.go:979: docker.containers.remove     docker inspect: no such container
+    install_test.go:985: apt.actions.refresh          Succeeded
+    install_test.go:992: apt.packages.list            186 packages, nxplain 1.0 = dpkg-query
+    install_test.go:998: apt.packages.get             nxplain candidate 2.0
+    install_test.go:1003: apt.upgradable.list          1 upgradable, including nxplain
+    install_test.go:1008: apt.actions.upgrade          dpkg-query nxplain 2.0
+    install_test.go:1013: apt.actions.install          dpkg-query nxinst installed
+    install_test.go:1019: apt.actions.remove           dpkg-query knows nxinst: false
+    install_test.go:1031: scripts.scripts.list         ["tc182-hello" "tc182-wait"]
+    install_test.go:1037: scripts.scripts.get          path /home/deploy/nx-tc182/hello.sh
+    install_test.go:1038: invoked tc182-hello: operation 01a1ddd7-7bff-74ea-885b-e4edc43f518d, unit nexus-op-01a1ddd7-7bff-74ea-885b-e4edc43f518d.service
+    install_test.go:1042: scripts.scripts.invoke       Succeeded: hello from /home/deploy/nx-tc182 as deploy
+    install_test.go:1043: invoked tc182-wait: operation 01a1ddd7-7d9f-7478-960c-b20edbc5e763, unit nexus-op-01a1ddd7-7d9f-7478-960c-b20edbc5e763.service
+    install_test.go:1051: operations cancel            tc182-wait Canceled
+    install_test.go:1058: operations list/get/logs     15 operations
+    install_test.go:1061: nginx.service.list           running, mainPid 86 = /proc, version 1.28.3 = nginx -v as root, includeDir /etc/nginx/conf.d
+    install_test.go:1061: POST /v1/providers/nginx/actions/test: Succeeded in 397ms, result {"changed":false,"valid":true,"output":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n","outputTruncated":false}, error none
+    install_test.go:1061: nginx.actions.test           valid true for the stock configuration (nginx -t ran outside the sandbox)
+    install_test.go:1061: POST /v1/providers/nginx/actions/stop: Succeeded in 482ms, result {"changed":true,"state":"stopped","mainPid":null,"testOutput":""}, error none
+    install_test.go:1061: nginx.actions.stop           systemd says stopped, no master in /proc
+    install_test.go:1061: POST /v1/providers/nginx/actions/start: Succeeded in 463ms, result {"changed":true,"state":"running","mainPid":7987,"testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n"}, error none
+    install_test.go:1061: nginx.actions.start          systemd says running, master 7987
+    install_test.go:1061: POST /v1/providers/nginx/actions/restart: Succeeded in 422ms, result {"changed":true,"state":"running","mainPid":8039,"testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n"}, error none
+    install_test.go:1061: nginx.actions.restart        master 7987 -> 8039
+    install_test.go:1061: POST /v1/providers/nginx/actions/reload: Succeeded in 404ms, result {"changed":true,"state":"running","mainPid":8039,"testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n","reload":{"masterPid":8039,"oldWorkers":[8040,8041,8042,8043],"newWorkers":[8091,8092,8094,8095],"initExitCode":0,"verdict":"confirmed"}}, error none
+    install_test.go:1061: nginx.actions.reload         confirmed: master 8039, workers [8040 8041 8042 8043] -> [8091 8092 8094 8095]
+    install_test.go:1061: POST /v1/providers/nginx/sites/tc112/add: Succeeded in 375ms, result {"changed":true,"name":"tc112","fileName":"tc112.conf","sha256":"efa025fde21834a84dfe4fdbd827c41cd7fd8a477df191cec01a1fa57d5cbade","sizeBytes":268,"created":true,"enabled":true,"reloaded":true,"whatIf":false,"testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n","reload":{"masterPid":8039,"oldWorkers":[8091,8092,8094,8095],"newWorkers":[8135,8136,8137,8138],"initExitCode":0,"verdict":"confirmed"}}, error none
+    install_test.go:1061: curl :18092 -> nexus-tc112m1-0136f3a1
+    install_test.go:1061: nginx.sites.add              sha256sum efa025fde218; curl :18092 -> nexus-tc112m1-0136f3a1
+    install_test.go:1061: nginx.sites.list             1 sites, tc112 managed and enabled with the sha256sum
+    install_test.go:1061: nginx.sites.get              sha256 = sha256sum
+    install_test.go:1061: nginx.sites.content          content = the file's bytes, sha256 = sha256sum
+    install_test.go:1061: POST /v1/providers/nginx/sites/tc112/update: Succeeded in 445ms, result {"changed":true,"name":"tc112","fileName":"tc112.conf","sha256":"6d9a29742081722acc88ed17c5d3f049cc112241da97f6fb63a47e2f3a6b9253","sizeBytes":268,"created":false,"enabled":true,"reloaded":true,"whatIf":false,"testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n","previousSha256":"efa025fde21834a84dfe4fdbd827c41cd7fd8a477df191cec01a1fa57d5cbade","reload":{"masterPid":8039,"oldWorkers":[8135,8136,8137,8138],"newWorkers":[8185,8186,8187,8188],"initExitCode":0,"verdict":"confirmed"}}, error none
+    install_test.go:1061: curl :18092 -> nexus-tc112m2-0bfc4f8c
+    install_test.go:1061: nginx.sites.update           ifMatch: sha256sum 6d9a29742081; curl :18092 -> nexus-tc112m2-0bfc4f8c
+    install_test.go:1061: POST /v1/providers/nginx/sites/tc112/disable: Succeeded in 421ms, result {"changed":true,"name":"tc112","fileName":"tc112.conf.disabled","enabled":false,"reloaded":true,"testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n","reload":{"masterPid":8039,"oldWorkers":[8185,8186,8187,8188],"newWorkers":[8233,8234,8235,8236],"initExitCode":0,"verdict":"confirmed"}}, error none
+    install_test.go:1061: curl :18092 -> exit status 7: curl: (7) Failed to connect to 127.0.0.1 port 18092 after 0 ms: Could not connect to server
+    install_test.go:1061: nginx.sites.disable          tc112.conf.disabled on disk; curl :18092 refused
+    install_test.go:1061: POST /v1/providers/nginx/sites/tc112/enable: Succeeded in 387ms, result {"changed":true,"name":"tc112","fileName":"tc112.conf","enabled":true,"reloaded":true,"testOutput":"nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\n","reload":{"masterPid":8039,"oldWorkers":[8233,8234,8235,8236],"newWorkers":[8280,8281,8282,8283],"initExitCode":0,"verdict":"confirmed"}}, error none
+    install_test.go:1061: curl :18092 -> nexus-tc112m2-0bfc4f8c
+    install_test.go:1061: nginx.sites.enable           tc112.conf on disk; curl :18092 -> nexus-tc112m2-0bfc4f8c
+    install_test.go:1078: host.summary.get             200, 1 item(s)
+    install_test.go:1078: host.identity.get            200, 1 item(s)
+    install_test.go:1078: host.cpu.get                 200, 1 item(s)
+    install_test.go:1078: host.memory.get              200, 1 item(s)
+    install_test.go:1078: host.filesystems.list        200, 5 item(s)
+    install_test.go:1078: host.disks.list              200, 3 item(s)
+    install_test.go:1078: host.interfaces.list         200, 12 item(s)
+    install_test.go:1078: host.netconfig.get           200, 1 item(s)
+    install_test.go:1078: host.health.get              200, 1 item(s)
+    install_test.go:1078: host.metrics.get             200, 1 item(s)
+    install_test.go:1096: 42 of the catalog's 42 ops of docker, apt, scripts, nginx and host exercised
+    install_test.go:1118: 48 operations exercised; journal window 9 nexusd lines, 4170 new kernel lines; nexusd.service map[ActiveState:active MainPID:6285 NRestarts:0 Result:success]
+    install_test.go:1126: systemd-analyze verify /etc/systemd/system/nexusd.service: <nil> ""
+    install_test.go:1126: systemd-analyze security: → Overall exposure level for nexusd.service: 2.6 OK :-)
+    install_test.go:1126: 81 checks, 17 not met, each recorded in docs/security.md: ["SystemCallFilter=~@resources" "SystemCallFilter=~@privileged" "RootDirectory=/RootImage=" "User=/DynamicUser=" "PrivateDevices=" "CapabilityBoundingSet=~CAP_(DAC_*|FOWNER|IPC_OWNER)" "RestrictAddressFamilies=~AF_NETLINK" "RestrictAddressFamilies=~AF_UNIX" "RestrictAddressFamilies=~AF_(INET|INET6)" "ProtectHome=" "DeviceAllow=" "ProtectProc=" "ProcSubset=" "PrivateNetwork=" "PrivateUsers=" "IPAddressDeny=" "UMask="]
+    install_test.go:1126: installed unit [Service]: 27 lines; every WI 3.5 directive present or recorded
+    hostprov_tc_test.go:1497: TC-182 (run by TestTCHP125_TC182SweepsTheTenHostOps): 42 of 42 catalog ops exercised; host ops answered 200: ["host.summary.get" "host.identity.get" "host.cpu.get" "host.memory.get" "host.filesystems.list" "host.disks.list" "host.interfaces.list" "host.netconfig.get" "host.health.get" "host.metrics.get"]
+--- PASS: TestTCHP125_TC182SweepsTheTenHostOps (27.31s)
+=== RUN   TestTCHP126_IdentityReportsTheHarnessSInitSystem
+    hostprov_tc_test.go:1513: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    hostprov_tc_test.go:1513: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a, no drop-in; MainPID 8801
+    hostprov_tc_test.go:1513: host sampler ready 2.002s after the start
+    hostprov_tc_test.go:1520: identity initSystem systemd os.id ubuntu versionId 26.04; detectedInit systemd; os-release ID ubuntu; capabilities initSystem systemd os {ID:ubuntu VersionID:26.04 PrettyName:Ubuntu 26.04.1 LTS}
+--- PASS: TestTCHP126_IdentityReportsTheHarnessSInitSystem (2.55s)
+=== RUN   TestTCHP131_TheDocumentedSandboxUnavailableListMatchesWhat
+    hostprov_tc_test.go:1536: TC-HP-131: SKIP-only stub; un-skip when WI 5.4 lands
+--- SKIP: TestTCHP131_TheDocumentedSandboxUnavailableListMatchesWhat (0.00s)
+=== RUN   TestTCHPE28_ProcessesOfOtherUsersAreSampledUnder
+    hostprov_tc_test.go:1545: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    hostprov_tc_test.go:1545: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a, no drop-in; MainPID 9027
+    hostprov_tc_test.go:1545: host sampler ready 2.004s after the start
+    hostprov_tc_test.go:1546: burner ["setpriv" "--reuid=65534" "--regid=65534" "--clear-groups" "sh" "-c" "while :; do :; done"] PID 9067
+    hostprov_tc_test.go:1547: burner /proc/9067/status Uid: 0	0	0	0
+    hostprov_tc_test.go:1548: topByCpu after 4.043s: PID 9067 command "sh" uid 65534 user "nobody" cpuPercent 100.1
+--- PASS: TestTCHPE28_ProcessesOfOtherUsersAreSampledUnder (6.58s)
+=== RUN   TestTCHPE29_ClockSynchronizationUnderTheUnitMatchesTimedatectl
+    hostprov_tc_test.go:1562: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    hostprov_tc_test.go:1562: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a, no drop-in; MainPID 9291
+    hostprov_tc_test.go:1562: host sampler ready 2.011s after the start
+    hostprov_tc_test.go:1570: clock synchronized "true" source "kernel" reason ""; timedatectl NTPSynchronized "yes" (<nil>)
+--- PASS: TestTCHPE29_ClockSynchronizationUnderTheUnitMatchesTimedatectl (2.59s)
+=== RUN   TestEveryProviderOpUnderExactUnit
+    install_test.go:774: TC-182 ran in this process under TestTCHP125_TC182SweepsTheTenHostOps: 42 of 42 catalog ops, host ops ["host.summary.get" "host.identity.get" "host.cpu.get" "host.memory.get" "host.filesystems.list" "host.disks.list" "host.interfaces.list" "host.netconfig.get" "host.health.get" "host.metrics.get"]
+--- PASS: TestEveryProviderOpUnderExactUnit (0.00s)
+PASS

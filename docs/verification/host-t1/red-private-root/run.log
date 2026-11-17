@@ -1,0 +1,93 @@
+harness: docker context default, daemon architecture aarch64 -> GOARCH=arm64, BASE=ubuntu:latest, init systemd
+harness: building image nexus-harness:ubuntu-latest from test/harness/Dockerfile
+harness: building linux/arm64 test-only binaries into build/harness/
+harness: building the self-update fixtures (v9.9.1 v9.9.2 v9.9.3 v9.9.4 v9.9.5 v9.9.6 v9.9.7) into build/harness/selfupdate
+harness: per-run signing key build/harness/release-test.key, public key xfEYYiXCVQE/u/2TbLXNb9bk6sMqucrQkx5UvZqd25E=; untrusted key build/harness/release-untrusted.key
+harness: fixture v9.9.1: nexus-release: /Users/devuser/Projects/Nexus/build/harness/selfupdate/pkg/nexusd-v9.9.1-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.2: nexus-release: /Users/devuser/Projects/Nexus/build/harness/selfupdate/pkg/nexusd-v9.9.2-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.3: nexus-release: /Users/devuser/Projects/Nexus/build/harness/selfupdate/pkg/nexusd-v9.9.3-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.4: nexus-release: /Users/devuser/Projects/Nexus/build/harness/selfupdate/pkg/nexusd-v9.9.4-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.5: nexus-release: /Users/devuser/Projects/Nexus/build/harness/selfupdate/pkg/nexusd-v9.9.5-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.6: refused by the per-run key, as intended (signed by build/harness/release-untrusted.key)
+harness: fixture v9.9.7: nexus-release: /Users/devuser/Projects/Nexus/build/harness/selfupdate/pkg/nexusd-v9.9.7-linux-arm64.tar.gz: signature verified
+harness: starting container nexus-harness-20261115T060733Z-10857
+harness: mounts: volume:/var/lib/docker volume:/var/lib/containerd 
+harness: waiting for systemd (running or degraded)
+harness: system state: degraded
+harness: failed units: systemd-modules-load.service
+harness: required unit systemd-journald.service active
+harness: required unit dbus.service active
+harness: required unit docker.service active
+harness: versions: systemd 259 (259.9-0ubuntu0.1) apt 3.2.0 dpkg 1.23.7ubuntu1 nginx version: nginx/1.28.3 (Ubuntu) curl 8.18.0 (aarch64-unknown-linux-gnu) libcurl/8.18.0 OpenSSL/3.5.5 zlib/1.3.1 brotli/1.2.0 zstd/1.5.7 libidn2/2.3.8 libpsl/0.21.2 libssh2/1.11.1 nghttp2/1.68.0 librtmp/2.3 mit-krb5/1.22.1 OpenLDAP/2.6.10 Ubuntu 26.04.1 LTS
+harness: copying binaries, unit, lib.sh and fixtures in with docker cp
+harness: host signing key /Users/devuser/.config/nexus/release-signing.key unchanged (mtime 1794699338)
+harness: fixture file: total 204728
+harness: fixture file: -rw-r--r--  1 devuser  staff  14857915 Nov 14 22:07 nexusd-v9.9.1-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 14 22:07 nexusd-v9.9.1-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  14857918 Nov 14 22:07 nexusd-v9.9.2-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 14 22:07 nexusd-v9.9.2-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  14857910 Nov 14 22:07 nexusd-v9.9.3-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 14 22:07 nexusd-v9.9.3-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff    696142 Nov 14 22:07 nexusd-v9.9.4-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 14 22:07 nexusd-v9.9.4-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  29022674 Nov 14 22:07 nexusd-v9.9.5-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 14 22:07 nexusd-v9.9.5-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  14857908 Nov 14 22:07 nexusd-v9.9.6-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 14 22:07 nexusd-v9.9.6-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  14858077 Nov 14 22:07 nexusd-v9.9.7-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 14 22:07 nexusd-v9.9.7-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff        45 Nov 14 22:07 release-test.pub
+harness: copying the self-update fixtures into /harness/selfupdate
+harness: running tests
+=== RUN   TestTCHP117_PID1SMountinfoIsReadableUnder
+    hostprov_tc_test.go:958: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    hostprov_tc_test.go:958: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a, no drop-in; MainPID 491
+    hostprov_tc_test.go:958: host sampler ready 2.02s after the start
+    hostprov_tc_test.go:971: step 1: 5 filesystems, readOnly read for each; / readOnly false; listed ["/" "/dev/shm" "/run" "/tmp" "/var/lib/docker"]
+    hostprov_tc_test.go:1008: host df -B1 /mnt/tc-hp:  27234304 155648 24735744 /mnt/tc-hp
+    hostprov_tc_test.go:1094: /proc/1/mountinfo: 280 304 7:0 / /mnt/tc-hp rw,relatime - ext4 /dev/loop0 rw
+    hostprov_tc_test.go:1011: /proc/491/mountinfo: no line at /mnt/tc-hp or /mnt
+    hostprov_tc_test.go:1011: nsenter -m -t 491 stat -f /mnt/tc-hp: <nil> "overlayfs 15402443 blocks of 4096"
+    hostprov_tc_test.go:1016: step 2: /mnt/tc-hp {MountPoint:/mnt/tc-hp Source:/dev/loop0 FSType:ext4 SizeBytes:<nil> UsedBytes:<nil> AvailableBytes:<nil> UsedPercent:<nil> InodesTotal:<nil> InodesUsed:<nil> InodesFree:<nil> ReadOnly:0x6334271fd17c Unavailable:map[availableBytes:not visible: /mnt/tc-hp is hidden in nexusd's mount namespace inodesFree:not visible: /mnt/tc-hp is hidden in nexusd's mount namespace inodesTotal:not visible: /mnt/tc-hp is hidden in nexusd's mount namespace inodesUsed:not visible: /mnt/tc-hp is hidden in nexusd's mount namespace sizeBytes:not visible: /mnt/tc-hp is hidden in nexusd's mount namespace usedBytes:not visible: /mnt/tc-hp is hidden in nexusd's mount namespace usedPercent:not visible: /mnt/tc-hp is hidden in nexusd's mount namespace]}, want ext4 with sizeBytes 27234304 (df)
+--- FAIL: TestTCHP117_PID1SMountinfoIsReadableUnder (2.55s)
+=== RUN   TestTCHP119_TheRebootRequiredMarkerDrivesRebootRequiredSystemd
+    hostprov_tc_test.go:1157: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    hostprov_tc_test.go:1157: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a, no drop-in; MainPID 715
+    hostprov_tc_test.go:1157: host sampler ready 2.108s after the start
+    hostprov_tc_test.go:1194: marker present: rebootRequired {State:true Check:debian-reboot-required-marker Evidence:/var/run/reboot-required exists Packages:[linux-image-tc-hp] Unavailable:map[]}; apt capabilities rebootRequired true
+    hostprov_tc_test.go:1208: marker writer present: /usr/share/perl5/NeedRestart/UI/Ubuntu.pm
+    hostprov_tc_test.go:1213: marker removed: rebootRequired {State:false Check:debian-reboot-required-marker Evidence:/var/run/reboot-required is absent; marker writer installed: /usr/share/perl5/NeedRestart/UI/Ubuntu.pm Packages:[] Unavailable:map[]}; apt capabilities rebootRequired false; want false
+--- PASS: TestTCHP119_TheRebootRequiredMarkerDrivesRebootRequiredSystemd (2.73s)
+=== RUN   TestTCHPE29_ClockSynchronizationUnderTheUnitMatchesTimedatectl
+    hostprov_tc_test.go:1536: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    hostprov_tc_test.go:1536: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a, no drop-in; MainPID 942
+    hostprov_tc_test.go:1536: host sampler ready 1.987s after the start
+    hostprov_tc_test.go:1544: clock synchronized "true" source "kernel" reason ""; timedatectl NTPSynchronized "yes" (<nil>)
+--- PASS: TestTCHPE29_ClockSynchronizationUnderTheUnitMatchesTimedatectl (2.77s)
+FAIL
+harness: tests exited 1
+harness: collecting logs into build/harness/logs/20261115T060733Z
+harness: container nexus-harness-20261115T060733Z-10857 removed
+harness: dist/ untouched
+harness: exit 1

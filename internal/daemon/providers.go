@@ -8,6 +8,7 @@ import (
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/providers/apt"
 	"github.com/mauktik/nexus/internal/providers/docker"
+	hostprov "github.com/mauktik/nexus/internal/providers/host"
 	"github.com/mauktik/nexus/internal/providers/nexusd"
 	"github.com/mauktik/nexus/internal/providers/nginx"
 	"github.com/mauktik/nexus/internal/providers/pihole"
@@ -25,6 +26,7 @@ func builtinProviders(host string, log *slog.Logger) []provider.Provider {
 		nginx.New(nginx.Options{Host: host, Logger: log}),
 		nexusd.New(nexusd.Options{Host: host}),
 		pihole.New(pihole.Options{Host: host, Logger: log}),
+		hostprov.New(hostprov.Options{Host: host, Logger: log}),
 	}
 }
 
@@ -38,5 +40,6 @@ func providerConfigs(cfg *config.Config) map[string]core.ProviderConfig {
 		"nginx":   {Enabled: p.Nginx.Settings.Enabled, Decode: p.Nginx.Decode},
 		"nexusd":  {Enabled: p.Nexusd.Settings.Enabled, Decode: p.Nexusd.Decode},
 		"pihole":  {Enabled: p.Pihole.Settings.Enabled, Decode: p.Pihole.Decode},
+		"host":    {Enabled: p.Host.Settings.Enabled, Decode: p.Host.Decode},
 	}
 }

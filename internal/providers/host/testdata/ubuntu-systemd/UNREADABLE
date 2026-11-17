@@ -1,0 +1,7 @@
+sys/class/net/lo/speed: cat: sys/class/net/lo/speed: Invalid argument 
+statfs /proc/sys/fs/binfmt_misc: stat: cannot read file system information for '/proc/sys/fs/binfmt_misc': Too many levels of symbolic links 
+stat /proc/sys/fs/binfmt_misc: stat: cannot statx '/proc/sys/fs/binfmt_misc': Too many levels of symbolic links 
+statfs /run/credentials/systemd-journald.service: stat: cannot read file system information for '/run/credentials/systemd-journald.service': No such file or directory 
+stat /run/credentials/systemd-journald.service: stat: cannot statx '/run/credentials/systemd-journald.service': No such file or directory 
+statfs /run/credentials/getty@tty1.service: stat: cannot read file system information for '/run/credentials/getty@tty1.service': No such file or directory 
+stat /run/credentials/getty@tty1.service: stat: cannot statx '/run/credentials/getty@tty1.service': No such file or directory 

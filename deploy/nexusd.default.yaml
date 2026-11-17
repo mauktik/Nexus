@@ -162,3 +162,17 @@ providers:
       # or remove one. To rotate, list the old and new keys, then remove the
       # old one. A malformed or duplicate key is an error.
       trustedKeys: []
+
+  # A read-only overview of this host: identity, CPU, memory, filesystems,
+  # block devices, network and health flags, read from /proc, /sys, statfs
+  # and a few fixed commands. It changes nothing on the host. While enabled,
+  # one sampler reads the host's counters every sampleInterval to compute
+  # usage, rates and a metrics history; disabled, no sampler runs. The
+  # history is in memory only, so it is lost on restart and starts empty at
+  # each enable. Reads need host:read. Linux only; elsewhere the provider
+  # reports unavailable.
+  host:
+    enabled: false             # Off until enabled here
+    sampleInterval: 10s        # 2s..60s: how often the sampler reads the host
+    historyDuration: 1h        # sampleInterval..24h: how far back the in-memory history goes
+    sourceTimeout: 2s          # 250ms..5s: bound on one read of a file, statfs call or command

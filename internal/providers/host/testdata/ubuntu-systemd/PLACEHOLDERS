@@ -1,0 +1,4 @@
+dir fs/sys/class/hwmon
+dir fs/sys/class/thermal
+file fs/.dockerenv
+file fs/usr/share/perl5/NeedRestart/UI/Ubuntu.pm

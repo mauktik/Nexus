@@ -1,0 +1,193 @@
+UNIT                                                                                                   LOAD      ACTIVE     SUB       DESCRIPTION
+proc-sys-fs-binfmt_misc.automount                                                                      loaded    active     running   Arbitrary Executable File Formats File System Automount Point
+dev-tpm0.device                                                                                        loaded    inactive   dead      /dev/tpm0
+dev-tpmrm0.device                                                                                      loaded    inactive   dead      /dev/tpmrm0
+dev-vdb1.device                                                                                        loaded    activating tentative /dev/vdb1
+-.mount                                                                                                loaded    active     mounted   Root Mount
+dev-hugepages.mount                                                                                    loaded    active     mounted   Huge Pages File System
+dev-mqueue.mount                                                                                       loaded    active     mounted   POSIX Message Queue File System
+etc-hostname.mount                                                                                     loaded    active     mounted   /etc/hostname
+etc-hosts.mount                                                                                        loaded    active     mounted   /etc/hosts
+etc-resolv.conf.mount                                                                                  loaded    active     mounted   /etc/resolv.conf
+harness\x2dtmp.mount                                                                                   loaded    active     mounted   /harness-tmp
+home.mount                                                                                             not-found inactive   dead      home.mount
+proc-sys-fs-binfmt_misc.mount                                                                          loaded    active     mounted   Arbitrary Executable File Formats File System
+run-docker-netns-7c200119a164.mount                                                                    loaded    active     mounted   /run/docker/netns/7c200119a164
+run-docker-netns-c05fad90e768.mount                                                                    loaded    active     mounted   /run/docker/netns/c05fad90e768
+run-lock.mount                                                                                         loaded    active     mounted   /run/lock
+sys-fs-fuse-connections.mount                                                                          loaded    active     mounted   FUSE Control File System
+sys-kernel-config.mount                                                                                loaded    active     mounted   Kernel Configuration File System
+sys-kernel-debug.mount                                                                                 loaded    active     mounted   Kernel Debug File System
+sys-kernel-tracing.mount                                                                               loaded    active     mounted   Kernel Trace File System
+tmp.mount                                                                                              loaded    active     mounted   Temporary Directory /tmp
+var-lib-containerd.mount                                                                               loaded    active     mounted   /var/lib/containerd
+var-lib-docker-rootfs-overlayfs-08de2daf451648201c2390a6656401401591183f0916f937ef5c57f364767730.mount loaded    active     mounted   /var/lib/docker/rootfs/overlayfs/08de2daf451648201c2390a6656401401591183f0916f937ef5c57f364767730
+var-lib-docker-rootfs-overlayfs-a02039d40302e2f97627e21e79367f33ca43a111eed10e7065377a2070be0070.mount loaded    active     mounted   /var/lib/docker/rootfs/overlayfs/a02039d40302e2f97627e21e79367f33ca43a111eed10e7065377a2070be0070
+var-lib-docker.mount                                                                                   loaded    active     mounted   /var/lib/docker
+systemd-ask-password-console.path                                                                      loaded    active     waiting   Dispatch Password Requests to Console Directory Watch
+systemd-ask-password-wall.path                                                                         loaded    active     waiting   Forward Password Requests to Wall Directory Watch
+docker-08de2daf451648201c2390a6656401401591183f0916f937ef5c57f364767730.scope                          loaded    active     running   libcontainer container 08de2daf451648201c2390a6656401401591183f0916f937ef5c57f364767730
+docker-a02039d40302e2f97627e21e79367f33ca43a111eed10e7065377a2070be0070.scope                          loaded    active     running   libcontainer container a02039d40302e2f97627e21e79367f33ca43a111eed10e7065377a2070be0070
+init.scope                                                                                             loaded    active     running   System and Service Manager
+apt-daily-upgrade.service                                                                              loaded    inactive   dead      Daily apt upgrade and clean activities
+apt-daily.service                                                                                      loaded    inactive   dead      Daily apt download activities
+connman.service                                                                                        not-found inactive   dead      connman.service
+console-getty.service                                                                                  loaded    inactive   dead      Console Getty
+containerd.service                                                                                     loaded    active     running   containerd container runtime
+dbus.service                                                                                           loaded    active     running   D-Bus System Message Bus
+display-manager.service                                                                                not-found inactive   dead      display-manager.service
+docker.service                                                                                         loaded    active     running   Docker Application Container Engine
+dpkg-db-backup.service                                                                                 loaded    inactive   dead      Daily dpkg database backup service
+e2scrub_all.service                                                                                    loaded    inactive   dead      Online ext4 Metadata Check for All Filesystems
+e2scrub_reap.service                                                                                   loaded    inactive   dead      Remove Stale Online ext4 Metadata Check Snapshots
+emergency.service                                                                                      loaded    inactive   dead      Emergency Shell
+firewalld.service                                                                                      not-found inactive   dead      firewalld.service
+fstrim.service                                                                                         loaded    inactive   dead      Discard unused blocks on filesystems from /etc/fstab
+getty-static.service                                                                                   loaded    inactive   dead      getty on tty2-tty6 if dbus and logind are not available
+getty@tty1.service                                                                                     loaded    active     running   Getty on tty1
+initrd-cleanup.service                                                                                 loaded    inactive   dead      Cleaning Up and Shutting Down Daemons
+initrd-parse-etc.service                                                                               loaded    inactive   dead      Mountpoints Configured in the Real Root
+initrd-switch-root.service                                                                             loaded    inactive   dead      Switch Root
+initrd-udevadm-cleanup-db.service                                                                      loaded    inactive   dead      Cleanup udev Database
+kmod-static-nodes.service                                                                              loaded    inactive   dead      Create List of Static Device Nodes
+ldconfig.service                                                                                       loaded    active     exited    Rebuild Dynamic Linker Cache
+modprobe@configfs.service                                                                              loaded    inactive   dead      Load Kernel Module configfs
+modprobe@dm_mod.service                                                                                loaded    inactive   dead      Load Kernel Module dm_mod
+modprobe@drm.service                                                                                   loaded    inactive   dead      Load Kernel Module drm
+modprobe@efi_pstore.service                                                                            loaded    inactive   dead      Load Kernel Module efi_pstore
+modprobe@fuse.service                                                                                  loaded    inactive   dead      Load Kernel Module fuse
+modprobe@loop.service                                                                                  loaded    inactive   dead      Load Kernel Module loop
+motd-news.service                                                                                      loaded    inactive   dead      Message of the Day
+NetworkManager.service                                                                                 not-found inactive   dead      NetworkManager.service
+nginx.service                                                                                          loaded    inactive   dead      A high performance web server and a reverse proxy server
+plymouth-quit-wait.service                                                                             not-found inactive   dead      plymouth-quit-wait.service
+plymouth-start.service                                                                                 not-found inactive   dead      plymouth-start.service
+rc-local.service                                                                                       loaded    inactive   dead      /etc/rc.local Compatibility
+rescue.service                                                                                         loaded    inactive   dead      Rescue Shell
+syslog.service                                                                                         not-found inactive   dead      syslog.service
+systemd-ask-password-console.service                                                                   loaded    inactive   dead      Dispatch Password Requests to Console
+systemd-ask-password-wall.service                                                                      loaded    inactive   dead      Forward Password Requests to Wall
+systemd-battery-check.service                                                                          loaded    inactive   dead      Early Battery Level Check
+systemd-binfmt.service                                                                                 loaded    inactive   dead      Set Up Additional Binary Formats
+systemd-bsod.service                                                                                   loaded    inactive   dead      Display Boot-Time Emergency Messages In Full Screen
+systemd-confext-initrd.service                                                                         loaded    inactive   dead      Merge System Configuration Images into /etc/
+systemd-confext.service                                                                                loaded    inactive   dead      Merge System Configuration Images into /etc/
+systemd-firstboot.service                                                                              loaded    inactive   dead      Initial Setup
+systemd-fsck-root.service                                                                              loaded    inactive   dead      File System Check on Root Device
+systemd-hibernate-clear.service                                                                        loaded    inactive   dead      Clear Stale Hibernate Storage Info
+systemd-hibernate-resume.service                                                                       loaded    inactive   dead      Resume from hibernation
+systemd-hostnamed.service                                                                              loaded    inactive   dead      Hostname Service
+systemd-journal-catalog-update.service                                                                 loaded    active     exited    Rebuild Journal Catalog
+systemd-journal-flush.service                                                                          loaded    active     exited    Flush Journal to Persistent Storage
+systemd-journald.service                                                                               loaded    active     running   Journal Service
+systemd-logind.service                                                                                 loaded    active     running   User Login Management
+systemd-machine-id-commit.service                                                                      loaded    inactive   dead      Save Transient machine-id to Disk
+systemd-modules-load.service                                                                           loaded    failed     failed    Load Kernel Modules
+systemd-networkd-persistent-storage.service                                                            loaded    inactive   dead      Enable Persistent Storage in systemd-networkd
+systemd-networkd.service                                                                               loaded    inactive   dead      Network Management
+systemd-pcrmachine.service                                                                             loaded    inactive   dead      TPM PCR Machine ID Measurement
+systemd-pcrnvdone.service                                                                              loaded    inactive   dead      TPM PCR NvPCR Initialization Separator
+systemd-pcrphase-initrd.service                                                                        loaded    inactive   dead      TPM PCR Barrier (initrd)
+systemd-pcrphase-sysinit.service                                                                       loaded    inactive   dead      TPM PCR Barrier (Initialization)
+systemd-pcrphase.service                                                                               loaded    inactive   dead      TPM PCR Barrier (User)
+systemd-pcrproduct.service                                                                             loaded    inactive   dead      TPM NvPCR Product ID Measurement
+systemd-pstore.service                                                                                 loaded    inactive   dead      Platform Persistent Storage Archival
+systemd-quotacheck-root.service                                                                        loaded    inactive   dead      Root File System Quota Check
+systemd-random-seed.service                                                                            loaded    inactive   dead      Load/Save OS Random Seed
+systemd-remount-fs.service                                                                             loaded    active     exited    Remount Root and Kernel File Systems
+systemd-soft-reboot.service                                                                            loaded    inactive   dead      Reboot System Userspace
+systemd-sysctl.service                                                                                 loaded    active     exited    Apply Kernel Variables
+systemd-sysext-initrd.service                                                                          loaded    inactive   dead      Merge System Extension Images into /usr/ and /opt/
+systemd-sysext.service                                                                                 loaded    inactive   dead      Merge System Extension Images into /usr/ and /opt/
+systemd-sysusers.service                                                                               loaded    active     exited    Create System Users
+systemd-timedated.service                                                                              loaded    active     running   Time & Date Service
+systemd-tmpfiles-clean.service                                                                         loaded    inactive   dead      Cleanup of Temporary Directories
+systemd-tmpfiles-setup-dev-early.service                                                               loaded    active     exited    Create Static Device Nodes in /dev gracefully
+systemd-tmpfiles-setup-dev.service                                                                     loaded    active     exited    Create Static Device Nodes in /dev
+systemd-tmpfiles-setup.service                                                                         loaded    active     exited    Create System Files and Directories
+systemd-tpm2-setup-early.service                                                                       loaded    inactive   dead      Early TPM SRK Setup
+systemd-tpm2-setup.service                                                                             loaded    inactive   dead      TPM SRK Setup
+systemd-udev-settle.service                                                                            not-found inactive   dead      systemd-udev-settle.service
+systemd-udev-trigger.service                                                                           not-found inactive   dead      systemd-udev-trigger.service
+systemd-udevd.service                                                                                  not-found inactive   dead      systemd-udevd.service
+systemd-update-done.service                                                                            loaded    active     exited    Update is Completed
+systemd-user-sessions.service                                                                          loaded    active     exited    Permit User Sessions
+systemd-vconsole-setup.service                                                                         not-found inactive   dead      systemd-vconsole-setup.service
+-.slice                                                                                                loaded    active     active    Root Slice
+system-getty.slice                                                                                     loaded    active     active    Slice /system/getty
+system-modprobe.slice                                                                                  loaded    active     active    Slice /system/modprobe
+system.slice                                                                                           loaded    active     active    System Slice
+user.slice                                                                                             loaded    active     active    User and Session Slice
+dbus.socket                                                                                            loaded    active     running   D-Bus System Message Bus Socket
+docker.socket                                                                                          loaded    active     running   Docker Socket for the API
+syslog.socket                                                                                          loaded    inactive   dead      Syslog Socket
+systemd-ask-password.socket                                                                            loaded    active     listening Query the User Interactively for a Password
+systemd-creds.socket                                                                                   loaded    active     listening Credential Encryption/Decryption
+systemd-factory-reset.socket                                                                           loaded    active     listening Factory Reset Management
+systemd-hostnamed.socket                                                                               loaded    active     listening Hostname Service Socket
+systemd-journald-audit.socket                                                                          loaded    inactive   dead      Journal Audit Socket
+systemd-journald-dev-log.socket                                                                        loaded    active     running   Journal Socket (/dev/log)
+systemd-journald.socket                                                                                loaded    active     running   Journal Sockets
+systemd-logind-varlink.socket                                                                          loaded    active     running   User Login Management Varlink Socket
+systemd-mute-console.socket                                                                            loaded    active     listening Console Output Muting Service Socket
+systemd-networkd-resolve-hook.socket                                                                   loaded    inactive   dead      Network Management Resolve Hook Socket
+systemd-networkd-varlink.socket                                                                        loaded    inactive   dead      Network Management Varlink Socket
+systemd-networkd.socket                                                                                loaded    inactive   dead      Network Management Netlink Socket
+systemd-pcrextend.socket                                                                               loaded    inactive   dead      TPM PCR Measurements
+systemd-pcrlock.socket                                                                                 loaded    inactive   dead      Make TPM PCR Policy
+systemd-sysext.socket                                                                                  loaded    active     listening System Extension Image Management
+basic.target                                                                                           loaded    active     active    Basic System
+blockdev@dev-vdb1.target                                                                               loaded    inactive   dead      Block Device Preparation for /dev/vdb1
+cryptsetup-pre.target                                                                                  not-found inactive   dead      cryptsetup-pre.target
+cryptsetup.target                                                                                      not-found inactive   dead      cryptsetup.target
+emergency.target                                                                                       loaded    inactive   dead      Emergency Mode
+final.target                                                                                           loaded    inactive   dead      Late Shutdown Services
+first-boot-complete.target                                                                             loaded    inactive   dead      First Boot Complete
+getty-pre.target                                                                                       loaded    inactive   dead      Preparation for Logins
+getty.target                                                                                           loaded    active     active    Login Prompts
+graphical.target                                                                                       loaded    active     active    Graphical Interface
+imports.target                                                                                         loaded    active     active    Image Downloads
+initrd-fs.target                                                                                       loaded    inactive   dead      Initrd File Systems
+initrd-root-device.target                                                                              loaded    inactive   dead      Initrd Root Device
+initrd-root-fs.target                                                                                  loaded    inactive   dead      Initrd Root File System
+initrd-switch-root.target                                                                              loaded    inactive   dead      Switch Root
+initrd-usr-fs.target                                                                                   loaded    inactive   dead      Initrd /usr File System
+initrd.target                                                                                          loaded    inactive   dead      Initrd Default Target
+local-fs-pre.target                                                                                    loaded    active     active    Preparation for Local File Systems
+local-fs.target                                                                                        loaded    active     active    Local File Systems
+multi-user.target                                                                                      loaded    active     active    Multi-User System
+network-online.target                                                                                  loaded    active     active    Network is Online
+network-pre.target                                                                                     loaded    inactive   dead      Preparation for Network
+network.target                                                                                         loaded    inactive   dead      Network
+nss-lookup.target                                                                                      loaded    inactive   dead      Host and Network Name Lookups
+nss-user-lookup.target                                                                                 loaded    inactive   dead      User and Group Name Lookups
+paths.target                                                                                           loaded    active     active    Path Units
+remote-cryptsetup.target                                                                               not-found inactive   dead      remote-cryptsetup.target
+remote-fs-pre.target                                                                                   loaded    inactive   dead      Preparation for Remote File Systems
+remote-fs.target                                                                                       loaded    active     active    Remote File Systems
+rescue.target                                                                                          loaded    inactive   dead      Rescue Mode
+shutdown.target                                                                                        loaded    inactive   dead      System Shutdown
+slices.target                                                                                          loaded    active     active    Slice Units
+sockets.target                                                                                         loaded    active     active    Socket Units
+soft-reboot.target                                                                                     loaded    inactive   dead      Reboot System Userspace
+swap.target                                                                                            loaded    active     active    Swaps
+sysinit.target                                                                                         loaded    active     active    System Initialization
+time-set.target                                                                                        loaded    inactive   dead      System Time Set
+time-sync.target                                                                                       loaded    inactive   dead      System Time Synchronized
+timers.target                                                                                          loaded    active     active    Timer Units
+tpm2.target                                                                                            loaded    inactive   dead      Trusted Platform Module
+umount.target                                                                                          loaded    inactive   dead      Unmount All Filesystems
+apt-daily-upgrade.timer                                                                                loaded    active     waiting   Daily apt upgrade and clean activities
+apt-daily.timer                                                                                        loaded    active     waiting   Daily apt download activities
+dpkg-db-backup.timer                                                                                   loaded    active     waiting   Daily dpkg database backup timer
+e2scrub_all.timer                                                                                      loaded    active     waiting   Periodic ext4 Online Metadata Check for All Filesystems
+fstrim.timer                                                                                           loaded    inactive   dead      Discard unused filesystem blocks once a week
+motd-news.timer                                                                                        loaded    active     waiting   Message of the Day
+systemd-tmpfiles-clean.timer                                                                           loaded    active     waiting   Daily Cleanup of Temporary Directories
+
+Legend: LOAD   → Reflects whether the unit definition was properly loaded.
+        ACTIVE → The high-level unit activation state, i.e. generalization of SUB.
+        SUB    → The low-level unit activation state, values depend on unit type.
+
+185 loaded units listed.
+To show all installed unit files use 'systemctl list-unit-files'.

@@ -1,0 +1,48 @@
+# host-check.sh transcript: system-provider WI 5.4 (TC-HP-127 to TC-HP-130)
+# started 2026-11-15T07:26:27Z on Devuser-Macbook-Pro.local, mode check, host root@127.0.0.1, arguments: --ssh root@127.0.0.1 --nexus /private/tmp/claude-501/-Users-devuser-Projects-Nexus/c1dff5bf-5d6a-47af-a04d-54d84132cd94/scratchpad/bin/nexus --transcript 20-alpine-plan.txt
+# script sha256 281d577abca434c4664c63026f2c831926468788926470fca474e57e98a21778
+# CONTAINER DETECTED on the host (/.dockerenv, /run/.containerenv or container= in PID 1's environment):
+# this transcript is a container run, NOT real-host evidence.
+$ [host] /usr/local/bin/nexusd tls fingerprint
+74:F2:62:56:D5:50:E4:8D:0B:C6:E8:34:12:A2:6D:F5:71:3A:E9:6A:F4:4B:3F:4C:34:0A:69:6F:FF:D1:88:C5
+$ (the token, on stdin) | nexus host add host-check --url https://127.0.0.1:17443 --fingerprint 74:F2:62:56:D5:50:E4:8D:0B:C6:E8:34:12:A2:6D:F5:71:3A:E9:6A:F4:4B:3F:4C:34:0A:69:6F:FF:D1:88:C5 --token-stdin
+Server certificate SHA-256 fingerprint:
+  74:F2:62:56:D5:50:E4:8D:0B:C6:E8:34:12:A2:6D:F5:71:3A:E9:6A:F4:4B:3F:4C:34:0A:69:6F:FF:D1:88:C5
+It matches --fingerprint; pinning it.
+Added host "host-check" (https://127.0.0.1:17443, nexusd dev, trust: pin) to <throwaway client config>
+RESULT token-env: PASS - no child process's environment holds the token (env, run as a child, does not show it)
+[07:26:27] == Step 1: facts
+$ [host] uname -a; [ ! -r /etc/alpine-release ] || echo "Alpine $(cat /etc/alpine-release)"; [ ! -r /etc/debian_version ] || echo "Debian base $(cat /etc/debian_version)"; sed -n "s/^PRETTY_NAME=//p" /etc/os-release; tr "\0" " " </proc/1/cmdline; echo; echo "nproc $(nproc); $(grep MemTotal /proc/meminfo)"
+Linux 75f9518a6b95 6.8.0-100-generic #100-Ubuntu SMP PREEMPT_DYNAMIC Tue Jan 13 16:39:21 UTC 2026 aarch64 Linux
+Alpine 3.24.4
+"Alpine Linux v3.24"
+/sbin/init 
+nproc 4; MemTotal:        8114204 kB
+$ [host] openrc --version
+openrc (OpenRC [DOCKER]) 0.63.2
+$ [host] /usr/local/bin/nexusd -version
+nexusd dev
+$ /private/tmp/claude-501/-Users-devuser-Projects-Nexus/c1dff5bf-5d6a-47af-a04d-54d84132cd94/scratchpad/bin/nexus --version
+nexus dev
+  nexusd: pid 760, uid 0
+$ [host] sed -n '/^  host:$/,/^  [a-z]/p' /etc/nexus/nexusd.yaml
+  host:
+    enabled: true              # Off until enabled here
+    sampleInterval: 10s        # 2s..60s: how often the sampler reads the host
+    historyDuration: 1h        # sampleInterval..24h: how far back the in-memory history goes
+    sourceTimeout: 2s          # 250ms..5s: bound on one read of a file, statfs call or command
+$ nexus --host host-check capability get -o json (output kept, not logged)
+  capability: host provider enabled, initSystem openrc, sampleIntervalSeconds 10, historyDurationSeconds 3600
+RESULT 1-provider: PASS - the host provider is enabled; initSystem openrc = the host's init (openrc); sampleInterval 10s, historyDuration 3600s
+RESULT 1-host: FAIL - running in a container: not a real host
+
+== Plan. With --yes the script will, on root@127.0.0.1:
+  - call every nexus host* command with -o json and read each field back with the host's
+    tools (TC-HP-127); walk every response: no null without a reason (TC-HP-115's rule);
+  - NFR-3 over one sampler interval aligned on its tick: CPU against vmstat (or /proc/stat),
+    memory available against free -b, rx/tx against /sys/class/net/*/statistics (TC-HP-128);
+  - NFR-1: 50 timed calls per operation, the p95 from the CLI's --verbose timing (TC-HP-129);
+  - btrfs (A-21, A-38): each btrfs filesystem listed once with df's numbers, if there is one.
+  It changes nothing on the host: every host command reads.
+
+REFUSED: nothing was changed: re-run with --yes to do the above

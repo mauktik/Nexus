@@ -1,0 +1,72 @@
+Nov 15 06:14:54 68cb34b36902 syslog.info syslogd started: BusyBox v1.37.0
+Nov 15 06:14:54 68cb34b36902 daemon.info init: starting pid 307, tty '': '/sbin/openrc default'
+Nov 15 06:14:54 68cb34b36902 daemon.info supervise-daemon[353]: Supervisor command line: supervise-daemon docker --start --retry TERM/60/KILL/10 --stdout-logger log_proxy -m /var/log/docker.log --stderr-logger log_proxy -m /var/log/docker.log --respawn-delay 2 --respawn-max 5 --respawn-period 1800 /usr/bin/dockerd --
+Nov 15 06:14:54 68cb34b36902 daemon.info supervise-daemon[355]: Child command line: /usr/bin/dockerd
+Nov 15 06:17:34 68cb34b36902 daemon.info supervise-daemon[2786]: Supervisor command line: supervise-daemon nexusd --start --retry TERM/15/KILL/5 --stdout-logger logger -t nexusd -p daemon.info --stderr-logger logger -t nexusd -p daemon.err --pidfile /run/nexusd.pid --respawn-delay 2 --respawn-max 5 --respawn-period 60 --user root:root --umask 077 /usr/local/bin/nexusd -- serve --config /etc/nexus/nexusd.yaml
+Nov 15 06:17:34 68cb34b36902 daemon.info supervise-daemon[2788]: Child command line: /usr/local/bin/nexusd serve --config /etc/nexus/nexusd.yaml
+Nov 15 06:17:34 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:34.678032806Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7443"]}
+Nov 15 06:17:34 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:34.678061264Z","level":"INFO","msg":"starting background provider","provider":"host"}
+Nov 15 06:17:36 68cb34b36902 daemon.info supervise-daemon[2787]: stopping /usr/local/bin/nexusd, pid 2788
+Nov 15 06:17:36 68cb34b36902 daemon.debug supervise-daemon[2787]: Will stop PID 2788
+Nov 15 06:17:36 68cb34b36902 daemon.debug supervise-daemon[2787]: Sending signal 15 to PID 2788
+Nov 15 06:17:36 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:36.747430373Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 15 06:17:36 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:36.747632499Z","level":"INFO","msg":"stopping background providers"}
+Nov 15 06:17:36 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:36.747649499Z","level":"INFO","msg":"stopping operations"}
+Nov 15 06:17:36 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:36.747673375Z","level":"INFO","msg":"nexusd stopped"}
+Nov 15 06:17:37 68cb34b36902 daemon.warn nexusd[2987]: WARNING: nexusd is already stopped
+Nov 15 06:17:37 68cb34b36902 daemon.info supervise-daemon[3233]: Supervisor command line: supervise-daemon nexusd --start --retry TERM/15/KILL/5 --stdout-logger logger -t nexusd -p daemon.info --stderr-logger logger -t nexusd -p daemon.err --pidfile /run/nexusd.pid --respawn-delay 2 --respawn-max 5 --respawn-period 60 --user root:root --umask 077 /usr/local/bin/nexusd -- serve --config /etc/nexus/nexusd.yaml
+Nov 15 06:17:37 68cb34b36902 daemon.info supervise-daemon[3235]: Child command line: /usr/local/bin/nexusd serve --config /etc/nexus/nexusd.yaml
+Nov 15 06:17:37 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:37.927134377Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7443"]}
+Nov 15 06:17:37 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:37.927161169Z","level":"INFO","msg":"starting background provider","provider":"host"}
+Nov 15 06:17:40 68cb34b36902 daemon.info supervise-daemon[3234]: stopping /usr/local/bin/nexusd, pid 3235
+Nov 15 06:17:40 68cb34b36902 daemon.debug supervise-daemon[3234]: Will stop PID 3235
+Nov 15 06:17:40 68cb34b36902 daemon.debug supervise-daemon[3234]: Sending signal 15 to PID 3235
+Nov 15 06:17:40 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:40.107246237Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 15 06:17:40 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:40.107381197Z","level":"INFO","msg":"stopping background providers"}
+Nov 15 06:17:40 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:40.107397989Z","level":"INFO","msg":"stopping operations"}
+Nov 15 06:17:40 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:40.107418155Z","level":"INFO","msg":"nexusd stopped"}
+Nov 15 06:17:41 68cb34b36902 daemon.warn nexusd[3536]: WARNING: nexusd is already stopped
+Nov 15 06:17:41 68cb34b36902 daemon.info supervise-daemon[3782]: Supervisor command line: supervise-daemon nexusd --start --retry TERM/15/KILL/5 --stdout-logger logger -t nexusd -p daemon.info --stderr-logger logger -t nexusd -p daemon.err --pidfile /run/nexusd.pid --respawn-delay 2 --respawn-max 5 --respawn-period 60 --user root:root --umask 077 /usr/local/bin/nexusd -- serve --config /etc/nexus/nexusd.yaml
+Nov 15 06:17:41 68cb34b36902 daemon.info supervise-daemon[3784]: Child command line: /usr/local/bin/nexusd serve --config /etc/nexus/nexusd.yaml
+Nov 15 06:17:41 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:41.32827097Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7443"]}
+Nov 15 06:17:41 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:41.328313345Z","level":"INFO","msg":"starting background provider","provider":"host"}
+Nov 15 06:17:43 68cb34b36902 daemon.info supervise-daemon[3783]: stopping /usr/local/bin/nexusd, pid 3784
+Nov 15 06:17:43 68cb34b36902 daemon.debug supervise-daemon[3783]: Will stop PID 3784
+Nov 15 06:17:43 68cb34b36902 daemon.debug supervise-daemon[3783]: Sending signal 15 to PID 3784
+Nov 15 06:17:43 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:43.427618009Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 15 06:17:43 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:43.427797177Z","level":"INFO","msg":"stopping background providers"}
+Nov 15 06:17:43 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:43.427832635Z","level":"INFO","msg":"stopping operations"}
+Nov 15 06:17:43 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:43.427920178Z","level":"INFO","msg":"nexusd stopped"}
+Nov 15 06:17:44 68cb34b36902 daemon.warn nexusd[3929]: WARNING: nexusd is already stopped
+Nov 15 06:17:44 68cb34b36902 daemon.info supervise-daemon[4175]: Supervisor command line: supervise-daemon nexusd --start --retry TERM/15/KILL/5 --stdout-logger logger -t nexusd -p daemon.info --stderr-logger logger -t nexusd -p daemon.err --pidfile /run/nexusd.pid --respawn-delay 2 --respawn-max 5 --respawn-period 60 --user root:root --umask 077 /usr/local/bin/nexusd -- serve --config /etc/nexus/nexusd.yaml
+Nov 15 06:17:44 68cb34b36902 daemon.info supervise-daemon[4177]: Child command line: /usr/local/bin/nexusd serve --config /etc/nexus/nexusd.yaml
+Nov 15 06:17:44 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:44.62866488Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7443"]}
+Nov 15 06:17:44 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:44.628697589Z","level":"INFO","msg":"starting background provider","provider":"host"}
+Nov 15 06:17:46 68cb34b36902 daemon.info supervise-daemon[4176]: stopping /usr/local/bin/nexusd, pid 4177
+Nov 15 06:17:46 68cb34b36902 daemon.debug supervise-daemon[4176]: Will stop PID 4177
+Nov 15 06:17:46 68cb34b36902 daemon.debug supervise-daemon[4176]: Sending signal 15 to PID 4177
+Nov 15 06:17:46 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:46.776287073Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 15 06:17:46 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:46.77651095Z","level":"INFO","msg":"stopping background providers"}
+Nov 15 06:17:46 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:46.776540659Z","level":"INFO","msg":"stopping operations"}
+Nov 15 06:17:46 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:46.776576826Z","level":"INFO","msg":"nexusd stopped"}
+Nov 15 06:17:47 68cb34b36902 daemon.warn nexusd[4320]: WARNING: nexusd is already stopped
+Nov 15 06:17:47 68cb34b36902 daemon.info supervise-daemon[4567]: Supervisor command line: supervise-daemon nexusd --start --retry TERM/15/KILL/5 --stdout-logger logger -t nexusd -p daemon.info --stderr-logger logger -t nexusd -p daemon.err --pidfile /run/nexusd.pid --respawn-delay 2 --respawn-max 5 --respawn-period 60 --user root:root --umask 077 /usr/local/bin/nexusd -- serve --config /etc/nexus/nexusd.yaml
+Nov 15 06:17:47 68cb34b36902 daemon.info supervise-daemon[4569]: Child command line: /usr/local/bin/nexusd serve --config /etc/nexus/nexusd.yaml
+Nov 15 06:17:47 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:47.973406372Z","level":"INFO","msg":"nexusd ready","version":"dev","host":"harness","listen":["127.0.0.1:7443"]}
+Nov 15 06:17:47 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:47.973436539Z","level":"INFO","msg":"starting background provider","provider":"host"}
+Nov 15 06:17:50 68cb34b36902 daemon.info supervise-daemon[4568]: stopping /usr/local/bin/nexusd, pid 4569
+Nov 15 06:17:50 68cb34b36902 daemon.debug supervise-daemon[4568]: Will stop PID 4569
+Nov 15 06:17:50 68cb34b36902 daemon.debug supervise-daemon[4568]: Sending signal 15 to PID 4569
+Nov 15 06:17:50 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:50.12325608Z","level":"INFO","msg":"stopping","signal":"terminated"}
+Nov 15 06:17:50 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:50.123408123Z","level":"INFO","msg":"stopping background providers"}
+Nov 15 06:17:50 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:50.123424581Z","level":"INFO","msg":"stopping operations"}
+Nov 15 06:17:50 68cb34b36902 daemon.info nexusd: {"time":"2026-11-15T06:17:50.123448623Z","level":"INFO","msg":"nexusd stopped"}
+Nov 15 06:17:51 68cb34b36902 daemon.warn nginx[4768]: WARNING: nginx is already stopped
+Nov 15 06:17:51 68cb34b36902 daemon.debug start-stop-daemon[4983]: Will stop PID 4933
+Nov 15 06:17:51 68cb34b36902 daemon.debug start-stop-daemon[4983]: Sending signal 1 to PID 4933
+Nov 15 06:17:51 68cb34b36902 daemon.debug start-stop-daemon[5032]: Will stop /usr/sbin/nginx
+Nov 15 06:17:51 68cb34b36902 daemon.debug start-stop-daemon[5032]: Will stop PID 4933
+Nov 15 06:17:51 68cb34b36902 daemon.debug start-stop-daemon[5032]: Sending signal 15 to PID 4933
+Nov 15 06:17:52 68cb34b36902 daemon.debug start-stop-daemon[5111]: Will stop /usr/sbin/nginx
+Nov 15 06:17:52 68cb34b36902 daemon.debug start-stop-daemon[5111]: Will stop PID 5060
+Nov 15 06:17:52 68cb34b36902 daemon.debug start-stop-daemon[5111]: Sending signal 15 to PID 5060

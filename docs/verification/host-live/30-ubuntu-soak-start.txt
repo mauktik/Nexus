@@ -1,0 +1,123 @@
+# host-check.sh transcript: system-provider WI 5.4 (TC-HP-127 to TC-HP-130)
+# started 2026-11-15T07:23:36Z on 25cabe92df7a, mode rss-start, host this machine, arguments: --yes --rss-24h start --transcript /root/30-soak-start.txt
+# script sha256 281d577abca434c4664c63026f2c831926468788926470fca474e57e98a21778
+# CONTAINER DETECTED on the host (/.dockerenv, /run/.containerenv or container= in PID 1's environment):
+# this transcript is a container run, NOT real-host evidence.
+$ [host] /usr/local/bin/nexusd tls fingerprint
+4E:38:B8:17:56:C8:99:A5:78:40:E0:6A:CC:85:D2:3A:ED:12:A5:2B:C9:51:B8:C2:1D:5D:D3:F2:93:CF:BC:17
+$ (the token, on stdin) | nexus host add host-check --url https://127.0.0.1:7443 --fingerprint 4E:38:B8:17:56:C8:99:A5:78:40:E0:6A:CC:85:D2:3A:ED:12:A5:2B:C9:51:B8:C2:1D:5D:D3:F2:93:CF:BC:17 --token-stdin
+Server certificate SHA-256 fingerprint:
+  4E:38:B8:17:56:C8:99:A5:78:40:E0:6A:CC:85:D2:3A:ED:12:A5:2B:C9:51:B8:C2:1D:5D:D3:F2:93:CF:BC:17
+It matches --fingerprint; pinning it.
+Added host "host-check" (https://127.0.0.1:7443, nexusd dev, trust: pin) to <throwaway client config>
+RESULT token-env: PASS - no child process's environment holds the token (env, run as a child, does not show it)
+[07:23:36] == Step 1: facts
+$ [host] uname -a; [ ! -r /etc/alpine-release ] || echo "Alpine $(cat /etc/alpine-release)"; [ ! -r /etc/debian_version ] || echo "Debian base $(cat /etc/debian_version)"; sed -n "s/^PRETTY_NAME=//p" /etc/os-release; tr "\0" " " </proc/1/cmdline; echo; echo "nproc $(nproc); $(grep MemTotal /proc/meminfo)"
+Linux 25cabe92df7a 6.8.0-100-generic #100-Ubuntu SMP PREEMPT_DYNAMIC Tue Jan 13 16:39:21 UTC 2026 aarch64 GNU/Linux
+Debian base forky/sid
+"Ubuntu 26.04.1 LTS"
+/sbin/init 
+nproc 4; MemTotal:        8114204 kB
+$ [host] systemctl --version | head -n 1
+systemd 259 (259.9-0ubuntu0.1)
+$ [host] /usr/local/bin/nexusd -version
+nexusd dev
+$ nexus --version
+nexus dev
+  nexusd: pid 748, uid 0
+$ [host] systemctl show -p MainPID,ActiveState,NRestarts nexusd.service; sha256sum /etc/systemd/system/nexusd.service; ls /etc/systemd/system/nexusd.service.d 2>&1 || true
+ActiveState=active
+MainPID=748
+NRestarts=0
+5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a  /etc/systemd/system/nexusd.service
+ls: cannot access '/etc/systemd/system/nexusd.service.d': No such file or directory
+$ [host] sed -n '/^  host:$/,/^  [a-z]/p' /etc/nexus/nexusd.yaml
+  host:
+    enabled: true              # Off until enabled here
+    sampleInterval: 10s        # 2s..60s: how often the sampler reads the host
+    historyDuration: 1h        # sampleInterval..24h: how far back the in-memory history goes
+    sourceTimeout: 2s          # 250ms..5s: bound on one read of a file, statfs call or command
+$ nexus --host host-check capability get -o json (output kept, not logged)
+  capability: host provider enabled, initSystem systemd, sampleIntervalSeconds 10, historyDurationSeconds 3600
+RESULT 1-provider: PASS - the host provider is enabled; initSystem systemd = the host's init (systemd); sampleInterval 10s, historyDuration 3600s
+RESULT 1-host: FAIL - running in a container: not a real host
+
+== Plan. With --yes the script will, on this host:
+  - save /etc/nexus/nexusd.yaml to /var/lib/nexus-host-check (0600), set providers.host.enabled false, restart nexusd,
+    and sample nexusd's RSS and CPU every 60 s for 600 s (the disabled baseline);
+  - set enabled true, historyDuration 24h, sampleInterval 2s, validate and reload;
+  - create the token host-check-soak (system:read, 2 days) on the host, in a client
+    config under /var/lib/nexus-host-check, and start a poll on the host: hostsummary, hosthealth and a
+    24 h hostmetric every 10 s, nexusd's VmRSS and CPU logged every 60 s to /var/lib/nexus-host-check/rss.log;
+  - leave it running: finish with --rss-24h finish after 24 h (or earlier, recorded NOT-RUN).
+
+[07:23:36] == Step 9: NFR-2 at the 24 h maximum, start (--rss-24h start, TC-HP-130)
+$ [host] /usr/local/bin/nexus --version
+nexus dev
+$ [host] umask 077 && mkdir -p /var/lib/nexus-host-check && cp -p /etc/nexus/nexusd.yaml /var/lib/nexus-host-check/nexusd.yaml.orig && sha256sum /etc/nexus/nexusd.yaml | cut -d' ' -f1 >/var/lib/nexus-host-check/nexusd.yaml.sha256 && cat /var/lib/nexus-host-check/nexusd.yaml.sha256
+f3036c0711ff7670d879e7a6a6088c209624cd20b53a2002b54c0aa55132e3ac
+$ [host] sed -i -e '/^  host:$/,/^  [a-z]/ s/^\(    enabled:[[:space:]]*\)[a-z]*/\1false/' -e '/^  host:$/,/^  [a-z]/ s/^\(    sampleInterval:[[:space:]]*\)[0-9a-z]*/\110s/' -e '/^  host:$/,/^  [a-z]/ s/^\(    historyDuration:[[:space:]]*\)[0-9a-z]*/\11h/' /etc/nexus/nexusd.yaml && /usr/local/bin/nexusd validate-config && sed -n '/^  host:$/,/^  [a-z]/p' /etc/nexus/nexusd.yaml
+/etc/nexus/nexusd.yaml: configuration is valid
+  host:
+    enabled: false              # Off until enabled here
+    sampleInterval: 10s        # 2s..60s: how often the sampler reads the host
+    historyDuration: 1h        # sampleInterval..24h: how far back the in-memory history goes
+    sourceTimeout: 2s          # 250ms..5s: bound on one read of a file, statfs call or command
+$ [host] systemctl restart nexusd.service
+$ nexus --host host-check capability get -o json (output kept, not logged)
+  after the restart: nexusd pid 1281; host provider disabled, sampleIntervalSeconds <absent>, historyDurationSeconds <absent>
+[07:23:40] disabled baseline: 60 s to settle, then 600 s
+  t=0 pid 1281 ticks 3 VmRSS 23316 kB
+  t=60 pid 1281 ticks 3 VmRSS 23436 kB
+  t=120 pid 1281 ticks 3 VmRSS 23344 kB
+  t=180 pid 1281 ticks 3 VmRSS 23344 kB
+  t=240 pid 1281 ticks 3 VmRSS 23348 kB
+  t=300 pid 1281 ticks 3 VmRSS 20996 kB
+  t=360 pid 1281 ticks 4 VmRSS 21040 kB
+  t=420 pid 1281 ticks 4 VmRSS 20976 kB
+  t=480 pid 1281 ticks 4 VmRSS 21028 kB
+  t=540 pid 1281 ticks 4 VmRSS 20996 kB
+  t=600 pid 1281 ticks 4 VmRSS 21028 kB
+  CPU 0.002% of one CPU over 600.15 s (CLK_TCK 100); VmRSS max 23436, min 20976, mean 22077 kB
+$ [host] sed -i -e '/^  host:$/,/^  [a-z]/ s/^\(    enabled:[[:space:]]*\)[a-z]*/\1true/' -e '/^  host:$/,/^  [a-z]/ s/^\(    sampleInterval:[[:space:]]*\)[0-9a-z]*/\12s/' -e '/^  host:$/,/^  [a-z]/ s/^\(    historyDuration:[[:space:]]*\)[0-9a-z]*/\124h/' /etc/nexus/nexusd.yaml && /usr/local/bin/nexusd validate-config && sed -n '/^  host:$/,/^  [a-z]/p' /etc/nexus/nexusd.yaml
+/etc/nexus/nexusd.yaml: configuration is valid
+  host:
+    enabled: true              # Off until enabled here
+    sampleInterval: 2s        # 2s..60s: how often the sampler reads the host
+    historyDuration: 24h        # sampleInterval..24h: how far back the in-memory history goes
+    sourceTimeout: 2s          # 250ms..5s: bound on one read of a file, statfs call or command
+$ [host] systemctl reload nexusd.service
+$ nexus --host host-check capability get -o json (output kept, not logged)
+  after the reload: nexusd pid 1281; host provider enabled, sampleIntervalSeconds 2, historyDurationSeconds 86400
+$ [host] /usr/local/bin/nexusd token revoke host-check-soak >/dev/null 2>&1; mkdir -p /var/lib/nexus-host-check/xdg && chmod 0700 /var/lib/nexus-host-check/xdg && /usr/local/bin/nexusd token create --name host-check-soak --scope system:read --expires 2d 2>/dev/null | XDG_CONFIG_HOME=/var/lib/nexus-host-check/xdg /usr/local/bin/nexus host add soak --url https://127.0.0.1:7443 --fingerprint "$(/usr/local/bin/nexusd tls fingerprint)" --token-stdin 2>&1 | tail -n 1
+Added host "soak" (https://127.0.0.1:7443, nexusd dev, trust: pin) to /var/lib/nexus-host-check/xdg/nexus/config.yaml
+$ [host] (the poll, /var/lib/nexus-host-check/poller.sh):
+    | #!/bin/sh
+    | S=/var/lib/nexus-host-check
+    | NX=/usr/local/bin/nexus
+    | export XDG_CONFIG_HOME=$S/xdg
+    | end=$(($(date +%s) + 93600)); next=0; ok=0; bad=0
+    | pid() { for d in /proc/[0-9]*; do case $(tr "\0" " " 2>/dev/null <$d/cmdline) in "/usr/local/bin/nexusd serve "*) echo ${d#/proc/}; return ;; esac; done; }
+    | while [ ! -e $S/stop ] && [ -d $S ] && [ "$(date +%s)" -lt $end ]; do
+    |   for c in "hostsummary get" "hosthealth get" "hostmetric get --window-seconds 86400"; do
+    |     if $NX --host soak $c -o json >/dev/null 2>&1; then ok=$((ok + 1)); else bad=$((bad + 1)); fi
+    |   done
+    |   now=$(date +%s)
+    |   if [ $now -ge $next ]; then p=$(pid); s=$(cat /proc/$p/stat 2>/dev/null); s=${s##*") "}; set -- $s; echo "$now $(cut -d" " -f1 /proc/uptime) $p $(sed -n "s/^VmRSS:[[:space:]]*\([0-9]*\).*/\1/p" /proc/$p/status) $((${12} + ${13})) $ok $bad" >>$S/rss.log; next=$((now + 60)); fi
+    |   sleep 10
+    | done
+$ [host] rm -f /var/lib/nexus-host-check/stop /var/lib/nexus-host-check/rss.log; nohup sh /var/lib/nexus-host-check/poller.sh </dev/null >/dev/null 2>&1 & echo $!
+1597
+$ [host] cat /var/lib/nexus-host-check/rss.log
+1794728083 2484234.06 1281 24860 6 3 0
+RESULT 9-rss-24h-start: PASS - baseline (provider disabled, after a restart): VmRSS mean 22077 kB, CPU 0.0017%; historyDuration 24h, sampleInterval 2s since 2026-11-15T07:34:58Z (epoch 1794728083 on the host); poll pid 1597. Finish after 24 h: sh host-check.sh --rss-24h finish --yes
+RESULT token-absent: PASS - the token does not appear in the transcript
+
+== Summary (rss-start)
+  token-env  PASS  no child process's environment holds the token (env, run as a child, does not show it)
+  1-provider  PASS  the host provider is enabled; initSystem systemd = the host's init (systemd); sampleInterval 10s, historyDuration 3600s
+  1-host  FAIL  running in a container: not a real host
+  9-rss-24h-start  PASS  baseline (provider disabled, after a restart): VmRSS mean 22077 kB, CPU 0.0017%; historyDuration 24h, sampleInterval 2s since 2026-11-15T07:34:58Z (epoch 1794728083 on the host); poll pid 1597. Finish after 24 h: sh host-check.sh --rss-24h finish --yes
+  token-absent  PASS  the token does not appear in the transcript
+  (container: not real-host evidence)
+transcript: /root/30-soak-start.txt

@@ -1,0 +1,219 @@
+=== RUN   TestAuditFailureRefusesTheMutation
+--- PASS: TestAuditFailureRefusesTheMutation (0.00s)
+=== RUN   TestStateChangeAuditFailureBlocksMutationsUntilHealthy
+--- PASS: TestStateChangeAuditFailureBlocksMutationsUntilHealthy (0.01s)
+=== RUN   TestBehavioralSuitesRunPerBackend
+--- PASS: TestBehavioralSuitesRunPerBackend (0.00s)
+=== RUN   TestCancelAQueuedOperation
+--- PASS: TestCancelAQueuedOperation (0.01s)
+=== RUN   TestRepeatCancelReturnsTheSameResultAndIgnoresKeys
+--- PASS: TestRepeatCancelReturnsTheSameResultAndIgnoresKeys (0.00s)
+=== RUN   TestCancelRefusalsAndAuthorization
+--- PASS: TestCancelRefusalsAndAuthorization (0.07s)
+=== RUN   TestCancelIsRefusedWhenAuditFails
+=== RUN   TestCancelIsRefusedWhenAuditFails/local
+=== RUN   TestCancelIsRefusedWhenAuditFails/process
+--- PASS: TestCancelIsRefusedWhenAuditFails (1.02s)
+    --- PASS: TestCancelIsRefusedWhenAuditFails/local (0.51s)
+    --- PASS: TestCancelIsRefusedWhenAuditFails/process (0.51s)
+=== RUN   TestRunningIsCommittedBeforeLaunch
+=== RUN   TestRunningIsCommittedBeforeLaunch/local
+=== RUN   TestRunningIsCommittedBeforeLaunch/process
+--- PASS: TestRunningIsCommittedBeforeLaunch (1.03s)
+    --- PASS: TestRunningIsCommittedBeforeLaunch/local (0.51s)
+    --- PASS: TestRunningIsCommittedBeforeLaunch/process (0.52s)
+=== RUN   TestWatcherFinalizesAndStopsWhenIdle
+=== RUN   TestWatcherFinalizesAndStopsWhenIdle/local
+=== RUN   TestWatcherFinalizesAndStopsWhenIdle/process
+--- PASS: TestWatcherFinalizesAndStopsWhenIdle (2.04s)
+    --- PASS: TestWatcherFinalizesAndStopsWhenIdle/local (1.01s)
+    --- PASS: TestWatcherFinalizesAndStopsWhenIdle/process (1.02s)
+=== RUN   TestMaximumRuntimeReportsWithoutSignaling
+=== RUN   TestMaximumRuntimeReportsWithoutSignaling/local
+op-supervise: SIGTERM without a cancel request from nexusd (a host shutdown, or a signal sent by hand): the operation is reported interrupted; an operator cancels with SIGINT
+=== RUN   TestMaximumRuntimeReportsWithoutSignaling/process
+--- PASS: TestMaximumRuntimeReportsWithoutSignaling (2.07s)
+    --- PASS: TestMaximumRuntimeReportsWithoutSignaling/local (1.03s)
+    --- PASS: TestMaximumRuntimeReportsWithoutSignaling/process (1.05s)
+=== RUN   TestLaunchFailureFailsTheOperation
+--- PASS: TestLaunchFailureFailsTheOperation (0.51s)
+=== RUN   TestCancelCannotLoseARaceWithADequeuedOperation
+    detached_test.go:634: 198 cancels won while queued, 2 after the launch
+--- PASS: TestCancelCannotLoseARaceWithADequeuedOperation (3.83s)
+=== RUN   TestCancelARunningDetachedOperationThroughItsUnit
+=== RUN   TestCancelARunningDetachedOperationThroughItsUnit/local
+=== RUN   TestCancelARunningDetachedOperationThroughItsUnit/process
+--- PASS: TestCancelARunningDetachedOperationThroughItsUnit (1.02s)
+    --- PASS: TestCancelARunningDetachedOperationThroughItsUnit/local (0.51s)
+    --- PASS: TestCancelARunningDetachedOperationThroughItsUnit/process (0.52s)
+=== RUN   TestDetachedSensitiveInputStaysOutOfFinalize
+=== RUN   TestDetachedSensitiveInputStaysOutOfFinalize/local
+=== RUN   TestDetachedSensitiveInputStaysOutOfFinalize/process
+--- PASS: TestDetachedSensitiveInputStaysOutOfFinalize (1.03s)
+    --- PASS: TestDetachedSensitiveInputStaysOutOfFinalize/local (0.51s)
+    --- PASS: TestDetachedSensitiveInputStaysOutOfFinalize/process (0.52s)
+=== RUN   TestOperationListAndGetEnforceProviderReadScope
+--- PASS: TestOperationListAndGetEnforceProviderReadScope (0.00s)
+=== RUN   TestListParameters
+--- PASS: TestListParameters (0.04s)
+=== RUN   TestOperationLogEndpoint
+--- PASS: TestOperationLogEndpoint (0.05s)
+=== RUN   TestFollowOutlastsWriteTimeoutAndEndsOnShutdown
+--- PASS: TestFollowOutlastsWriteTimeoutAndEndsOnShutdown (13.04s)
+=== RUN   TestProviderStreamPassesThroughTheDispatcher
+--- PASS: TestProviderStreamPassesThroughTheDispatcher (0.03s)
+=== RUN   TestIdempotencyKeyReturnsTheOriginalOperation
+--- PASS: TestIdempotencyKeyReturnsTheOriginalOperation (0.01s)
+=== RUN   TestReplaysAreAuditedReplayed
+--- PASS: TestReplaysAreAuditedReplayed (0.01s)
+=== RUN   TestConcurrentSameKeyOnDifferentLanesCreatesOneOperation
+    idempotency_test.go:201: 42 of 50 rounds were decided by CreateWithIdempotency after both requests wrote requested
+--- PASS: TestConcurrentSameKeyOnDifferentLanesCreatesOneOperation (0.05s)
+=== RUN   TestIdempotencyBeforeAdmissionAndValidation
+--- PASS: TestIdempotencyBeforeAdmissionAndValidation (0.01s)
+=== RUN   TestKeyReuseWithADifferentRequest
+--- PASS: TestKeyReuseWithADifferentRequest (0.01s)
+=== RUN   TestLaneFreeWhenRecordReadsTerminal
+=== RUN   TestLaneFreeWhenRecordReadsTerminal/http-limit1-submit-on-visible
+=== RUN   TestLaneFreeWhenRecordReadsTerminal/limit2-no-409-while-holder-terminal
+=== RUN   TestLaneFreeWhenRecordReadsTerminal/queued-cancel-prepare-ignores-ctx
+=== RUN   TestLaneFreeWhenRecordReadsTerminal/recovery-terminal-path
+=== RUN   TestLaneFreeWhenRecordReadsTerminal/queue-lane-starts-on-terminal
+--- PASS: TestLaneFreeWhenRecordReadsTerminal (0.12s)
+    --- PASS: TestLaneFreeWhenRecordReadsTerminal/http-limit1-submit-on-visible (0.04s)
+    --- PASS: TestLaneFreeWhenRecordReadsTerminal/limit2-no-409-while-holder-terminal (0.03s)
+    --- PASS: TestLaneFreeWhenRecordReadsTerminal/queued-cancel-prepare-ignores-ctx (0.02s)
+    --- PASS: TestLaneFreeWhenRecordReadsTerminal/recovery-terminal-path (0.01s)
+    --- PASS: TestLaneFreeWhenRecordReadsTerminal/queue-lane-starts-on-terminal (0.02s)
+=== RUN   TestLaneReapCrashSafety
+=== RUN   TestLaneReapCrashSafety/crash-after-commit-before-release
+=== RUN   TestLaneReapCrashSafety/commit-failure-keeps-holder
+--- PASS: TestLaneReapCrashSafety (0.02s)
+    --- PASS: TestLaneReapCrashSafety/crash-after-commit-before-release (0.01s)
+    --- PASS: TestLaneReapCrashSafety/commit-failure-keeps-holder (0.01s)
+=== RUN   TestLanePolicies
+--- PASS: TestLanePolicies (0.14s)
+=== RUN   TestConcurrentStartsOnARejectLaneAdmitTheLimit
+--- PASS: TestConcurrentStartsOnARejectLaneAdmitTheLimit (0.39s)
+=== RUN   TestLongRunningAcknowledgementAndTerminalRecord
+--- PASS: TestLongRunningAcknowledgementAndTerminalRecord (0.01s)
+=== RUN   TestStateChangesAuditThenCommit
+--- PASS: TestStateChangesAuditThenCommit (0.01s)
+=== RUN   TestOperationFailureAndPanicContainment
+--- PASS: TestOperationFailureAndPanicContainment (0.02s)
+=== RUN   TestOperationStatusSetHasNoApprovalState
+--- PASS: TestOperationStatusSetHasNoApprovalState (0.01s)
+=== RUN   TestAuditRecordIsDurableBeforeExecution
+--- PASS: TestAuditRecordIsDurableBeforeExecution (0.00s)
+=== RUN   TestSensitiveValuesAndTokensNeverEnterAudit
+--- PASS: TestSensitiveValuesAndTokensNeverEnterAudit (0.01s)
+=== RUN   TestAPIResponsesContainNoInternalFields
+--- PASS: TestAPIResponsesContainNoInternalFields (0.01s)
+=== RUN   TestReadRiskRequests
+--- PASS: TestReadRiskRequests (0.01s)
+=== RUN   TestStorageLimitRefusesNewMutationsButNotReplays
+--- PASS: TestStorageLimitRefusesNewMutationsButNotReplays (0.01s)
+=== RUN   TestWatcherLivenessPollingWhileTheDaemonIsUp
+--- PASS: TestWatcherLivenessPollingWhileTheDaemonIsUp (0.38s)
+=== RUN   TestRecoveryClassifiesEveryTableRow
+=== RUN   TestRecoveryClassifiesEveryTableRow/local
+=== RUN   TestRecoveryClassifiesEveryTableRow/process
+--- PASS: TestRecoveryClassifiesEveryTableRow (5.08s)
+    --- PASS: TestRecoveryClassifiesEveryTableRow/local (2.53s)
+    --- PASS: TestRecoveryClassifiesEveryTableRow/process (2.55s)
+=== RUN   TestRecoveryExitDuringRecheck
+=== RUN   TestRecoveryExitDuringRecheck/local
+=== RUN   TestRecoveryExitDuringRecheck/process
+--- PASS: TestRecoveryExitDuringRecheck (4.01s)
+    --- PASS: TestRecoveryExitDuringRecheck/local (2.00s)
+    --- PASS: TestRecoveryExitDuringRecheck/process (2.01s)
+=== RUN   TestRecoveryFinalizeTwiceIsHarmless
+=== RUN   TestRecoveryFinalizeTwiceIsHarmless/local
+=== RUN   TestRecoveryFinalizeTwiceIsHarmless/process
+--- PASS: TestRecoveryFinalizeTwiceIsHarmless (0.01s)
+    --- PASS: TestRecoveryFinalizeTwiceIsHarmless/local (0.00s)
+    --- PASS: TestRecoveryFinalizeTwiceIsHarmless/process (0.00s)
+=== RUN   TestRecoveryOrphanUnitsAreOnlyLogged
+=== RUN   TestRecoveryOrphanUnitsAreOnlyLogged/local
+detachtest: supervisor for nexus-op-orphan1.service: signal: terminated
+=== RUN   TestRecoveryOrphanUnitsAreOnlyLogged/process
+--- PASS: TestRecoveryOrphanUnitsAreOnlyLogged (0.08s)
+    --- PASS: TestRecoveryOrphanUnitsAreOnlyLogged/local (0.02s)
+    --- PASS: TestRecoveryOrphanUnitsAreOnlyLogged/process (0.06s)
+=== RUN   TestRecoveryBlockedClassificationHitsDeadline
+--- PASS: TestRecoveryBlockedClassificationHitsDeadline (1.50s)
+=== RUN   TestRecoveryAfterShutdownSIGTERMIsOutcomeUnknown
+=== RUN   TestRecoveryAfterShutdownSIGTERMIsOutcomeUnknown/local
+=== RUN   TestRecoveryAfterShutdownSIGTERMIsOutcomeUnknown/local/supervisor
+op-supervise: SIGTERM without a cancel request from nexusd (a host shutdown, or a signal sent by hand): the operation is reported interrupted; an operator cancels with SIGINT
+=== RUN   TestRecoveryAfterShutdownSIGTERMIsOutcomeUnknown/local/every_process
+op-supervise: SIGTERM without a cancel request from nexusd (a host shutdown, or a signal sent by hand): the operation is reported interrupted; an operator cancels with SIGINT
+=== RUN   TestRecoveryAfterShutdownSIGTERMIsOutcomeUnknown/process
+=== RUN   TestRecoveryAfterShutdownSIGTERMIsOutcomeUnknown/process/supervisor
+=== RUN   TestRecoveryAfterShutdownSIGTERMIsOutcomeUnknown/process/every_process
+--- PASS: TestRecoveryAfterShutdownSIGTERMIsOutcomeUnknown (3.10s)
+    --- PASS: TestRecoveryAfterShutdownSIGTERMIsOutcomeUnknown/local (1.07s)
+        --- PASS: TestRecoveryAfterShutdownSIGTERMIsOutcomeUnknown/local/supervisor (0.05s)
+        --- PASS: TestRecoveryAfterShutdownSIGTERMIsOutcomeUnknown/local/every_process (1.03s)
+    --- PASS: TestRecoveryAfterShutdownSIGTERMIsOutcomeUnknown/process (2.03s)
+        --- PASS: TestRecoveryAfterShutdownSIGTERMIsOutcomeUnknown/process/supervisor (0.99s)
+        --- PASS: TestRecoveryAfterShutdownSIGTERMIsOutcomeUnknown/process/every_process (1.04s)
+=== RUN   TestRecoveryAfterCancelAndRestartIsCanceled
+=== RUN   TestRecoveryAfterCancelAndRestartIsCanceled/local
+=== RUN   TestRecoveryAfterCancelAndRestartIsCanceled/process
+--- PASS: TestRecoveryAfterCancelAndRestartIsCanceled (0.98s)
+    --- PASS: TestRecoveryAfterCancelAndRestartIsCanceled/local (0.05s)
+    --- PASS: TestRecoveryAfterCancelAndRestartIsCanceled/process (0.93s)
+=== RUN   TestRecoveryDistrustsSignalDeathFromAnEarlierBoot
+=== RUN   TestRecoveryDistrustsSignalDeathFromAnEarlierBoot/local
+=== RUN   TestRecoveryDistrustsSignalDeathFromAnEarlierBoot/process
+--- PASS: TestRecoveryDistrustsSignalDeathFromAnEarlierBoot (0.00s)
+    --- PASS: TestRecoveryDistrustsSignalDeathFromAnEarlierBoot/local (0.00s)
+    --- PASS: TestRecoveryDistrustsSignalDeathFromAnEarlierBoot/process (0.00s)
+=== RUN   TestOperatorSIGINTIsACancel
+=== RUN   TestOperatorSIGINTIsACancel/local
+=== RUN   TestOperatorSIGINTIsACancel/local/nexusd_running
+op-supervise: SIGINT: a cancel requested on the host; the operation is reported canceled
+=== RUN   TestOperatorSIGINTIsACancel/local/nexusd_restarted
+op-supervise: SIGINT: a cancel requested on the host; the operation is reported canceled
+=== RUN   TestOperatorSIGINTIsACancel/process
+=== RUN   TestOperatorSIGINTIsACancel/process/nexusd_running
+=== RUN   TestOperatorSIGINTIsACancel/process/nexusd_restarted
+--- PASS: TestOperatorSIGINTIsACancel (3.03s)
+    --- PASS: TestOperatorSIGINTIsACancel/local (2.00s)
+        --- PASS: TestOperatorSIGINTIsACancel/local/nexusd_running (1.00s)
+        --- PASS: TestOperatorSIGINTIsACancel/local/nexusd_restarted (1.00s)
+    --- PASS: TestOperatorSIGINTIsACancel/process (1.03s)
+        --- PASS: TestOperatorSIGINTIsACancel/process/nexusd_running (0.51s)
+        --- PASS: TestOperatorSIGINTIsACancel/process/nexusd_restarted (0.51s)
+=== RUN   TestRetentionPruneRemovesPrunedDirectories
+--- PASS: TestRetentionPruneRemovesPrunedDirectories (0.00s)
+=== RUN   TestRetentionEvictOutput
+--- PASS: TestRetentionEvictOutput (0.00s)
+=== RUN   TestOnTerminalNotifiesAfterTerminalCommits
+--- PASS: TestOnTerminalNotifiesAfterTerminalCommits (0.00s)
+=== RUN   TestRetentionPruneSweepsDirectoriesNoRecordOwns
+--- PASS: TestRetentionPruneSweepsDirectoriesNoRecordOwns (0.00s)
+=== RUN   TestDetachedOperationCarriesConfiguredOutputCap
+--- PASS: TestDetachedOperationCarriesConfiguredOutputCap (0.51s)
+=== RUN   TestDetachedLaunchRefusedWhenMaxRuntimeCannotBeRecorded
+--- PASS: TestDetachedLaunchRefusedWhenMaxRuntimeCannotBeRecorded (0.01s)
+=== RUN   TestReattachedWithoutMaxRuntimeFileStillHasABackstop
+--- PASS: TestReattachedWithoutMaxRuntimeFileStillHasABackstop (0.51s)
+=== RUN   TestRecoveryUnitStateErrorIsUnknownNotAbsent
+--- PASS: TestRecoveryUnitStateErrorIsUnknownNotAbsent (2.51s)
+=== RUN   TestSpecJSONIsRemovedWhenTheOperationEnds
+--- PASS: TestSpecJSONIsRemovedWhenTheOperationEnds (0.50s)
+=== RUN   TestOverBudgetEvictionOrderAndLimitFlag
+--- PASS: TestOverBudgetEvictionOrderAndLimitFlag (0.04s)
+=== RUN   TestReplayAtTheStorageLimitReturnsTheOriginal
+--- PASS: TestReplayAtTheStorageLimitReturnsTheOriginal (0.01s)
+=== RUN   TestCancelSucceedsAtTheStorageLimit
+--- PASS: TestCancelSucceedsAtTheStorageLimit (0.51s)
+=== RUN   TestIdempotencyWindowBoundary
+--- PASS: TestIdempotencyWindowBoundary (0.01s)
+=== RUN   TestLimitDoesNotBlockReadRiskRequests
+--- PASS: TestLimitDoesNotBlockReadRiskRequests (0.01s)
+=== RUN   TestRefusedMutatingRequestsAreAudited
+--- PASS: TestRefusedMutatingRequestsAreAudited (0.59s)
+PASS

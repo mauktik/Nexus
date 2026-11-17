@@ -1,0 +1,1995 @@
+# host-check.sh transcript: system-provider WI 5.4 (TC-HP-127 to TC-HP-130)
+# started 2026-11-15T07:27:54Z on Devuser-Macbook-Pro.local, mode check --overhead, host root@127.0.0.1, arguments: --ssh root@127.0.0.1 --nexus /private/tmp/claude-501/-Users-devuser-Projects-Nexus/c1dff5bf-5d6a-47af-a04d-54d84132cd94/scratchpad/bin/nexus --yes --overhead --transcript 23-alpine-overhead.txt
+# script sha256 281d577abca434c4664c63026f2c831926468788926470fca474e57e98a21778
+# CONTAINER DETECTED on the host (/.dockerenv, /run/.containerenv or container= in PID 1's environment):
+# this transcript is a container run, NOT real-host evidence.
+$ [host] /usr/local/bin/nexusd tls fingerprint
+74:F2:62:56:D5:50:E4:8D:0B:C6:E8:34:12:A2:6D:F5:71:3A:E9:6A:F4:4B:3F:4C:34:0A:69:6F:FF:D1:88:C5
+$ (the token, on stdin) | nexus host add host-check --url https://127.0.0.1:17443 --fingerprint 74:F2:62:56:D5:50:E4:8D:0B:C6:E8:34:12:A2:6D:F5:71:3A:E9:6A:F4:4B:3F:4C:34:0A:69:6F:FF:D1:88:C5 --token-stdin
+Server certificate SHA-256 fingerprint:
+  74:F2:62:56:D5:50:E4:8D:0B:C6:E8:34:12:A2:6D:F5:71:3A:E9:6A:F4:4B:3F:4C:34:0A:69:6F:FF:D1:88:C5
+It matches --fingerprint; pinning it.
+Added host "host-check" (https://127.0.0.1:17443, nexusd dev, trust: pin) to <throwaway client config>
+RESULT token-env: PASS - no child process's environment holds the token (env, run as a child, does not show it)
+[07:27:55] == Step 1: facts
+$ [host] uname -a; [ ! -r /etc/alpine-release ] || echo "Alpine $(cat /etc/alpine-release)"; [ ! -r /etc/debian_version ] || echo "Debian base $(cat /etc/debian_version)"; sed -n "s/^PRETTY_NAME=//p" /etc/os-release; tr "\0" " " </proc/1/cmdline; echo; echo "nproc $(nproc); $(grep MemTotal /proc/meminfo)"
+Linux 75f9518a6b95 6.8.0-100-generic #100-Ubuntu SMP PREEMPT_DYNAMIC Tue Jan 13 16:39:21 UTC 2026 aarch64 Linux
+Alpine 3.24.4
+"Alpine Linux v3.24"
+/sbin/init 
+nproc 4; MemTotal:        8114204 kB
+$ [host] openrc --version
+openrc (OpenRC [DOCKER]) 0.63.2
+$ [host] /usr/local/bin/nexusd -version
+nexusd dev
+$ /private/tmp/claude-501/-Users-devuser-Projects-Nexus/c1dff5bf-5d6a-47af-a04d-54d84132cd94/scratchpad/bin/nexus --version
+nexus dev
+  nexusd: pid 760, uid 0
+$ [host] sed -n '/^  host:$/,/^  [a-z]/p' /etc/nexus/nexusd.yaml
+  host:
+    enabled: true              # Off until enabled here
+    sampleInterval: 10s        # 2s..60s: how often the sampler reads the host
+    historyDuration: 1h        # sampleInterval..24h: how far back the in-memory history goes
+    sourceTimeout: 2s          # 250ms..5s: bound on one read of a file, statfs call or command
+$ nexus --host host-check capability get -o json (output kept, not logged)
+  capability: host provider enabled, initSystem openrc, sampleIntervalSeconds 10, historyDurationSeconds 3600
+RESULT 1-provider: PASS - the host provider is enabled; initSystem openrc = the host's init (openrc); sampleInterval 10s, historyDuration 3600s
+RESULT 1-host: FAIL - running in a container: not a real host
+
+== Plan. With --yes the script will, on root@127.0.0.1:
+  - call every nexus host* command with -o json and read each field back with the host's
+    tools (TC-HP-127); walk every response: no null without a reason (TC-HP-115's rule);
+  - NFR-3 over one sampler interval aligned on its tick: CPU against vmstat (or /proc/stat),
+    memory available against free -b, rx/tx against /sys/class/net/*/statistics (TC-HP-128);
+  - NFR-1: 50 timed calls per operation, the p95 from the CLI's --verbose timing (TC-HP-129);
+  - btrfs (A-21, A-38): each btrfs filesystem listed once with df's numbers, if there is one.
+  - --overhead: wait until the default 1 h history is full; nexusd's CPU (utime+stime) over
+    600 s and its RSS every 60 s; then save /etc/nexus/nexusd.yaml, set the provider disabled, restart
+    nexusd, measure the same; restore /etc/nexus/nexusd.yaml byte for byte and reload.
+$ nexus --host host-check hostsummary get -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/summary/current",
+    "name": "current",
+    "properties": {
+      "cpu": {
+        "load": {
+          "load1": 1.4,
+          "load15": 1.1,
+          "load5": 1.49
+        },
+        "logicalCpus": 4,
+        "model": null,
+        "unavailable": {
+          "model": "not reported: no model name in /proc/cpuinfo"
+        },
+        "usagePercent": 8.258032128514056
+      },
+      "filesystems": [
+        {
+          "mountPoint": "/",
+          "sizeBytes": 63088406528,
+          "usedPercent": 54.67084078699743
+        },
+        {
+          "mountPoint": "/dev/shm",
+          "sizeBytes": 67108864,
+          "usedPercent": 0
+        },
+        {
+          "mountPoint": "/run",
+          "sizeBytes": 4154470400,
+          "usedPercent": 0.005225407310640605
+        },
+        {
+          "mountPoint": "/var/lib/docker",
+          "sizeBytes": 63088406528,
+          "usedPercent": 54.67084078699743
+        }
+      ],
+      "filesystemsTotal": 4,
+      "filesystemsTruncated": false,
+      "health": {
+        "failedServicesCount": 0,
+        "oomKills": 0,
+        "rebootRequired": "unknown",
+        "unavailable": {
+          "rebootRequired": "not supported: reboot-required in an Alpine container, whose kernel is the container host's"
+        }
+      },
+      "identity": {
+        "architecture": "aarch64",
+        "bootTime": "2026-10-17T13:30:49Z",
+        "hostname": "75f9518a6b95",
+        "initSystem": "openrc",
+        "kernelRelease": "6.8.0-100-generic",
+        "os": {
+          "id": "alpine",
+          "prettyName": "Alpine Linux v3.24",
+          "versionId": "3.24.4"
+        },
+        "uptimeSeconds": 2483826.27
+      },
+      "memory": {
+        "availableBytes": 7074185216,
+        "swapTotalBytes": 0,
+        "swapUsedBytes": 0,
+        "totalBytes": 8308944896,
+        "usedPercent": 14.860607399074514
+      },
+      "network": {
+        "defaultGateways": [
+          {
+            "address": "172.17.0.1",
+            "family": "ipv4",
+            "interface": "eth0",
+            "metric": 0
+          }
+        ],
+        "interfaces": [
+          {
+            "ipv4": "172.18.0.1/16",
+            "ipv6": null,
+            "name": "docker0",
+            "rxBytesPerSecond": 0,
+            "state": "down",
+            "txBytesPerSecond": 0,
+            "unavailable": {
+              "ipv6": "not reported: no IPv6 address"
+            }
+          },
+          {
+            "ipv4": "172.17.0.3/16",
+            "ipv6": null,
+            "name": "eth0",
+            "rxBytesPerSecond": 62803.077471960525,
+            "state": "up",
+            "txBytesPerSecond": 114374.44764065692,
+            "unavailable": {
+              "ipv6": "not reported: no IPv6 address"
+            }
+          }
+        ],
+        "interfacesTotal": 2,
+        "interfacesTruncated": false
+      },
+      "sampler": {
+        "ageSeconds": 3.82950842,
+        "intervalSeconds": 9.999637363,
+        "sampledAt": "2026-11-15T07:27:51.809649889Z",
+        "state": "ready"
+      }
+    },
+    "type": "summary"
+  }
+]
+RESULT 3-walk-hostsummary: PASS - no null without a reason; 4 field(s) unavailable, each with a reason prefix
+$ nexus --host host-check hostidentity get -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/identity/current",
+    "name": "current",
+    "properties": {
+      "architecture": "aarch64",
+      "bootTime": "2026-10-17T13:30:49Z",
+      "clock": {
+        "source": null,
+        "synchronized": "unknown",
+        "unavailable": {
+          "source": "not supported: no supported time-sync query (systemd-timedated, chrony)",
+          "synchronized": "not supported: no supported time-sync query (systemd-timedated, chrony)"
+        }
+      },
+      "dmi": {
+        "biosVendor": "Apple Inc.",
+        "biosVersion": "2164.0.0.0.0",
+        "productName": "Apple Virtualization Generic Platform",
+        "productVersion": "1",
+        "systemVendor": "Apple Inc."
+      },
+      "hostname": "75f9518a6b95",
+      "initSystem": "openrc",
+      "kernelRelease": "6.8.0-100-generic",
+      "os": {
+        "id": "alpine",
+        "prettyName": "Alpine Linux v3.24",
+        "versionId": "3.24.4"
+      },
+      "timezone": {
+        "name": "UTC",
+        "offsetSeconds": 0,
+        "source": "default (no /etc/localtime)"
+      },
+      "uptimeSeconds": 2483826.32,
+      "virtualization": {
+        "evidence": "/.dockerenv",
+        "kind": "container",
+        "type": "docker"
+      }
+    },
+    "type": "identity"
+  }
+]
+RESULT 3-walk-hostidentity: PASS - no null without a reason; 2 field(s) unavailable, each with a reason prefix
+$ nexus --host host-check hostcpu get -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/cpu/current",
+    "name": "current",
+    "properties": {
+      "frequencyMhz": null,
+      "load": {
+        "load1": 1.4,
+        "load15": 1.1,
+        "load5": 1.49
+      },
+      "logicalCpus": 4,
+      "model": null,
+      "perCpu": [
+        {
+          "cpu": 0,
+          "frequencyMhz": null,
+          "unavailable": {
+            "frequencyMhz": "not reported: no cpufreq and no cpu MHz in /proc/cpuinfo"
+          },
+          "usagePercent": 10.119047619047619
+        },
+        {
+          "cpu": 1,
+          "frequencyMhz": null,
+          "unavailable": {
+            "frequencyMhz": "not reported: no cpufreq and no cpu MHz in /proc/cpuinfo"
+          },
+          "usagePercent": 7.847082494969819
+        },
+        {
+          "cpu": 2,
+          "frequencyMhz": null,
+          "unavailable": {
+            "frequencyMhz": "not reported: no cpufreq and no cpu MHz in /proc/cpuinfo"
+          },
+          "usagePercent": 7.366296670030273
+        },
+        {
+          "cpu": 3,
+          "frequencyMhz": null,
+          "unavailable": {
+            "frequencyMhz": "not reported: no cpufreq and no cpu MHz in /proc/cpuinfo"
+          },
+          "usagePercent": 7.754279959718026
+        }
+      ],
+      "physicalCores": 4,
+      "sampler": {
+        "ageSeconds": 3.925232838,
+        "intervalSeconds": 9.999637363,
+        "sampledAt": "2026-11-15T07:27:51.809649889Z",
+        "state": "ready"
+      },
+      "temperatures": [],
+      "times": {
+        "iowaitPercent": 0,
+        "stealPercent": 0,
+        "systemPercent": 4.518072289156627,
+        "userPercent": 2.6606425702811247
+      },
+      "unavailable": {
+        "frequencyMhz": "not reported: no cpufreq and no cpu MHz in /proc/cpuinfo",
+        "model": "not reported: no model name in /proc/cpuinfo",
+        "temperatures": "not reported: no temperature sensors (common in VMs)"
+      },
+      "usagePercent": 8.258032128514056
+    },
+    "type": "cpu"
+  }
+]
+RESULT 3-walk-hostcpu: PASS - no null without a reason; 7 field(s) unavailable, each with a reason prefix
+$ nexus --host host-check hostmemory get -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/memory/current",
+    "name": "current",
+    "properties": {
+      "availableBytes": 7071911936,
+      "buffersBytes": 585715712,
+      "cachedBytes": 6120808448,
+      "freeBytes": 575864832,
+      "pressure": {
+        "cpu": {
+          "full": {
+            "avg10": 0,
+            "avg300": 0,
+            "avg60": 0
+          },
+          "some": {
+            "avg10": 1.28,
+            "avg300": 5.57,
+            "avg60": 4.58
+          }
+        },
+        "io": {
+          "full": {
+            "avg10": 0,
+            "avg300": 0.04,
+            "avg60": 0
+          },
+          "some": {
+            "avg10": 0,
+            "avg300": 0.05,
+            "avg60": 0
+          }
+        },
+        "memory": {
+          "full": {
+            "avg10": 0,
+            "avg300": 0,
+            "avg60": 0
+          },
+          "some": {
+            "avg10": 0,
+            "avg300": 0,
+            "avg60": 0
+          }
+        }
+      },
+      "sharedBytes": 2461696,
+      "swapFreeBytes": 0,
+      "swapTotalBytes": 0,
+      "swapUsedBytes": 0,
+      "totalBytes": 8308944896,
+      "usedBytes": 1237032960,
+      "usedPercent": 14.887966829525116
+    },
+    "type": "memory"
+  }
+]
+RESULT 3-walk-hostmemory: PASS - no null without a reason; 0 field(s) unavailable, each with a reason prefix
+$ nexus --host host-check hostfs get --limit 1000 -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/filesystems/%2F",
+    "name": "%2F",
+    "properties": {
+      "availableBytes": 27129729024,
+      "fsType": "overlay",
+      "inodesFree": 3425124,
+      "inodesTotal": 3932160,
+      "inodesUsed": 507036,
+      "mountPoint": "/",
+      "readOnly": false,
+      "sizeBytes": 63088406528,
+      "source": "overlay",
+      "usedBytes": 32720781312,
+      "usedPercent": 54.67084763071518
+    },
+    "type": "filesystems"
+  },
+  {
+    "host": "host-check",
+    "id": "/providers/host/filesystems/%2Fdev%2Fshm",
+    "name": "%2Fdev%2Fshm",
+    "properties": {
+      "availableBytes": 67108864,
+      "fsType": "tmpfs",
+      "inodesFree": 1014274,
+      "inodesTotal": 1014275,
+      "inodesUsed": 1,
+      "mountPoint": "/dev/shm",
+      "readOnly": false,
+      "sizeBytes": 67108864,
+      "source": "shm",
+      "usedBytes": 0,
+      "usedPercent": 0
+    },
+    "type": "filesystems"
+  },
+  {
+    "host": "host-check",
+    "id": "/providers/host/filesystems/%2Frun",
+    "name": "%2Frun",
+    "properties": {
+      "availableBytes": 4154253312,
+      "fsType": "tmpfs",
+      "inodesFree": 1014181,
+      "inodesTotal": 1014275,
+      "inodesUsed": 94,
+      "mountPoint": "/run",
+      "readOnly": false,
+      "sizeBytes": 4154470400,
+      "source": "tmpfs",
+      "usedBytes": 217088,
+      "usedPercent": 0.005225407310640605
+    },
+    "type": "filesystems"
+  },
+  {
+    "host": "host-check",
+    "id": "/providers/host/filesystems/%2Fvar%2Flib%2Fdocker",
+    "name": "%2Fvar%2Flib%2Fdocker",
+    "properties": {
+      "availableBytes": 27129729024,
+      "fsType": "ext4",
+      "inodesFree": 3425124,
+      "inodesTotal": 3932160,
+      "inodesUsed": 507036,
+      "mountPoint": "/var/lib/docker",
+      "readOnly": false,
+      "sizeBytes": 63088406528,
+      "source": "/dev/vdb1",
+      "usedBytes": 32720781312,
+      "usedPercent": 54.67084763071518
+    },
+    "type": "filesystems"
+  }
+]
+RESULT 3-walk-hostfs: PASS - no null without a reason; 0 field(s) unavailable, each with a reason prefix
+$ nexus --host host-check hostdisk get --limit 1000 -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/disks/vda",
+    "name": "vda",
+    "properties": {
+      "model": null,
+      "partitions": [
+        {
+          "mountPoints": [],
+          "name": "vda1",
+          "sizeBytes": 20400029184
+        },
+        {
+          "mountPoints": [],
+          "name": "vda15",
+          "sizeBytes": 103809536
+        },
+        {
+          "mountPoints": [],
+          "name": "vda16",
+          "sizeBytes": 967836160
+        }
+      ],
+      "readBytesPerSecond": 0,
+      "readIops": 0,
+      "removable": false,
+      "rotational": true,
+      "sampler": {
+        "ageSeconds": 4.063156338,
+        "intervalSeconds": 9.999637363,
+        "sampledAt": "2026-11-15T07:27:51.809649889Z",
+        "state": "ready"
+      },
+      "sizeBytes": 21474836480,
+      "unavailable": {
+        "model": "not reported: no /sys/block/vda/device/model"
+      },
+      "writeBytesPerSecond": 0,
+      "writeIops": 0
+    },
+    "type": "disks"
+  },
+  {
+    "host": "host-check",
+    "id": "/providers/host/disks/vdb",
+    "name": "vdb",
+    "properties": {
+      "model": null,
+      "partitions": [
+        {
+          "mountPoints": [
+            "/etc/hostname",
+            "/etc/hosts",
+            "/etc/resolv.conf",
+            "/var/lib/containerd",
+            "/var/lib/docker"
+          ],
+          "name": "vdb1",
+          "sizeBytes": 64422412288
+        }
+      ],
+      "readBytesPerSecond": 0,
+      "readIops": 0,
+      "removable": false,
+      "rotational": true,
+      "sampler": {
+        "ageSeconds": 4.063156338,
+        "intervalSeconds": 9.999637363,
+        "sampledAt": "2026-11-15T07:27:51.809649889Z",
+        "state": "ready"
+      },
+      "sizeBytes": 64424509440,
+      "unavailable": {
+        "model": "not reported: no /sys/block/vdb/device/model"
+      },
+      "writeBytesPerSecond": 6963.45252055317,
+      "writeIops": 1.6000580240241657
+    },
+    "type": "disks"
+  },
+  {
+    "host": "host-check",
+    "id": "/providers/host/disks/vdc",
+    "name": "vdc",
+    "properties": {
+      "model": null,
+      "partitions": [],
+      "readBytesPerSecond": 0,
+      "readIops": 0,
+      "removable": false,
+      "rotational": true,
+      "sampler": {
+        "ageSeconds": 4.063156338,
+        "intervalSeconds": 9.999637363,
+        "sampledAt": "2026-11-15T07:27:51.809649889Z",
+        "state": "ready"
+      },
+      "sizeBytes": 55689216,
+      "unavailable": {
+        "model": "not reported: no /sys/block/vdc/device/model"
+      },
+      "writeBytesPerSecond": 0,
+      "writeIops": 0
+    },
+    "type": "disks"
+  }
+]
+RESULT 3-walk-hostdisk: PASS - no null without a reason; 3 field(s) unavailable, each with a reason prefix
+$ nexus --host host-check hostnet get --limit 1000 -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/interfaces/docker0",
+    "name": "docker0",
+    "properties": {
+      "ipv4": [
+        {
+          "address": "172.18.0.1",
+          "prefixLength": 16
+        }
+      ],
+      "ipv6": [],
+      "loopback": false,
+      "mac": "82:c6:0b:b7:59:51",
+      "mtu": 1500,
+      "rxBytes": 0,
+      "rxBytesPerSecond": 0,
+      "rxDropped": 0,
+      "rxErrors": 0,
+      "sampler": {
+        "ageSeconds": 4.110377084,
+        "intervalSeconds": 9.999637363,
+        "sampledAt": "2026-11-15T07:27:51.809649889Z",
+        "state": "ready"
+      },
+      "speedMbps": null,
+      "state": "down",
+      "txBytes": 0,
+      "txBytesPerSecond": 0,
+      "txDropped": 0,
+      "txErrors": 0,
+      "unavailable": {
+        "speedMbps": "not reported: no link speed at /sys/class/net/docker0/speed"
+      }
+    },
+    "type": "interfaces"
+  },
+  {
+    "host": "host-check",
+    "id": "/providers/host/interfaces/eth0",
+    "name": "eth0",
+    "properties": {
+      "ipv4": [
+        {
+          "address": "172.17.0.3",
+          "prefixLength": 16
+        }
+      ],
+      "ipv6": [],
+      "loopback": false,
+      "mac": "8e:05:f7:0b:58:ca",
+      "mtu": 1500,
+      "rxBytes": 23013631,
+      "rxBytesPerSecond": 62803.077471960525,
+      "rxDropped": 0,
+      "rxErrors": 0,
+      "sampler": {
+        "ageSeconds": 4.110377084,
+        "intervalSeconds": 9.999637363,
+        "sampledAt": "2026-11-15T07:27:51.809649889Z",
+        "state": "ready"
+      },
+      "speedMbps": 10000,
+      "state": "up",
+      "txBytes": 32871820,
+      "txBytesPerSecond": 114374.44764065692,
+      "txDropped": 0,
+      "txErrors": 0
+    },
+    "type": "interfaces"
+  },
+  {
+    "host": "host-check",
+    "id": "/providers/host/interfaces/lo",
+    "name": "lo",
+    "properties": {
+      "ipv4": [
+        {
+          "address": "127.0.0.1",
+          "prefixLength": 8
+        }
+      ],
+      "ipv6": [
+        {
+          "address": "::1",
+          "prefixLength": 128
+        }
+      ],
+      "loopback": true,
+      "mac": "00:00:00:00:00:00",
+      "mtu": 65536,
+      "rxBytes": 28501,
+      "rxBytesPerSecond": 0,
+      "rxDropped": 0,
+      "rxErrors": 0,
+      "sampler": {
+        "ageSeconds": 4.110377084,
+        "intervalSeconds": 9.999637363,
+        "sampledAt": "2026-11-15T07:27:51.809649889Z",
+        "state": "ready"
+      },
+      "speedMbps": null,
+      "state": "unknown",
+      "txBytes": 28501,
+      "txBytesPerSecond": 0,
+      "txDropped": 0,
+      "txErrors": 0,
+      "unavailable": {
+        "speedMbps": "not reported: no link speed at /sys/class/net/lo/speed"
+      }
+    },
+    "type": "interfaces"
+  }
+]
+RESULT 3-walk-hostnet: PASS - no null without a reason; 2 field(s) unavailable, each with a reason prefix
+$ nexus --host host-check hostnetconfig get -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/netconfig/current",
+    "name": "current",
+    "properties": {
+      "defaultGateways": [
+        {
+          "address": "172.17.0.1",
+          "family": "ipv4",
+          "interface": "eth0",
+          "metric": 0
+        }
+      ],
+      "dns": {
+        "servers": [
+          {
+            "address": "192.168.5.1",
+            "stub": false
+          }
+        ],
+        "source": "/etc/resolv.conf"
+      }
+    },
+    "type": "netconfig"
+  }
+]
+RESULT 3-walk-hostnetconfig: PASS - no null without a reason; 0 field(s) unavailable, each with a reason prefix
+$ nexus --host host-check hosthealth get -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/health/current",
+    "name": "current",
+    "properties": {
+      "failedServices": {
+        "count": 0,
+        "names": [],
+        "namesTruncated": false,
+        "source": "openrc"
+      },
+      "oomKills": 0,
+      "processSampleSeconds": 10.000368244,
+      "rebootRequired": {
+        "check": "none",
+        "evidence": "in a docker container: the running kernel 6.8.0-100-generic is the container host's, so /lib/modules/6.8.0-100-generic says nothing",
+        "packages": [],
+        "state": "unknown",
+        "unavailable": {
+          "state": "not supported: reboot-required in an Alpine container, whose kernel is the container host's"
+        }
+      },
+      "sampler": {
+        "ageSeconds": 4.204482907,
+        "intervalSeconds": 9.999637363,
+        "sampledAt": "2026-11-15T07:27:51.809649889Z",
+        "state": "ready"
+      },
+      "topByCpu": [
+        {
+          "command": "nexusd",
+          "cpuPercent": 6.0997753794315175,
+          "pid": 760,
+          "rssBytes": 27721728,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "sshd",
+          "cpuPercent": 0.09999631769559864,
+          "pid": 714,
+          "rssBytes": 3776512,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "init",
+          "cpuPercent": 0,
+          "pid": 1,
+          "rssBytes": 786432,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "syslogd",
+          "cpuPercent": 0,
+          "pid": 195,
+          "rssBytes": 917504,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "supervise-daemo",
+          "cpuPercent": 0,
+          "pid": 225,
+          "rssBytes": 524288,
+          "uid": 0,
+          "user": "root"
+        }
+      ],
+      "topByMemory": [
+        {
+          "command": "dockerd",
+          "cpuPercent": 0,
+          "pid": 226,
+          "rssBytes": 86761472,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "containerd",
+          "cpuPercent": 0,
+          "pid": 244,
+          "rssBytes": 40894464,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "nexusd",
+          "cpuPercent": 6.0997753794315175,
+          "pid": 760,
+          "rssBytes": 27721728,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "sshd",
+          "cpuPercent": 0.09999631769559864,
+          "pid": 714,
+          "rssBytes": 3776512,
+          "uid": 0,
+          "user": "root"
+        },
+        {
+          "command": "log_proxy",
+          "cpuPercent": 0,
+          "pid": 227,
+          "rssBytes": 1572864,
+          "uid": 0,
+          "user": "root"
+        }
+      ]
+    },
+    "type": "health"
+  }
+]
+RESULT 3-walk-hosthealth: PASS - no null without a reason; 1 field(s) unavailable, each with a reason prefix
+$ nexus --host host-check hostmetric get -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/metrics/current",
+    "name": "current",
+    "properties": {
+      "entitiesTruncated": {
+        "disks": 0,
+        "interfaces": 0
+      },
+      "from": "2026-11-15T07:17:10Z",
+      "historyStart": "2026-11-15T07:17:11.807Z",
+      "points": 65,
+      "sampler": {
+        "ageSeconds": 4.255923727,
+        "intervalSeconds": 9.999637363,
+        "sampledAt": "2026-11-15T07:27:51.809649889Z",
+        "state": "ready"
+      },
+      "series": [
+        {
+          "entity": "",
+          "metric": "cpu",
+          "name": "usagePercent",
+          "unit": "percent",
+          "values": [
+            null,
+            7.794820308685303,
+            3.492462396621704,
+            34.462703704833984,
+            49.56632614135742,
+            42.13326644897461,
+            46.193023681640625,
+            49.19826889038086,
+            39.67570495605469,
+            48.021446228027344,
+            49.82233428955078,
+            41.53845977783203,
+            47.959442138671875,
+            49.746707916259766,
+            35.07157516479492,
+            18.97810173034668,
+            5.463659286499023,
+            19.41576385498047,
+            12.742382049560547,
+            9.26204776763916,
+            26.359725952148438,
+            31.962427139282227,
+            18.8526668548584,
+            8.373146057128906,
+            0.5751438140869141,
+            0.5007511377334595,
+            0.7759699821472168,
+            0.4251062870025635,
+            0.47559449076652527,
+            13.981990814208984,
+            3.2330827713012695,
+            18.581846237182617,
+            23.64967155456543,
+            13.603218078613281,
+            14.082040786743164,
+            0.8006004691123962,
+            0.6508135199546814,
+            0.500500500202179,
+            0.6007509231567383,
+            3.431004285812378,
+            16.025157928466797,
+            49.0374870300293,
+            49.46754455566406,
+            39.63214874267578,
+            8.95522403717041,
+            39.56589889526367,
+            46.9681396484375,
+            39.944557189941406,
+            12.276729583740234,
+            49.50595474243164,
+            49.86079406738281,
+            40.116573333740234,
+            12.446675300598145,
+            49.89863204956055,
+            49.78497314453125,
+            36.613677978515625,
+            3.9318807125091553,
+            18.374025344848633,
+            24.305906295776367,
+            15.357502937316895,
+            9.450990676879883,
+            29.60509490966797,
+            36.03373336791992,
+            20.01011848449707,
+            8.258031845092773
+          ]
+        },
+        {
+          "entity": "",
+          "metric": "load",
+          "name": "load1",
+          "unit": "load",
+          "values": [
+            0.46000000834465027,
+            0.5400000214576721,
+            0.6200000047683716,
+            0.6800000071525574,
+            1.0199999809265137,
+            1.309999942779541,
+            1.8899999856948853,
+            1.899999976158142,
+            1.9199999570846558,
+            2.240000009536743,
+            2.6600000858306885,
+            2.4800000190734863,
+            2.7200000286102295,
+            2.8399999141693115,
+            2.7100000381469727,
+            2.299999952316284,
+            1.940000057220459,
+            1.8700000047683716,
+            1.8799999952316284,
+            1.590000033378601,
+            1.5,
+            1.649999976158142,
+            1.4700000286102295,
+            1.25,
+            1.0499999523162842,
+            0.8899999856948853,
+            0.75,
+            0.6399999856948853,
+            0.5400000214576721,
+            0.6100000143051147,
+            0.5199999809265137,
+            0.7400000095367432,
+            0.6200000047683716,
+            0.5299999713897705,
+            0.5199999809265137,
+            0.4399999976158142,
+            0.3700000047683716,
+            0.3100000023841858,
+            0.27000001072883606,
+            0.2199999988079071,
+            0.5899999737739563,
+            0.8100000023841858,
+            1.4500000476837158,
+            1.5399999618530273,
+            1.8600000143051147,
+            2.25,
+            2.430000066757202,
+            2.2899999618530273,
+            2.0199999809265137,
+            2.3299999237060547,
+            2.3499999046325684,
+            2.2200000286102295,
+            2.119999885559082,
+            2.490000009536743,
+            2.630000114440918,
+            2.369999885559082,
+            2.009999990463257,
+            2.009999990463257,
+            2.1700000762939453,
+            1.909999966621399,
+            1.8300000429153442,
+            1.850000023841858,
+            1.649999976158142,
+            1.4700000286102295,
+            1.399999976158142
+          ]
+        },
+        {
+          "entity": "",
+          "metric": "memory",
+          "name": "usedBytes",
+          "unit": "bytes",
+          "values": [
+            1229295616,
+            1245601792,
+            1218768896,
+            1286873088,
+            1300975616,
+            1342775296,
+            1331884032,
+            1334521856,
+            1324027904,
+            1339219968,
+            1292013568,
+            1328746496,
+            1315823616,
+            1334292480,
+            1285488640,
+            1286496256,
+            1202905088,
+            1175420928,
+            1179570176,
+            1167118336,
+            1182076928,
+            1176416256,
+            1167523840,
+            1171415040,
+            1163874304,
+            1163759616,
+            1166102528,
+            1149579264,
+            1147928576,
+            1231564800,
+            1196216320,
+            1174437888,
+            1174548480,
+            1162547200,
+            1232543744,
+            1191505920,
+            1179099136,
+            1168830464,
+            1164918784,
+            1209212928,
+            1296179200,
+            1279066112,
+            1297682432,
+            1320046592,
+            1232416768,
+            1298001920,
+            1327497216,
+            1317122048,
+            1289502720,
+            1291620352,
+            1265074176,
+            1331249152,
+            1270755328,
+            1292673024,
+            1304817664,
+            1317568512,
+            1231482880,
+            1188384768,
+            1176547328,
+            1156374528,
+            1162891264,
+            1165856768,
+            1156763648,
+            1158266880,
+            1150042112
+          ]
+        },
+        {
+          "entity": "",
+          "metric": "memory",
+          "name": "availableBytes",
+          "unit": "bytes",
+          "values": [
+            7079649280,
+            7063343104,
+            7090176000,
+            7022071808,
+            7007969280,
+            6966169600,
+            6977060864,
+            6974423040,
+            6984916992,
+            6969724928,
+            7016931328,
+            6980198400,
+            6993121280,
+            6974652416,
+            7023456256,
+            7022448640,
+            7106039808,
+            7133523968,
+            7129374720,
+            7141826560,
+            7126867968,
+            7132528640,
+            7141421056,
+            7137529856,
+            7145070592,
+            7145185280,
+            7142842368,
+            7159365632,
+            7161016320,
+            7077380096,
+            7112728576,
+            7134507008,
+            7134396416,
+            7146397696,
+            7076401152,
+            7117438976,
+            7129845760,
+            7140114432,
+            7144026112,
+            7099731968,
+            7012765696,
+            7029878784,
+            7011262464,
+            6988898304,
+            7076528128,
+            7010942976,
+            6981447680,
+            6991822848,
+            7019442176,
+            7017324544,
+            7043870720,
+            6977695744,
+            7038189568,
+            7016271872,
+            7004127232,
+            6991376384,
+            7077462016,
+            7120560128,
+            7132397568,
+            7152570368,
+            7146053632,
+            7143088128,
+            7152181248,
+            7150678016,
+            7158902784
+          ]
+        },
+        {
+          "entity": "",
+          "metric": "swap",
+          "name": "usedBytes",
+          "unit": "bytes",
+          "values": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "stepSeconds": 10
+    },
+    "type": "metrics"
+  }
+]
+RESULT 3-walk-hostmetric: PASS - no null without a reason; 0 field(s) unavailable, each with a reason prefix
+
+[07:27:56] == Step 4a: hostidentity against hostnamectl, /etc/os-release, uname, /proc, systemd-detect-virt
+$ [host] q() { sed -n "s/^$1=//p" /etc/os-release | head -n 1 | sed -e "s/^\"//" -e "s/\"\$//"; }
+echo "kernel_hostname=$(cat /proc/sys/kernel/hostname)"
+command -v hostnamectl >/dev/null 2>&1 && echo "hostnamectl=$(hostnamectl hostname 2>/dev/null || hostnamectl --transient 2>/dev/null)"
+echo "os_id=$(q ID)"; echo "os_version_id=$(q VERSION_ID)"; echo "os_pretty=$(q PRETTY_NAME)"
+echo "uname_r=$(uname -r)"; echo "uname_m=$(uname -m)"
+b=$(sed -n "s/^btime //p" /proc/stat); echo "btime=$b"; echo "btime_utc=$(date -u -d @$b +%Y-%m-%dT%H:%M:%SZ)"
+echo "uptime=$(cut -d" " -f1 /proc/uptime)"
+if command -v systemd-detect-virt >/dev/null 2>&1; then echo "detect_virt=$(systemd-detect-virt 2>/dev/null)"; fi
+[ ! -e /.dockerenv ] || echo dockerenv=1
+for f in sys_vendor product_name product_version bios_vendor bios_version; do [ ! -r /sys/class/dmi/id/$f ] || echo "dmi_$f=$(cat /sys/class/dmi/id/$f)"; done
+[ ! -r /etc/timezone ] || echo "etc_timezone=$(head -n 1 /etc/timezone)"
+[ ! -L /etc/localtime ] || echo "localtime_link=$(readlink /etc/localtime)"
+[ -e /etc/localtime ] || echo "no_localtime=1"
+echo "date_z=$(date +%z)"
+if [ -d /run/systemd/system ] && [ -x /usr/bin/timedatectl ]; then echo "ntp_sync=$(/usr/bin/timedatectl show --property=NTPSynchronized --value 2>&1)"; elif [ -x /usr/bin/chronyc ]; then echo "chrony=$(/usr/bin/chronyc -c tracking 2>&1 | cut -d, -f14)"; fi
+kernel_hostname=75f9518a6b95
+os_id=alpine
+os_version_id=3.24.4
+os_pretty=Alpine Linux v3.24
+uname_r=6.8.0-100-generic
+uname_m=aarch64
+btime=1792243849
+btime_utc=2026-10-17T13:30:49Z
+uptime=2483826.80
+dockerenv=1
+dmi_sys_vendor=Apple Inc.
+dmi_product_name=Apple Virtualization Generic Platform
+dmi_product_version=1
+dmi_bios_vendor=Apple Inc.
+dmi_bios_version=2164.0.0.0.0
+no_localtime=1
+date_z=+0000
+  ok    hostname 75f9518a6b95 = 75f9518a6b95
+  ok    os.id alpine = alpine
+  ok    os.versionId 3.24.4 = 3.24.4
+  ok    os.prettyName Alpine Linux v3.24 = Alpine Linux v3.24
+  ok    kernelRelease 6.8.0-100-generic = 6.8.0-100-generic
+  ok    architecture aarch64 = aarch64
+  ok    initSystem openrc = openrc
+  ok    bootTime 2026-10-17T13:30:49Z = 2026-10-17T13:30:49Z
+  ok    uptimeSeconds 2483826.32 ~ 2483826.80 (tolerance 5)
+  ok    virtualization.type docker: /.dockerenv exists (no systemd-detect-virt)
+  ok    dmi.systemVendor Apple Inc. = Apple Inc.
+  ok    dmi.productName Apple Virtualization Generic Platform = Apple Virtualization Generic Platform
+  ok    dmi.productVersion 1 = 1
+  ok    dmi.biosVendor Apple Inc. = Apple Inc.
+  ok    dmi.biosVersion 2164.0.0.0.0 = 2164.0.0.0.0
+  ok    timezone.name UTC = UTC
+  ok    timezone.offsetSeconds 0 ~ 0 (tolerance 0)
+  unav  [0].properties.clock.synchronized: not supported: no supported time-sync query (systemd-timedated, chrony)
+RESULT 4a-identity: PASS - 17 fields match the host's tools, 1 unavailable with a reason
+
+[07:27:56] == Step 4b: hostcpu against nproc, /proc/cpuinfo, /proc/loadavg, cpufreq, hwmon
+$ [host] echo "nproc=$(nproc)"; echo "nproc_all=$(nproc --all 2>/dev/null)"; echo "stat_cpus=$(grep -c "^cpu[0-9]" /proc/stat)"
+echo "model=$(sed -n "s/^model name[[:space:]]*:[[:space:]]*//p" /proc/cpuinfo | head -n 1)"
+echo "loadavg=$(cat /proc/loadavg)"
+f=/sys/devices/system/cpu/cpu0/cpufreq; [ ! -r $f/cpuinfo_min_freq ] || echo "freq_range=$(cat $f/cpuinfo_min_freq) $(cat $f/cpuinfo_max_freq)"
+echo "cpuinfo_mhz=$(sed -n "s/^cpu MHz[[:space:]]*:[[:space:]]*//p" /proc/cpuinfo | head -n 1)"
+n=0; for t in /sys/class/hwmon/hwmon*/temp*_input /sys/class/thermal/thermal_zone*/temp; do [ ! -r "$t" ] || n=$((n + 1)); done; echo "temp_inputs=$n"
+nproc=4
+nproc_all=4
+stat_cpus=4
+model=
+loadavg=1.37 1.48 1.10 1/394 8433
+cpuinfo_mhz=
+temp_inputs=0
+  ok    logicalCpus 4 = nproc
+  ok    perCpu has 4 entries = logicalCpus
+  unav  [0].properties.model: not reported: no model name in /proc/cpuinfo
+  ok    load.load1 1.4 ~ 1.37 (tolerance 0.387)
+  ok    load.load5 1.49 ~ 1.48 (tolerance 0.398)
+  ok    load.load15 1.1 ~ 1.10 (tolerance 0.36)
+  unav  [0].properties.frequencyMhz: not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+  unav  [0].properties.temperatures: not reported: no temperature sensors (common in VMs) (the host shows: no hwmon temp*_input and no thermal zone)
+  ok    physicalCores 4 within 1..logicalCpus (range check)
+  ok    times.userPercent 2.6606425702811247 within 0..100 (range check; usage is NFR-3's)
+  ok    times.systemPercent 4.518072289156627 within 0..100 (range check; usage is NFR-3's)
+  ok    times.iowaitPercent 0 within 0..100 (range check; usage is NFR-3's)
+  ok    times.stealPercent 0 within 0..100 (range check; usage is NFR-3's)
+RESULT 4b-cpu: PASS - 10 fields match the host's tools, 3 unavailable with a reason
+
+[07:27:56] == Step 4c: hostmemory against free -b and /proc/meminfo
+$ [host] free -b; awk "/^(MemTotal|MemFree|MemAvailable|Buffers|Cached|SReclaimable|Shmem|SwapTotal|SwapFree):/ { sub(\":\", \"\", \$1); print \"mi_\" \$1 \"=\" \$2 * 1024 }" /proc/meminfo; for f in cpu memory io; do [ ! -r /proc/pressure/$f ] || echo "psi_$f=1"; done
+               total        used        free      shared  buff/cache   available
+Mem:      8308944896  1229565952   583303168     2490368  6706581504  7079378944
+Swap:              0           0           0
+mi_MemTotal=8308944896
+mi_MemFree=583303168
+mi_MemAvailable=7079378944
+mi_Buffers=585715712
+mi_Cached=5125148672
+mi_SwapTotal=0
+mi_SwapFree=0
+mi_Shmem=2490368
+mi_SReclaimable=995717120
+psi_cpu=1
+psi_memory=1
+psi_io=1
+  ok    totalBytes 8308944896 ~ 8308944896 (tolerance 0)
+  ok    freeBytes 575864832 ~ 583303168 (tolerance 8.30894e+07)
+  ok    usedBytes 1237032960 ~ 1229565952 (tolerance 8.30894e+07)
+  ok    buffersBytes 585715712 ~ 585715712 (tolerance 8.30894e+07)
+  ok    cachedBytes (Cached + SReclaimable, free's cache) 6120808448 ~ 6120865792 (tolerance 8.30894e+07)
+  ok    sharedBytes 2461696 ~ 2490368 (tolerance 8.30894e+07)
+  ok    usedPercent 14.887966829525116 ~ 14.7981 (tolerance 1)
+  ok    swapTotalBytes 0 ~ 0 (tolerance 0)
+  ok    swapUsedBytes 0 ~ 0 (tolerance 1048576)
+  ok    swapFreeBytes 0 ~ 0 (tolerance 1048576)
+  ok    pressure.cpu present; /proc/pressure/cpu is readable
+  ok    pressure.memory present; /proc/pressure/memory is readable
+  ok    pressure.io present; /proc/pressure/io is readable
+RESULT 4c-memory: PASS - 13 fields match the host's tools, 0 unavailable with a reason; availableBytes is NFR-3's (step 5)
+
+[07:27:56] == Step 4d: hostfs against df -B1, stat -f and PID 1's mount table
+  4 filesystem(s) listed
+$ nexus --host host-check hostfs get --limit 1000 -o json (output kept, not logged)
+$ [host] df -B1 -P and stat -f -c '%S %c %d' at each mount point, just before and just after that call:
+    df1=overlay              63088406528 32720789504 27129720832  55% /
+    st1=4096 3932160 3425124
+    df2=shm                   67108864         0  67108864   0% /dev/shm
+    st2=4096 1014275 1014274
+    df3=tmpfs                4154470400    217088 4154253312   0% /run
+    st3=4096 1014275 1014181
+    df4=/dev/vdb1            63088406528 32720789504 27129720832  55% /etc/resolv.conf
+    st4=4096 3932160 3425124
+    -- after:
+    df1=overlay              63088406528 32720789504 27129720832  55% /
+    st1=4096 3932160 3425124
+    df2=shm                   67108864         0  67108864   0% /dev/shm
+    st2=4096 1014275 1014274
+    df3=tmpfs                4154470400    217088 4154253312   0% /run
+    st3=4096 1014275 1014181
+    df4=/dev/vdb1            63088406528 32720789504 27129720832  55% /etc/resolv.conf
+    st4=4096 3932160 3425124
+  ok    / fsType overlay = /proc/1/mountinfo
+  ok    / readOnly false = false
+  ok    / sizeBytes (df) 63088406528 within the host's 63088406528 .. 63088406528 (± 0)
+  ok    / usedBytes (df) 32720789504 within the host's 32720789504 .. 32720789504 (± 4096)
+  ok    / availableBytes (df) 27129720832 within the host's 27129720832 .. 27129720832 (± 4096)
+  ok    / inodesTotal (statfs) 3932160 within the host's 3932160 .. 3932160 (± 0)
+  ok    / inodesFree (statfs) 3425124 within the host's 3425124 .. 3425124 (± 1)
+  ok    /dev/shm fsType tmpfs = /proc/1/mountinfo
+  ok    /dev/shm readOnly false = false
+  ok    /dev/shm sizeBytes (df) 67108864 within the host's 67108864 .. 67108864 (± 0)
+  ok    /dev/shm usedBytes (df) 0 within the host's 0 .. 0 (± 4096)
+  ok    /dev/shm availableBytes (df) 67108864 within the host's 67108864 .. 67108864 (± 4096)
+  ok    /dev/shm inodesTotal (statfs) 1014275 within the host's 1014275 .. 1014275 (± 0)
+  ok    /dev/shm inodesFree (statfs) 1014274 within the host's 1014274 .. 1014274 (± 1)
+  ok    /run fsType tmpfs = /proc/1/mountinfo
+  ok    /run readOnly false = false
+  ok    /run sizeBytes (df) 4154470400 within the host's 4154470400 .. 4154470400 (± 0)
+  ok    /run usedBytes (df) 217088 within the host's 217088 .. 217088 (± 4096)
+  ok    /run availableBytes (df) 4154253312 within the host's 4154253312 .. 4154253312 (± 4096)
+  ok    /run inodesTotal (statfs) 1014275 within the host's 1014275 .. 1014275 (± 0)
+  ok    /run inodesFree (statfs) 1014181 within the host's 1014181 .. 1014181 (± 1)
+  ok    /var/lib/docker fsType ext4 = /proc/1/mountinfo
+  ok    /var/lib/docker readOnly false = false
+  ok    /var/lib/docker sizeBytes (df) 63088406528 within the host's 63088406528 .. 63088406528 (± 0)
+  ok    /var/lib/docker usedBytes (df) 32720789504 within the host's 32720789504 .. 32720789504 (± 4096)
+  ok    /var/lib/docker availableBytes (df) 27129720832 within the host's 27129720832 .. 27129720832 (± 4096)
+  ok    /var/lib/docker inodesTotal (statfs) 3932160 within the host's 3932160 .. 3932160 (± 0)
+  ok    /var/lib/docker inodesFree (statfs) 3425124 within the host's 3425124 .. 3425124 (± 1)
+  ok    coverage: every disk or network filesystem mount in /proc/1/mountinfo is listed, or shares its device with a listed item
+RESULT 4d-filesystems: PASS - 29 fields match the host's tools, 0 unavailable with a reason
+RESULT 4d-btrfs: INFO - no btrfs filesystem on this host: the A-21/A-38 live readback was not possible here
+
+[07:27:57] == Step 4e: hostdisk against lsblk (or /sys/block)
+$ [host] if command -v lsblk >/dev/null 2>&1; then lsblk -b -d -n -r -o NAME,SIZE,ROTA,RM | sed "s/^/lsblk=/"; fi
+for d in /sys/block/*; do n=${d##*/}; m=; [ ! -r $d/device/model ] || m=$(sed "s/[[:space:]]*$//" $d/device/model); p=; for q in $d/$n*; do [ ! -e $q/partition ] || p="$p ${q##*/}"; done; echo "sys=$n $(($(cat $d/size) * 512)) $(cat $d/queue/rotational 2>/dev/null) $(cat $d/removable) bf=$( [ -r $d/loop/backing_file ] && echo 1 || echo 0) parts=$p model=$m"; done
+lsblk=vda 21474836480 1 0
+lsblk=vdb 64424509440 1 0
+lsblk=vdc 55689216 1 0
+sys=loop0 0 0 0 bf=0 parts= model=
+sys=loop1 0 0 0 bf=0 parts= model=
+sys=loop2 0 1 0 bf=0 parts= model=
+sys=loop3 0 1 0 bf=0 parts= model=
+sys=loop4 0 1 0 bf=0 parts= model=
+sys=loop5 0 1 0 bf=0 parts= model=
+sys=loop6 0 1 0 bf=0 parts= model=
+sys=loop7 0 1 0 bf=0 parts= model=
+sys=vda 21474836480 1 0 bf=0 parts= vda1 vda15 vda16 model=
+sys=vdb 64424509440 1 0 bf=0 parts= vdb1 model=
+sys=vdc 55689216 1 0 bf=0 parts= model=
+  ok    vda sizeBytes (lsblk) 21474836480 ~ 21474836480 (tolerance 0)
+  ok    vda rotational (lsblk) true = true
+  ok    vda removable (lsblk) false = false
+  unav  [0].properties.model: not reported: no /sys/block/vda/device/model
+  ok    vda partitions [vda1 vda15 vda16] = /sys/block
+  ok    vdb sizeBytes (lsblk) 64424509440 ~ 64424509440 (tolerance 0)
+  ok    vdb rotational (lsblk) true = true
+  ok    vdb removable (lsblk) false = false
+  unav  [1].properties.model: not reported: no /sys/block/vdb/device/model
+  ok    vdb partitions [vdb1] = /sys/block
+  ok    vdc sizeBytes (lsblk) 55689216 ~ 55689216 (tolerance 0)
+  ok    vdc rotational (lsblk) true = true
+  ok    vdc removable (lsblk) false = false
+  unav  [2].properties.model: not reported: no /sys/block/vdc/device/model
+  ok    vdc partitions [] = /sys/block
+  ok    coverage: every disk in /sys/block is listed (ram, zram and unbacked loop devices are left out)
+RESULT 4e-disks: PASS - 13 fields match the host's tools, 3 unavailable with a reason
+
+[07:27:57] == Step 4f: hostnet against /sys/class/net and ip addr
+$ nexus --host host-check hostnet get --limit 1000 -o json (output kept, not logged)
+$ [host] (each interface's /sys/class/net attributes and ip -o addr, read before and after that call)
+if=docker0 mac=82:c6:0b:b7:59:51 mtu=1500 state=down type=1 speed=-1 rx=0 tx=0
+addr=docker0 inet 172.18.0.1/16
+if=eth0 mac=8e:05:f7:0b:58:ca mtu=1500 state=up type=1 speed=10000 rx=23080497 tx=32958957
+addr=eth0 inet 172.17.0.3/16
+if=lo mac=00:00:00:00:00:00 mtu=65536 state=unknown type=772 speed= rx=28501 tx=28501
+addr=lo inet 127.0.0.1/8
+addr=lo inet6 ::1/128
+  ok    docker0 mac 82:c6:0b:b7:59:51 = 82:c6:0b:b7:59:51
+  ok    docker0 mtu 1500 ~ 1500 (tolerance 0)
+  ok    docker0 state down = down
+  ok    docker0 loopback false = false
+  unav  [0].properties.speedMbps: not reported: no link speed at /sys/class/net/docker0/speed
+  ok    docker0 rxBytes 0 within the host's reads 0..0
+  ok    docker0 txBytes 0 within the host's reads 0..0
+  ok    docker0 ipv4 [172.18.0.1/16] = ip addr
+  ok    docker0 ipv6 [] = ip addr (none)
+  ok    eth0 mac 8e:05:f7:0b:58:ca = 8e:05:f7:0b:58:ca
+  ok    eth0 mtu 1500 ~ 1500 (tolerance 0)
+  ok    eth0 state up = up
+  ok    eth0 loopback false = false
+  ok    eth0 speedMbps 10000 ~ 10000 (tolerance 0)
+  ok    eth0 rxBytes 23074830 within the host's reads 23072158..23080497
+  ok    eth0 txBytes 32951257 within the host's reads 32947989..32958957
+  ok    eth0 ipv4 [172.17.0.3/16] = ip addr
+  ok    eth0 ipv6 [] = ip addr (none)
+  ok    lo mac 00:00:00:00:00:00 = 00:00:00:00:00:00
+  ok    lo mtu 65536 ~ 65536 (tolerance 0)
+  ok    lo state unknown = unknown
+  ok    lo loopback true = true
+  unav  [2].properties.speedMbps: not reported: no link speed at /sys/class/net/lo/speed
+  ok    lo rxBytes 28501 within the host's reads 28501..28501
+  ok    lo txBytes 28501 within the host's reads 28501..28501
+  ok    lo ipv4 [127.0.0.1/8] = ip addr
+  ok    lo ipv6 [::1/128] = ip addr
+  ok    coverage: every interface in /sys/class/net is listed
+RESULT 4f-interfaces: PASS - 26 fields match the host's tools, 2 unavailable with a reason; rates are NFR-3's (step 5)
+
+[07:27:58] == Step 4g: hostnetconfig against ip route and the resolver file
+$ [host] ip -4 route show default; ip -6 route show default; echo '-- /etc/resolv.conf:'; sed -n 's/^nameserver[[:space:]]*//p' /etc/resolv.conf; echo '-- /etc/resolv.conf:'; sed -n 's/^nameserver[[:space:]]*//p' /etc/resolv.conf
+default via 172.17.0.1 dev eth0 
+-- /etc/resolv.conf:
+192.168.5.1
+-- /etc/resolv.conf:
+192.168.5.1
+  ok    defaultGateways [172.17.0.1 eth0 0;] = ip route show default (address dev metric)
+  dns.source /etc/resolv.conf; upstream servers [192.168.5.1 ]; stubs []; nameservers in /etc/resolv.conf [192.168.5.1 ], in /etc/resolv.conf [192.168.5.1 ]
+  ok    dns.servers = the nameservers of /etc/resolv.conf
+RESULT 4g-netconfig: PASS - 2 fields match the host's tools, 0 unavailable with a reason
+
+[07:27:58] == Step 4h: hosthealth against rc-status --crashed, the reboot rule, /proc
+$ [host] rc-status --crashed | sed 's/^/failed=/'; awk '/^oom_kill / { print "oom=" $2 }' /proc/vmstat; [ -d /lib/modules/$(uname -r) ] && echo modules=1 || echo modules=0; [ ! -r /etc/alpine-release ] || echo alpine=1; [ ! -e /var/run/reboot-required ] || echo marker=1; [ ! -r /etc/debian_version ] || echo debian=1
+oom=0
+modules=0
+alpine=1
+  ok    failedServices.count 0 ~ 0 (tolerance 0)
+  ok    failedServices.names [ ] = the host's list
+  ok    failedServices.source openrc = openrc
+  ok    oomKills 0 ~ 0 (tolerance 0)
+  ok    rebootRequired.state unknown, as the rule for this host gives (none: in a docker container: the running kernel 6.8.0-100-generic is the container host's, so /lib/modules/6.8.0-100-generic says nothing)
+  unav  [0].properties.rebootRequired.state: not supported: reboot-required in an Alpine container, whose kernel is the container host's
+$ nexus --host host-check hostcpu get -o json (output kept, not logged)
+  the processes are read on the host 3.30s from now, 0.3 s after the sampler's next tick
+$ [host] sleep 3.30; hz=$(getconf CLK_TCK 2>/dev/null || echo 100); up=$(cut -d" " -f1 /proc/uptime); for p in 1 195 225 226 227 244 714 760 ; do st=$(cat /proc/$p/stat 2>/dev/null) || { echo "proc=$p gone"; continue; }; st=${st##*") "}; set -- $st; echo "proc=$p $(cat /proc/$p/comm) $(sed -n "s/^Uid:[[:space:]]*\([0-9]*\).*/\1/p" /proc/$p/status) $(sed -n "s/^VmRSS:[[:space:]]*\([0-9]*\).*/\1/p" /proc/$p/status) $((${up%.*} - ${20} / hz))"; done; awk -F: "{ print \"user=\" \$3 \" \" \$1 }" /etc/passwd
+proc=1 init 0 960 657
+proc=195 syslogd 0 976 656
+proc=225 supervise-daemo 0 672 656
+proc=226 dockerd 0 84960 656
+proc=227 log_proxy 0 1752 656
+proc=244 containerd 0 40248 656
+proc=714 sshd 0 3764 650
+proc=760 nexusd 0 27080 650
+user=0 root
+user=1 bin
+user=2 daemon
+user=4 lp
+user=5 sync
+user=6 shutdown
+user=7 halt
+user=8 mail
+user=9 news
+user=10 uucp
+user=16 cron
+user=21 ftp
+user=22 sshd
+user=35 games
+user=123 ntp
+user=405 guest
+user=65534 nobody
+user=100 nginx
+$ nexus --host host-check hosthealth get -o json (output kept, not logged)
+  hosthealth's processes after that tick (sampledAt 2026-11-15T07:28:01.81036202Z, processSampleSeconds 9.999753373):
+    .topByCpu[0].command="sshd" .topByCpu[0].pid=714 .topByCpu[0].rssBytes=3776512 
+    .topByCpu[1].command="nexusd" .topByCpu[1].pid=760 .topByCpu[1].rssBytes=27561984 
+    .topByCpu[2].command="init" .topByCpu[2].pid=1 .topByCpu[2].rssBytes=786432 
+    .topByCpu[3].command="syslogd" .topByCpu[3].pid=195 .topByCpu[3].rssBytes=917504 
+    .topByCpu[4].command="supervise-daemo" .topByCpu[4].pid=225 .topByCpu[4].rssBytes=524288 
+    .topByMemory[0].command="dockerd" .topByMemory[0].pid=226 .topByMemory[0].rssBytes=86761472 
+    .topByMemory[1].command="containerd" .topByMemory[1].pid=244 .topByMemory[1].rssBytes=40894464 
+    .topByMemory[2].command="nexusd" .topByMemory[2].pid=760 .topByMemory[2].rssBytes=27561984 
+    .topByMemory[3].command="sshd" .topByMemory[3].pid=714 .topByMemory[3].rssBytes=3776512 
+    .topByMemory[4].command="log_proxy" .topByMemory[4].pid=227 .topByMemory[4].rssBytes=1572864 
+  ok    topByCpu pid 714 sshd uid 0 root = /proc/714
+  ok    topByCpu pid 760 nexusd uid 0 root = /proc/760
+  ok    topByCpu pid 1 init uid 0 root = /proc/1
+  ok    topByCpu pid 195 syslogd uid 0 root = /proc/195
+  ok    topByCpu pid 225 supervise-daemo uid 0 root = /proc/225
+  ok    topByMemory pid 226 dockerd uid 0 root = /proc/226; rssBytes 86761472, VmRSS 84960 kB
+  ok    topByMemory pid 244 containerd uid 0 root = /proc/244; rssBytes 40894464, VmRSS 40248 kB
+  ok    topByMemory pid 760 nexusd uid 0 root = /proc/760; rssBytes 27561984, VmRSS 27080 kB
+  ok    topByMemory pid 714 sshd uid 0 root = /proc/714; rssBytes 3776512, VmRSS 3764 kB
+  ok    topByMemory pid 227 log_proxy uid 0 root = /proc/227; rssBytes 1572864, VmRSS 1752 kB
+  ok    processSampleSeconds 10.000368244 >= the interval (10 s)
+RESULT 4h-health: PASS - 16 fields match the host's tools, 1 unavailable with a reason
+
+[07:28:02] == Step 4i: hostsummary against the per-area operations and the host
+  ok    identity.hostname "75f9518a6b95" = hostidentity
+  ok    identity.os.id "alpine" = hostidentity
+  ok    identity.os.versionId "3.24.4" = hostidentity
+  ok    identity.os.prettyName "Alpine Linux v3.24" = hostidentity
+  ok    identity.kernelRelease "6.8.0-100-generic" = hostidentity
+  ok    identity.architecture "aarch64" = hostidentity
+  ok    identity.initSystem "openrc" = hostidentity
+  ok    identity.bootTime "2026-10-17T13:30:49Z" = hostidentity
+  ok    cpu.logicalCpus = hostcpu (4)
+  ok    memory.totalBytes = hostmemory (8308944896)
+  ok    memory.swapTotalBytes = hostmemory (0)
+  ok    filesystems' mount points = hostfs
+  ok    network.interfaces' names ["docker0" "eth0" ] = hostnet's non-loopback interfaces
+  ok    health.rebootRequired unknown = hosthealth
+  ok    health.failedServicesCount 0 = hosthealth
+  ok    health.oomKills 0 = hosthealth
+RESULT 4i-summary: PASS - 16 fields match the host's tools, 0 unavailable with a reason
+
+[07:28:03] == Step 4j: hostmetric (the history)
+  ok    sampler.state ready
+  ok    points 65, historyStart 2026-11-15T07:17:11.807Z, stepSeconds 10
+  ok    default series: cpu.usagePercent load.load1 memory.availableBytes memory.usedBytes swap.usedBytes 
+$ nexus --host host-check hostmetric get --metric network --metric disk --window-seconds 86400 -o json (output kept, not logged)
+  ok    --metric network --metric disk --window-seconds 86400 answers: series per metric 6 "disk"; 6 "network";; truncated 0 interfaces, 0 disks
+RESULT 4j-metrics: PASS - 4 fields match the host's tools, 0 unavailable with a reason
+
+  every unavailable field (op, path, reason):
+    hostsummary	[0].properties.cpu.model	not reported: no model name in /proc/cpuinfo
+    hostsummary	[0].properties.health.rebootRequired	not supported: reboot-required in an Alpine container, whose kernel is the container host's
+    hostsummary	[0].properties.network.interfaces[0].ipv6	not reported: no IPv6 address
+    hostsummary	[0].properties.network.interfaces[1].ipv6	not reported: no IPv6 address
+    hostidentity	[0].properties.clock.source	not supported: no supported time-sync query (systemd-timedated, chrony)
+    hostidentity	[0].properties.clock.synchronized	not supported: no supported time-sync query (systemd-timedated, chrony)
+    hostcpu	[0].properties.perCpu[0].frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+    hostcpu	[0].properties.perCpu[1].frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+    hostcpu	[0].properties.perCpu[2].frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+    hostcpu	[0].properties.perCpu[3].frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+    hostcpu	[0].properties.frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+    hostcpu	[0].properties.model	not reported: no model name in /proc/cpuinfo
+    hostcpu	[0].properties.temperatures	not reported: no temperature sensors (common in VMs)
+    hostdisk	[0].properties.model	not reported: no /sys/block/vda/device/model
+    hostdisk	[1].properties.model	not reported: no /sys/block/vdb/device/model
+    hostdisk	[2].properties.model	not reported: no /sys/block/vdc/device/model
+    hostnet	[0].properties.speedMbps	not reported: no link speed at /sys/class/net/docker0/speed
+    hostnet	[2].properties.speedMbps	not reported: no link speed at /sys/class/net/lo/speed
+    hosthealth	[0].properties.rebootRequired.state	not supported: reboot-required in an Alpine container, whose kernel is the container host's
+RESULT 3-sandbox: INFO - 19 unavailable field(s); 0 with permission denied: or command failed: (the reasons a sandbox gives)
+
+[07:28:03] == Step 5: NFR-3 accuracy over one sampler interval, aligned on its tick (TC-HP-128)
+$ nexus --host host-check hostcpu get -o json (output kept, not logged)
+  sampler interval 10s; the window starts 8.96s from now, 0.3 s after a tick; CPU from vmstat
+$ [host] r() { echo "up$1=$(cut -d" " -f1 /proc/uptime)"; echo "stat$1=$(head -n 1 /proc/stat)"; for i in /sys/class/net/*; do echo "net$1=${i##*/} $(cat $i/statistics/rx_bytes) $(cat $i/statistics/tx_bytes)"; done; echo "at$1=$(date -u +%Y-%m-%dT%H:%M:%SZ)"; }; sleep 8.96; r 0;  vmstat 10 2 | tail -n 1 | sed 's/^/vmstat=/'; r 1
+up0=2483842.89
+stat0=cpu  3597131 41 2446458 986043815 702684 0 229273 0 0 0
+net0=docker0 0 0
+net0=eth0 23912592 34470504
+net0=lo 28501 28501
+at0=2026-11-15T07:28:12Z
+vmstat= 4  0      0 318904 572040 6078236   0    0     0   450 28189 69151 28 36 35 0 0  0
+up1=2483852.90
+stat1=cpu  3598243 41 2447801 986045197 702688 0 229349 0 0 0
+net1=docker0 0 0
+net1=eth0 24865564 36226866
+net1=lo 28501 28501
+at1=2026-11-15T07:28:22Z
+$ nexus --host host-check hostcpu get -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/cpu/current",
+    "name": "current",
+    "properties": {
+      "frequencyMhz": null,
+      "load": {
+        "load1": 3.33,
+        "load15": 1.25,
+        "load5": 1.91
+      },
+      "logicalCpus": 4,
+      "model": null,
+      "perCpu": [
+        {
+          "cpu": 0,
+          "frequencyMhz": null,
+          "unavailable": {
+            "frequencyMhz": "not reported: no cpufreq and no cpu MHz in /proc/cpuinfo"
+          },
+          "usagePercent": 63.83616383616384
+        },
+        {
+          "cpu": 1,
+          "frequencyMhz": null,
+          "unavailable": {
+            "frequencyMhz": "not reported: no cpufreq and no cpu MHz in /proc/cpuinfo"
+          },
+          "usagePercent": 62.863070539419084
+        },
+        {
+          "cpu": 2,
+          "frequencyMhz": null,
+          "unavailable": {
+            "frequencyMhz": "not reported: no cpufreq and no cpu MHz in /proc/cpuinfo"
+          },
+          "usagePercent": 64.77857878475798
+        },
+        {
+          "cpu": 3,
+          "frequencyMhz": null,
+          "unavailable": {
+            "frequencyMhz": "not reported: no cpufreq and no cpu MHz in /proc/cpuinfo"
+          },
+          "usagePercent": 66.01842374616172
+        }
+      ],
+      "physicalCores": 4,
+      "sampler": {
+        "ageSeconds": 1.551395531,
+        "intervalSeconds": 10.000323151,
+        "sampledAt": "2026-11-15T07:28:21.809814633Z",
+        "state": "ready"
+      },
+      "temperatures": [],
+      "times": {
+        "iowaitPercent": 0.10222335803731153,
+        "stealPercent": 0,
+        "systemPercent": 34.01482238691541,
+        "userPercent": 28.545872731919243
+      },
+      "unavailable": {
+        "frequencyMhz": "not reported: no cpufreq and no cpu MHz in /proc/cpuinfo",
+        "model": "not reported: no model name in /proc/cpuinfo",
+        "temperatures": "not reported: no temperature sensors (common in VMs)"
+      },
+      "usagePercent": 64.3496038844876
+    },
+    "type": "cpu"
+  }
+]
+$ nexus --host host-check hostnet get --limit 1000 -o json (output kept, not logged)
+$ nexus --host host-check hostmemory get -o json
+[
+  {
+    "host": "host-check",
+    "id": "/providers/host/memory/current",
+    "name": "current",
+    "properties": {
+      "availableBytes": 6925537280,
+      "buffersBytes": 585768960,
+      "cachedBytes": 6361690112,
+      "freeBytes": 189005824,
+      "pressure": {
+        "cpu": {
+          "full": {
+            "avg10": 0,
+            "avg300": 0,
+            "avg60": 0
+          },
+          "some": {
+            "avg10": 33.88,
+            "avg300": 7.84,
+            "avg60": 14.54
+          }
+        },
+        "io": {
+          "full": {
+            "avg10": 0,
+            "avg300": 0.03,
+            "avg60": 0
+          },
+          "some": {
+            "avg10": 0,
+            "avg300": 0.04,
+            "avg60": 0
+          }
+        },
+        "memory": {
+          "full": {
+            "avg10": 0,
+            "avg300": 0,
+            "avg60": 0
+          },
+          "some": {
+            "avg10": 0,
+            "avg300": 0,
+            "avg60": 0
+          }
+        }
+      },
+      "sharedBytes": 2699264,
+      "swapFreeBytes": 0,
+      "swapTotalBytes": 0,
+      "swapUsedBytes": 0,
+      "totalBytes": 8308944896,
+      "usedBytes": 1383407616,
+      "usedPercent": 16.64961837291742
+    },
+    "type": "memory"
+  }
+]
+$ [host] free -b
+               total        used        free      shared  buff/cache   available
+Mem:      8308944896  1401360384   170156032     2703360  6948147200  6907584512
+Swap:              0           0           0
+  host window 10.01s (2026-11-15T07:28:12Z .. 2026-11-15T07:28:22Z); provider sample at 2026-11-15T07:28:21.809814633Z over 10.000323151s
+RESULT 5-cpu: PASS - usagePercent 64.3496038844876, vmstat 100-id-wa 65 (within ±5 pp); /proc/stat over the same window 64.62
+RESULT 5-memory: PASS - availableBytes 6925537280, free -b available 6907584512 (within ±1%)
+  info  docker0 rx 0 vs 0 B/s, tx 0 vs 0 B/s (under 1 KiB/s each way: not compared)
+  ok    eth0 rx 96553.47986464282 B/s ~ 95202, tx 177991.44818855263 B/s ~ 175461 (within ±5%)
+  info  lo rx 0 vs 0 B/s, tx 0 vs 0 B/s (under 1 KiB/s each way: not compared)
+RESULT 5-network: PASS - 1 interface(s) within ±5% of the /sys/class/net statistics delta over 10.01s
+  usedBytes: exact to one block against df -B1 at each mount point in step 4d (4d-filesystems)
+
+[07:28:25] == Step 6: NFR-1 latency, 50 calls per operation (TC-HP-129)
+  each call is a new nexus process (TLS handshake included); the time is the CLI's own
+  --verbose request time, from the request to the response's status line
+  hostsummary: n=50 p50=5 p95=9 max=9 ms, errors 0
+  hostidentity: n=50 p50=4 p95=7 max=8 ms, errors 0
+  hostcpu: n=50 p50=4 p95=8 max=9 ms, errors 0
+  hostmemory: n=50 p50=4 p95=8 max=11 ms, errors 0
+  hostfs: n=50 p50=3 p95=5 max=7 ms, errors 0
+  hostdisk: n=50 p50=4 p95=7 max=9 ms, errors 0
+  hostnet: n=50 p50=3 p95=5 max=7 ms, errors 0
+  hostnetconfig: n=50 p50=3 p95=4 max=5 ms, errors 0
+  hosthealth: n=50 p50=4 p95=5 max=6 ms, errors 0
+  hostmetric: n=50 p50=3 p95=5 max=10 ms, errors 0
+RESULT 6-latency: PASS - p95 < 200 ms for each of the ten operations (50 calls each); the worst p95 9 ms
+RESULT 6-hung-mount: NOT-RUN - the optional manual step (an NFS mount with its server firewalled; --hung-mount PATH) was not set up
+
+[07:28:38] == Step 8: NFR-2 at the defaults (--overhead, TC-HP-130)
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:28:31.80906479Z: 680 s of 3600 s; points 5, stepSeconds 173
+[07:28:38] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:29:31.820932302Z: 740 s of 3600 s; points 6, stepSeconds 173
+[07:29:38] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:30:31.809895197Z: 800 s of 3600 s; points 6, stepSeconds 173
+[07:30:38] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:31:31.819957311Z: 860 s of 3600 s; points 6, stepSeconds 173
+[07:31:38] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:32:31.809585203Z: 920 s of 3600 s; points 7, stepSeconds 173
+[07:32:38] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:33:31.821552395Z: 980 s of 3600 s; points 7, stepSeconds 173
+[07:33:38] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:34:31.814866491Z: 1040 s of 3600 s; points 7, stepSeconds 173
+[07:34:38] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:35:31.82668268Z: 1100 s of 3600 s; points 8, stepSeconds 173
+[07:35:38] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:36:31.820260354Z: 1160 s of 3600 s; points 8, stepSeconds 173
+[07:36:39] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:37:31.819295941Z: 1220 s of 3600 s; points 8, stepSeconds 173
+[07:37:39] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:38:31.818916844Z: 1280 s of 3600 s; points 9, stepSeconds 173
+[07:38:39] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:39:31.823118895Z: 1340 s of 3600 s; points 9, stepSeconds 173
+[07:39:39] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:40:31.820689552Z: 1400 s of 3600 s; points 9, stepSeconds 173
+[07:40:39] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:41:31.823626148Z: 1460 s of 3600 s; points 10, stepSeconds 173
+[07:41:39] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:42:31.82414969Z: 1520 s of 3600 s; points 10, stepSeconds 173
+[07:42:39] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:43:31.824277377Z: 1580 s of 3600 s; points 10, stepSeconds 173
+[07:43:39] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:44:31.815033863Z: 1640 s of 3600 s; points 11, stepSeconds 173
+[07:44:39] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:45:31.80996892Z: 1700 s of 3600 s; points 11, stepSeconds 173
+[07:45:39] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:46:31.827297353Z: 1760 s of 3600 s; points 11, stepSeconds 173
+[07:46:39] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:47:31.8109034Z: 1820 s of 3600 s; points 12, stepSeconds 173
+[07:47:39] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:48:31.810779639Z: 1880 s of 3600 s; points 12, stepSeconds 173
+[07:48:39] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:49:31.817849946Z: 1940 s of 3600 s; points 12, stepSeconds 173
+[07:49:39] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:50:31.826005259Z: 2000 s of 3600 s; points 13, stepSeconds 173
+[07:50:39] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:51:31.815577539Z: 2060 s of 3600 s; points 13, stepSeconds 173
+[07:51:40] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:52:31.826323806Z: 2120 s of 3600 s; points 13, stepSeconds 173
+[07:52:40] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:53:31.813729712Z: 2180 s of 3600 s; points 14, stepSeconds 173
+[07:53:40] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:54:31.826302419Z: 2240 s of 3600 s; points 14, stepSeconds 173
+[07:54:40] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:55:31.818843573Z: 2300 s of 3600 s; points 15, stepSeconds 173
+[07:55:40] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:56:31.810673384Z: 2360 s of 3600 s; points 15, stepSeconds 173
+[07:56:40] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:57:31.819161724Z: 2420 s of 3600 s; points 15, stepSeconds 173
+[07:57:40] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:58:31.824944387Z: 2480 s of 3600 s; points 16, stepSeconds 173
+[07:58:40] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T07:59:31.825038404Z: 2540 s of 3600 s; points 16, stepSeconds 173
+[07:59:40] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T08:00:31.820267394Z: 2600 s of 3600 s; points 16, stepSeconds 173
+[08:00:40] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T08:01:31.825896765Z: 2660 s of 3600 s; points 17, stepSeconds 173
+[08:01:40] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T08:02:31.814557976Z: 2720 s of 3600 s; points 17, stepSeconds 173
+[08:02:40] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T08:03:31.818353615Z: 2780 s of 3600 s; points 17, stepSeconds 173
+[08:03:40] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T08:04:31.819588947Z: 2840 s of 3600 s; points 18, stepSeconds 173
+[08:04:40] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T08:05:31.817396938Z: 2900 s of 3600 s; points 18, stepSeconds 173
+[08:05:40] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T08:06:31.826577076Z: 2960 s of 3600 s; points 18, stepSeconds 173
+[08:06:41] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T08:07:31.820977312Z: 3020 s of 3600 s; points 19, stepSeconds 173
+[08:07:41] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T08:08:31.828274208Z: 3080 s of 3600 s; points 19, stepSeconds 173
+[08:08:41] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T08:09:31.820847805Z: 3140 s of 3600 s; points 19, stepSeconds 173
+[08:09:41] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T08:10:31.82870752Z: 3200 s of 3600 s; points 20, stepSeconds 173
+[08:10:41] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T08:11:31.827551647Z: 3260 s of 3600 s; points 20, stepSeconds 173
+[08:11:41] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T08:12:31.817143261Z: 3320 s of 3600 s; points 20, stepSeconds 173
+[08:12:41] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T08:13:31.827971058Z: 3380 s of 3600 s; points 21, stepSeconds 173
+[08:13:41] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T08:14:31.821090524Z: 3440 s of 3600 s; points 21, stepSeconds 173
+[08:14:41] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T08:15:31.823726072Z: 3500 s of 3600 s; points 21, stepSeconds 173
+[08:15:41] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:11.807Z, sampledAt 2026-11-15T08:16:31.817386967Z: 3560 s of 3600 s; points 22, stepSeconds 173
+[08:16:41] the 1 h history is not full yet: waiting 60 s
+$ nexus --host host-check hostmetric get --window-seconds 86400 -o json (output kept, not logged)
+  historyStart 2026-11-15T07:17:41.819Z, sampledAt 2026-11-15T08:17:31.818867985Z: 3590 s of 3600 s; points 22, stepSeconds 173
+[08:17:41] enabled, history full: 600 s window
+  t=0 pid 760 ticks 2404 VmRSS 25828 kB
+  t=60 pid 760 ticks 2405 VmRSS 25832 kB
+  t=120 pid 760 ticks 2406 VmRSS 25832 kB
+  t=180 pid 760 ticks 2407 VmRSS 25832 kB
+  t=240 pid 760 ticks 2409 VmRSS 25400 kB
+  t=300 pid 760 ticks 2409 VmRSS 25400 kB
+  t=360 pid 760 ticks 2411 VmRSS 25400 kB
+  t=420 pid 760 ticks 2411 VmRSS 25400 kB
+  t=480 pid 760 ticks 2413 VmRSS 25400 kB
+  t=540 pid 760 ticks 2414 VmRSS 25400 kB
+  t=600 pid 760 ticks 2415 VmRSS 25400 kB
+  CPU 0.018% of one CPU over 600.78 s (CLK_TCK 100); VmRSS max 25832, min 25400, mean 25557 kB
+$ [host] umask 077 && mkdir -p /var/lib/nexus-host-check && cp -p /etc/nexus/nexusd.yaml /var/lib/nexus-host-check/nexusd.yaml.orig && sha256sum /etc/nexus/nexusd.yaml | cut -d' ' -f1 >/var/lib/nexus-host-check/nexusd.yaml.sha256 && cat /var/lib/nexus-host-check/nexusd.yaml.sha256
+71c7068adf4a7f4224df831191de563ad8e9ab436618161ad95a6ebefe05f8ac
+$ [host] sed -i -e '/^  host:$/,/^  [a-z]/ s/^\(    enabled:[[:space:]]*\)[a-z]*/\1false/' -e '/^  host:$/,/^  [a-z]/ s/^\(    sampleInterval:[[:space:]]*\)[0-9a-z]*/\110s/' -e '/^  host:$/,/^  [a-z]/ s/^\(    historyDuration:[[:space:]]*\)[0-9a-z]*/\11h/' /etc/nexus/nexusd.yaml && /usr/local/bin/nexusd validate-config && sed -n '/^  host:$/,/^  [a-z]/p' /etc/nexus/nexusd.yaml
+/etc/nexus/nexusd.yaml: configuration is valid
+  host:
+    enabled: false              # Off until enabled here
+    sampleInterval: 10s        # 2s..60s: how often the sampler reads the host
+    historyDuration: 1h        # sampleInterval..24h: how far back the in-memory history goes
+    sourceTimeout: 2s          # 250ms..5s: bound on one read of a file, statfs call or command
+$ [host] rc-service nexusd restart
+ * Caching service dependencies ... [ ok ]
+Service 'acpid' needs non existent service 'dev'
+Service 'hwdrivers' needs non existent service 'dev'
+Service 'machine-id' needs non existent service 'dev'
+Service 'watchdog' needs non existent service 'dev'
+ * Stopping nexusd ... [ ok ]
+ * Starting nexusd ... [ ok ]
+$ nexus --host host-check capability get -o json (output kept, not logged)
+  after the restart: nexusd pid 9865; host provider disabled, sampleIntervalSeconds <absent>, historyDurationSeconds <absent>
+[08:27:47] disabled, after a restart: 60 s to settle, then a 600 s window
+  t=0 pid 9865 ticks 1 VmRSS 22852 kB
+  t=60 pid 9865 ticks 1 VmRSS 22864 kB
+  t=120 pid 9865 ticks 1 VmRSS 21712 kB
+  t=180 pid 9865 ticks 1 VmRSS 21712 kB
+  t=240 pid 9865 ticks 1 VmRSS 21712 kB
+  t=300 pid 9865 ticks 2 VmRSS 21152 kB
+  t=360 pid 9865 ticks 3 VmRSS 21204 kB
+  t=420 pid 9865 ticks 3 VmRSS 21172 kB
+  t=480 pid 9865 ticks 3 VmRSS 21204 kB
+  t=540 pid 9865 ticks 3 VmRSS 21172 kB
+  t=600 pid 9865 ticks 3 VmRSS 21204 kB
+  CPU 0.003% of one CPU over 600.75 s (CLK_TCK 100); VmRSS max 22864, min 21152, mean 21633 kB
+$ [host] cat /var/lib/nexus-host-check/nexusd.yaml.orig >/etc/nexus/nexusd.yaml && [ "$(sha256sum /etc/nexus/nexusd.yaml | cut -d' ' -f1)" = "$(cat /var/lib/nexus-host-check/nexusd.yaml.sha256)" ] && echo 'restored, sha256 equal to the saved one' && /usr/local/bin/nexusd validate-config
+restored, sha256 equal to the saved one
+/etc/nexus/nexusd.yaml: configuration is valid
+$ [host] rc-service nexusd reload
+ * Reloading nexusd ... [ ok ]
+$ nexus --host host-check capability get -o json (output kept, not logged)
+  after the reload: nexusd pid 9865; host provider enabled, sampleIntervalSeconds 10, historyDurationSeconds 3600
+RESULT conf-restored: PASS - /etc/nexus/nexusd.yaml restored byte for byte (sha256 71c7068adf4a7f4224df831191de563ad8e9ab436618161ad95a6ebefe05f8ac) and reloaded
+RESULT 8-cpu: PASS - enabled 0.018% - disabled 0.003% = 0.015% of one CPU over 600 s each (< 1%)
+RESULT 8-rss-1h: PASS - VmRSS max 25832 kB enabled (1 h history full) - mean 21633 kB disabled = 4.10 MiB (< 8 MiB)
+[08:38:51] == Cleanup
+$ [host] rm -rf /var/lib/nexus-host-check
+RESULT cleanup: PASS - no planted marker, dummy service or changed configuration is left; /var/lib/nexus-host-check removed
+RESULT token-absent: PASS - the token does not appear in the transcript
+
+== Summary (check --overhead)
+  token-env  PASS  no child process's environment holds the token (env, run as a child, does not show it)
+  1-provider  PASS  the host provider is enabled; initSystem openrc = the host's init (openrc); sampleInterval 10s, historyDuration 3600s
+  1-host  FAIL  running in a container: not a real host
+  3-walk-hostsummary  PASS  no null without a reason; 4 field(s) unavailable, each with a reason prefix
+  3-walk-hostidentity  PASS  no null without a reason; 2 field(s) unavailable, each with a reason prefix
+  3-walk-hostcpu  PASS  no null without a reason; 7 field(s) unavailable, each with a reason prefix
+  3-walk-hostmemory  PASS  no null without a reason; 0 field(s) unavailable, each with a reason prefix
+  3-walk-hostfs  PASS  no null without a reason; 0 field(s) unavailable, each with a reason prefix
+  3-walk-hostdisk  PASS  no null without a reason; 3 field(s) unavailable, each with a reason prefix
+  3-walk-hostnet  PASS  no null without a reason; 2 field(s) unavailable, each with a reason prefix
+  3-walk-hostnetconfig  PASS  no null without a reason; 0 field(s) unavailable, each with a reason prefix
+  3-walk-hosthealth  PASS  no null without a reason; 1 field(s) unavailable, each with a reason prefix
+  3-walk-hostmetric  PASS  no null without a reason; 0 field(s) unavailable, each with a reason prefix
+  4a-identity  PASS  17 fields match the host's tools, 1 unavailable with a reason
+  4b-cpu  PASS  10 fields match the host's tools, 3 unavailable with a reason
+  4c-memory  PASS  13 fields match the host's tools, 0 unavailable with a reason; availableBytes is NFR-3's (step 5)
+  4d-filesystems  PASS  29 fields match the host's tools, 0 unavailable with a reason
+  4d-btrfs  INFO  no btrfs filesystem on this host: the A-21/A-38 live readback was not possible here
+  4e-disks  PASS  13 fields match the host's tools, 3 unavailable with a reason
+  4f-interfaces  PASS  26 fields match the host's tools, 2 unavailable with a reason; rates are NFR-3's (step 5)
+  4g-netconfig  PASS  2 fields match the host's tools, 0 unavailable with a reason
+  4h-health  PASS  16 fields match the host's tools, 1 unavailable with a reason
+  4i-summary  PASS  16 fields match the host's tools, 0 unavailable with a reason
+  4j-metrics  PASS  4 fields match the host's tools, 0 unavailable with a reason
+  3-sandbox  INFO  19 unavailable field(s); 0 with permission denied: or command failed: (the reasons a sandbox gives)
+  5-cpu  PASS  usagePercent 64.3496038844876, vmstat 100-id-wa 65 (within ±5 pp); /proc/stat over the same window 64.62
+  5-memory  PASS  availableBytes 6925537280, free -b available 6907584512 (within ±1%)
+  5-network  PASS  1 interface(s) within ±5% of the /sys/class/net statistics delta over 10.01s
+  6-latency  PASS  p95 < 200 ms for each of the ten operations (50 calls each); the worst p95 9 ms
+  6-hung-mount  NOT-RUN  the optional manual step (an NFS mount with its server firewalled; --hung-mount PATH) was not set up
+  conf-restored  PASS  /etc/nexus/nexusd.yaml restored byte for byte (sha256 71c7068adf4a7f4224df831191de563ad8e9ab436618161ad95a6ebefe05f8ac) and reloaded
+  8-cpu  PASS  enabled 0.018% - disabled 0.003% = 0.015% of one CPU over 600 s each (< 1%)
+  8-rss-1h  PASS  VmRSS max 25832 kB enabled (1 h history full) - mean 21633 kB disabled = 4.10 MiB (< 8 MiB)
+  cleanup  PASS  no planted marker, dummy service or changed configuration is left; /var/lib/nexus-host-check removed
+  token-absent  PASS  the token does not appear in the transcript
+  (container: not real-host evidence)
+transcript: 23-alpine-overhead.txt

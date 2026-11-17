@@ -39,6 +39,7 @@ import (
 	"github.com/mauktik/nexus/internal/provider"
 	apt "github.com/mauktik/nexus/internal/providers/apt/spec"
 	docker "github.com/mauktik/nexus/internal/providers/docker/spec"
+	host "github.com/mauktik/nexus/internal/providers/host/spec"
 	nexusd "github.com/mauktik/nexus/internal/providers/nexusd/spec"
 	nginx "github.com/mauktik/nexus/internal/providers/nginx/spec"
 	pihole "github.com/mauktik/nexus/internal/providers/pihole/spec"
@@ -144,6 +145,20 @@ var catalogStubs = map[string]func(*testprovider.Spy) provider.Provider{
 			testprovider.InProcess(s, pihole.RecordsUpdate),
 			testprovider.InProcess(s, pihole.RecordsRemove),
 			testprovider.InProcess(s, pihole.ApplyDNSChanges),
+		)
+	},
+	host.Name: func(s *testprovider.Spy) provider.Provider {
+		return testprovider.NewStub(host.Spec(),
+			testprovider.Sync(s, host.SummaryGet),
+			testprovider.Sync(s, host.IdentityGet),
+			testprovider.Sync(s, host.CPUGet),
+			testprovider.Sync(s, host.MemoryGet),
+			testprovider.Sync(s, host.FilesystemsList),
+			testprovider.Sync(s, host.DisksList),
+			testprovider.Sync(s, host.InterfacesList),
+			testprovider.Sync(s, host.NetConfigGet),
+			testprovider.Sync(s, host.HealthGet),
+			testprovider.Sync(s, host.MetricsGet),
 		)
 	},
 }
@@ -912,17 +927,25 @@ var (
 // forbiddenWords are op ID and route words outside v1: container create,
 // exec and run (OOS-6), script definition changes (FR-21), reboot and
 // shutdown, repositories and keys (OOS-7), desired state and reconcile
-// (OOS-2, ASM-2), schedules (OOS-5), metrics (OOS-4) and tokens (no
-// network path manages tokens). Self-update is no longer out of scope
-// (OOS-11): it is in scope through the nexusd provider, whose op IDs and
-// routes use none of these words. "self" and "selfupdate" stay as guards
-// against any other self-modifying surface.
+// (OOS-2, ASM-2), schedules (OOS-5) and tokens (no network path manages
+// tokens). Self-update is no longer out of scope (OOS-11): it is in scope
+// through the nexusd provider, whose op IDs and routes use none of these
+// words. "self" and "selfupdate" stay as guards against any other
+// self-modifying surface. "metrics" (base OOS-4) stays a guard for every
+// other op; the one exemption is allowedMetricsOp below.
 var forbiddenWords = []string{
 	"create", "exec", "execute", "run", "shell", "reboot", "shutdown", "poweroff", "halt",
 	"repository", "repositories", "repo", "repos", "sources", "key", "keys",
 	"reconcile", "drift", "deploy", "deployment", "deployments", "template", "templates",
-	"schedule", "schedules", "cron", "metrics", "self", "selfupdate", "token", "tokens",
+	"schedule", "schedules", "cron", "self", "selfupdate", "token", "tokens",
+	"metrics",
 }
+
+// allowedMetricsOp is the single op that may carry the word "metrics": the
+// host provider's read-only, in-memory history (system-provider FR-13).
+// Persistent or exported metrics stay out of scope (system-provider OOS-3),
+// so any other op ID or route with the word still fails.
+const allowedMetricsOp = "host.metrics.get"
 
 func normalize(name string) string {
 	return strings.NewReplacer("_", "", "-", "").Replace(strings.ToLower(name))
@@ -956,6 +979,9 @@ func executionSurface(t *testing.T, op def.Op) []string {
 		out = append(out, fmt.Sprintf("%s: %s route", op.ID, method))
 	}
 	for _, w := range slices.Concat(words(op.ID), words(route)) {
+		if w == "metrics" && op.ID == allowedMetricsOp {
+			continue
+		}
 		if slices.Contains(forbiddenWords, w) {
 			out = append(out, fmt.Sprintf("%s: %q in op ID or route %s", op.ID, w, route))
 		}
@@ -1333,17 +1359,23 @@ func TestPiholeOpenAPI(t *testing.T) {
 			} `json:"content"`
 		} `json:"requestBody"`
 	}
+	// Only the pihole paths are decoded into operation: another provider's
+	// not.enum may hold numbers (host.metrics.get's stepSeconds).
 	var doc struct {
-		Paths map[string]map[string]operation `json:"paths"`
+		Paths map[string]json.RawMessage `json:"paths"`
 	}
 	if err := json.Unmarshal(r.body, &doc); err != nil {
 		t.Fatal(err)
 	}
 
 	served := map[string]operation{}
-	for path, methods := range doc.Paths {
+	for path, raw := range doc.Paths {
 		if !strings.HasPrefix(path, "/v1/providers/pihole/") {
 			continue
+		}
+		var methods map[string]operation
+		if err := json.Unmarshal(raw, &methods); err != nil {
+			t.Fatalf("%s: %v", path, err)
 		}
 		for method, o := range methods {
 			served[strings.ToUpper(method)+" "+path] = o

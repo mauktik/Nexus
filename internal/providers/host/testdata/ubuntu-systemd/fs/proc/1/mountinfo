@@ -1,0 +1,24 @@
+304 248 0:46 / / rw,relatime - overlay overlay rw,lowerdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/2974/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/2314/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/663/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/662/fs,upperdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/2975/fs,workdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/2975/work,nouserxattr
+306 304 0:55 / /proc rw,nosuid,nodev,noexec,relatime - proc proc rw
+307 304 0:56 / /dev rw,nosuid - tmpfs tmpfs rw,size=65536k,mode=755,inode64
+308 307 0:57 / /dev/pts rw,nosuid,noexec,relatime - devpts devpts rw,gid=5,mode=620,ptmxmode=666
+309 304 0:58 / /sys rw,nosuid,nodev,noexec,relatime - sysfs sysfs rw
+310 309 0:30 / /sys/fs/cgroup rw,nosuid,nodev,noexec,relatime - cgroup2 cgroup rw
+311 307 0:53 / /dev/mqueue rw,nosuid,nodev,noexec,relatime - mqueue mqueue rw
+312 307 0:59 / /dev/shm rw,nosuid,nodev,noexec,relatime - tmpfs shm rw,size=65536k,inode64
+313 304 0:60 / /run rw,nosuid,nodev,noexec,relatime - tmpfs tmpfs rw,mode=755,inode64
+314 313 0:61 / /run/lock rw,nosuid,nodev,noexec,relatime - tmpfs tmpfs rw,inode64
+315 304 253:17 /docker/containers/4a34d7e0885e9c3cb52b6c50a39a305b92ce1d94eb20f08253477def0bb4c086/resolv.conf /etc/resolv.conf rw,relatime - ext4 /dev/vdb1 rw
+316 304 253:17 /docker/containers/4a34d7e0885e9c3cb52b6c50a39a305b92ce1d94eb20f08253477def0bb4c086/hostname /etc/hostname rw,relatime - ext4 /dev/vdb1 rw
+317 304 253:17 /docker/containers/4a34d7e0885e9c3cb52b6c50a39a305b92ce1d94eb20f08253477def0bb4c086/hosts /etc/hosts rw,relatime - ext4 /dev/vdb1 rw
+318 304 253:17 /docker/volumes/b16b2337e7d4fbc533f29867d8a7578bc9778f422b580e1ef5a0e377f4cd6d38/_data /var/lib/containerd rw,relatime master:139 - ext4 /dev/vdb1 rw
+319 304 253:17 /docker/volumes/f1e93bca1787288dc94add4792cc15a2a03074e187f6ca04f0e615555674f3e0/_data /var/lib/docker rw,relatime master:139 - ext4 /dev/vdb1 rw
+346 306 0:64 / /proc/sys/fs/binfmt_misc rw,relatime - autofs systemd-1 rw,fd=35,pgrp=1,timeout=0,minproto=5,maxproto=5,direct,pipe_ino=21488889
+291 307 0:73 / /dev/hugepages rw,nosuid,nodev,relatime - hugetlbfs hugetlbfs rw,pagesize=2M
+292 309 0:7 / /sys/kernel/debug rw,nosuid,nodev,noexec,relatime - debugfs debugfs rw
+297 309 0:12 / /sys/kernel/tracing rw,nosuid,nodev,noexec,relatime - tracefs tracefs rw
+299 304 0:50 / /tmp rw,nosuid,nodev - tmpfs tmpfs rw,size=4057104k,nr_inodes=1048576,inode64
+300 309 0:23 / /sys/kernel/config rw,nosuid,nodev,noexec,relatime - configfs configfs rw
+301 309 0:36 / /sys/fs/fuse/connections rw,nosuid,nodev,noexec,relatime - fusectl fusectl rw
+302 313 0:74 / /run/credentials/systemd-journald.service rw,nosuid,nodev,noexec,relatime,nosymfollow - tmpfs none ro,size=1024k,nr_inodes=1024,mode=700,inode64,noswap
+288 313 0:52 / /run/credentials/getty@tty1.service rw,nosuid,nodev,noexec,relatime,nosymfollow - tmpfs none ro,size=1024k,nr_inodes=1024,mode=700,inode64,noswap

@@ -20,6 +20,7 @@ import (
 	"github.com/mauktik/nexus/internal/provider"
 	apt "github.com/mauktik/nexus/internal/providers/apt/spec"
 	docker "github.com/mauktik/nexus/internal/providers/docker/spec"
+	host "github.com/mauktik/nexus/internal/providers/host/spec"
 	nexusd "github.com/mauktik/nexus/internal/providers/nexusd/spec"
 	nginx "github.com/mauktik/nexus/internal/providers/nginx/spec"
 	pihole "github.com/mauktik/nexus/internal/providers/pihole/spec"
@@ -262,6 +263,18 @@ func catalogStubs(s *testprovider.Spy) []provider.Provider {
 			testprovider.InProcess(s, pihole.RecordsUpdate),
 			testprovider.InProcess(s, pihole.RecordsRemove),
 			testprovider.InProcess(s, pihole.ApplyDNSChanges),
+		),
+		testprovider.NewStub(host.Spec(),
+			testprovider.Sync(s, host.SummaryGet),
+			testprovider.Sync(s, host.IdentityGet),
+			testprovider.Sync(s, host.CPUGet),
+			testprovider.Sync(s, host.MemoryGet),
+			testprovider.Sync(s, host.FilesystemsList),
+			testprovider.Sync(s, host.DisksList),
+			testprovider.Sync(s, host.InterfacesList),
+			testprovider.Sync(s, host.NetConfigGet),
+			testprovider.Sync(s, host.HealthGet),
+			testprovider.Sync(s, host.MetricsGet),
 		),
 	}
 }

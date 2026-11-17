@@ -1,0 +1,3 @@
+dir fs/sys/class/hwmon
+dir fs/sys/class/thermal
+file fs/.dockerenv

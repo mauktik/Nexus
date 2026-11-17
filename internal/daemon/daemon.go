@@ -103,6 +103,7 @@ type Daemon struct {
 	acct     *storage.Accountant
 	tick     <-chan time.Time // Nil: an hourly ticker made by Run
 	srv      *server.Server
+	bg       *backgrounds
 	notify   *notifier
 	ready    chan struct{}
 	signals  <-chan os.Signal // Nil: Run subscribes to the process's signals
@@ -275,6 +276,7 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 		acct:     acct,
 		tick:     opts.StorageTick,
 		srv:      srv,
+		bg:       newBackgrounds(providers, log),
 		notify:   newNotifier(os.Getenv("NOTIFY_SOCKET")),
 		ready:    make(chan struct{}),
 		signals:  opts.Signals,
@@ -324,9 +326,11 @@ func (d *Daemon) Addrs() []net.Addr {
 // Run opens the listeners, serves, and handles signals until SIGTERM, SIGINT
 // or the end of ctx, then shuts down within ShutdownTimeout. It returns nil
 // after a clean stop and an error when a listener cannot be opened or fails.
-// Nothing runs in the background between requests (NFR-1): storage
-// accounting runs in this loop, at startup, hourly and after each terminal
-// operation, and starts no goroutine of its own.
+// Nothing runs in the background between requests (NFR-1) except the
+// provider.Background work of enabled providers, which starts after READY=1,
+// follows enablement on each successful reload and stops at shutdown.
+// Storage accounting runs in this loop, at startup, hourly and after each
+// terminal operation, and starts no goroutine of its own.
 func (d *Daemon) Run(ctx context.Context) error {
 	// Before the listener opens: SIGHUP's default action would kill the
 	// process if a reload arrived right after READY=1.
@@ -381,6 +385,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// Classification runs after readiness; its 30-second deadline does not
 	// delay the listener.
 	d.ops.Recover()
+	d.bg.reconcile(enabledOf(d.applied))
 
 	tick := d.tick
 	if tick == nil {
@@ -467,10 +472,16 @@ func (d *Daemon) shutdown() {
 	if err := d.srv.Shutdown(ctx); err != nil {
 		d.log.Warn("graceful shutdown incomplete; remaining connections closed", "error", err.Error())
 	}
+	// After the server and before the store closes, since a background run
+	// may write state. One bound, at most backgroundStopTimeout of the
+	// deadline, so a run that ignores cancellation never takes the rest from
+	// in-process operations.
+	d.bg.stopAll(ctx)
 	// After the server, so no request admits an operation meanwhile.
 	// In-process operations get the rest of the deadline; detached units are
 	// never touched. Queued operations stay queued in state.db for restart
 	// recovery.
+	d.log.Info("stopping operations")
 	if err := d.ops.Shutdown(ctx); err != nil {
 		d.log.Warn("operations still running at shutdown", "error", err.Error())
 	}

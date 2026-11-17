@@ -65,12 +65,13 @@ func (d *Daemon) Reload(ctx context.Context) (provider.ReloadResult, error) {
 // rejects, is logged and the running configuration stays; the error is a
 // *provider.ReloadError of stage load or apply. On success provider
 // enablement is swapped atomically and the MCP tool list is rebuilt to
-// match. A reload is all or nothing across providers: providers are
-// configured one by one, so when one refuses its section, any that accepted
-// theirs are configured again from the sections in force. Settings fixed at
-// startup, such as the listen addresses, are not applied: each changed one
-// is logged as needing a restart and reported, sorted, in the result. Only
-// the Run loop calls it.
+// match, and the background work of providers follows their enablement
+// (provider.Background). A reload is all or nothing across providers:
+// providers are configured one by one, so when one refuses its section, any
+// that accepted theirs are configured again from the sections in force.
+// Settings fixed at startup, such as the listen addresses, are not applied:
+// each changed one is logged as needing a restart and reported, sorted, in
+// the result. Only the Run loop calls it.
 func (d *Daemon) reload(ctx context.Context) (provider.ReloadResult, error) {
 	d.log.Info("reloading configuration", "path", d.path)
 	next, err := config.Load(d.path)
@@ -93,6 +94,9 @@ func (d *Daemon) reload(ctx context.Context) (provider.ReloadResult, error) {
 		return provider.ReloadResult{}, &provider.ReloadError{Stage: "apply", Err: err}
 	}
 	d.applied = next
+	// Only after a successful apply: a refused or restored one changes no
+	// background run.
+	d.bg.reconcile(enabledOf(next))
 	// The MCP tool list follows provider enablement. The new list is swapped
 	// in whole; calls in flight finish on the one they started with.
 	if err := d.srv.RefreshMCP(); err != nil {

@@ -85,8 +85,8 @@ type Controller interface {
 
 // Options are the seams and bounds of a Controller.
 type Options struct {
-	// Run executes argv. Nil means the real runner: argv[0] (absolute) is
-	// executed directly, with the environment exactly
+	// Run executes argv. Nil means the real runner, the package's Run:
+	// argv[0] (absolute) is executed directly, with the environment exactly
 	// {PATH=/usr/sbin:/usr/bin:/sbin:/bin, LC_ALL=C}, no stdin, and combined
 	// output capped at OutputCap.
 	Run      func(ctx context.Context, argv []string) (Result, error)
@@ -117,19 +117,7 @@ func env() []string { return []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LC_
 // New returns the Controller of init. It validates nothing about any
 // service; an init system other than systemd or OpenRC is an error.
 func New(init platform.InitSystem, opts Options) (Controller, error) {
-	b := base{run: opts.Run, procRoot: opts.ProcRoot, runRoot: opts.RunRoot, timeout: opts.Timeout}
-	if b.run == nil {
-		b.run = realRun
-	}
-	if b.procRoot == "" {
-		b.procRoot = "/proc"
-	}
-	if b.runRoot == "" {
-		b.runRoot = "/run"
-	}
-	if b.timeout <= 0 {
-		b.timeout = DefaultTimeout
-	}
+	b := newBase(opts)
 	switch init {
 	case platform.Systemd:
 		return &systemd{base: b}, nil
@@ -145,6 +133,25 @@ type base struct {
 	procRoot string
 	runRoot  string
 	timeout  time.Duration
+}
+
+// newBase is opts with its defaults filled in: a nil Run is the real runner,
+// Run.
+func newBase(opts Options) base {
+	b := base{run: opts.Run, procRoot: opts.ProcRoot, runRoot: opts.RunRoot, timeout: opts.Timeout}
+	if b.run == nil {
+		b.run = Run
+	}
+	if b.procRoot == "" {
+		b.procRoot = "/proc"
+	}
+	if b.runRoot == "" {
+		b.runRoot = "/run"
+	}
+	if b.timeout <= 0 {
+		b.timeout = DefaultTimeout
+	}
+	return b
 }
 
 func checkService(service string) error {
@@ -179,12 +186,14 @@ func (b base) call(ctx context.Context, argv []string) (Result, error) {
 	return res, nil
 }
 
-// realRun executes argv[0], which must be absolute, with argv[1:] as its
-// arguments: no shell, no stdin, the environment exactly env(), and combined
-// output capped at OutputCap. The tool runs in its own process group, which
-// is killed when ctx is done. A failure before the tool started wraps
-// ErrNotStarted; any other error came after it started.
-func realRun(ctx context.Context, argv []string) (Result, error) {
+// Run is the real runner, the one every Controller and ListFailed use when
+// Options.Run is nil. It executes argv[0], which must be absolute, with
+// argv[1:] as its arguments: no shell, no stdin, the environment exactly
+// env(), and combined output capped at OutputCap. The tool runs in its own
+// process group, which is killed when ctx is done. A failure before the tool
+// started wraps ErrNotStarted; any other error came after it started. A
+// non-zero exit is a Result, not an error.
+func Run(ctx context.Context, argv []string) (Result, error) {
 	if len(argv) == 0 || !filepath.IsAbs(argv[0]) {
 		return Result{}, fmt.Errorf("%w: refusing to run %q: the program must be an absolute path", ErrNotStarted, argv)
 	}

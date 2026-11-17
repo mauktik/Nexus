@@ -8,5 +8,5 @@ import (
 // RealCall runs argv through the real runner, bounded by timeout, as every
 // Controller call is.
 func RealCall(ctx context.Context, timeout time.Duration, argv []string) (Result, error) {
-	return base{run: realRun, timeout: timeout}.call(ctx, argv)
+	return base{run: Run, timeout: timeout}.call(ctx, argv)
 }

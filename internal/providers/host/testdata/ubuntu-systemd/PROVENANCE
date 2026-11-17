@@ -1,0 +1,28 @@
+host: ubuntu-capture (Ubuntu 26.04.1 LTS, aarch64, virtualization docker)
+kernel: 6.8.0-100-generic
+date: 2026-11-15T02:37:33Z
+under-unit: yes: transient service via systemd-run --wait --pipe carrying every [Service] directive of deploy/nexusd.service except Type, ExecStart, ExecReload and Restart (NoNewPrivileges, ProtectSystem=strict, PrivateTmp, CapabilityBoundingSet=CAP_DAC_READ_SEARCH, SystemCallFilter=@system-service, RestrictAddressFamilies and the rest), OUTDIR in its StateDirectory
+process: CapEff: 0000000000000004 CapBnd: 0000000000000004 NoNewPrivs: 1 Seccomp: 2 
+note: T1 harness container, image nexus-harness:ubuntu-latest (sha256:24f93bbb5d6f8b26edb91d7e626211cd932106625a751ab1c5c1ad558d9b26b6, built from test/harness/Dockerfile FROM ubuntu:latest), started as test/harness/run.sh starts it (docker run -d --privileged --cgroupns=host --tmpfs /run --tmpfs /run/lock -v /var/lib/docker -v /var/lib/containerd), systemd as PID 1, nginx.service active; Docker 29.2.1 in a colima VM (Ubuntu 24.04.4 LTS, aarch64, 4 CPUs) on macOS. Not the bare-metal Ubuntu host of docs/verification/nginx-live.md
+redaction: mac,ipv4,ipv6,hostname
+redaction-counts: mac=2 ipv4=0 ipv6-prefix=0 ipv6-iid=0 hostname=1
+kept: private, ULA, link-local and loopback addresses, DNS servers, mount sources and process comm names (not sensitive lab data; docs/verification/pihole-live.md already carries the lab private addresses)
+passwd: reduced to uid < 1000 or uid 65534 (20 of 21 entries kept)
+mountinfo: proc/1/mountinfo
+script: capture.sh sha256 5b366f37409332c2bacab254f06967b9dca041622e0d610f414ff644429f5fbc
+tool: readlink-localtime = readlink etc/localtime (exit 0)
+tool: free = free -b (exit 0)
+tool: df = df -B1 --output=target,size,used,avail,pcent,itotal,iused,iavail (exit 0)
+tool: lsblk = lsblk -b -J -o NAME,SIZE,ROTA,RM,MODEL,TYPE,MOUNTPOINTS (exit 0)
+tool: ip-addr = ip -j addr (exit 0)
+tool: ip-route = ip -j route (exit 0)
+tool: uname-rm = uname -rm (exit 0)
+tool: nproc = nproc (exit 0)
+tool: hostname = hostname (exit 0)
+tool: os-release = cat etc/os-release (exit 0)
+tool: systemctl-failed = systemctl --failed --plain --no-legend (exit 0)
+tool: systemd-detect-virt = systemd-detect-virt (exit 0)
+tool: timedatectl = timedatectl show -p NTPSynchronized --value (exit 0)
+tool: statfs.txt = stat -f -c '%b %f %a %S %c %d %n' <each proc/1/mountinfo mount point> (exit 0)
+tool: stat-mounts.txt = stat -c '%d %F %n' <each proc/1/mountinfo mount point> (exit 0)
+tool: vmstat = vmstat 10 2, concurrent with fs/ and t1/ (exit 0)

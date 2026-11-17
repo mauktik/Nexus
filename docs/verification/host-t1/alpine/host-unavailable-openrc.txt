@@ -1,0 +1,19 @@
+host.summary.get	$.items[0].properties.cpu.model	not reported: no model name in /proc/cpuinfo
+host.summary.get	$.items[0].properties.health.rebootRequired	not supported: reboot-required in an Alpine container, whose kernel is the container host's
+host.summary.get	$.items[0].properties.network.interfaces[0].ipv6	not reported: no IPv6 address
+host.summary.get	$.items[0].properties.network.interfaces[1].ipv6	not reported: no IPv6 address
+host.identity.get	$.items[0].properties.clock.source	not supported: no supported time-sync query (systemd-timedated, chrony)
+host.identity.get	$.items[0].properties.clock.synchronized	not supported: no supported time-sync query (systemd-timedated, chrony)
+host.cpu.get	$.items[0].properties.frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+host.cpu.get	$.items[0].properties.model	not reported: no model name in /proc/cpuinfo
+host.cpu.get	$.items[0].properties.temperatures	not reported: no temperature sensors (common in VMs)
+host.cpu.get	$.items[0].properties.perCpu[0].frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+host.cpu.get	$.items[0].properties.perCpu[1].frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+host.cpu.get	$.items[0].properties.perCpu[2].frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+host.cpu.get	$.items[0].properties.perCpu[3].frequencyMhz	not reported: no cpufreq and no cpu MHz in /proc/cpuinfo
+host.disks.list	$.items[0].properties.model	not reported: no /sys/block/vda/device/model
+host.disks.list	$.items[1].properties.model	not reported: no /sys/block/vdb/device/model
+host.disks.list	$.items[2].properties.model	not reported: no /sys/block/vdc/device/model
+host.interfaces.list	$.items[0].properties.speedMbps	not reported: no link speed at /sys/class/net/docker0/speed
+host.interfaces.list	$.items[2].properties.speedMbps	not reported: no link speed at /sys/class/net/lo/speed
+host.health.get	$.items[0].properties.rebootRequired.state	not supported: reboot-required in an Alpine container, whose kernel is the container host's

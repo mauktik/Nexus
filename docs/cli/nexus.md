@@ -36,6 +36,16 @@ nexus [flags]
 | [`nexus containerupdate`](nexus_containerupdate.md) | Verbs: get |
 | [`nexus help`](nexus_help.md) | Show usage and examples for a command |
 | [`nexus host`](nexus_host.md) | Configured hosts |
+| [`nexus hostcpu`](nexus_hostcpu.md) | Verbs: get |
+| [`nexus hostdisk`](nexus_hostdisk.md) | Verbs: get |
+| [`nexus hostfs`](nexus_hostfs.md) | Verbs: get |
+| [`nexus hosthealth`](nexus_hosthealth.md) | Verbs: get |
+| [`nexus hostidentity`](nexus_hostidentity.md) | Verbs: get |
+| [`nexus hostmemory`](nexus_hostmemory.md) | Verbs: get |
+| [`nexus hostmetric`](nexus_hostmetric.md) | Verbs: get |
+| [`nexus hostnet`](nexus_hostnet.md) | Verbs: get |
+| [`nexus hostnetconfig`](nexus_hostnetconfig.md) | Verbs: get |
+| [`nexus hostsummary`](nexus_hostsummary.md) | Verbs: get |
 | [`nexus nexusd`](nexus_nexusd.md) | Verbs: get, validate-config, reload, restart, update, rollback |
 | [`nexus nginx`](nexus_nginx.md) | Verbs: get, start, stop, restart, reload |
 | [`nexus nginxconfig`](nexus_nginxconfig.md) | Verbs: test |
@@ -79,6 +89,16 @@ nexus [flags]
 | [`nexus host add`](nexus_host_add.md) | Register a host and pin its certificate |
 | [`nexus host get`](nexus_host_get.md) | List configured hosts, or show one |
 | [`nexus host remove`](nexus_host_remove.md) | Remove a configured host and its token |
+| [`nexus hostcpu get`](nexus_hostcpu_get.md) | Get the host's CPU detail |
+| [`nexus hostdisk get`](nexus_hostdisk_get.md) | List the host's block devices |
+| [`nexus hostfs get`](nexus_hostfs_get.md) | List the host's filesystems |
+| [`nexus hosthealth get`](nexus_hosthealth_get.md) | Get the host's health flags and top processes |
+| [`nexus hostidentity get`](nexus_hostidentity_get.md) | Get the host's identity |
+| [`nexus hostmemory get`](nexus_hostmemory_get.md) | Get the host's memory detail |
+| [`nexus hostmetric get`](nexus_hostmetric_get.md) | Get the host's metrics history |
+| [`nexus hostnet get`](nexus_hostnet_get.md) | List the host's network interfaces |
+| [`nexus hostnetconfig get`](nexus_hostnetconfig_get.md) | Get the host's gateways and DNS resolvers |
+| [`nexus hostsummary get`](nexus_hostsummary_get.md) | Get the host overview |
 | [`nexus nexusd get`](nexus_nexusd_get.md) | Get the running nexusd |
 | [`nexus nexusd reload`](nexus_nexusd_reload.md) | Reload the nexusd configuration |
 | [`nexus nexusd restart`](nexus_nexusd_restart.md) | Restart nexusd |

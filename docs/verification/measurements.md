@@ -526,3 +526,116 @@ The values read back in the run above. "MainPID a -> b" is
    which takes about 100 ms. The VmHWM read-back covers it. On the real
    host, over the network, the upload is slower and the samples will
    count.
+
+## Host provider (WI 5.4)
+
+NFR-1, NFR-2 and NFR-3 of system-provider, measured by
+`test/live/host-check.sh` (TC-HP-128 to TC-HP-130). The procedure and every
+transcript are in [host-live.md](host-live.md).
+
+**Status: container numbers only.** The real Ubuntu host and the Alpine VM
+were not reachable from the session that wrote the script, and the
+mandatory 24 h RSS run could not complete in it. The figures below are from
+the T1 harness images on the arm64 Colima VM, labelled as such. Every
+real-host figure, and the full 24 h run, are **PENDING**.
+
+### Summary
+
+| NFR | Target | Ubuntu container (systemd, exact unit) | Alpine container (OpenRC) | Verdict | Real hosts |
+| --- | --- | --- | --- | --- | --- |
+| NFR-1 | p95 under 200 ms for each of the ten reads | worst p95 7 ms (`hostsummary`, `hosthealth`), 50 calls each, on the host | worst p95 8 ms, 50 calls each, from the Mac over SSH's forwarded port | met in containers | **PENDING** |
+| NFR-1 | A request with one hung mount under 2.5 s | not set up | not set up | not measured | **PENDING** (optional manual step) |
+| NFR-2 | Sampler under 1% of one CPU at 10 s, over 10 min | enabled 0.022% − disabled 0.003% = **0.018%** of one CPU (13 ticks in 600.22 s) | enabled 0.018% − disabled 0.003% = **0.015%** | met in containers | **PENDING** |
+| NFR-2 | RSS added with the 1 h history full under 8 MiB | max 25,992 kB enabled − mean 21,843 kB disabled = **4.05 MiB** | max 25,832 kB − mean 21,633 kB = **4.10 MiB** | met in containers | **PENDING** |
+| NFR-2 | RSS added with the 24 h history full (2 s) under 32 MiB | after **1.07 h** only: max 29,724 kB over the last 10 min − baseline mean 22,077 kB = 7.47 MiB | after **1.08 h** only: 29,780 kB − 22,103 kB = 7.50 MiB | **not measured**: the history was never full | **PENDING (mandatory, 24 h)** |
+| NFR-3 | CPU within ± 5 pp of `vmstat` | 49.33% vs 49 (`/proc/stat` 49.31) | 24.31% vs 24 (`/proc/stat` 24.41) | met in containers | **PENDING** |
+| NFR-3 | Memory available within ± 1% of `free -b` | 7,011,794,944 vs 7,011,033,088 (0.011%) | 7,132,397,568 vs 7,137,406,976 (0.070%) | met in containers | **PENDING** |
+| NFR-3 | Used bytes exact, ± 1 block | every mount inside the `df` bracket ± 4096 (5 mounts) | the same (4 mounts) | met in containers | **PENDING** |
+| NFR-3 | rx/tx within ± 5% of a `/sys/class/net` delta | lo 363,370 vs 363,713 / 363,696 B/s (−0.09% / −0.09%) | eth0 120,222 vs 119,713 B/s rx (+0.43%), 219,706 vs 218,992 B/s tx (+0.33%) | met in containers | **PENDING** |
+
+### Hosts against the reference VM
+
+| | Reference VM (NFR-1, NFR-2) | Containers measured here | Ubuntu host | Alpine VM |
+| --- | --- | --- | --- | --- |
+| CPU | 2 vCPU | 4 vCPU (Colima, Apple M2 Max host, arm64) | PENDING | PENDING |
+| RAM | 2 GiB | 7.7 GiB (the VM's, shared) | PENDING | PENDING |
+| Mounts listed | 10 | 5 (Ubuntu), 4 (Alpine) | PENDING | PENDING |
+| Interfaces | 5 | 3 (`lo`, `eth0`, `docker0`) | PENDING | PENDING |
+| Processes | 200 | 21 (Ubuntu), 16 (Alpine) | PENDING | PENDING |
+| Kernel, init | | 6.8.0-100-generic; systemd 259 / OpenRC 0.63.2 | PENDING | PENDING |
+
+The containers are lighter than the reference VM in processes and mounts,
+and larger in CPUs and memory, so their latency and CPU figures are lower
+bounds for it. The process scan, which reads two files per process, is the
+part of the sampler that grows with the process count.
+
+### Method
+
+- **Build:** nexusd and nexus for linux/arm64 from commit fb475bc, `make
+  nexusd-tree`, installed by the tree's `install.sh`; script sha256
+  `281d577a…`. The Ubuntu container runs nexusd under the unchanged
+  `deploy/nexusd.service`.
+- **NFR-1 (step 6):** 50 calls of each operation, each a new `nexus`
+  process, timed by the CLI's `--verbose` line (request to status line,
+  the TLS handshake to the pinned certificate included). On Ubuntu the CLI
+  ran in the container over loopback; on Alpine it ran on the Mac, through
+  Docker's forwarded port.
+- **NFR-3 (step 5):** one sampler interval, aligned to start 0.3 s after a
+  tick, read on the host with `/proc/uptime`, `/proc/stat` and every
+  interface's counters before and after `vmstat 10 2`; the provider's
+  next sample covers the same 10 s (its `sampledAt` is checked against the
+  window's end). Traffic came from `hostsummary` calls through the CLI.
+- **NFR-2 at the defaults (step 8, `--overhead`):** with the 1 h history
+  full (the script waits until `sampledAt − historyStart` reaches 3590 s),
+  nexusd's `utime + stime` from `/proc/<pid>/stat` over 600 s and `VmRSS`
+  every 60 s (11 samples); then the provider disabled, nexusd restarted,
+  60 s to settle, and the same 600 s window. CPU: the difference of the two
+  windows; RSS: the enabled maximum minus the disabled mean. No requests
+  were made during either window. The configuration was restored byte for
+  byte and reloaded.
+- **NFR-2 at 24 h (step 9, `--rss-24h`):** a disabled baseline (restart,
+  60 s, then the mean of 11 `VmRSS` samples over 600 s), then
+  `historyDuration: 24h`, `sampleInterval: 2s` and a reload, with an
+  agent-like poll on the host (`hostsummary`, `hosthealth` and a 24 h
+  `hostmetric` every 10 s) logging `VmRSS` every 60 s. The finish takes the
+  maximum over its last 10 minutes.
+
+### NFR-2 numbers
+
+`--overhead`, `17-ubuntu-overhead.txt` and `23-alpine-overhead.txt`; the
+history was full at 08:17 UTC on both (nexusd started at 07:17).
+
+| | Ubuntu enabled | Ubuntu disabled | Alpine enabled | Alpine disabled |
+| --- | --- | --- | --- | --- |
+| Window | 08:17 to 08:27, 600.22 s | 08:28 to 08:38, 600.19 s | 08:17 to 08:27, 600.78 s | 08:28 to 08:38, 600.75 s |
+| nexusd CPU (utime + stime) | 0.022% of one CPU | 0.003% | 0.018% | 0.003% |
+| VmRSS max / min / mean (kB) | 25,992 / 25,352 / 25,631 | 22,916 / 21,128 / 21,843 | 25,832 / 25,400 / 25,557 | 22,864 / 21,152 / 21,633 |
+
+The enabled process had served the read-only checks and the fault runs
+before its window (about 2,100 requests on Ubuntu, 1,050 on Alpine); the disabled one was fresh from
+its restart. Part of the 4 MiB is therefore the Go heap's headroom after
+those requests, not the history; the delta is an upper bound for the
+provider at the defaults.
+
+`--rss-24h`, `30-*-soak-start.txt` and `33-*-soak-finish.txt`: the
+baseline was taken from 07:24 to 07:34 UTC (VmRSS mean 22,077 kB on Ubuntu
+and 22,103 kB on Alpine, CPU 0.002% and 0.003%), and the 2 s, 24 h
+configuration ran from 07:34:58 to 08:39 UTC with the poll: 1,137 and
+1,155 polls, none failed. VmRSS every 60 s (kB, every tenth sample):
+
+| Minutes into the fill | 0 | 9 | 19 | 29 | 39 | 49 | 59 | last |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Ubuntu | 24,860 | 28,988 | 29,248 | 28,928 | 28,944 | 28,888 | 29,156 | 29,192 |
+| Alpine | 25,164 | 29,048 | 29,176 | 28,992 | 29,376 | 29,376 | 29,312 | 29,780 |
+
+nexusd used 5.91 s and 6.20 s of CPU over the 64 minutes, about 0.15% of
+one CPU at a 2 s interval with a poll every 10 s.
+
+**This is not the NFR-2 24 h figure.** The ring's arrays are allocated at
+their 21,600-point capacity when the history is sized, but a page becomes
+resident only when a point is written to it, and after an hour about 960
+of the 21,600 points had been. The RSS in the table had levelled off at
+about 7.5 MiB above the baseline after nine minutes; how it grows as the
+rest of the ring is written is what the 24 h run on the real hosts must
+show. The finishes are recorded as `9-rss-24h NOT-RUN`, as the script
+requires for a fill shorter than 24 h.
