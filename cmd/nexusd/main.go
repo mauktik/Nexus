@@ -58,9 +58,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 			// output.
 			return nginx.Helper(args[1:], stdout, stderr)
 		case nexusd.HelperCommand:
-			// Hidden: a restart, update or rollback of nexusd itself, run by
-			// op-supervise in the operation's unit, outside nexusd.service.
-			return nexusd.Helper(args[1:], stdout, stderr)
+			// Hidden: a restart, update, rollback or config set of nexusd
+			// itself, run by op-supervise in the operation's unit, outside
+			// nexusd.service. A config set re-validates with the daemon's
+			// own check (D-6, ASM-10).
+			return nexusd.Helper(args[1:], stdout, stderr, checkConfigData)
 		case pihole.HelperCommand:
 			// Hidden: a pihole mutation, run by op-supervise as root in the
 			// operation's unit. Pi-hole command output goes to stdout.
@@ -89,6 +91,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	fs.Usage()
 	return 2
+}
+
+// checkConfigData is daemon.CheckConfigData in the shape the service
+// helper takes.
+func checkConfigData(data []byte, file string) config.ErrorList {
+	_, errs := daemon.CheckConfigData(data, file)
+	return errs
 }
 
 // validateConfig checks the file with daemon.CheckConfig: it loads it

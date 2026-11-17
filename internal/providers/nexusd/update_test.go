@@ -1037,13 +1037,13 @@ func TestUpdateWireFormat(t *testing.T) {
 	if err := json.Unmarshal([]byte(updateInputGolden), &back); err != nil {
 		t.Fatal(err)
 	}
-	if back != want {
+	if !reflect.DeepEqual(back, want) {
 		t.Errorf("the golden input.json decodes to %+v, want %+v", back, want)
 	}
 	want.PackageDir = pkgDir
 	want.SavedUnit = savedUnitPath(stateDir)
 	want.Health.CertFile = filepath.Join(stateDir, "tls", "cert.pem")
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("input.json decodes to %+v, want %+v", got, want)
 	}
 

@@ -39,6 +39,11 @@ type system interface {
 	// streaming its output to out. A non-zero exit is a code, not an
 	// error; ctx bounds the run.
 	RunInstall(ctx context.Context, script, dir string, out io.Writer) (exitCode int, err error)
+	// Reload is `systemctl reload <unit>`, bounded by systemctlTimeout and
+	// by ctx (the attempt deadline, D-4). Under ExecReload=kill -HUP it
+	// returns once the signal is sent, before the daemon has reloaded
+	// (A-6). A unit that is not active is errUnitNotActive.
+	Reload(ctx context.Context) error
 }
 
 // clock is the helper's time: real, or virtual in T0.
@@ -46,6 +51,8 @@ type clock interface {
 	Now() time.Time
 	// Sleep waits d, or until ctx ends, which it returns as an error.
 	Sleep(ctx context.Context, d time.Duration) error
+	// WithDeadline is ctx ending at t on this clock.
+	WithDeadline(ctx context.Context, t time.Time) (context.Context, context.CancelFunc)
 }
 
 // unitState is what `systemctl show` reports about the unit.
@@ -86,6 +93,10 @@ func (realClock) Sleep(ctx context.Context, d time.Duration) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func (realClock) WithDeadline(ctx context.Context, t time.Time) (context.Context, context.CancelFunc) {
+	return context.WithDeadline(ctx, t)
 }
 
 // realSystem is the host: systemctl, exec and HTTP.
@@ -138,6 +149,33 @@ func (s *realSystem) Restart(ctx context.Context) error {
 
 func (s *realSystem) DaemonReload(ctx context.Context) error {
 	_, err := s.systemctlRun(ctx, "daemon-reload")
+	return err
+}
+
+// Reload is `systemctl reload <unit>`. systemctlRun's 30 s bound is a
+// WithTimeout of ctx, so the call ends at the earlier of the two.
+func (s *realSystem) Reload(ctx context.Context) error {
+	_, err := s.systemctlRun(ctx, "reload", s.unit)
+	return classifyReloadError(err)
+}
+
+// errUnitNotActive is a reload refused because the unit is not active
+// (activating, deactivating, inactive or failed): one worth retrying.
+var errUnitNotActive = errors.New("the unit is not active")
+
+// notActiveText is systemctl's message for a reload job whose result is
+// "invalid", which unit_reload gives a unit that is not active
+// (systemd src/libsystemd/sd-bus/bus-wait-for-jobs.c: "%s is not active,
+// cannot reload.").
+const notActiveText = "is not active, cannot reload"
+
+// classifyReloadError marks systemctl's not-active refusal with
+// errUnitNotActive, keeping systemctl's text; any other error is returned
+// as it is.
+func classifyReloadError(err error) error {
+	if err != nil && strings.Contains(err.Error(), notActiveText) {
+		return fmt.Errorf("%w: %w", errUnitNotActive, err)
+	}
 	return err
 }
 

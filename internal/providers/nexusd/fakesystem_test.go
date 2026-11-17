@@ -46,16 +46,23 @@ package nexusd
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/mauktik/nexus/internal/config"
+	"github.com/mauktik/nexus/internal/reloadstatus"
 )
 
 // virtClock is F-CLK for the helper: virtual time that moves only when the
@@ -100,6 +107,53 @@ func (c *virtClock) Advance(d time.Duration) {
 func (c *virtClock) after(d time.Duration, f func()) {
 	c.seq++
 	c.events = append(c.events, &virtEvent{at: c.now.Add(d), seq: c.seq, f: f})
+}
+
+// WithDeadline is a context that ends when virtual time reaches t: its
+// Deadline is t on the virtual clock, and Err reads the virtual time, so a
+// deadline taken from the helper's clock works as with the real one.
+func (c *virtClock) WithDeadline(ctx context.Context, t time.Time) (context.Context, context.CancelFunc) {
+	v := &virtCtx{Context: ctx, c: c, deadline: t, done: make(chan struct{})}
+	c.after(t.Sub(c.now), v.expire)
+	return v, v.cancel
+}
+
+// virtCtx is a context whose deadline is on a virtClock.
+type virtCtx struct {
+	context.Context
+	c        *virtClock
+	deadline time.Time
+	done     chan struct{}
+	once     sync.Once
+	canceled bool
+}
+
+func (v *virtCtx) Deadline() (time.Time, bool) {
+	if d, ok := v.Context.Deadline(); ok && d.Before(v.deadline) {
+		return d, true
+	}
+	return v.deadline, true
+}
+
+func (v *virtCtx) Done() <-chan struct{} { return v.done }
+
+func (v *virtCtx) Err() error {
+	switch {
+	case v.canceled:
+		return context.Canceled
+	case !v.c.now.Before(v.deadline):
+		return context.DeadlineExceeded
+	}
+	return v.Context.Err()
+}
+
+func (v *virtCtx) expire() { v.once.Do(func() { close(v.done) }) }
+
+func (v *virtCtx) cancel() {
+	if v.Err() == nil {
+		v.canceled = true
+	}
+	v.expire()
 }
 
 func (c *virtClock) runUntil(target time.Time) {
@@ -228,6 +282,8 @@ type fakeSystem struct {
 
 	healthz func(ctx context.Context, t healthTarget) error // Nil: the fake's own
 	install fakeInstall
+
+	rl *fakeReload // F-RELOAD; nil until enableReload
 }
 
 var _ system = (*fakeSystem)(nil)
@@ -548,6 +604,229 @@ func (f *fakeSystem) blockingRestart(ctx context.Context, say func(string, ...an
 			return 1
 		}
 	}
+}
+
+// F-RELOAD: the daemon's side of `systemctl reload` (test-strategy.md,
+// Fake Fidelity Contracts). deploy/nexusd.service has
+// `ExecReload=/bin/kill -HUP $MAINPID`, so `systemctl reload` fails while
+// the unit is not active, and otherwise returns once kill has sent SIGHUP,
+// before the daemon has reloaded (A-6, systemctl(1), systemd.service(5)).
+// The "daemon" handles the signal on a later tick: it reads ConfigPath as
+// it is then, runs the real CheckConfigDataForTest, and writes its status
+// with the real reloadstatus.Write, as internal/daemon's reload does (F6).
+// It never reads the helper's input.json or result.json.
+type fakeReload struct {
+	t          testing.TB
+	configPath string
+	stateDir   string
+	boot       string
+	seq        uint64
+
+	applied    []byte         // The bytes last applied: the PC's in-force file
+	appliedCfg *config.Config // Their configuration, for restartRequired
+
+	reloadCalls int // Every Reload call, refused ones too
+	signals     int // SIGHUPs delivered, from Reload or sighup
+	handled     int // Statuses written
+	coalesced   int // Signals merged into a pending one
+	pending     bool
+	busyUntil   time.Time // A slow apply ends then; the next signal waits for it
+
+	// Injections, each consumed as it fires.
+	refuseApply   int
+	loadRefuse    int
+	noAnswer      int
+	inactiveFor   int
+	coalesce      bool
+	replaceBefore []byte
+	delayN        int
+	delayD        time.Duration
+	slowN         int
+	slowD         time.Duration
+
+	onReload  func(call int)        // Runs at each Reload call, numbered from 1 (a test's hook)
+	deadlines []time.Time           // Each Reload call's context deadline (zero: none)
+	statuses  []reloadstatus.Status // Every status written, in order
+	callTimes []time.Time           // When each Reload call came
+}
+
+// enableReload makes f the daemon serving configPath, writing its reload
+// status to stateDir, with configPath's current bytes applied.
+func (f *fakeSystem) enableReload(t testing.TB, configPath, stateDir string) *fakeReload {
+	t.Helper()
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, errs := CheckConfigDataForTest(data, configPath)
+	if len(errs) > 0 {
+		t.Fatalf("the fake daemon's starting configuration is invalid: %v", errs)
+	}
+	f.rl = &fakeReload{t: t, configPath: configPath, stateDir: stateDir, boot: "fake-boot-1", applied: data,
+		appliedCfg: cfg}
+	return f.rl
+}
+
+// fakeReloadNotActive is systemctl's error for a reload of a unit that is
+// not active, through the real classification.
+func fakeReloadNotActive(unit string) error {
+	return classifyReloadError(fmt.Errorf("systemctl reload %[1]s: exit 1: %[1]s is not active, cannot reload.",
+		unit))
+}
+
+// Reload is `systemctl reload`: refused while the unit is not active (or
+// inactiveFor), otherwise SIGHUP to the daemon and return at once.
+func (f *fakeSystem) Reload(ctx context.Context) error {
+	r := f.rl
+	if r == nil {
+		panic("fakeSystem.Reload without enableReload")
+	}
+	r.reloadCalls++
+	d, _ := ctx.Deadline()
+	r.deadlines = append(r.deadlines, d)
+	r.callTimes = append(r.callTimes, f.Now())
+	f.record("Reload", "")
+	if r.onReload != nil {
+		r.onReload(r.reloadCalls)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if r.inactiveFor > 0 {
+		r.inactiveFor--
+		return fakeReloadNotActive(f.paths.Unit)
+	}
+	if f.active != "active" {
+		return fakeReloadNotActive(f.paths.Unit)
+	}
+	f.sighup()
+	return nil
+}
+
+// sighup delivers one SIGHUP to the daemon, as kill does; a test calls it
+// directly for a signal from elsewhere.
+func (f *fakeSystem) sighup() {
+	r := f.rl
+	r.signals++
+	if r.noAnswer > 0 {
+		r.noAnswer--
+		return
+	}
+	if r.coalesce && r.pending {
+		// signal.Notify with a 1-slot channel: a second signal while one is
+		// pending is the same delivery (A-7).
+		r.coalesced++
+		return
+	}
+	d := time.Millisecond // The next tick
+	if r.delayN > 0 {
+		r.delayN--
+		d = r.delayD
+	}
+	at := f.Now().Add(d)
+	if !r.busyUntil.IsZero() && !at.After(r.busyUntil) {
+		// One reload at a time: a signal pending during a slow apply is
+		// handled right after its status.
+		at = r.busyUntil.Add(time.Millisecond)
+	}
+	r.pending = true
+	f.after(at.Sub(f.Now()), func() {
+		r.pending = false
+		f.handleReload()
+	})
+}
+
+// handleReload is internal/daemon's reload (F6): read, hash, check, apply,
+// then write the status on every path.
+func (f *fakeSystem) handleReload() {
+	r := f.rl
+	if r.replaceBefore != nil {
+		if err := os.WriteFile(r.configPath, r.replaceBefore, 0o600); err != nil {
+			r.t.Errorf("F-RELOAD replaceBeforeHandle: %v", err)
+		}
+		r.replaceBefore = nil
+	}
+	st := reloadstatus.Status{Boot: r.boot}
+	var next *config.Config
+	data, err := config.ReadFile(r.configPath)
+	switch {
+	case err != nil:
+		st.Stage, st.Error = "load", err.Error()
+	case r.loadRefuse > 0:
+		// Root's owner/mode refusal, which a non-root T0 run cannot trigger:
+		// the bytes are not read, so there is no digest.
+		r.loadRefuse--
+		st.Stage, st.Error = "load", r.configPath+": owned by uid 1000, must be owned by root"
+	default:
+		sum := sha256.Sum256(data)
+		st.SHA256 = hex.EncodeToString(sum[:])
+		cfg, errs := CheckConfigDataForTest(data, r.configPath)
+		switch {
+		case len(errs) > 0:
+			st.Stage, st.Error = "load", errs.Error()
+		case r.refuseApply > 0:
+			r.refuseApply--
+			st.Stage, st.Error = "apply", "fake provider refused the new configuration"
+		default:
+			st.Applied = true
+			st.RestartRequired = fakeRestartRequired(r.appliedCfg, cfg)
+			next = cfg
+		}
+	}
+	write := func() {
+		r.seq++
+		st.Seq, st.At = r.seq, f.Now()
+		if st.Applied {
+			r.applied, r.appliedCfg = data, next
+		}
+		if err := reloadstatus.Write(r.stateDir, st); err != nil {
+			r.t.Errorf("F-RELOAD status write: %v", err)
+		}
+		r.handled++
+		r.statuses = append(r.statuses, st)
+	}
+	if r.slowN > 0 {
+		r.slowN--
+		r.busyUntil = f.Now().Add(r.slowD)
+		f.after(r.slowD, write)
+		return
+	}
+	write()
+}
+
+// fakeRestartRequired is a copy of internal/daemon/reload.go
+// restartRequired at 521261c (unexported, and this package cannot import
+// internal/daemon): the restart-only top-level keys whose values differ.
+func fakeRestartRequired(running, next *config.Config) []string {
+	keys := []string{}
+	if !slices.Equal(running.Listen, next.Listen) {
+		keys = append(keys, "listen")
+	}
+	if !reflect.DeepEqual(running.TLS, next.TLS) {
+		keys = append(keys, "tls")
+	}
+	if running.Host != next.Host {
+		keys = append(keys, "host")
+	}
+	if running.Limits != next.Limits {
+		keys = append(keys, "limits")
+	}
+	if running.Auth != next.Auth {
+		keys = append(keys, "auth")
+	}
+	if running.Audit != next.Audit {
+		keys = append(keys, "audit")
+	}
+	if !slices.Equal(running.MCP.AllowedOrigins, next.MCP.AllowedOrigins) {
+		keys = append(keys, "mcp")
+	}
+	return keys
+}
+
+// appliedSHA is the digest of the bytes last applied (the PC).
+func (r *fakeReload) appliedSHA() string {
+	sum := sha256.Sum256(r.applied)
+	return hex.EncodeToString(sum[:])
 }
 
 func fileExists(path string) bool {

@@ -23,7 +23,9 @@ import (
 	"slices"
 	"time"
 
+	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/problem"
+	"github.com/mauktik/nexus/internal/providers/nexusd/spec"
 )
 
 // HelperCommand is the hidden nexusd subcommand of the service helper.
@@ -54,6 +56,14 @@ type helperInput struct {
 	// SavedUnit is the saved copy of the unit file, swapped with
 	// Paths.UnitFile when it exists (rollback).
 	SavedUnit string `json:"savedUnit,omitempty"`
+	// config-set (F5 step 6); NoChange is not used: a no-change set never
+	// reaches Prepare.
+	ConfigPath    string        `json:"configPath,omitempty"`
+	BackupPath    string        `json:"backupPath,omitempty"`
+	Changes       []string      `json:"changes,omitempty"`
+	BaseSHA256    string        `json:"baseSha256,omitempty"` // admission's digest (D-7, A-15)
+	StateDir      string        `json:"stateDir,omitempty"`
+	ReloadTimeout time.Duration `json:"reloadTimeout,omitempty"`
 }
 
 // helperResult is result.json, read by Finalize of possibly another
@@ -67,6 +77,11 @@ type helperResult struct {
 	FromVersion     string       `json:"fromVersion,omitempty"`     // rollback
 	ToVersion       string       `json:"toVersion,omitempty"`       // rollback
 	Error           *helperError `json:"error,omitempty"`
+	// config-set.
+	ConfigChanges   []spec.ConfigChange `json:"configChanges,omitempty"` // key, old, new
+	RestartRequired []string            `json:"restartRequired,omitempty"`
+	BackupPath      string              `json:"backupPath,omitempty"`
+	Restored        bool                `json:"restored,omitempty"`
 }
 
 // helperError is a failed operation's problem.
@@ -75,6 +90,11 @@ type helperError struct {
 	Detail    string       `json:"detail"`
 	Step      string       `json:"step,omitempty"`      // The update step that failed
 	Condition int          `json:"condition,omitempty"` // The FR-10 condition, 1 to 4
+	// config-set: config-invalid's file and located errors, and the stage
+	// (load or apply) at which the daemon refused the new file.
+	ConfigPath string             `json:"configPath,omitempty"`
+	Errors     []spec.ConfigError `json:"errors,omitempty"`
+	Stage      string             `json:"stage,omitempty"`
 }
 
 // helperRun is what a mode works with.
@@ -89,6 +109,13 @@ type helperRun struct {
 	// callTimeout bounds each systemctl call the update mode makes
 	// (systemctlTimeout); a test injects a shorter one.
 	callTimeout time.Duration
+	// check is the daemon's validator (config-set); never nil there.
+	check ConfigCheckFunc
+	// beforeStep is a test's fault hook, called at the config-set steps
+	// named stepFault*; nil in production. An error stops the mode as
+	// KillProcess would: abort is set and no result is written.
+	beforeStep func(name string) error
+	abort      error
 }
 
 // helperMode performs one operation. It returns the result to record
@@ -105,6 +132,8 @@ func modeOf(name string) (helperMode, bool) {
 		return helperUpdateMode, true
 	case modeRollback:
 		return helperRollbackMode, true
+	case modeConfigSet:
+		return helperConfigSetMode, true
 	default:
 		return nil, false
 	}
@@ -143,7 +172,9 @@ func readResult(dir string) (res helperResult, ok bool, err error) {
 func (res helperResult) problem() *problem.Error {
 	e := res.Error
 	t, ok := problem.Lookup(e.Slug)
-	if !ok || !t.OperationLevel {
+	// config-invalid is a request-level type that the config-set helper's
+	// re-validation also ends an operation with (ASM-10).
+	if !ok || (!t.OperationLevel && t.Slug != problem.ConfigInvalid) {
 		return problem.New(problem.InternalError, fmt.Sprintf("%s (%s)", e.Detail, e.Slug))
 	}
 	p := problem.New(t.Slug, e.Detail)
@@ -157,9 +188,18 @@ func (res helperResult) problem() *problem.Error {
 	if has("rolledBack") {
 		p.With("rolledBack", res.RolledBack)
 	}
+	if has("restored") {
+		p.With("restored", res.Restored)
+	}
+	if has("configPath") && e.ConfigPath != "" {
+		p.With("configPath", e.ConfigPath)
+	}
+	if has("errors") && e.Errors != nil {
+		p.With("errors", e.Errors)
+	}
 	for ext, v := range map[string]string{
 		"version": res.Version, "previousVersion": res.PreviousVersion, "newVersion": res.NewVersion,
-		"fromVersion": res.FromVersion, "toVersion": res.ToVersion,
+		"fromVersion": res.FromVersion, "toVersion": res.ToVersion, "backupPath": res.BackupPath,
 	} {
 		if has(ext) && v != "" {
 			p.With(ext, v)
@@ -179,21 +219,40 @@ type helperEnv struct {
 	// systemctl call, in a test; zero values are the defaults.
 	procDir     string
 	callTimeout time.Duration
+	// check is the daemon's validator; mode config-set refuses without it.
+	check ConfigCheckFunc
+	// beforeStep is the fault hook of helperRun; nil in production.
+	beforeStep func(name string) error
 }
+
+// ConfigCheckFunc is the daemon's byte-level configuration check: in
+// production, daemon.CheckConfigData, which this package cannot import
+// (D-6). It returns the located errors, none when the bytes are valid.
+type ConfigCheckFunc func(data []byte, file string) config.ErrorList
+
+// noValidatorText is the refusal of mode config-set without a validator.
+const noValidatorText = "no validator"
+
+// faultHookMarker is the step line written when the fault hook is armed,
+// which production never does.
+const faultHookMarker = "test fault hook armed"
 
 // Helper is `nexusd service-helper --dir D`, run by op-supervise in the
 // operation's unit. It reads D/input.json, performs the mode and writes
 // D/result.json. Steps go to stdout and diagnostics to stderr, both into
 // the operation's output. It returns 0 once result.json is written, whatever
 // the operation's outcome, and 1 when it refuses to start or cannot record
-// the result.
-func Helper(args []string, stdout, stderr io.Writer) int {
+// the result. check is the daemon's validator, which mode config-set
+// needs: with a nil check that mode refuses to start (exit 1, no result),
+// while the other modes run.
+func Helper(args []string, stdout, stderr io.Writer, check ConfigCheckFunc) int {
 	return runHelper(args, stdout, stderr, helperEnv{
 		newSystem: func(in helperInput) system {
 			unit := in.Paths.withDefaults().Unit
 			return newRealSystem(unit)
 		},
-		mode: modeOf,
+		mode:  modeOf,
+		check: check,
 	})
 }
 
@@ -228,6 +287,10 @@ func runHelper(args []string, stdout, stderr io.Writer, env helperEnv) int {
 	if !ok {
 		return refuse("unknown mode %q", in.Mode)
 	}
+	if in.Mode == modeConfigSet && env.check == nil {
+		return refuse("mode %s has %s: nexusd passes the daemon's configuration check; nothing was changed",
+			modeConfigSet, noValidatorText)
+	}
 	// Never act twice: the supervisor runs the helper once, and a second
 	// start must not repeat a finished restart, update or rollback.
 	switch _, err := os.Lstat(filepath.Join(*dir, resultFileName)); {
@@ -237,7 +300,7 @@ func runHelper(args []string, stdout, stderr io.Writer, env helperEnv) int {
 		return refuse("%v; not running again", err)
 	}
 	h := &helperRun{sys: env.newSystem(in), out: stdout, errOut: stderr, dir: *dir, procDir: env.procDir,
-		callTimeout: env.callTimeout}
+		callTimeout: env.callTimeout, check: env.check, beforeStep: env.beforeStep}
 	if h.procDir == "" {
 		h.procDir = "/proc"
 	}
@@ -245,7 +308,14 @@ func runHelper(args []string, stdout, stderr io.Writer, env helperEnv) int {
 		h.callTimeout = systemctlTimeout
 	}
 	step(stdout, fmt.Sprintf("service helper: %s", in.Mode))
+	if h.beforeStep != nil {
+		step(stdout, faultHookMarker)
+	}
 	res := run(context.Background(), h, in)
+	if h.abort != nil {
+		// Stopped as KillProcess would stop it: no result.json.
+		return refuse("%v", h.abort)
+	}
 	if err := writeJSONAtomic(*dir, resultFileName, res, env.beforeRename); err != nil {
 		return refuse("%v", err)
 	}

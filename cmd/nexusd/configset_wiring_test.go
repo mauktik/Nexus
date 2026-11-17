@@ -1,26 +1,82 @@
-// Stub-style: SKIP-only (nexusd-remote-admin)
-//
-// Stubs of planning/nexusd-remote-admin/test-cases.md TC-RA-77.
-// Owner WIs: 4.2. Each stub compiles today and skips; the developer of
-// the owning work item replaces the skip and the comment with the test,
-// keeping the function name so that grep TestTCRA traces it. An
-// un-skipped passing test is the GREEN signal
-// (planning/nexusd-remote-admin/test-strategy.md, RED Stub Style).
-
 package main
 
-import "testing"
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 // TC-RA-77: The production service-helper wiring passes the daemon's validator. Owner WI 4.2. Requirements: FR-7, CON-2, ASM-10.
 //
-//   - Setup: A temp `ConfigPath` and op dir with a `config-set` `input.json` (as `prepareConfigSet` writes it for a real change), on a host where `systemctl` is absent or not connected.
-//   - Steps:
-//     1. `run([]string{"service-helper", "--dir", D})`.
-//   - Expected:
-//   - Exit 1. stderr contains the systemctl error from `sys.Reload`, which proves that validation, backup and write ran.
-//   - stderr does not contain the "no validator" refusal text.
-//   - The helper's `beforeStep` is nil, checked through a test accessor or by the absence of the hook's marker.
-//   - The `.bak` exists.
+// The unit is a name no host has, so `systemctl reload` fails whether
+// systemctl is absent (fork/exec), not connected, or present. That is a
+// hard reload error, not "not active", so neither attempt waits: the
+// helper restores the backup and records config-restore-failed, exit 0
+// (it exits 1 only when it refuses to start or cannot record a result).
 func TestTCRA77_TheProductionServiceHelperWiringPassesTheDaemonS(t *testing.T) {
-	t.Skip("TC-RA-77: SKIP-only stub; un-skip when WI 4.2 lands")
+	const unit = "nexus-ra77-absent.service"
+	orig, err := os.ReadFile(filepath.Join("..", "..", "deploy", "nexusd.default.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig = bytes.Replace(orig, []byte("nexusd:\n    enabled: false"), []byte("nexusd:\n    enabled: true"), 1)
+	cfgDir, stateDir, dir := t.TempDir(), t.TempDir(), t.TempDir()
+	cfgPath := filepath.Join(cfgDir, "nexusd.yaml")
+	if err := os.WriteFile(cfgPath, orig, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(orig)
+	in, err := json.Marshal(map[string]any{
+		"mode": "config-set", "configPath": cfgPath, "backupPath": cfgPath + ".bak",
+		"changes": []string{"providers.host.enabled=true"}, "baseSha256": hex.EncodeToString(sum[:]),
+		"stateDir": stateDir, "reloadTimeout": int64(12e9), "health": map[string]any{},
+		"paths": map[string]string{"Unit": unit},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "input.json"), in, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"service-helper", "--dir", dir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit %d, want 0 (a recorded result)\nstdout:\n%s\nstderr:\n%s", code, stdout.String(),
+			stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "systemctl reload "+unit) {
+		t.Errorf("stderr lacks the systemctl error from sys.Reload:\n%s", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "no validator") {
+		t.Errorf("stderr has the no-validator refusal:\n%s", stderr.String())
+	}
+	if strings.Contains(stdout.String(), "fault hook armed") {
+		t.Errorf("the production wiring armed the fault hook:\n%s", stdout.String())
+	}
+	if b, err := os.ReadFile(cfgPath + ".bak"); err != nil || !bytes.Equal(b, orig) {
+		t.Errorf(".bak: %v, equal to the original %v", err, bytes.Equal(b, orig))
+	}
+	if b, err := os.ReadFile(cfgPath); err != nil || !bytes.Equal(b, orig) {
+		t.Errorf("the restore did not put the original back: %v", err)
+	}
+	var res struct {
+		Error struct {
+			Slug string `json:"slug"`
+		} `json:"error"`
+		BackupPath string `json:"backupPath"`
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "result.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(b, &res); err != nil || res.Error.Slug != "config-restore-failed" ||
+		res.BackupPath != cfgPath+".bak" {
+		t.Errorf("result %s (%v), want config-restore-failed with the backup path", b, err)
+	}
 }
