@@ -129,7 +129,10 @@ func (p *Provider) tokensAdd(ctx context.Context, in spec.TokenAddInput) (spec.T
 		var limit *auth.LimitError
 		switch {
 		case errors.As(err, &exists):
-			return none, problem.New(problem.Conflict, exists.Error())
+			// The supplied name is not echoed: a near-variant of a secret
+			// that the name pattern lets through must not reach a body.
+			return none, problem.New(problem.Conflict,
+				fmt.Sprintf("a token with this name already exists (id %s); revoke it first or choose another name", exists.ID))
 		case errors.As(err, &limit):
 			return none, problem.New(problem.TokenLimitReached, limit.Error()).With("maxTokens", limit.Max)
 		}
@@ -175,7 +178,8 @@ func (p *Provider) tokensRemove(ctx context.Context, in spec.TokenRemoveInput) (
 	if err != nil {
 		var nf *auth.NotFoundError
 		if errors.As(err, &nf) {
-			return none, problem.New(problem.NotFound, nf.Error())
+			// The supplied reference is not echoed, for the reason above.
+			return none, problem.New(problem.NotFound, "no token has this name or ID")
 		}
 		return none, fmt.Errorf("nexusd: revoke token: %w", err)
 	}

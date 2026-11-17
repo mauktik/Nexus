@@ -22,22 +22,45 @@ func TestTCRAE10_TokenStringAsNameIsRefusedWithoutEchoingIt(t *testing.T) {
 	s := newTokenStack(t)
 	// The admin's own token, and a well-formed token no store holds.
 	unknown := "nxs_0123456789ab_" + strings.Repeat("A", 42) + "E"
+	// SEC-1: every variant of a live token's secret that a name could carry.
+	minted := s.added(t, "minted", "")
+	id, secret := minted.TokenID, strings.SplitN(minted.Token, "_", 3)[2]
+	variants := []string{
+		minted.Token,
+		id + "_" + secret,
+		"NXS_" + id + "_" + secret,
+		"Nxs_" + strings.ToUpper(id) + "_" + secret,
+		secret,
+		"ci-" + secret,
+		secret + "-x",
+	}
+	needles := append([]string{s.admin, unknown, minted.Token, secret}, variants...)
 	before := s.storeSum(t)
-	for _, c := range []struct {
-		action, tok string
-		call        func(t *testing.T, token, name string) response
-	}{
+	type call struct {
+		action, name string
+		call         func(t *testing.T, token, name string) response
+	}
+	addCall := func(t *testing.T, token, name string) response { return s.add(t, token, name, "") }
+	calls := []call{
 		{spec.TokensRemove.Op().ID, s.admin, s.remove},
 		{spec.TokensRemove.Op().ID, unknown, s.remove},
-		{spec.TokensAdd.Op().ID, s.admin, func(t *testing.T, token, name string) response { return s.add(t, token, name, "") }},
-		{spec.TokensAdd.Op().ID, unknown, func(t *testing.T, token, name string) response { return s.add(t, token, name, "") }},
-	} {
-		r := c.call(t, s.admin, c.tok)
+		{spec.TokensAdd.Op().ID, s.admin, addCall},
+		{spec.TokensAdd.Op().ID, unknown, addCall},
+	}
+	for _, v := range variants {
+		calls = append(calls, call{spec.TokensRemove.Op().ID, v, s.remove}, call{spec.TokensAdd.Op().ID, v, addCall})
+	}
+	for _, c := range calls {
+		r := c.call(t, s.admin, c.name)
 		wantTokenProblem(t, r, http.StatusBadRequest, problem.ValidationFailed)
 		if !strings.Contains(string(r.body), `"path":"/name"`) {
 			t.Errorf("%s: errors[] does not name /name: %s", c.action, r.body)
 		}
-		noSecretIn(t, c.action+" problem", r.body, c.tok)
+		// The refusal's own message, not the property's generic description.
+		if !strings.Contains(string(r.body), "looks like, or contains, a token string") {
+			t.Errorf("%s: the refusal's message is missing: %s", c.action, r.body)
+		}
+		noSecretIn(t, c.action+" problem", r.body, needles...)
 		recs := s.auditOf(t, c.action)
 		if len(recs) == 0 {
 			t.Fatalf("%s: no audit record", c.action)
@@ -59,11 +82,37 @@ func TestTCRAE10_TokenStringAsNameIsRefusedWithoutEchoingIt(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		noSecretIn(t, "audit file "+filepath.Base(p), b, s.admin, unknown)
+		noSecretIn(t, "audit file "+filepath.Base(p), b, needles...)
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	noSecretIn(t, "daemon log", []byte(s.logs.String()), s.admin, unknown)
+	noSecretIn(t, "daemon log", []byte(s.logs.String()), needles...)
+	for _, tk := range s.tokens(t) {
+		if strings.Contains(tk.Name, secret) {
+			t.Errorf("a stored token is named with the secret: %q", tk.Name)
+		}
+	}
+}
+
+// SEC-1: a supplied name is never echoed by the not-found and conflict
+// problems of the token ops, so a near-variant of a secret that the name
+// schema lets through cannot reach a body, the audit log or the daemon log.
+func TestTokenOpsDoNotEchoTheSuppliedName(t *testing.T) {
+	s := newTokenStack(t)
+	const name = "echo-probe-name"
+	const missing = "missing-probe-name"
+	s.added(t, name, "")
+	dup := s.add(t, s.admin, name, "")
+	m := wantTokenProblem(t, dup, http.StatusConflict, problem.Conflict)
+	nf := s.remove(t, s.admin, missing)
+	wantTokenProblem(t, nf, http.StatusNotFound, problem.NotFound)
+	for what, r := range map[string]response{"conflict": dup, "not-found": nf} {
+		noSecretIn(t, what+" problem", r.body, name, missing)
+	}
+	if d, _ := m["detail"].(string); !strings.Contains(d, s.idOf(t, name)) {
+		t.Errorf("conflict detail %q does not name the existing token's ID", d)
+	}
+	noSecretIn(t, "daemon log", []byte(s.logs.String()), "\""+name+"\"", "\""+missing+"\"")
 }

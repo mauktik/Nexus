@@ -165,8 +165,9 @@ var errUnitNotActive = errors.New("the unit is not active")
 
 // notActiveText is systemctl's message for a reload job whose result is
 // "invalid", which unit_reload gives a unit that is not active
-// (systemd src/libsystemd/sd-bus/bus-wait-for-jobs.c: "%s is not active,
-// cannot reload.").
+// (systemd src/shared/bus-wait-for-jobs.c, check_wait_response: "%s is not
+// active, cannot reload."). A real systemd's output for a stopped unit is
+// the golden in test/integration/testdata/systemctl-reload-inactive.txt.
 const notActiveText = "is not active, cannot reload"
 
 // classifyReloadError marks systemctl's not-active refusal with

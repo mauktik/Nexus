@@ -355,9 +355,37 @@ func validateInput(resolved *jsonschema.Resolved, op def.Op, in map[string]any) 
 		return fmt.Errorf("decode input: %w", err)
 	}
 	if err := resolved.Validate(inst); err != nil {
+		if field, msg := notRefusal(resolved, inst); field != "" {
+			return usagef("invalid input for %s %s: %s: %s", op.CLI.Noun, op.CLI.Verb, field, msg)
+		}
 		return usagef("invalid input for %s %s: %v", op.CLI.Noun, op.CLI.Verb, err)
 	}
 	return nil
+}
+
+// notRefusal names the first property, in name order, whose value matches a
+// described `not` schema, with that description. The description is written
+// for the refusal and never quotes the value, unlike the validator's own
+// "not: validated against <anonymous schema>". It returns "" when no such
+// property fails.
+func notRefusal(resolved *jsonschema.Resolved, inst any) (field, msg string) {
+	obj, ok := inst.(map[string]any)
+	if !ok {
+		return "", ""
+	}
+	props := resolved.Schema().Properties
+	for _, name := range slices.Sorted(maps.Keys(props)) {
+		ps := props[name]
+		val, present := obj[name]
+		if !present || ps.Not == nil || ps.Not.Description == "" {
+			continue
+		}
+		nr, err := ps.Not.CloneSchemas().Resolve(nil)
+		if err == nil && nr.Validate(val) == nil {
+			return name, ps.Not.Description
+		}
+	}
+	return "", ""
 }
 
 // idempotencyKey reads --idempotency-key: empty when unset, otherwise

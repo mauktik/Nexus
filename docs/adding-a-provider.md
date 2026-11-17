@@ -317,7 +317,8 @@ Managing `nexusd`'s tokens and configuration file remotely
 of the existing shapes. Each was added as a declared, generic mechanism on
 `def.Op`, `def.CLIBinding` or a provider interface, checked by
 `def.validate` and keyed on the declaration rather than on the provider's
-name (CON-3). Any provider may use them; none may be an MCP tool.
+name (CON-3). Any provider may use them; a `SyncMutation` or
+`CompletesAtAdmission` op may not be an MCP tool.
 
 - **`def.Op.SyncMutation`: a mutation that answers at once.** A mutating op
   is normally long-running and answers 202 with an operation. A

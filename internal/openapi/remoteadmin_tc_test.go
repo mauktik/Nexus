@@ -205,3 +205,29 @@ func TestTCRA113_OpenAPIDocumentsBoth200And202ForACompletesAt(t *testing.T) {
 	without := raOperation(t, []def.Op{plain, raApply.Op()}, plain.ID)
 	raSameApartFrom(t, set, without, func(r map[string]any) { delete(r, "200") })
 }
+
+// An Audited read fails closed when its record cannot be written, so its 503
+// lists audit-unavailable, as a mutation's does; a plain read's does not.
+func TestAuditedReadDocumentsAuditUnavailable(t *testing.T) {
+	audited := def.Define[raSetIn, raSetOut](def.Op{
+		ID: "ra.tokens.audited", Provider: "ra", Kind: def.KindProviderAction,
+		Action: "audited", Summary: "Read audited", Description: "Reads a value, audited.",
+		Scope: def.Scope{Name: "ra:admin"}, Risk: def.RiskReadOnly, Mode: def.ModeSync, Audited: true,
+		CLI: def.CLIBinding{Noun: "raaudited", Verb: "get"},
+	})
+	plain := def.Define[raSetIn, raSetOut](def.Op{
+		ID: "ra.tokens.plain", Provider: "ra", Kind: def.KindProviderAction,
+		Action: "plain", Summary: "Read plain", Description: "Reads a value.",
+		Scope: def.Scope{Name: "ra:admin"}, Risk: def.RiskReadOnly, Mode: def.ModeSync,
+		CLI: def.CLIBinding{Noun: "raplain", Verb: "get"},
+	})
+	ops := []def.Op{audited.Op(), plain.Op()}
+	for id, want := range map[string]bool{audited.Op().ID: true, plain.Op().ID: false} {
+		o := raOperation(t, ops, id)
+		schema := obj(obj(obj(obj(o["responses"])["503"])["content"])["application/problem+json"])["schema"]
+		got := slices.Contains(problemRefs(t, id+" 503", obj(schema)), problem.AuditUnavailable)
+		if got != want {
+			t.Errorf("%s: 503 lists audit-unavailable = %v, want %v", id, got, want)
+		}
+	}
+}

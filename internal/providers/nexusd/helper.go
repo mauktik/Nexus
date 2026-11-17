@@ -90,11 +90,10 @@ type helperError struct {
 	Detail    string       `json:"detail"`
 	Step      string       `json:"step,omitempty"`      // The update step that failed
 	Condition int          `json:"condition,omitempty"` // The FR-10 condition, 1 to 4
-	// config-set: config-invalid's file and located errors, and the stage
-	// (load or apply) at which the daemon refused the new file.
+	// config-set: config-invalid's file and located errors. The stage (load
+	// or apply) at which the daemon refused a new file is in Detail.
 	ConfigPath string             `json:"configPath,omitempty"`
 	Errors     []spec.ConfigError `json:"errors,omitempty"`
-	Stage      string             `json:"stage,omitempty"`
 }
 
 // helperRun is what a mode works with.

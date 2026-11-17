@@ -190,13 +190,13 @@ func (c *configSetter) run(ctx context.Context) helperResult {
 		step(c.h.out, fmt.Sprintf("unconfirmed: no reload status for the new %s within %s", in.ConfigPath,
 			c.timeout))
 	}
-	return c.restore(ctx, data, perm, base, hadBase, why, st.Stage)
+	return c.restore(ctx, data, perm, base, hadBase, why)
 }
 
 // restore writes the backup bytes back and confirms that the daemon
 // applied them, against the same baseline, with a fresh deadline.
 func (c *configSetter) restore(ctx context.Context, data []byte, perm fs.FileMode, base reloadstatus.Status,
-	hadBase bool, why, stage string) helperResult {
+	hadBase bool, why string) helperResult {
 	in := c.in
 	step(c.h.out, fmt.Sprintf("restore: %s from %s", in.ConfigPath, in.BackupPath))
 	if err := writeFileAtomic(c.dir, c.name, data, perm); err != nil {
@@ -211,7 +211,7 @@ func (c *configSetter) restore(ctx context.Context, data []byte, perm fs.FileMod
 		step(c.h.out, fmt.Sprintf("restored: %s is in force again (reload status seq %d)", in.ConfigPath, st.Seq))
 		res := c.fail(problem.ConfigApplyFailed, fmt.Sprintf("%s; %s was restored from %s and is in force",
 			why, in.ConfigPath, in.BackupPath))
-		res.Restored, res.BackupPath, res.Error.Stage = true, in.BackupPath, stage
+		res.Restored, res.BackupPath = true, in.BackupPath
 		return res
 	case ok:
 		return c.restoreFailed(fmt.Sprintf("%s; the daemon refused the restored file too, at stage %s: %s", why,

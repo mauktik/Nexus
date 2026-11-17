@@ -455,7 +455,8 @@ func applicableProblems(op def.Op, hasTarget bool) []problem.Slug {
 		// down while its preflight last passed (NFR-3).
 		slugs = append(slugs, problem.CapabilityUnavailable, problem.DependencyUnavailable)
 	}
-	if op.Mutating() {
+	if op.Mutating() || op.Audited {
+		// An Audited read also fails closed when its record cannot be written.
 		slugs = append(slugs, problem.AuditUnavailable)
 	}
 	if op.OperationControl {

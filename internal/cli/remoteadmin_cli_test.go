@@ -454,21 +454,44 @@ func TestTCRAE10_CLITokenCommandsAcceptNoTokenValueAsAnArgument(t *testing.T) {
 func tokenStringAsName(t *testing.T) {
 	h := startTokenHost(t, "srv-a")
 	home := writeClientConfig(t, "a", clientHost{"a", h.proxy, h.token, nil})
+	// SEC-1: the variants of a live token's secret, too.
+	sec, minted := h.mint(t, "minted")
+	secret := strings.SplitN(sec, "_", 3)[2]
+	variants := []string{h.token, sec, minted.ID + "_" + secret, "NXS_" + minted.ID + "_" + secret, secret,
+		"ci-" + secret, secret + "-x"}
 	before := h.tokens(t)
-	for _, f := range []string{"json", "table"} {
-		r := runCLI(tokenEnv(home), "nexusdtoken", "remove", h.token, "--yes", "-o", f)
-		if r.code != ExitUsage {
-			t.Errorf("-o %s: remove of a token string: exit %d, want %d (validation-failed): %s", f, r.code, ExitUsage, r.stderr)
+	for _, name := range variants {
+		for _, verb := range []string{"remove", "add"} {
+			for _, f := range []string{"json", "table"} {
+				r := runCLI(tokenEnv(home), "nexusdtoken", verb, name, "--yes", "-o", f)
+				if r.code != ExitUsage {
+					t.Errorf("-o %s: %s of a token string: exit %d, want %d (validation-failed): %s", f, verb, r.code, ExitUsage, r.stderr)
+				}
+				// The CLI checks the same input schema before sending, so the
+				// refusal is its local usage error; the REST call below gets
+				// the server's 400 validation-failed. It shows the schema's
+				// own message, not the validator's "not: validated against".
+				if !strings.Contains(r.stderr, "looks like, or contains, a token string") ||
+					strings.Contains(r.stderr, "validated against") {
+					t.Errorf("-o %s: %s: stderr %q lacks the refusal's message", f, verb, r.stderr)
+				}
+				for _, secret := range []string{h.token, sec, secret, name} {
+					if strings.Contains(r.stderr, secret) || strings.Contains(r.stdout, secret) {
+						t.Errorf("-o %s: %s: the token string is echoed: stdout %q stderr %q", f, verb, r.stdout, r.stderr)
+					}
+				}
+			}
 		}
-		// The CLI checks the same input schema before sending, so the
-		// refusal is its local usage error; the REST call below gets the
-		// server's 400 validation-failed.
-		if f == "json" && !strings.Contains(r.stderr, "validation-failed") && !strings.Contains(r.stderr, "urn:nexus:cli:usage") {
-			t.Errorf("-o json: stderr %q names neither validation-failed nor the CLI's usage refusal", r.stderr)
-		}
-		if strings.Contains(r.stderr, h.token) || strings.Contains(r.stdout, h.token) {
-			t.Errorf("-o %s: the token string is echoed: stdout %q stderr %q", f, r.stdout, r.stderr)
-		}
+	}
+	// The not-found and conflict problems do not echo the supplied name.
+	if r := runCLI(tokenEnv(home), "nexusdtoken", "remove", "ghost-probe", "--yes"); r.code == 0 ||
+		strings.Contains(r.stderr, "ghost-probe") || strings.Contains(r.stdout, "ghost-probe") ||
+		!strings.Contains(r.stderr, "no token has this name or ID") {
+		t.Errorf("remove of an unknown name: exit %d stdout %q stderr %q, want a failure with the neutral not-found", r.code, r.stdout, r.stderr)
+	}
+	if r := runCLI(tokenEnv(home), "nexusdtoken", "add", "minted", "--yes"); r.code == 0 ||
+		strings.Contains(r.stderr, `"minted"`) || !strings.Contains(r.stderr, minted.ID) {
+		t.Errorf("duplicate add: exit %d stderr %q, want a failure naming only the existing ID", r.code, r.stderr)
 	}
 	method, path := http.MethodPost, "/v1/providers/nexusd/tokens/"+h.token+"/remove"
 	req, err := http.NewRequest(method, h.url+path, nil)
@@ -499,7 +522,9 @@ func tokenStringAsName(t *testing.T) {
 	if st != http.StatusOK {
 		t.Fatalf("audit query: %d %s", st, recs)
 	}
-	if strings.Contains(string(recs), h.token) {
-		t.Errorf("the audit log holds the token string: %s", recs)
+	for _, secret := range append([]string{h.token, sec, secret}, variants...) {
+		if strings.Contains(string(recs), secret) {
+			t.Errorf("the audit log holds the token string or a variant: %s", recs)
+		}
 	}
 }

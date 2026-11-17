@@ -216,8 +216,10 @@ func (r *csRig) wantRestored(t *testing.T, res helperResult, stage string) {
 		t.Errorf("result restored %v, backupPath %q, changed %v; want true, %q, false", res.Restored, res.BackupPath,
 			res.Changed, r.in.BackupPath)
 	}
-	if res.Error.Stage != stage {
-		t.Errorf("stage %q, want %q", res.Error.Stage, stage)
+	// The stage the daemon refused the new file at is in the detail, the only
+	// place a client sees it; an unconfirmed reload has none.
+	if has := strings.Contains(res.Error.Detail, "refused the new configuration at stage "+stage); has != (stage != "") {
+		t.Errorf("detail %q: names stage %q = %v, want %v", res.Error.Detail, stage, has, stage != "")
 	}
 	if !bytes.Equal(r.disk(t), r.orig) {
 		t.Error("the disk does not hold the original bytes after the restore")
@@ -468,7 +470,7 @@ func TestTCRA76_ProblemMapsConfigInvalidRestoredAndBackupPath(t *testing.T) {
 			Errors: errs}}, problem.ConfigInvalid,
 			map[string]any{"configPath": "/etc/nexus/nexusd.yaml", "errors": errs}},
 		{helperResult{Restored: true, BackupPath: "/b.bak", Error: &helperError{Slug: problem.ConfigApplyFailed,
-			Detail: "d", Stage: "apply"}}, problem.ConfigApplyFailed,
+			Detail: "d"}}, problem.ConfigApplyFailed,
 			map[string]any{"restored": true, "backupPath": "/b.bak"}},
 		{helperResult{BackupPath: "/b.bak", Error: &helperError{Slug: problem.ConfigRestoreFailed, Detail: "d"}},
 			problem.ConfigRestoreFailed, map[string]any{"backupPath": "/b.bak"}},

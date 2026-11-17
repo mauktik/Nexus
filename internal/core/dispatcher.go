@@ -656,6 +656,11 @@ type validator struct {
 	root     *jsonschema.Resolved
 	props    map[string]*jsonschema.Resolved
 	describe map[string]string
+	// nots and notMsg hold a property's described `not` schema: a value that
+	// matches it is refused with that description, which is written for the
+	// refusal and never quotes the value.
+	nots     map[string]*jsonschema.Resolved
+	notMsg   map[string]string
 	required []string
 	closed   bool
 }
@@ -681,6 +686,7 @@ func newValidator(op def.Op) (*validator, error) {
 	s := root.Schema()
 	v := &validator{
 		root: root, props: map[string]*jsonschema.Resolved{}, describe: map[string]string{},
+		nots: map[string]*jsonschema.Resolved{}, notMsg: map[string]string{},
 		required: slices.Clone(s.Required),
 	}
 	if s.AdditionalProperties != nil {
@@ -694,6 +700,13 @@ func newValidator(op def.Op) (*validator, error) {
 		}
 		v.props[name] = r
 		v.describe[name] = describe(ps)
+		if ps.Not != nil && ps.Not.Description != "" {
+			nr, err := ps.Not.CloneSchemas().Resolve(nil)
+			if err != nil {
+				return nil, fmt.Errorf("op %q: property %q: not: %w", op.ID, name, err)
+			}
+			v.nots[name], v.notMsg[name] = nr, ps.Not.Description
+		}
 	}
 	return v, nil
 }
@@ -713,7 +726,11 @@ func (v *validator) check(obj map[string]any) []problem.FieldError {
 		case !known && v.closed:
 			errs = append(errs, problem.FieldError{Path: pointer(k), Message: "unknown property"})
 		case known && r.Validate(obj[k]) != nil:
-			errs = append(errs, problem.FieldError{Path: pointer(k), Message: v.describe[k]})
+			msg := v.describe[k]
+			if nr := v.nots[k]; nr != nil && nr.Validate(obj[k]) == nil {
+				msg = v.notMsg[k]
+			}
+			errs = append(errs, problem.FieldError{Path: pointer(k), Message: msg})
 		}
 	}
 	for _, k := range v.required {

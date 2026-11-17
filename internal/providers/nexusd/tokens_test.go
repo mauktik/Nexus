@@ -450,6 +450,24 @@ func TestTCRA34_TenSuccessfulMutationsPerRollingMinuteThen429(t *testing.T) {
 			// Step 6.
 			s.clk.Advance(t, time.Nanosecond)
 			s.add(t, s.admin, "r6", "").want(t, http.StatusOK)
+
+			// Step 7: a rolling window freed exactly one slot, the t0 one. The
+			// next oldest success is at t0+2s, so the next add is refused again,
+			// asked to wait 2 s; a window that restarted at t0 or cleared every
+			// success once the oldest expired would admit it.
+			r = s.add(t, s.admin, "r7", "")
+			wantTokenProblem(t, r, http.StatusTooManyRequests, problem.RateLimited)
+			if got := r.header.Get("Retry-After"); got != "2" {
+				t.Errorf("Retry-After after one slot freed %q, want 2", got)
+			}
+			s.advanceTo(t, s.t0.Add(62*time.Second))
+			r = s.add(t, s.admin, "r7", "")
+			wantTokenProblem(t, r, http.StatusTooManyRequests, problem.RateLimited)
+			if got := r.header.Get("Retry-After"); got != "1" {
+				t.Errorf("Retry-After at the second slot's edge %q, want 1", got)
+			}
+			s.clk.Advance(t, time.Nanosecond)
+			s.add(t, s.admin, "r7", "").want(t, http.StatusOK)
 		})
 	}
 }
@@ -660,8 +678,10 @@ func TestTCRAERR12_TokenAddAndRemoveMapStoreErrorsToProblemsWithout(t *testing.T
 	// Step 1.
 	r := s.add(t, s.admin, "a", "")
 	m := wantTokenProblem(t, r, http.StatusConflict, problem.Conflict)
-	if d, _ := m["detail"].(string); !strings.Contains(d, `"a"`) {
-		t.Errorf("conflict detail %q does not name a", d)
+	// The detail names the existing token by its ID, never by the supplied
+	// name (SEC-1: a name can be a near-variant of a secret).
+	if d, _ := m["detail"].(string); !strings.Contains(d, s.idOf(t, "a")) || strings.Contains(d, `"a"`) {
+		t.Errorf("conflict detail %q does not name a's ID, or echoes the name", d)
 	}
 	check("the duplicate add", r)
 
@@ -685,6 +705,9 @@ func TestTCRAERR12_TokenAddAndRemoveMapStoreErrorsToProblemsWithout(t *testing.T
 
 	// Step 3.
 	r = s.remove(t, s.admin, "nope")
-	wantTokenProblem(t, r, http.StatusNotFound, problem.NotFound)
+	m = wantTokenProblem(t, r, http.StatusNotFound, problem.NotFound)
+	if d, _ := m["detail"].(string); strings.Contains(d, "nope") {
+		t.Errorf("not-found detail %q echoes the reference", d)
+	}
 	check("the unknown remove", r)
 }

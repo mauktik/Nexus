@@ -7262,7 +7262,7 @@ Responses:
 - `413`: Problem: payload-too-large.
 - `429`: Problem: rate-limited. Headers: `Retry-After`.
 - `500`: Problem: internal-error.
-- `503`: Problem: capability-unavailable, dependency-unavailable.
+- `503`: Problem: audit-unavailable, capability-unavailable, dependency-unavailable.
 - `default`: Any other problem, such as one the provider reports, as problem details of a registered type.
 
 Response `200` (`application/json`):
@@ -7360,7 +7360,7 @@ Responses:
 - `413`: Problem: payload-too-large.
 - `429`: Problem: rate-limited. Headers: `Retry-After`.
 - `500`: Problem: internal-error.
-- `503`: Problem: capability-unavailable, dependency-unavailable.
+- `503`: Problem: audit-unavailable, capability-unavailable, dependency-unavailable.
 - `default`: Any other problem, such as one the provider reports, as problem details of a registered type.
 
 Response `200` (`application/json`):
@@ -7595,7 +7595,7 @@ Responses:
 - `413`: Problem: payload-too-large.
 - `429`: Problem: rate-limited. Headers: `Retry-After`.
 - `500`: Problem: internal-error.
-- `503`: Problem: capability-unavailable, dependency-unavailable.
+- `503`: Problem: audit-unavailable, capability-unavailable, dependency-unavailable.
 - `default`: Any other problem, such as one the provider reports, as problem details of a registered type.
 
 Response `200` (`application/json`):
@@ -7722,7 +7722,7 @@ Parameters:
 
 | Name | In | Required | Schema | Description |
 | --- | --- | --- | --- | --- |
-| `name` | path | yes | `{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$","not":{"type":"string","description":"this looks like a token string, not a token name or ID; pass the token's name or ID","pattern":"^nxs_[0-9a-f]{12}_[A-Za-z0-9_-]{43}$"}}` | Name of the new token: 1 to 64 letters, digits, '.', '_' or '-', starting with a letter or digit. |
+| `name` | path | yes | `{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$","not":{"type":"string","description":"this looks like, or contains, a token string; pass the token's name or ID, never the token itself","pattern":"^[Nn][Xx][Ss]_[0-9A-Fa-f]{12}_\|[A-Za-z0-9_-]{43}"}}` | Name of the new token: 1 to 64 letters, digits, '.', '_' or '-', starting with a letter or digit. |
 
 Request body (`application/json`, optional):
 
@@ -7846,7 +7846,7 @@ Parameters:
 
 | Name | In | Required | Schema | Description |
 | --- | --- | --- | --- | --- |
-| `name` | path | yes | `{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$","not":{"type":"string","description":"this looks like a token string, not a token name or ID; pass the token's name or ID","pattern":"^nxs_[0-9a-f]{12}_[A-Za-z0-9_-]{43}$"}}` | Name or 12-hex ID of the token to revoke. |
+| `name` | path | yes | `{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$","not":{"type":"string","description":"this looks like, or contains, a token string; pass the token's name or ID, never the token itself","pattern":"^[Nn][Xx][Ss]_[0-9A-Fa-f]{12}_\|[A-Za-z0-9_-]{43}"}}` | Name or 12-hex ID of the token to revoke. |
 
 Responses:
 

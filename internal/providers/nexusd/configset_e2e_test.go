@@ -131,6 +131,23 @@ func TestTCRA84_TheT0EndToEndMatrixHoldsTheFR8PostConditionFor(t *testing.T) {
 		c.wantPC(t, op)
 	})
 
+	// CR-11: the daemon compares each reload with the configuration it
+	// started with, which a reload never replaces, and sorts the keys. The
+	// fake's rule must too, or a restart-only change that "went away" after
+	// a second set, or a key order the daemon never produces, passes here.
+	t.Run("b2 restart-only keys persist across sets and are sorted", func(t *testing.T) {
+		c := newConfigSetStack(t, defaultConfigWithNexusd(t), stackConfig{})
+		res := wantSucceeded(t, c, c.runOp(t, "auth.failureLimitPerMinute=20", "audit.retentionDays=45"))
+		if want := []string{"audit", "auth"}; !slices.Equal(res.RestartRequired, want) {
+			t.Errorf("restartRequired %v, want %v, sorted", res.RestartRequired, want)
+		}
+		res = wantSucceeded(t, c, c.runOp(t, "providers.host.enabled=true"))
+		if want := []string{"audit", "auth"}; !slices.Equal(res.RestartRequired, want) {
+			t.Errorf("after a second set restartRequired %v, want %v: the running daemon still has the "+
+				"startup values", res.RestartRequired, want)
+		}
+	})
+
 	t.Run("c validation refusal", func(t *testing.T) {
 		data := defaultConfigWithNexusd(t)
 		c := newConfigSetStack(t, data, stackConfig{})

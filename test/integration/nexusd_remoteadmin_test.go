@@ -33,6 +33,7 @@ package integration
 import (
 	"bytes"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -1466,14 +1467,33 @@ func TestTCRA101_RemoteAddAndLocalSudoCreateOfOneNameRaceOnThe(t *testing.T) {
 	h := newRAHost(t)
 	since := smWindow()
 	type outcome struct {
-		code   int
-		body   []byte
-		exit   int
-		stderr string
-		err    error
+		code       int
+		body       []byte
+		exit       int
+		stderr     string
+		err        error
+		begin, end time.Time
 	}
-	for i := range 8 {
+	// Launched together, the REST add always reaches the daemon first (the
+	// local create has to exec a process), so the two never meet. Measure what
+	// a local create takes and hold the REST add back by a growing share of
+	// it, 0 to 1.2 times: the early rounds are won by REST, the late ones by
+	// the local create, and the ones between meet at the token file's lock.
+	var calib []time.Duration
+	for i := range 3 {
+		t0 := time.Now()
+		if out, err := exec.Command(nexusdBin, "token", "create", "--name", fmt.Sprintf("calib%d", i)).CombinedOutput(); err != nil {
+			t.Fatalf("calibration create %d: %v: %s", i, err, out)
+		}
+		calib = append(calib, time.Since(t0))
+	}
+	slices.Sort(calib)
+	local1 := calib[len(calib)/2]
+	const rounds = 10
+	var restWins, localWins, overlapped int
+	for i := range rounds {
 		name := fmt.Sprintf("race%d", i)
+		delay := local1 * 12 / 10 * time.Duration(i) / (rounds - 1)
 		start := make(chan struct{})
 		var wg sync.WaitGroup
 		var rest, local outcome
@@ -1481,6 +1501,9 @@ func TestTCRA101_RemoteAddAndLocalSudoCreateOfOneNameRaceOnThe(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
+			time.Sleep(delay)
+			rest.begin = time.Now()
+			defer func() { rest.end = time.Now() }()
 			req, err := http.NewRequest(http.MethodPost, "https://"+exactAddr+raTokensAt+"/"+name+"/add", strings.NewReader(`{}`))
 			if err != nil {
 				rest.err = err
@@ -1500,10 +1523,12 @@ func TestTCRA101_RemoteAddAndLocalSudoCreateOfOneNameRaceOnThe(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
+			local.begin = time.Now()
 			cmd := exec.Command(nexusdBin, "token", "create", "--name", name)
 			var stderr bytes.Buffer
 			cmd.Stderr = &stderr
 			err := cmd.Run()
+			local.end = time.Now()
 			local.stderr = stderr.String()
 			var ee *exec.ExitError
 			switch {
@@ -1518,22 +1543,34 @@ func TestTCRA101_RemoteAddAndLocalSudoCreateOfOneNameRaceOnThe(t *testing.T) {
 		if rest.err != nil || local.err != nil {
 			t.Fatalf("round %d: %v %v", i, rest.err, local.err)
 		}
-		t.Logf("round %d: REST %d %s; nexusd token create exit %d %s", i, rest.code, rest.body, local.exit,
-			strings.TrimSpace(local.stderr))
+		t.Logf("round %d: REST held back %s, %s to %s: %d %s; nexusd token create %s to %s: exit %d %s", i,
+			delay.Round(time.Millisecond), rest.begin.Format("05.000"), rest.end.Format("05.000"), rest.code, rest.body,
+			local.begin.Format("05.000"), local.end.Format("05.000"), local.exit, strings.TrimSpace(local.stderr))
+		if rest.begin.Before(local.end) && local.begin.Before(rest.end) {
+			overlapped++
+		}
 		wins := 0
 		if rest.code == http.StatusOK {
 			wins++
+			restWins++
 		} else if rest.code != http.StatusConflict {
 			t.Errorf("round %d: REST answered %d, want 200 or 409", i, rest.code)
 		}
 		if local.exit == 0 {
 			wins++
+			localWins++
 		} else if !strings.Contains(local.stderr, "already exists") {
 			t.Errorf("round %d: the local create failed other than for the duplicate name: %s", i, local.stderr)
 		}
 		if wins != 1 {
 			t.Errorf("round %d: %d winners, want exactly 1", i, wins)
 		}
+	}
+	t.Logf("a local create takes %s: REST won %d rounds, the local create %d, the two overlapped in %d", local1, restWins,
+		localWins, overlapped)
+	if restWins == 0 || localWins == 0 || overlapped == 0 {
+		t.Errorf("REST won %d rounds, the local create %d, and their intervals overlapped in %d: want each side "+
+			"to win at least once and the two to overlap, or the rounds never raced", restWins, localWins, overlapped)
 	}
 	var f struct {
 		Tokens []struct {
@@ -1546,7 +1583,7 @@ func TestTCRA101_RemoteAddAndLocalSudoCreateOfOneNameRaceOnThe(t *testing.T) {
 	if uid, gid, perm := fileStat(t, raTokens); uid != 0 || gid != 0 || perm != 0o600 {
 		t.Errorf("%s is %d:%d %04o, want root:root 0600", raTokens, uid, gid, perm)
 	}
-	for i := range 8 {
+	for i := range rounds {
 		name := fmt.Sprintf("race%d", i)
 		if n := slices.IndexFunc(f.Tokens, func(x struct {
 			Name string `json:"name"`
@@ -1595,6 +1632,42 @@ func TestTCRA101_RemoteAddAndLocalSudoCreateOfOneNameRaceOnThe(t *testing.T) {
 	}
 	if r.code != 0 || !slices.Equal(selfs, []string{"ra"}) {
 		t.Errorf("nexusdtoken get: exit %d, self true for %q, want only ra", r.code, selfs)
+	}
+}
+
+// systemctlReloadInactive is what `systemctl reload nexusd.service` printed
+// on this harness's real systemd for a stopped unit (captured by
+// TestTCRA72's run, 2026-11-17). The unit tests in internal/providers/nexusd
+// feed it to the helper's classification; this test fails when a systemd
+// says something else, so the golden cannot drift from the real wording.
+// systemd's own source: src/shared/bus-wait-for-jobs.c, check_wait_response,
+// `%s is not active, cannot reload.` for a job result of "invalid"
+// (unchanged from v252 to v258).
+//
+//go:embed testdata/systemctl-reload-inactive.txt
+var systemctlReloadInactive string
+
+// TC-RA-72's trigger (code review CR-10; FR-8): on real systemd, `systemctl
+// reload` of a unit that is not active fails with the text the helper's
+// retry classification matches. The unit tests feed classifyReloadError the
+// capture of this run (internal/providers/nexusd/testdata), so this is where
+// the wording is pinned to a real systemd, not to a string the fake composes.
+func TestTCRA72_RealSystemctlReloadOfAnInactiveUnitSaysNotActive(t *testing.T) {
+	h := newRAHost(t)
+	mustSh(t, "systemctl", "stop", nexusdUnit)
+	t.Cleanup(func() { startExact(t); h.waitHealthz() })
+	if st := showUnit(t, nexusdUnit, "ActiveState")["ActiveState"]; st != "inactive" {
+		t.Fatalf("nexusd.service ActiveState %q after stop, want inactive", st)
+	}
+	out, err := sh(30*time.Second, "systemctl", "reload", nexusdUnit)
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) {
+		t.Fatalf("systemctl reload of a stopped unit: %v, want a non-zero exit; output %q", err, out)
+	}
+	t.Logf("CAPTURE systemctl reload %s (stopped): exit %d, output %q", nexusdUnit, ee.ExitCode(), out)
+	if out != systemctlReloadInactive {
+		t.Errorf("output %q, want the golden %q (test/integration/testdata/systemctl-reload-inactive.txt): the "+
+			"helper's not-active classification would no longer match", out, systemctlReloadInactive)
 	}
 }
 

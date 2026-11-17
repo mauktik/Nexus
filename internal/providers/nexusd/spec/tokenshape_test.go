@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/google/jsonschema-go/jsonschema"
 
@@ -62,8 +63,16 @@ func TestTokenNameRefusesTheTokenStringShape(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := fmt.Sprintf("^%s[0-9a-f]{%d}_[A-Za-z0-9_-]{%s}$",
-			regexp.QuoteMeta(authConst(t, "tokenPrefix")), 2*idBytes, authConst(t, "encodedLen"))
+		// The prefix and ID in any case, or any run of the secret's length.
+		prefix := ""
+		for _, c := range authConst(t, "tokenPrefix") {
+			if unicode.IsLetter(c) {
+				prefix += fmt.Sprintf("[%c%c]", unicode.ToUpper(c), unicode.ToLower(c))
+			} else {
+				prefix += regexp.QuoteMeta(string(c))
+			}
+		}
+		want := fmt.Sprintf("^%s[0-9A-Fa-f]{%d}_|[A-Za-z0-9_-]{%s}", prefix, 2*idBytes, authConst(t, "encodedLen"))
 		if r.not != want {
 			t.Errorf("%s: name not-pattern %q, want auth's token format %q", r.op, r.not, want)
 		}
@@ -84,12 +93,48 @@ func TestTokenNameRefusesTheTokenStringShape(t *testing.T) {
 			}
 		}
 	}
-	// Names, IDs and near misses still pass.
-	for _, name := range []string{"ci", "abcdefabcdef", "nxs_ci", "nxs_0123456789ab_short",
-		"nxs_0123456789AB_" + strings.Repeat("A", 43), strings.Repeat("a", 64)} {
+	// Names, IDs and near misses that give nothing away still pass: a prefix
+	// without the ID, an ID with no separator, a run one short of the secret,
+	// and a long name broken by dots.
+	for _, name := range []string{"ci", "abcdefabcdef", "nxs_ci", "nxs_0123456789ab", "nxs_0123456789ab-short",
+		strings.Repeat("a", 42), strings.Repeat("a", 21) + "." + strings.Repeat("a", 21), strings.Repeat("a.", 32)} {
 		for op, r := range map[string]*jsonschema.Resolved{"add": add, "remove": remove} {
 			if err := r.Validate(map[string]any{"name": name}); err != nil {
 				t.Errorf("%s refuses the name %q: %v", op, name, err)
+			}
+		}
+	}
+}
+
+// The variants of a token's secret that a name must not carry (SEC-1): each
+// is refused by add and remove, and the schema error never quotes the value.
+// Each is derived from a token auth minted.
+func TestTokenNameRefusesEveryVariantOfASecret(t *testing.T) {
+	add, remove := schemaOf(t, spec.TokensAdd.Op()), schemaOf(t, spec.TokensRemove.Op())
+	tok, info, err := auth.Create(t.TempDir(), auth.CreateRequest{Name: "src"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, secret := info.ID, strings.SplitN(tok, "_", 3)[2]
+	if len(secret) != 43 {
+		t.Fatalf("secret %q is not 43 characters", secret)
+	}
+	for _, c := range []struct{ what, name string }{
+		{"canonical", tok},
+		{"no prefix", id + "_" + secret},
+		{"upper-case prefix", strings.ToUpper(tok[:4]) + id + "_" + secret},
+		{"mixed-case prefix and ID", "Nxs_" + strings.ToUpper(id) + "_" + secret},
+		{"bare secret", secret},
+		{"secret inside a longer name", "ci-" + secret},
+		{"secret then a suffix", secret + "-x"},
+		{"prefix and ID with a short tail", "NXS_" + id + "_x"},
+	} {
+		for op, r := range map[string]*jsonschema.Resolved{"add": add, "remove": remove} {
+			err := r.Validate(map[string]any{"name": c.name})
+			if err == nil {
+				t.Errorf("%s accepts a name carrying the secret (%s)", op, c.what)
+			} else if strings.Contains(err.Error(), secret) {
+				t.Errorf("%s (%s): the schema error quotes the secret: %v", op, c.what, err)
 			}
 		}
 	}

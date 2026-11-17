@@ -302,12 +302,34 @@ func TestTCRA24_RemoteAndLocalCreatesOfTheSameNameRaceSafely(t *testing.T) {
 	if os.Getenv(tcra24HelperEnv) == "create" {
 		tcra24Helper()
 	}
+	// Over a cycle of rounds, either the helper process or the goroutines
+	// start late, by 20 ms, 5 ms, not at all, 1 ms, 5 ms or 20 ms, so each
+	// side wins some rounds and the rounds in the middle are close races. A
+	// test whose creates only ever ran in one order would pass with no lock
+	// at all against one winner, so both sides must win at least once.
+	type lag struct{ goroutines, helper time.Duration }
+	lags := []lag{{0, 20 * time.Millisecond}, {0, 5 * time.Millisecond}, {0, 0},
+		{time.Millisecond, 0}, {5 * time.Millisecond, 0}, {20 * time.Millisecond, 0}}
+	var helperWins, goroutineWins int
 	for round := range 20 {
-		raceRound(t, round)
+		l := lags[round%len(lags)]
+		if raceRound(t, round, l.goroutines, l.helper) {
+			helperWins++
+		} else {
+			goroutineWins++
+		}
+	}
+	t.Logf("20 rounds: the helper process won %d, the goroutines won %d", helperWins, goroutineWins)
+	if helperWins == 0 || goroutineWins == 0 {
+		t.Errorf("helper process won %d rounds and the goroutines %d, want each side to win at least once: "+
+			"the rounds did not race", helperWins, goroutineWins)
 	}
 }
 
-func raceRound(t *testing.T, round int) {
+// raceRound runs one round, with the goroutines starting delay after the
+// start and the helper process released helperDelay after it, and reports
+// whether the helper process won.
+func raceRound(t *testing.T, round int, delay, helperDelay time.Duration) (helperWon bool) {
 	t.Helper()
 	dir := t.TempDir()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestTCRA24_RemoteAndLocalCreatesOfTheSameNameRaceSafely$")
@@ -343,11 +365,13 @@ func raceRound(t *testing.T, round int) {
 		go func() {
 			defer wg.Done()
 			<-start
+			time.Sleep(delay)
 			_, tok, err := Create(dir, CreateRequest{Name: "same", CreatedBy: &TokenRef{ID: "abcdefabcdef", Name: "admin"}})
 			results[i] = result{tok, err}
 		}()
 	}
 	close(start)
+	time.Sleep(helperDelay)
 	_, werr := stdin.Write([]byte{'\n'})
 	cerr := stdin.Close()
 	wg.Wait()
@@ -413,6 +437,7 @@ func raceRound(t *testing.T, round int) {
 	if !slices.Equal(names, []string{TokenFileName, lockFileName}) {
 		t.Errorf("round %d: state dir holds %q, want only tokens.json and its lock (no temporary file)", round, names)
 	}
+	return code == 0
 }
 
 func TestTCRA25_ParseLifetimeIsExportedWithTheLocalCommandS(t *testing.T) {

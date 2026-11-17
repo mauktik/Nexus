@@ -622,8 +622,8 @@ type fakeReload struct {
 	boot       string
 	seq        uint64
 
-	applied    []byte         // The bytes last applied: the PC's in-force file
-	appliedCfg *config.Config // Their configuration, for restartRequired
+	applied  []byte         // The bytes last applied: the PC's in-force file
+	startCfg *config.Config // The configuration at enableReload: what the daemon started with
 
 	reloadCalls int // Every Reload call, refused ones too
 	signals     int // SIGHUPs delivered, from Reload or sighup
@@ -663,15 +663,28 @@ func (f *fakeSystem) enableReload(t testing.TB, configPath, stateDir string) *fa
 		t.Fatalf("the fake daemon's starting configuration is invalid: %v", errs)
 	}
 	f.rl = &fakeReload{t: t, configPath: configPath, stateDir: stateDir, boot: "fake-boot-1", applied: data,
-		appliedCfg: cfg}
+		startCfg: cfg}
 	return f.rl
 }
 
 // fakeReloadNotActive is systemctl's error for a reload of a unit that is
-// not active, through the real classification.
+// not active, through the real classification. Its text is the golden a real
+// systemd printed (realNotActiveText), not a literal composed here.
 func fakeReloadNotActive(unit string) error {
-	return classifyReloadError(fmt.Errorf("systemctl reload %[1]s: exit 1: %[1]s is not active, cannot reload.",
-		unit))
+	text := strings.TrimSpace(strings.ReplaceAll(realNotActiveText(fakeTB{}), "nexusd.service", unit))
+	return classifyReloadError(fmt.Errorf("systemctl reload %s: exit 1: %s", unit, text))
+}
+
+// fakeTB lets fakeReloadNotActive, which has no *testing.T, read the golden:
+// a missing golden panics, and the tests that reach it fail.
+type fakeTB struct{ testing.TB }
+
+func (fakeTB) Helper() {}
+func (fakeTB) Fatal(args ...any) {
+	panic(fmt.Sprint(args...))
+}
+func (fakeTB) Fatalf(format string, args ...any) {
+	panic(fmt.Sprintf(format, args...))
 }
 
 // Reload is `systemctl reload`: refused while the unit is not active (or
@@ -747,7 +760,6 @@ func (f *fakeSystem) handleReload() {
 		r.replaceBefore = nil
 	}
 	st := reloadstatus.Status{Boot: r.boot}
-	var next *config.Config
 	data, err := config.ReadFile(r.configPath)
 	switch {
 	case err != nil:
@@ -769,15 +781,14 @@ func (f *fakeSystem) handleReload() {
 			st.Stage, st.Error = "apply", "fake provider refused the new configuration"
 		default:
 			st.Applied = true
-			st.RestartRequired = fakeRestartRequired(r.appliedCfg, cfg)
-			next = cfg
+			st.RestartRequired = fakeRestartRequired(r.startCfg, cfg)
 		}
 	}
 	write := func() {
 		r.seq++
 		st.Seq, st.At = r.seq, f.Now()
 		if st.Applied {
-			r.applied, r.appliedCfg = data, next
+			r.applied = data
 		}
 		if err := reloadstatus.Write(r.stateDir, st); err != nil {
 			r.t.Errorf("F-RELOAD status write: %v", err)
@@ -796,7 +807,9 @@ func (f *fakeSystem) handleReload() {
 
 // fakeRestartRequired is a copy of internal/daemon/reload.go
 // restartRequired at 521261c (unexported, and this package cannot import
-// internal/daemon): the restart-only top-level keys whose values differ.
+// internal/daemon): the restart-only top-level keys whose values differ from
+// the configuration the daemon started with, which a reload never replaces
+// (d.cfg), sorted, and empty rather than nil as reloadFile returns them.
 func fakeRestartRequired(running, next *config.Config) []string {
 	keys := []string{}
 	if !slices.Equal(running.Listen, next.Listen) {
@@ -820,6 +833,7 @@ func fakeRestartRequired(running, next *config.Config) []string {
 	if !slices.Equal(running.MCP.AllowedOrigins, next.MCP.AllowedOrigins) {
 		keys = append(keys, "mcp")
 	}
+	slices.Sort(keys)
 	return keys
 }
 

@@ -180,7 +180,7 @@ func TestTCRA27_TokenNameAndScopePatternsEqualTheAuthPackageS(t *testing.T) {
 		v  string
 		ok bool
 	}{
-		{"ci", true}, {"a.b-c_d", true}, {strings.Repeat("a", 64), true}, {strings.Repeat("a", 65), false},
+		{"ci", true}, {"a.b-c_d", true}, {strings.Repeat("a.", 32), true}, {strings.Repeat("a", 65), false},
 		{"-x", false}, {"a b", false}, {"abcdefabcdef", true},
 	}
 	for _, c := range names {

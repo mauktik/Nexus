@@ -322,16 +322,30 @@ func TestTCRA37_RESTAndCLITokenCreatesLeaveTheSecretInNoSinkOfA(t *testing.T) {
 		d.do(t, http.MethodGet, "/v1/capabilities", s.token, nil).want(t, http.StatusOK, s.name+" authenticates")
 	}
 
-	// Step 5: collect the sinks.
+	// A failing CLI call: a duplicate-name add. A successful --yes add prints
+	// nothing on stderr, so only a failure gives that sink anything to hold.
+	dupCode, dupOut, dupErr := d.cliRun(t, "nexusdtoken", "add", "rest1", "--yes")
+	if dupCode == cli.ExitOK || strings.TrimSpace(dupErr) == "" {
+		t.Fatalf("non-vacuity: the CLI's duplicate add: exit %d, stdout %q, stderr %q, want a failure with a message",
+			dupCode, dupOut, dupErr)
+	}
+
+	// Step 5: collect the sinks: every regular file in the state directory
+	// but tokens.json, which holds the hashes by design and is checked on its
+	// own below.
 	sinks := map[string][]byte{}
-	for p, b := range filesUnder(t, d.stateDir, store.FileName+"*") {
+	var sawDB bool
+	for p, b := range filesUnder(t, d.stateDir, "*") {
+		switch base := filepath.Base(p); {
+		case base == auth.TokenFileName:
+			continue
+		case strings.HasPrefix(base, store.FileName):
+			sawDB = true
+		}
 		sinks[p] = b
 	}
-	if len(sinks) == 0 {
+	if !sawDB {
 		t.Fatal("no state.db in the state directory")
-	}
-	for p, b := range filesUnder(t, filepath.Join(d.stateDir, "ops"), "*") {
-		sinks[p] = b
 	}
 	audits := filesUnder(t, d.auditDir, "audit.jsonl*")
 	if len(audits) == 0 {
@@ -341,7 +355,9 @@ func TestTCRA37_RESTAndCLITokenCreatesLeaveTheSecretInNoSinkOfA(t *testing.T) {
 		sinks[p] = b
 	}
 	sinks["daemon log"] = []byte(logText(d.logs))
-	sinks["CLI stderr"] = []byte(stderr)
+	sinks["CLI stderr (add)"] = []byte(stderr)
+	sinks["CLI stderr (duplicate add)"] = []byte(dupErr)
+	sinks["CLI stdout (duplicate add)"] = []byte(dupOut)
 	for i, b := range problems {
 		sinks["problem body "+strconv.Itoa(i)] = b
 	}
@@ -356,8 +372,26 @@ func TestTCRA37_RESTAndCLITokenCreatesLeaveTheSecretInNoSinkOfA(t *testing.T) {
 	if !bytes.Contains(bytes.Join(auditPages, nil), []byte(`"nexusd.tokens.add"`)) {
 		t.Fatal("non-vacuity: the audit API has no nexusd.tokens.add record")
 	}
-	if !strings.Contains(logText(d.logs), `"level":"DEBUG"`) && !strings.Contains(logText(d.logs), `"level":"INFO"`) {
-		t.Fatal("non-vacuity: the daemon log is empty")
+	// The refused keyed adds of step 4 are logged with their op, so the log
+	// scan reads a token-op line and not only startup chatter.
+	if !strings.Contains(logText(d.logs), `"op":"`+nexusdspec.TokensAdd.Op().ID+`"`) {
+		t.Fatal("non-vacuity: the daemon log has no line for nexusd.tokens.add")
+	}
+
+	// tokens.json holds each hash and neither the token nor its secret part.
+	tokensJSON, err := os.ReadFile(filepath.Join(d.stateDir, auth.TokenFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range secrets {
+		for _, needle := range []struct{ what, v string }{{"token", s.token}, {"secret part", s.part}} {
+			if bytes.Contains(tokensJSON, []byte(needle.v)) {
+				t.Errorf("tokens.json holds %s's %s", s.name, needle.what)
+			}
+		}
+		if !bytes.Contains(tokensJSON, []byte(s.hash)) {
+			t.Errorf("non-vacuity: tokens.json lacks %s's hash", s.name)
+		}
 	}
 
 	for _, s := range secrets {
