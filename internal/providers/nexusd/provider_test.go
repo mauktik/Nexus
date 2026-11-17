@@ -1,7 +1,8 @@
 // External tests of the provider's exported surface. This file is also
-// where the internal tests get the real daemon.CheckConfig: it is the only
-// test file here that may import internal/daemon, because daemon will import
-// this package once nexusd is a built-in provider (WI 6.1).
+// where the internal tests get the real daemon.CheckConfig and
+// daemon.CheckConfigData: it is the only test file here that may import
+// internal/daemon, because daemon will import this package once nexusd is a
+// built-in provider (WI 6.1).
 package nexusd_test
 
 import (
@@ -21,7 +22,10 @@ import (
 	"github.com/mauktik/nexus/internal/release"
 )
 
-func init() { nexusd.CheckConfigForTest = daemon.CheckConfig }
+func init() {
+	nexusd.CheckConfigForTest = daemon.CheckConfig
+	nexusd.CheckConfigDataForTest = daemon.CheckConfigData
+}
 
 var (
 	_ provider.Provider   = (*nexusd.Provider)(nil)

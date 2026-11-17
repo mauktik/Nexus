@@ -48,6 +48,10 @@ import (
 // is an import cycle.
 var CheckConfigForTest func(path string) (*config.Config, config.ErrorList)
 
+// CheckConfigDataForTest is daemon.CheckConfigData, set alongside
+// CheckConfigForTest and for the same reason.
+var CheckConfigDataForTest func(data []byte, file string) (*config.Config, config.ErrorList)
+
 // checkConfig runs the real daemon.CheckConfig on path.
 func checkConfig(t *testing.T, path string) (*config.Config, config.ErrorList) {
 	t.Helper()
@@ -71,8 +75,9 @@ func fixture(t *testing.T, name string) string {
 }
 
 // fakeDaemon is F-DAEMON: fixed ConfigPath, StateDir and StartedAt, the real
-// daemon.CheckConfig on ConfigPath, and a scripted Reload. It records every
-// call in order and never fabricates config errors.
+// daemon.CheckConfig on ConfigPath and daemon.CheckConfigData on bytes, and
+// a scripted Reload. It records every call in order and never fabricates
+// config errors.
 type fakeDaemon struct {
 	stateDir  string
 	startedAt time.Time
@@ -109,6 +114,15 @@ func (d *fakeDaemon) CheckConfig() provider.ConfigCheck {
 		panic("CheckConfigForTest is not set: provider_test.go's init did not run")
 	}
 	cfg, errs := CheckConfigForTest(d.ConfigPath())
+	return provider.ConfigCheck{Config: cfg, Errors: errs}
+}
+
+func (d *fakeDaemon) CheckConfigData(data []byte) provider.ConfigCheck {
+	d.record("CheckConfigData")
+	if CheckConfigDataForTest == nil {
+		panic("CheckConfigDataForTest is not set: provider_test.go's init did not run")
+	}
+	cfg, errs := CheckConfigDataForTest(data, d.ConfigPath())
 	return provider.ConfigCheck{Config: cfg, Errors: errs}
 }
 

@@ -5,7 +5,9 @@ package daemon
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -113,6 +115,12 @@ type Daemon struct {
 	reloads  chan reloadRequest
 	stopping chan struct{}
 
+	// boot is random per New and reloadSeq counts the reloads since, from
+	// 1: together they name each reload in the reload status
+	// (reloadstatus.Status). Only the Run loop touches reloadSeq.
+	boot      string
+	reloadSeq uint64
+
 	// binding finds an op's binding by ID, for restart recovery.
 	binding func(opID string) (provider.Binding, bool)
 
@@ -129,6 +137,11 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 	log := opts.Logger
 	if log == nil {
 		log = slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	}
+	// Before anything is opened, so there is nothing to close on failure.
+	var bootID [8]byte
+	if _, err := rand.Read(bootID[:]); err != nil {
+		return nil, fmt.Errorf("boot ID: %w", err)
 	}
 	path := opts.ConfigPath
 	if path == "" {
@@ -283,6 +296,7 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 
 		reloads:  make(chan reloadRequest),
 		stopping: make(chan struct{}),
+		boot:     hex.EncodeToString(bootID[:]),
 
 		binding: func(id string) (provider.Binding, bool) {
 			b, ok := bindings[id]
@@ -310,6 +324,13 @@ func (d *Daemon) StartedAt() time.Time { return d.started }
 // ConfigPath, the one `nexusd validate-config` runs.
 func (d *Daemon) CheckConfig() provider.ConfigCheck {
 	cfg, errs := CheckConfig(d.path)
+	return provider.ConfigCheck{Config: cfg, Errors: errs}
+}
+
+// CheckConfigData implements provider.Daemon with the FR-3 check of data as
+// the contents of ConfigPath.
+func (d *Daemon) CheckConfigData(data []byte) provider.ConfigCheck {
+	cfg, errs := CheckConfigData(data, d.path)
 	return provider.ConfigCheck{Config: cfg, Errors: errs}
 }
 

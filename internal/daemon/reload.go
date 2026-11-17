@@ -2,12 +2,16 @@ package daemon
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"reflect"
 	"slices"
+	"time"
 
 	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/provider"
+	"github.com/mauktik/nexus/internal/reloadstatus"
 )
 
 // errStopping is Reload's error once Run has left its loop.
@@ -71,14 +75,50 @@ func (d *Daemon) Reload(ctx context.Context) (provider.ReloadResult, error) {
 // that accepted theirs are configured again from the sections in force.
 // Settings fixed at startup, such as the listen addresses, are not applied:
 // each changed one is logged as needing a restart and reported, sorted, in
-// the result. Only the Run loop calls it.
+// the result. Every reload, whatever its outcome, then writes the reload
+// status (reloadstatus.Write) with the next seq and the SHA-256 of the
+// bytes read; a failed write is logged and changes neither the outcome nor
+// the reply. Only the Run loop calls it.
 func (d *Daemon) reload(ctx context.Context) (provider.ReloadResult, error) {
-	d.log.Info("reloading configuration", "path", d.path)
-	next, err := config.Load(d.path)
+	res, digest, err := d.reloadFile(ctx)
+	d.reloadSeq++
+	st := reloadstatus.Status{
+		Boot:            d.boot,
+		Seq:             d.reloadSeq,
+		At:              time.Now(),
+		SHA256:          digest,
+		Applied:         err == nil,
+		RestartRequired: res.RestartRequired,
+	}
 	if err != nil {
-		d.log.Error("configuration reload failed; keeping the current configuration",
-			"path", d.path, "error", err.Error())
-		return provider.ReloadResult{}, &provider.ReloadError{Stage: "load", Err: err}
+		st.Error = err.Error()
+		var re *provider.ReloadError
+		if errors.As(err, &re) {
+			st.Stage, st.Error = re.Stage, re.Err.Error()
+		}
+	}
+	if werr := reloadstatus.Write(d.stateDir, st); werr != nil {
+		d.log.Error("writing the reload status failed; the reload's outcome stands",
+			"file", reloadstatus.FileName, "seq", st.Seq, "error", werr.Error())
+	}
+	return res, err
+}
+
+// reloadFile is reload up to the status write. digest is the hex SHA-256
+// of the bytes read, empty when the file could not be read.
+func (d *Daemon) reloadFile(ctx context.Context) (res provider.ReloadResult, digest string, err error) {
+	d.log.Info("reloading configuration", "path", d.path)
+	// config.Load is ReadFile then Parse; split here so the digest is of
+	// the very bytes parsed.
+	data, err := config.ReadFile(d.path)
+	if err != nil {
+		return provider.ReloadResult{}, "", d.loadFailed(err)
+	}
+	sum := sha256.Sum256(data)
+	digest = hex.EncodeToString(sum[:])
+	next, err := config.Parse(data, d.path)
+	if err != nil {
+		return provider.ReloadResult{}, digest, d.loadFailed(err)
 	}
 	keys := restartRequired(d.cfg, next)
 	for _, key := range keys {
@@ -91,7 +131,7 @@ func (d *Daemon) reload(ctx context.Context) (provider.ReloadResult, error) {
 		if rerr := d.reg.Apply(ctx, providerConfigs(d.applied)); rerr != nil {
 			d.log.Error("restoring the provider sections in force failed", "path", d.path, "error", rerr.Error())
 		}
-		return provider.ReloadResult{}, &provider.ReloadError{Stage: "apply", Err: err}
+		return provider.ReloadResult{}, digest, &provider.ReloadError{Stage: "apply", Err: err}
 	}
 	d.applied = next
 	// Only after a successful apply: a refused or restored one changes no
@@ -107,7 +147,15 @@ func (d *Daemon) reload(ctx context.Context) (provider.ReloadResult, error) {
 	// Sorted, and empty rather than nil when nothing needs a restart.
 	sorted := append([]string{}, keys...)
 	slices.Sort(sorted)
-	return provider.ReloadResult{RestartRequired: sorted}, nil
+	return provider.ReloadResult{RestartRequired: sorted}, digest, nil
+}
+
+// loadFailed logs a configuration that could not be loaded and returns its
+// stage-load error.
+func (d *Daemon) loadFailed(err error) error {
+	d.log.Error("configuration reload failed; keeping the current configuration",
+		"path", d.path, "error", err.Error())
+	return &provider.ReloadError{Stage: "load", Err: err}
 }
 
 // restartRequired lists the top-level keys that differ between the running
