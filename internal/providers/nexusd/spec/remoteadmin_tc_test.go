@@ -83,16 +83,21 @@ func TestTCRA67_TheConfigSetOpIsDeclaredAsTheCatalogTableStates(t *testing.T) {
 	t.Skip("TC-RA-67: SKIP-only stub; un-skip when WI 4.1 lands")
 }
 
-// TC-RA-68: The deny-list keys exist in the schema, and the table is exactly three entries. Owner WI 4.1. Requirements: FR-12, ASM-3.
+// TC-RA-68: The deny-list keys exist in the schema, and the table holds the FR-12 entries and every path-valued key. Owner WI 4.1. Requirements: FR-12, ASM-3, NFR-5.
 //
-//   - Setup: None.
+//   - Setup: None. The user decision of lead-review iteration 1 (`requirements.md` § User decisions): any key whose value is a file path, directory or service name is on the deny-list.
 //   - Steps:
 //     1. Run `config.LookupKey(d.Key)` for each `spec.ConfigDenyList` entry.
+//     2. Walk `config.LeafKeys()` and select every string leaf whose last segment ends in `File`, `Dir`, `Socket` or `Suffix`, or is `service`. This drift guard catches a path-valued key added to the schema later.
 //   - Expected:
-//   - Every key is found.
-//   - The keys are `providers.nexusd.update.trustedKeys`, `providers.nexusd.enabled` (with `Value: "false"`) and `providers.scripts.catalog` (with `Subtree: true`), each with a non-empty `Reason`.
-//   - `spec.LockoutKeyPrefixes` is `["tls.", "auth."]`.
-func TestTCRA68_TheDenyListKeysExistInTheSchemaAndTheTableIs(t *testing.T) {
+//   - Every key is found, and every entry has a non-empty `Reason`.
+//   - The table holds exactly these 12 keys:
+//   - the three FR-12 entries: `providers.nexusd.update.trustedKeys`, `providers.nexusd.enabled` (with `Value: "false"`) and `providers.scripts.catalog` (with `Subtree: true`);
+//   - the nine path-valued keys: `tls.certFile`, `tls.keyFile`, `providers.docker.socket`, `providers.docker.configDir`, `providers.nginx.includeDir`, `providers.nginx.includeSuffix`, `providers.nginx.disabledSuffix`, `providers.nginx.service` and `providers.pihole.dnsFile`, each with `Value: ""` (any value) and `Subtree: false`.
+//   - Every key selected in step 2 is in the table.
+//   - `listen` is not in the table. It is refused as a list (OOS-3, TC-RA-ERR28), by the user decision that `listen` is not settable remotely.
+//   - `spec.LockoutKeyPrefixes` is `["tls.", "auth."]`, with no `listen` entry.
+func TestTCRA68_TheDenyListKeysExistInTheSchemaAndTheTableHolds(t *testing.T) {
 	t.Skip("TC-RA-68: SKIP-only stub; un-skip when WI 4.1 lands")
 }
 

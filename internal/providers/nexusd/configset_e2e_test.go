@@ -21,6 +21,7 @@ import "testing"
 //     | (b) | `tls.mode=auto` on a `tls.mode: off` loopback file | success with restart required |
 //     | (c) | `audit.retentionDays=0` | 422 |
 //     | (d) | the file changed after Prepare | conflict |
+//     | (h) | the file changed between admission and Prepare (TC-RA-E22's direct-call method) | conflict |
 //     | (e) | `refuseApply(1)` | restored |
 //     | (f) | `noAnswer(2)` | restore failed |
 //     | (g) | the current value | no change |
@@ -31,25 +32,26 @@ import "testing"
 //     | (b) | `succeeded`, `restartRequired ["tls"]`, lock-out warning |
 //     | (c) | 422 `config-invalid` with `errors[0].path == "audit.retentionDays"`, no operation, launches 0 |
 //     | (d) | `failed config-conflict`, disk equals the changed file |
+//     | (h) | `config-conflict`, disk equals the changed file, no `.bak`, `reloadCalls 0` |
 //     | (e) | `failed config-apply-failed`, `restored: true`, disk equals the original bytes |
 //     | (f) | `failed config-restore-failed`, `backupPath`, detail with `docs/install.md#recovering-from-a-failed-configuration-change` |
-//     | (g) | `succeeded changed:false`, `reloadCalls 0` |
+//     | (g) | `200` with `changed:false` at admission, no operation, launches 0, `reloadCalls 0` (no `awaitOp`) |
 //     PC holds in every row.
 func TestTCRA84_TheT0EndToEndMatrixHoldsTheFR8PostConditionFor(t *testing.T) {
 	t.Skip("TC-RA-84: SKIP-only stub; un-skip when WI 4.4 lands")
 }
 
-// TC-RA-85: The lane serializes config set with reload, restart and update in both directions. Owner WI 4.4. Requirements: FR-9.
+// TC-RA-85: The lane serializes config set with reload, restart, update and rollback in both directions. Owner WI 4.4. Requirements: FR-9.
 //
-//   - Setup: A stack with the launch spy, so a launched op stays Running until its `exit.json` is written.
+//   - Setup: A stack with the launch spy, so a launched op stays Running until its `exit.json` is written, and a `nexusd.prev` written at the stack's `Prev` path (as `TestTCSM67_ARollbackSwapsTheBinaryAnd` does) so that rollback is admissible.
 //   - Steps:
-//     1. Start a `reload` and keep it running. Then run config set.
-//     2. End it. Start a config set and keep it running. Then run `reload`, `restart`, `update` (upload stub) and a second config set.
+//     1. For each blocker in `reload`, `restart`, `update` (upload stub) and `rollback`: start it and keep it running, run config set, then end the blocker.
+//     2. Start a config set and keep it running. Then run `reload`, `restart`, `update`, `rollback` and a second config set.
 //   - Expected:
-//   - Step 1: config set gives 409 `conflict`, naming the reload's operation ID.
-//   - Step 2: each of the four gives 409, naming the config set's operation ID.
+//   - Step 1: each config set gives 409 `conflict`, naming that blocker's operation ID (FR-9's reverse direction).
+//   - Step 2: each of the five gives 409, naming the config set's operation ID.
 //   - No side effects: no refused call created an operation or a launch.
-func TestTCRA85_TheLaneSerializesConfigSetWithReloadRestartAnd(t *testing.T) {
+func TestTCRA85_TheLaneSerializesConfigSetWithReloadRestartUpdate(t *testing.T) {
 	t.Skip("TC-RA-85: SKIP-only stub; un-skip when WI 4.4 lands")
 }
 

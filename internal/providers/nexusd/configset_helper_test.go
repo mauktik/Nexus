@@ -1,6 +1,6 @@
 // Stub-style: SKIP-only (nexusd-remote-admin)
 //
-// Stubs of planning/nexusd-remote-admin/test-cases.md TC-RA-70, TC-RA-71, TC-RA-72, TC-RA-73, TC-RA-74, TC-RA-75, TC-RA-76, TC-RA-E18, TC-RA-E19, TC-RA-E20, TC-RA-E21, TC-RA-ERR19, TC-RA-ERR20, TC-RA-ERR21, TC-RA-ERR22, TC-RA-ERR23, TC-RA-ERR24, TC-RA-ERR25.
+// Stubs of planning/nexusd-remote-admin/test-cases.md TC-RA-70, TC-RA-72, TC-RA-73, TC-RA-74, TC-RA-75, TC-RA-76, TC-RA-E18, TC-RA-E19, TC-RA-E20, TC-RA-E21, TC-RA-E27, TC-RA-ERR19, TC-RA-ERR20, TC-RA-ERR21, TC-RA-ERR22, TC-RA-ERR23, TC-RA-ERR24, TC-RA-ERR25.
 // Owner WIs: 4.2. Each stub compiles today and skips; the developer of
 // the owning work item replaces the skip and the comment with the test,
 // keeping the function name so that grep TestTCRA traces it. An
@@ -27,16 +27,6 @@ import "testing"
 //   - PC: `sha(disk) == F-RELOAD.applied sha`.
 func TestTCRA70_ASuccessfulConfigSetWritesTheEditA0600BackupAnd(t *testing.T) {
 	t.Skip("TC-RA-70: SKIP-only stub; un-skip when WI 4.2 lands")
-}
-
-// TC-RA-71: A config set that changes nothing writes nothing and does not reload. Owner WI 4.2. Requirements: FR-7.
-//
-//   - Setup: As TC-RA-70, with `NoChange: true` and the file's inode and mtime recorded.
-//   - Steps:
-//     1. Run the helper.
-//   - Expected: `result.json` has `changed:false`. The inode, mtime and sha are unchanged, and no `.bak` exists. `reloadCalls == 0`.
-func TestTCRA71_AConfigSetThatChangesNothingWritesNothingAndDoes(t *testing.T) {
-	t.Skip("TC-RA-71: SKIP-only stub; un-skip when WI 4.2 lands")
 }
 
 // TC-RA-72: An inactive unit is retried until the reload is confirmed. Owner WI 4.2. Requirements: FR-8.
@@ -149,6 +139,23 @@ func TestTCRAE21_HelperInputAndHelperResultStayAdditive(t *testing.T) {
 	t.Skip("TC-RA-E21: SKIP-only stub; un-skip when WI 4.2 lands")
 }
 
+// TC-RA-E27: The worst-case unconfirmed-then-restored path completes within NFR-2's 30 s. Owner WI 4.2. Requirements: NFR-2, FR-8.
+//
+//   - Setup:
+//   - As TC-RA-70, on `virtClock`.
+//   - F-RELOAD `noAnswer(1)`, so the first reload is unconfirmed.
+//   - F-RELOAD `delay(1, reloadTimeout − reloadPollInterval)`, so the restore's reload is handled at the last poll before the second wait expires.
+//   - `t0` is the virtual time when `Helper` starts.
+//   - Steps:
+//     1. Run the helper.
+//   - Expected:
+//   - `config-apply-failed` with `restored: true`, and PC holds. This is the slowest path that still restores.
+//   - NFR-2: the virtual time from `t0` to `result.json` is ≤ 30 s. NFR-2 says "A config set that restores completes within 30 s", and helper time is the whole of that budget except Prepare and launch. With A-3's 20 s `reloadTimeout`, the path takes about 40 s and this case fails until the timeouts or NFR-2 are reconciled (review Finding 7).
+//   - The bound is computed from the constants the helper uses, never typed. A second run adds F-RELOAD `inactiveFor(2)` before the first reload, and its time from `t0` to `result.json` is also ≤ 30 s, so the inactive retries cannot push the path past the budget either.
+func TestTCRAE27_TheWorstCaseUnconfirmedThenRestoredPathCompletes(t *testing.T) {
+	t.Skip("TC-RA-E27: SKIP-only stub; un-skip when WI 4.2 lands")
+}
+
 // TC-RA-ERR19: A config-base mismatch at the helper ends config-conflict with nothing written. Owner WI 4.2. Requirements: FR-7.
 //
 //   - Setup: As TC-RA-70, but the file is rewritten after `input.json` is written, so `BaseSHA256 ≠ sha(file)`.
@@ -199,7 +206,7 @@ func TestTCRAERR22_AReloadRefusedAtStageLoadWithAnEmptyDigest(t *testing.T) {
 //   - Steps:
 //     1. Run the helper for each run.
 //   - Expected:
-//   - Run A: after `reloadTimeout` (20 s virtual), the backup is restored and confirmed. `config-apply-failed restored:true`, and PC holds.
+//   - Run A: after `reloadTimeout` (the package constant, on the virtual clock), the backup is restored and confirmed. `config-apply-failed restored:true`, and PC holds.
 //   - Run B: `config-restore-failed`, with `backupPath` and the detail naming `docs/install.md#recovering-from-a-failed-configuration-change`. The disk equals the backup bytes, written but unconfirmed. Total virtual time is ≤ `configSetMaxRuntime` (130 s).
 func TestTCRAERR23_AnUnconfirmedReloadIsRestoredAndAnUnconfirmed(t *testing.T) {
 	t.Skip("TC-RA-ERR23: SKIP-only stub; un-skip when WI 4.2 lands")

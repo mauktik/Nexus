@@ -13,7 +13,7 @@ import "testing"
 
 // TC-RA-77: The production service-helper wiring passes the daemon's validator. Owner WI 4.2. Requirements: FR-7, CON-2, ASM-10.
 //
-//   - Setup: A temp `ConfigPath` and op dir with a `config-set` `input.json` (`NoChange: false`), on a host where `systemctl` is absent or not connected.
+//   - Setup: A temp `ConfigPath` and op dir with a `config-set` `input.json` (as `prepareConfigSet` writes it for a real change), on a host where `systemctl` is absent or not connected.
 //   - Steps:
 //     1. `run([]string{"service-helper", "--dir", D})`.
 //   - Expected:
