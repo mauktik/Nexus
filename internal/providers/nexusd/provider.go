@@ -134,7 +134,8 @@ type Provider struct {
 
 	updateHooks atomic.Pointer[updateHooks] // Test-only; nil in production
 
-	prev prevCache
+	prev   prevCache
+	tokens tokenGuard // Remote token adds and removes (FR-5)
 }
 
 // New returns the provider with the default settings until Configure.
@@ -251,8 +252,8 @@ func (p *Provider) requireSelfManagement() error {
 		With("provider", spec.Name).With("reason", a.Reason)
 }
 
-// Bindings binds get, validate-config, reload, restart, update, rollback
-// and the upload.
+// Bindings binds get, validate-config, reload, restart, update, rollback,
+// the upload and the token ops.
 func (p *Provider) Bindings() []provider.Binding {
 	return []provider.Binding{
 		provider.Sync(spec.List, p.get),
@@ -266,6 +267,9 @@ func (p *Provider) Bindings() []provider.Binding {
 		p.updateBinding(),
 		p.rollbackBinding(),
 		p.uploadBinding(),
+		provider.Sync(spec.TokensList, p.tokensList),
+		provider.Sync(spec.TokensAdd, p.tokensAdd),
+		provider.Sync(spec.TokensRemove, p.tokensRemove),
 	}
 }
 
