@@ -1,7 +1,7 @@
 // Stub-style: SKIP-only (nexusd-remote-admin)
 //
 // Stubs of planning/nexusd-remote-admin/test-cases.md TC-RA-42, TC-RA-69.
-// Owner WIs: 2.4, 4.1. Each stub compiles today and skips; the developer of
+// Owner WIs: 2.4, 4.1. TC-RA-42 is implemented (WI 2.4). Each stub compiles today and skips; the developer of
 // the owning work item replaces the skip and the comment with the test,
 // keeping the function name so that grep TestTCRA traces it. An
 // un-skipped passing test is the GREEN signal
@@ -9,19 +9,75 @@
 
 package mcpadapter_test
 
-import "testing"
+import (
+	"encoding/json"
+	"maps"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/mauktik/nexus/internal/catalog"
+	"github.com/mauktik/nexus/internal/conformance/testprovider"
+	"github.com/mauktik/nexus/internal/def"
+	nexusd "github.com/mauktik/nexus/internal/providers/nexusd/spec"
+)
 
 // TC-RA-42: No MCP tool exists for any token op, and the tool budget is unchanged. Owner WI 2.4. Requirements: FR-10, OOS-1.
 //
-//   - Setup: The real catalog adapter. `baseTools` is the tool-name set at `521261c`, computed by the test from the catalog with the three token op IDs filtered out.
-//   - Steps:
-//     1. `tools/list`.
-//   - Expected:
-//   - No tool name maps to `nexusd.tokens.*`.
-//   - The tool set equals `baseTools`.
-//   - `TestToolBudget` and `TestTCSM96` (exactly two nexusd tools) pass unchanged.
+// baseTools, the tool set at 521261c, is computed from the catalog with the
+// three token op IDs filtered out. TestToolBudget and TestTCSM96 (exactly
+// two nexusd tools) run unchanged beside it.
 func TestTCRA42_NoMCPToolExistsForAnyTokenOpAndTheToolBudgetIs(t *testing.T) {
-	t.Skip("TC-RA-42: SKIP-only stub; un-skip when WI 2.4 lands")
+	tokenOps := []string{nexusd.TokensList.Op().ID, nexusd.TokensAdd.Op().ID, nexusd.TokensRemove.Op().ID}
+	baseTools := map[string]bool{}
+	for _, op := range catalog.Ops() {
+		if op.MCP != nil && !slices.Contains(tokenOps, op.ID) {
+			baseTools[op.MCP.Tool] = true
+		}
+	}
+	// The tools of the test providers catalogWorld adds besides the catalog.
+	w, j, _ := catalogWorld(t)
+	extra := map[string]bool{}
+	for _, op := range append(testprovider.Spec().Ops, j.Spec().Ops...) {
+		if op.MCP != nil {
+			extra[op.MCP.Tool] = true
+		}
+	}
+
+	// Step 1.
+	tools := listTools(t, w.session(t, w.full, nil))
+	byTool := opsByTool()
+	got := map[string]bool{}
+	for _, tool := range tools {
+		if op, ok := byTool[tool.Name]; ok && strings.HasPrefix(op.ID, "nexusd.tokens.") {
+			t.Errorf("tool %s maps to %s", tool.Name, op.ID)
+		}
+		if strings.Contains(strings.ToLower(tool.Name), "token") {
+			t.Errorf("tool %s names a token", tool.Name)
+		}
+		if !extra[tool.Name] {
+			got[tool.Name] = true
+		}
+	}
+	b, err := json.Marshal(tools)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range tokenOps {
+		if strings.Contains(string(b), id) {
+			t.Errorf("the tool list mentions %s", id)
+		}
+	}
+	if !maps.Equal(got, baseTools) {
+		t.Errorf("tool set %v, want baseTools %v", slices.Sorted(maps.Keys(got)), slices.Sorted(maps.Keys(baseTools)))
+	}
+	// Non-vacuity: the token ops are in the catalog, none with an MCP binding.
+	for _, id := range tokenOps {
+		i := slices.IndexFunc(catalog.Ops(), func(op def.Op) bool { return op.ID == id })
+		if i < 0 || catalog.Ops()[i].MCP != nil {
+			t.Errorf("catalog op %s: index %d; want an op without a tool", id, i)
+		}
+	}
 }
 
 // TC-RA-69: No MCP tool exists for any of the six new ops. Owner WI 4.1. Requirements: FR-10, OOS-1.
