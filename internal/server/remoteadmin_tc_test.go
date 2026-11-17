@@ -1,6 +1,6 @@
 // Stub-style: SKIP-only (nexusd-remote-admin)
 //
-// Stubs of planning/nexusd-remote-admin/test-cases.md TC-RA-13, TC-RA-14.
+// Stubs of planning/nexusd-remote-admin/test-cases.md TC-RA-13, TC-RA-14, TC-RA-112.
 // Owner WIs: 1.4. Each stub compiles today and skips; the developer of
 // the owning work item replaces the skip and the comment with the test,
 // keeping the function name so that grep TestTCRA traces it. An
@@ -33,4 +33,17 @@ func TestTCRA13_ASecretOutputRouteAnswersWithCacheControlNoStore(t *testing.T) {
 //   - Expected: Status 429, `Retry-After: 8`, `Content-Type: application/problem+json`, a body slug of `rate-limited`, and no `retryAfter` member in the body.
 func TestTCRA14_A429ReturnedByASyncHandlerReachesTheWireWith(t *testing.T) {
 	t.Skip("TC-RA-14: SKIP-only stub; un-skip when WI 1.4 lands")
+}
+
+// TC-RA-112: A Done answer reaches the wire as 200 without Location or Retry-After. Owner WI 1.4. Requirements: FR-7, CON-3.
+//
+//   - Setup: `httptest` server with TC-RA-111's planted op D and hook.
+//   - Steps:
+//     1. `POST` D's route with `{"x":"same"}`.
+//     2. `POST` D's route with `{"x":"diff"}`.
+//   - Expected:
+//   - Step 1: status 200, `Content-Type: application/json`, body equal to `json.Marshal(out)`, and no `Location` or `Retry-After` header.
+//   - Step 2: status 202 with `Location: /v1/operations/<id>`.
+func TestTCRA112_ADoneAnswerReachesTheWireAs200WithoutLocation(t *testing.T) {
+	t.Skip("TC-RA-112: SKIP-only stub; un-skip when WI 1.4 lands")
 }

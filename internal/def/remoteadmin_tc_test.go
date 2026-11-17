@@ -1,6 +1,6 @@
 // Stub-style: SKIP-only (nexusd-remote-admin)
 //
-// Stubs of planning/nexusd-remote-admin/test-cases.md TC-RA-1, TC-RA-2, TC-RA-3, TC-RA-4, TC-RA-E1, TC-RA-E2, TC-RA-ERR1, TC-RA-ERR2, TC-RA-ERR3, TC-RA-ERR4.
+// Stubs of planning/nexusd-remote-admin/test-cases.md TC-RA-1, TC-RA-2, TC-RA-3, TC-RA-4, TC-RA-110, TC-RA-E1, TC-RA-E2, TC-RA-ERR1, TC-RA-ERR2, TC-RA-ERR3, TC-RA-ERR4, TC-RA-ERR40.
 // Owner WIs: 1.1. Each stub compiles today and skips; the developer of
 // the owning work item replaces the skip and the comment with the test,
 // keeping the function name so that grep TestTCRA traces it. An
@@ -135,4 +135,32 @@ func TestTCRAERR3_AuditedIsRefusedOnAMutatingOpOrALongRunningRead(t *testing.T) 
 //   - Expected: Each panics, naming the field.
 func TestTCRAERR4_VariadicAndEchoWarningsAreRefusedWhenMisdeclared(t *testing.T) {
 	t.Skip("TC-RA-ERR4: SKIP-only stub; un-skip when WI 1.1 lands")
+}
+
+// TC-RA-110: CompletesAtAdmission is accepted on a long-running mutating action without MCP. Owner WI 1.1. Requirements: CON-3, FR-7.
+//
+//   - Setup: Planted op C on a test provider: `KindProviderAction`, `RiskMutating`, `ModeLongRunning`, `MCP: nil`, no `SyncMutation`, no `WhatIf`, `CLI.Upload == nil`, `CompletesAtAdmission: true`. A second planted op C' that equals C with `KindResourceAction`.
+//   - Steps:
+//     1. `def.Define` C inside a `recover`.
+//     2. The same for C'.
+//   - Expected: Neither panics. Both appear in the spec set with `CompletesAtAdmission == true`. An existing long-running op without the flag (for example `nexusd.actions.reload`) still validates.
+func TestTCRA110_CompletesAtAdmissionIsAcceptedOnALongRunning(t *testing.T) {
+	t.Skip("TC-RA-110: SKIP-only stub; un-skip when WI 1.1 lands")
+}
+
+// TC-RA-ERR40: CompletesAtAdmission is refused wherever a rule fails. Owner WI 1.1. Requirements: CON-3.
+//
+//   - Setup: TC-RA-110's op C, varied one field at a time:
+//   - read-only risk;
+//   - `ModeSync`;
+//   - `KindList`;
+//   - `KindUpload` with `CLI.Upload` set;
+//   - `MCP` set;
+//   - `SyncMutation`;
+//   - `WhatIf`.
+//   - Steps:
+//     1. `def.Define` each variant inside a `recover`.
+//   - Expected: Each panics, with a message that names `CompletesAtAdmission` and the failed rule.
+func TestTCRAERR40_CompletesAtAdmissionIsRefusedWhereverARule(t *testing.T) {
+	t.Skip("TC-RA-ERR40: SKIP-only stub; un-skip when WI 1.1 lands")
 }

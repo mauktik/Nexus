@@ -2,7 +2,7 @@
 
 // Stub-style: SKIP-only (nexusd-remote-admin)
 //
-// Stubs of planning/nexusd-remote-admin/test-cases.md TC-RA-93, TC-RA-94, TC-RA-95, TC-RA-96, TC-RA-97, TC-RA-98, TC-RA-99, TC-RA-100, TC-RA-101, TC-RA-102, TC-RA-103, TC-RA-E26, TC-RA-ERR32, TC-RA-ERR33, TC-RA-ERR34, TC-RA-ERR35, TC-RA-ERR36, TC-RA-ERR39.
+// Stubs of planning/nexusd-remote-admin/test-cases.md TC-RA-93, TC-RA-94, TC-RA-95, TC-RA-96, TC-RA-97, TC-RA-98, TC-RA-99, TC-RA-100, TC-RA-101, TC-RA-102, TC-RA-103, TC-RA-E26, TC-RA-E28, TC-RA-ERR32, TC-RA-ERR33, TC-RA-ERR34, TC-RA-ERR35, TC-RA-ERR36, TC-RA-ERR39, TC-RA-ERR44.
 // Owner WIs: 5.2. Each stub compiles today and skips; the developer of
 // the owning work item replaces the skip and the comment with the test,
 // keeping the function name so that grep TestTCRA traces it. An
@@ -80,20 +80,25 @@ func TestTCRA96_AddingAnAbsentKeyToAHandCommentedFileOnTheReal(t *testing.T) {
 	t.Skip("TC-RA-96: SKIP-only stub; un-skip when WI 5.2 lands")
 }
 
-// TC-RA-97: A config set that changes nothing touches nothing on the real host. Owner WI 5.2. Requirements: FR-7.
+// TC-RA-97: A config set that changes nothing touches nothing on the real host. Owner WI 5.2. Requirements: FR-7, FR-9.
 //
 //   - Setup: `raHost`. Record the inode, mtime and sha of the file, the status seq, `since := smWindow()` and the `GET /v1/operations` IDs. No `.bak` exists.
 //   - Steps:
 //     1. `nexus nexusdconfig update providers.nexusd.enabled=true`, keeping stdout, stderr and the exit code.
 //     2. REST `POST /v1/providers/nexusd/actions/update-config` with the same body, keeping the status and headers.
 //     3. Immediately after step 2, `nexus nexusd reload`.
+//     4. Arm `held(t)` and run the gate sequence (Conventions) with `nexus nexusdconfig update --no-wait providers.host.enabled=true`, pre-helper action "nothing". The operation `<id>` is now Running with its unit in `ExecStartPre=`, and the daemon answers.
+//     5. Repeat step 1's no-change set.
+//     6. Open the gate and await `<id>`.
 //   - Expected:
-//   - Answer: step 1 exits 0 and prints `changed: false`. Step 2 answers `200` (not `202`) with `changed: false` and no `Location` header.
-//   - No unit: `journalctl --since $since` shows no `nexus-op-*` unit, and `systemctl list-units 'nexus-op-*' --all` lists none.
-//   - No operation: `GET /v1/operations` lists no new ID.
+//   - Answer: step 1 exits 0 at once (no wait, no `GET /v1/operations/...` in the CLI's debug trace) and prints `changed: false`. Step 2 answers `200` (not `202`) with `changed: false` and no `Location` header.
+//   - No unit: before step 4, `journalctl --since $since` shows no `nexus-op-*` unit, and `systemctl list-units 'nexus-op-*' --all` lists none.
+//   - No operation: before step 4, `GET /v1/operations` lists no new ID.
 //   - No lane hold: step 3 is accepted (`202`) and succeeds, so the no-op set never occupied the `nexusd` lane.
 //   - Nothing touched: before step 3, the inode, mtime and sha are unchanged, no `.bak` exists, and the status seq is unchanged.
-//   - Audit: `/var/log/nexus/audit.jsonl` has `requested` then `completed` for each of steps 1 and 2, with no `queued`/`running`.
+//   - Busy lane (A-14): step 5 is refused with 409 `conflict` naming `<id>`, the CLI exits with the conflict exit code, and no `completed` record is written for it.
+//   - Step 6: `<id>` ends `succeeded`.
+//   - Audit: `/var/log/nexus/audit.jsonl` has `requested` then `completed` for each of steps 1 and 2, with no `queued`/`running` record, and a `refused` record with slug `conflict` for step 5.
 func TestTCRA97_AConfigSetThatChangesNothingTouchesNothingOnThe(t *testing.T) {
 	t.Skip("TC-RA-97: SKIP-only stub; un-skip when WI 5.2 lands")
 }
@@ -115,19 +120,17 @@ func TestTCRA98_ARestartOnlyKeyIsWrittenAndReportedNeverApplied(t *testing.T) {
 
 // TC-RA-99: The nexusd lane refuses a reload while a config set runs on the real host. Owner WI 5.2. Requirements: FR-9.
 //
-//   - Setup: `raHost`.
+//   - Setup: `raHost`. `pid0 := unitPID`. `held(t)` armed.
 //   - Steps:
-//     1. Arm `held(t)` (per WI 5.2's seam), start `nexus nexusdconfig update providers.host.enabled=true --no-wait`, take the operation ID, and wait for the held window's preconditions and the new-digest point.
-//     2. At the new-digest point, `kill -STOP` the helper (the `MainPID` of `nexus-op-<id>`, from `systemctl show`) and check that its state is `T`.
-//     3. `kill -CONT` the daemon, which handles the pending SIGHUP and writes the status. The API is now up while the operation is still Running.
-//     4. Run `nexus nexusd reload`, `nexus nexusd restart --yes` and a second `nexus nexusdconfig update audit.retentionDays=30`.
-//     5. `kill -CONT` the helper and await the operation.
-//     6. `nexus nexusd reload`.
-//     7. Do steps 2 to 5 within 10 s of the new-digest point, inside the helper's `reloadTimeout` wait (read from `input.json`).
+//     1. Run the gate sequence (Conventions) with `nexus nexusdconfig update --no-wait providers.host.enabled=true`, pre-helper action "nothing". After the `DropInPaths` precondition, the operation `<id>` is Running, its unit waits in `ExecStartPre=`, the helper has not started, and the daemon answers.
+//     2. Run `nexus nexusd reload`, `nexus nexusd restart --yes`, a second `nexus nexusdconfig update audit.retentionDays=30`, and a no-change `nexus nexusdconfig update providers.nexusd.enabled=true`. Finish step 2 within 20 s of `reached`, inside `detach.LaunchTimeout` (30 s).
+//     3. Check that `/run/nexus-ra-hold/open` still does not exist, so every call in step 2 ran while `<id>` was held.
+//     4. Open the gate and await `<id>`.
+//     5. `nexus nexusd reload`.
 //   - Expected:
-//   - Step 4: each call is refused with 409 `conflict`, naming the config set's operation ID, and creates no operation. The MainPID is unchanged.
-//   - Step 5: `succeeded`, with PC.
-//   - Step 6: succeeds.
+//   - Step 2: each call is refused with 409 `conflict`, naming `<id>`, and creates no operation (`GET /v1/operations` gains no ID). `unitPID == pid0`, and `NRestarts` is unchanged.
+//   - Step 4: `succeeded`, with PC.
+//   - Step 5: succeeds.
 func TestTCRA99_TheNexusdLaneRefusesAReloadWhileAConfigSetRunsOn(t *testing.T) {
 	t.Skip("TC-RA-99: SKIP-only stub; un-skip when WI 5.2 lands")
 }
@@ -174,14 +177,13 @@ func TestTCRA101_RemoteAddAndLocalSudoCreateOfOneNameRaceOnThe(t *testing.T) {
 //   - Steps:
 //     1. Time 50 lists and 50 `config get` calls.
 //     2. Time 50 adds and 50 removes, in batches of 5 add+remove pairs (10 mutations). Between batches, run `systemctl restart nexusd` and wait for `/healthz`, which resets the in-memory window (A-1). Only the request wall time counts.
-//     3. Time one config set with a passing reload, from 202 to terminal.
-//     4. Time one config set whose reload is refused and restored (TC-RA-ERR39's method, held per WI 5.2's seam), from 202 to terminal, minus the deliberate hold.
-//     5. Time one config set whose reload goes unconfirmed and is restored (TC-RA-E26's method), from 202 to terminal.
+//     3. Time one config set with a passing reload, with no hold, from the 202 to the operation's `ended`.
+//     4. Time one config set whose reload is refused and restored (TC-RA-ERR39's method), from `tOpen` to the operation's `ended`.
+//     5. Time one config set whose reload goes unconfirmed and is restored (TC-RA-E26's method), from `tOpen` to the operation's `ended`.
 //   - Expected:
 //   - The p95 of each op type is ≤ 200 ms.
 //   - Step 3 is ≤ 15 s + the reload's own time. The reload time is the difference of `at` between the baseline and new statuses, measured against the journal timestamps.
-//   - Step 4 is ≤ 30 s after the hold.
-//   - Step 5 is ≤ 30 s from the 202. This is the NFR-2 "a config set that restores" bound on the unconfirmed path, which waits for the reload and then for the restore (review Finding 7). It is not reduced by the hold, because the unconfirmed path is the hold.
+//   - Steps 4 and 5 are each ≤ 30 s (NFR-2 "a config set that restores", measured from the gate-open time, architecture WI 5.2). Step 5 is the slow restoring path: one expired 12 s attempt plus the restore.
 //   - The `NFR` lines are logged.
 func TestTCRA102_NFR2LatenciesOnTheRealHost(t *testing.T) {
 	t.Skip("TC-RA-102: SKIP-only stub; un-skip when WI 5.2 lands")
@@ -202,18 +204,19 @@ func TestTCRA103_NoSandboxDenialCrashOrRestartDuringTheT1Run(t *testing.T) {
 
 // TC-RA-E26: On real systemd, an unconfirmed reload is restored and confirmed. Owner WI 5.2. Requirements: FR-8, NFR-6, NFR-2.
 //
-//   - Setup: `raHost`. `orig := sha(file)`. `held(t)` armed per WI 5.2's seam.
+//   - Setup: `raHost`. `orig := sha(file)`. `held(t)` armed.
 //   - Steps:
-//     1. `update --no-wait providers.host.enabled=true`, recording `t202`. Wait for the held window's preconditions and the new-digest point.
-//     2. Read `rt := reloadTimeout` from `/var/lib/nexus/ops/<id>/input.json`. Keep the daemon stopped.
-//     3. Sleep until `rt + 2 s` after the new-digest point, which is past the helper's first wait, then release the hold and `kill -CONT`.
-//     4. Await, recording `tEnd`.
+//     1. Run the gate sequence (Conventions) with `update --no-wait providers.host.enabled=true` and pre-helper action `held` (STOP, state `T`). Open the gate, recording `tOpen`.
+//     2. Wait for the new digest.
+//     3. Wait until the file's digest equals `orig` again, bound 20 s. This means the helper's first 12 s attempt expired and it wrote the restore.
+//     4. `kill -CONT` the daemon. The pending SIGHUP reloads the restored file.
+//     5. Await `<id>` and read its `ended` time.
 //   - Expected:
 //   - `failed config-apply-failed` with `restored: true`.
 //   - `sha(file) == orig`, mode 0600.
 //   - `reload-status.json` is `applied` with `sha256 == orig`.
 //   - The daemon serves `GET /healthz`.
-//   - NFR-2 bound: `tEnd − t202 ≤ 30 s`, logged as an `NFR` line (review Finding 7). The worst case of this path, a restore confirmed only at the end of the second wait, is asserted on the virtual clock by TC-RA-E27.
+//   - NFR-2 bound: `ended − tOpen ≤ 30 s`, logged as an `NFR` line. The worst case of this path, a restore confirmed only at the end of the second attempt, is asserted on the virtual clock by TC-RA-E27.
 func TestTCRAE26_OnRealSystemdAnUnconfirmedReloadIsRestoredAnd(t *testing.T) {
 	t.Skip("TC-RA-E26: SKIP-only stub; un-skip when WI 5.2 lands")
 }
@@ -236,17 +239,15 @@ func TestTCRAERR32_OnRealSystemdAValidationRefusalStartsNoUnitAnd(t *testing.T) 
 
 // TC-RA-ERR33: On real systemd, each deny-list entry is refused with its reason. Owner WI 5.2. Requirements: FR-12, NFR-6, NFR-5, OOS-3.
 //
-//   - Setup: As TC-RA-ERR32.
+//   - Setup: As TC-RA-ERR32. The expected keys and reasons are read from `spec.ConfigDenyList` (importable from `test/integration`, same module), never retyped.
 //   - Steps:
-//     1. `providers.nexusd.update.trustedKeys=x`.
-//     2. `providers.nexusd.enabled=false`.
-//     3. `providers.scripts.catalog=x`.
-//     4. `providers.nginx.includeDir=/etc/profile.d providers.nginx.includeSuffix=.sh`, a path-valued pair.
-//     5. `listen=127.0.0.1:9`.
+//     1. For each of the twelve `spec.ConfigDenyList` entries, one `nexus nexusdconfig update KEY=VALUE` call: `Value` when the entry has one (`providers.nexusd.enabled=false`), `x` for `trustedKeys` and the catalog, `/etc/profile.d` for `includeDir`, `.sh` for `includeSuffix` and `disabledSuffix`, `ssh` for `service`, and `/etc/nexus/x.conf` for the remaining path keys.
+//     2. `providers.nginx.includeDir=/etc/profile.d providers.nginx.includeSuffix=.sh`, the path-valued pair in one call.
+//     3. `listen=127.0.0.1:9`.
 //   - Expected:
-//   - Steps 1 to 4: 422, with each message containing "cannot be set remotely" and the table's reason. Step 4 names both keys.
-//   - Step 5: 422 `config-invalid` at `listen` with the list message (OOS-3), and no lock-out warning on stderr.
-//   - `ls /etc/profile.d` is unchanged by step 4, and `ss -ltn` shows the daemon still listening only on its configured address after step 5.
+//   - Steps 1 and 2: 422, with each message containing "cannot be set remotely" and the table's reason. Step 2 names both keys.
+//   - Step 3: 422 `config-invalid` at `listen` with the list message (OOS-3), and no lock-out warning on stderr.
+//   - `ls /etc/profile.d` is unchanged by step 2, `systemctl is-active ssh` (or `sshd`) is unchanged by the `service=ssh` call, and `ss -ltn` shows the daemon still listening only on its configured address after step 3.
 //   - The file sha, `.bak` and status are unchanged, and no `nexus-op-*` unit runs.
 //   - `/var/log/nexus/audit.jsonl` has a `refused` record per call with slug `config-invalid`.
 func TestTCRAERR33_OnRealSystemdEachDenyListEntryIsRefusedWithIts(t *testing.T) {
@@ -255,30 +256,31 @@ func TestTCRAERR33_OnRealSystemdEachDenyListEntryIsRefusedWithIts(t *testing.T) 
 
 // TC-RA-ERR34: On real systemd, a reload refused at load restores the backup and confirms the restore. Owner WI 5.2. Requirements: FR-8, NFR-6, ASM-7.
 //
-//   - Setup: `raHost`. `orig := sha(file)`. `held(t)` armed per WI 5.2's seam.
+//   - Setup: `raHost`. `orig := sha(file)`. `held(t)` armed.
 //   - Steps:
-//     1. `update --no-wait providers.host.enabled=true`. Wait for the held window's preconditions and the new-digest point.
-//     2. Keep the daemon stopped.
+//     1. Run the gate sequence (Conventions) with `update --no-wait providers.host.enabled=true` and pre-helper action `held` (STOP, state `T`). Open the gate, recording `tOpen`.
+//     2. Wait for the new digest.
 //     3. `chmod 0644 /etc/nexus/nexusd.yaml`, so root's `ReadFile` will refuse it.
-//     4. Release the hold and `kill -CONT`.
+//     4. `kill -CONT` the daemon.
 //     5. Await.
 //   - Expected:
 //   - Operation: `failed config-apply-failed`, with `restored: true` and stage `load`.
 //   - Disk: `sha(file) == orig`, mode 0600 `root:root`. `.bak` equals the original.
 //   - Reload status: the last `reload-status.json` has `applied: true` and `sha256 == orig`. The status before it has `applied: false`, `stage: load` and `sha256: ""`, observed in the journal.
 //   - Daemon: `nexus nexusd get` succeeds, and `providers.host.enabled` is still false in force (`hostsummary get` is refused as disabled).
+//   - An apply-stage refusal with valid content is T0-only (F-RELOAD `refuseApply`, TC-RA-ERR21), because admission already runs every provider's `Configure`. The test's doc comment says so.
 func TestTCRAERR34_OnRealSystemdAReloadRefusedAtLoadRestoresThe(t *testing.T) {
 	t.Skip("TC-RA-ERR34: SKIP-only stub; un-skip when WI 5.2 lands")
 }
 
 // TC-RA-ERR35: On real systemd, a file replaced before the reload ends config-conflict without a restore. Owner WI 5.2. Requirements: FR-8, FR-7, NFR-6.
 //
-//   - Setup: `raHost`. `other` is the installed file with `audit.retentionDays: 45`, written to a temp path, root 0600. `held(t)` armed per WI 5.2's seam.
+//   - Setup: `raHost`. `other` is the installed file with `audit.retentionDays: 45`, written to a temp path, root 0600. `held(t)` armed.
 //   - Steps:
-//     1. `update --no-wait providers.host.enabled=true`.
-//     2. Wait for the held window's preconditions and the new-digest point.
+//     1. Run the gate sequence (Conventions) with `update --no-wait providers.host.enabled=true` and pre-helper action `held` (STOP, state `T`). Open the gate.
+//     2. Wait for the new digest.
 //     3. `install -m 0600 -o root other /etc/nexus/nexusd.yaml`.
-//     4. Release the hold and `kill -CONT`.
+//     4. `kill -CONT` the daemon.
 //     5. Await.
 //   - Expected:
 //   - `failed config-conflict`, with `sha(file) == sha(other)` (not restored).
@@ -287,30 +289,67 @@ func TestTCRAERR35_OnRealSystemdAFileReplacedBeforeTheReloadEnds(t *testing.T) {
 	t.Skip("TC-RA-ERR35: SKIP-only stub; un-skip when WI 5.2 lands")
 }
 
-// TC-RA-ERR36: On real systemd, a restore that cannot be confirmed ends config-restore-failed, and the daemon later loads the restored file. Owner WI 5.2. Requirements: FR-8, NFR-6.
+// TC-RA-ERR36: On real systemd, a restore that cannot be confirmed ends config-restore-failed, and the daemon later loads the restored file. Owner WI 5.2. Requirements: FR-8, NFR-6, NFR-2.
 //
-//   - Setup: `raHost`. `orig := sha(file)`. `held(t)` armed per WI 5.2's seam.
+//   - Setup: `raHost`. `orig := sha(file)`. `held(t)` armed.
 //   - Steps:
-//     1. `update --no-wait providers.host.enabled=true`.
-//     2. Wait for the held window's preconditions and the new-digest point. Read `rt := reloadTimeout` from the operation's `input.json`, and keep the daemon stopped for `2*rt + 10 s` after the new-digest point, which is more than two waits plus the retries.
-//     3. Release the hold and `kill -CONT`.
-//     4. Await.
-//     5. Poll `reload-status.json` for 10 s.
+//     1. Run the gate sequence (Conventions) with `update --no-wait providers.host.enabled=true` and pre-helper action `held` (STOP, state `T`). Open the gate, recording `tOpen`.
+//     2. Wait for the new digest.
+//     3. Wait for `/var/lib/nexus/ops/<id>/exit.json`, bound 40 s. This means both 12 s attempts expired.
+//     4. `kill -CONT` the daemon.
+//     5. Await `<id>` and read its `ended` time.
+//     6. Poll `reload-status.json` for 10 s.
 //   - Expected:
 //   - Operation: `failed config-restore-failed`. The `backupPath` extension is `/etc/nexus/nexusd.yaml.bak`, and the detail names the `docs/install.md` recovery anchor.
 //   - Disk: `sha(file) == orig`, because the backup bytes were written back.
 //   - After CONT: a status with `applied: true` and `sha256 == orig`, so the disk again equals the configuration in force.
-//   - Unit: the `nexus-op-*` unit ended within `MaxRuntime` (130 s).
+//   - NFR-2: `ended − tOpen ≤ 30 s`, logged as an `NFR` line.
+//   - Unit: the `nexus-op-*` unit ended within `MaxRuntime` (54 s, A-5).
 func TestTCRAERR36_OnRealSystemdARestoreThatCannotBeConfirmedEnds(t *testing.T) {
 	t.Skip("TC-RA-ERR36: SKIP-only stub; un-skip when WI 5.2 lands")
 }
 
 // TC-RA-ERR39: On real systemd, a refused reload during a held window is restored within the NFR-2 budget. Owner WI 5.2. Requirements: NFR-2, FR-8.
 //
-//   - Setup: As TC-RA-ERR34 (held per WI 5.2's seam), with timestamps taken at the 202, at the release (CONT) and at terminal.
+//   - Setup: As TC-RA-ERR34 (`held(t)` armed), recording `tOpen` at gate open and the operation's `ended` time.
 //   - Steps:
 //     1. Run TC-RA-ERR34's steps with timing.
-//   - Expected: `terminal − CONT ≤ 30 s`. The logged `NFR` line feeds TC-RA-102.
+//   - Expected: `ended − tOpen ≤ 30 s` (architecture WI 5.2: measured from the gate-open time). The logged `NFR` line feeds TC-RA-102.
 func TestTCRAERR39_OnRealSystemdARefusedReloadDuringAHeldWindowIs(t *testing.T) {
 	t.Skip("TC-RA-ERR39: SKIP-only stub; un-skip when WI 5.2 lands")
+}
+
+// TC-RA-E28: The hold drop-in applies to nexus-op units and never to nexusd.service. Owner WI 5.2. Requirements: NFR-6, CON-1.
+//
+//   - Setup: `raHost`. `held(t)` armed (drop-in written, `daemon-reload` run).
+//   - Steps:
+//     1. `systemctl show -p DropInPaths nexusd.service` and `requireExactUnit`.
+//     2. Run the gate sequence (Conventions) with `update --no-wait providers.host.enabled=true`, pre-helper action "nothing".
+//     3. `systemctl show -p DropInPaths,ActiveState,SubState nexus-op-<id>.service`, and `test -e /var/lib/nexus/ops/<id>/result.json`.
+//     4. Open the gate and await `<id>`.
+//     5. Run `held(t)`'s cleanup explicitly, then `systemctl show -p DropInPaths nexusd.service` and `test -e /run/systemd/system/nexus-op-.service.d/ra-hold.conf`.
+//   - Expected:
+//   - Step 1: `DropInPaths` of `nexusd.service` is empty and `requireExactUnit` passes while the seam is armed.
+//   - Step 3: the transient unit lists `ra-hold.conf`, its state is `activating`/`start-pre`, and no `result.json` exists: the gate holds the helper deterministically.
+//   - Step 4: `succeeded` with PC.
+//   - Step 5: the drop-in is gone, `nexusd.service` has no drop-in, and `requireExactUnit` passes.
+func TestTCRAE28_TheHoldDropInAppliesToNexusOpUnitsAndNever(t *testing.T) {
+	t.Skip("TC-RA-E28: SKIP-only stub; un-skip when WI 5.2 lands")
+}
+
+// TC-RA-ERR44: On real systemd, a file changed between admission and the helper ends config-conflict. Owner WI 5.2. Requirements: FR-7, NFR-6.
+//
+//   - Setup: `raHost`. `orig := sha(file)`. `other` is the installed file with `audit.retentionDays: 45`, written to a temp path, root 0600. Record whether `.bak` exists and its sha, and the reload-status seq. `held(t)` armed.
+//   - Steps:
+//     1. Run the gate sequence (Conventions) with `update --no-wait providers.host.enabled=true`. Prepare has run (the unit exists). The pre-helper action is: `install -m 0600 -o root other /etc/nexus/nexusd.yaml`. Do not STOP the daemon.
+//     2. Open the gate.
+//     3. Await `<id>`.
+//   - Expected:
+//   - Operation: `failed config-conflict` (FR-7 helper step 1: the file no longer matches what admission validated).
+//   - Disk: `sha(file) == sha(other)`: the test's content stays, and nothing was edited or restored.
+//   - Backup: `.bak` is still absent, or its sha is unchanged.
+//   - Reload: the reload-status seq is unchanged, so the helper sent no reload.
+//   - Journal: `journalctl -u nexus-op-<id>` shows the helper's conflict step line and no reload line.
+func TestTCRAERR44_OnRealSystemdAFileChangedBetweenAdmissionAnd(t *testing.T) {
+	t.Skip("TC-RA-ERR44: SKIP-only stub; un-skip when WI 5.2 lands")
 }

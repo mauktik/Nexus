@@ -11,20 +11,24 @@ package nexusd
 
 import "testing"
 
-// TC-RA-90: The docs carry the deny-list, the recovery anchor and the reversed statements. Owner WI 5.1. Requirements: FR-14, FR-12, CON-3, ASM-9, OOS-5.
+// TC-RA-90: The docs carry the deny-list, the recovery anchor and the reversed statements. Owner WI 5.1. Requirements: FR-14, FR-12, FR-7, CON-3, ASM-9, OOS-5, OOS-3.
 //
 //   - Setup: The repository's `docs/`.
 //   - Steps:
 //     1. Read `docs/security.md`, `docs/install.md`, `docs/mcp.md`, `docs/adding-a-provider.md` and `internal/auth`'s package doc.
 //   - Expected:
-//   - security.md: every `spec.ConfigDenyList` key appears. It no longer contains "No API or MCP call creates" or "No API, MCP or CLI call writes".
+//   - security.md:
+//   - every one of the twelve `spec.ConfigDenyList` keys appears (read from the table, never retyped);
+//   - it explains why path-, file-name- and service-valued keys are denied, naming NFR-5 and FR-25 and the `includeDir` plus `includeSuffix` file-write path they close;
+//   - it states that `listen` and other list-valued keys are not settable (OOS-3);
+//   - it no longer contains "No API or MCP call creates" or "No API, MCP or CLI call writes".
 //   - install.md:
 //   - it has the heading anchor `recovering-from-a-failed-configuration-change`;
 //   - it has sections titled "Manage tokens remotely" and "Change the configuration remotely";
-//   - it names the normalization done when a key is added;
+//   - "Change the configuration remotely" names the normalization done when a key is added, and that a no-change set answers `changed: false` at once with no operation;
 //   - "Manage tokens remotely" gives the one-login bootstrap: enable `providers.nexusd` and mint the first `nexusd:admin` token with `sudo nexusd token create` on the host (ASM-9, OOS-5), and names `sudo nexusd token` as the lock-out recovery path (CON-4).
 //   - mcp.md: it names all six op IDs as not tools.
-//   - adding-a-provider.md: it names `SyncMutation`, `SecretOutput`, `Audited`, `Variadic`, `EchoWarnings`, `RetryAfter` and `CheckConfigData`.
+//   - adding-a-provider.md: it names `SyncMutation`, `SecretOutput`, `Audited`, `CompletesAtAdmission`, `DetachedSpec.Admission`, `Variadic`, `EchoWarnings`, `RetryAfter` and `CheckConfigData`.
 //   - Package doc: the `internal/auth` package doc no longer says "no network path".
 func TestTCRA90_TheDocsCarryTheDenyListTheRecoveryAnchorAndThe(t *testing.T) {
 	t.Skip("TC-RA-90: SKIP-only stub; un-skip when WI 5.1 lands")

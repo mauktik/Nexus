@@ -1,6 +1,6 @@
 // Stub-style: SKIP-only (nexusd-remote-admin)
 //
-// Stubs of planning/nexusd-remote-admin/test-cases.md TC-RA-70, TC-RA-72, TC-RA-73, TC-RA-74, TC-RA-75, TC-RA-76, TC-RA-E18, TC-RA-E19, TC-RA-E20, TC-RA-E21, TC-RA-E27, TC-RA-ERR19, TC-RA-ERR20, TC-RA-ERR21, TC-RA-ERR22, TC-RA-ERR23, TC-RA-ERR24, TC-RA-ERR25.
+// Stubs of planning/nexusd-remote-admin/test-cases.md TC-RA-70, TC-RA-72, TC-RA-73, TC-RA-74, TC-RA-75, TC-RA-76, TC-RA-E18, TC-RA-E19, TC-RA-E20, TC-RA-E21, TC-RA-E27, TC-RA-E31, TC-RA-E32, TC-RA-ERR19, TC-RA-ERR20, TC-RA-ERR21, TC-RA-ERR22, TC-RA-ERR23, TC-RA-ERR24, TC-RA-ERR25.
 // Owner WIs: 4.2. Each stub compiles today and skips; the developer of
 // the owning work item replaces the skip and the comment with the test,
 // keeping the function name so that grep TestTCRA traces it. An
@@ -143,15 +143,16 @@ func TestTCRAE21_HelperInputAndHelperResultStayAdditive(t *testing.T) {
 //
 //   - Setup:
 //   - As TC-RA-70, on `virtClock`.
-//   - F-RELOAD `noAnswer(1)`, so the first reload is unconfirmed.
-//   - F-RELOAD `delay(1, reloadTimeout − reloadPollInterval)`, so the restore's reload is handled at the last poll before the second wait expires.
-//   - `t0` is the virtual time when `Helper` starts.
+//   - Run A: F-RELOAD `noAnswer(1)`, so the first attempt is unconfirmed and ends at its deadline; then `delay(1, reloadTimeout − reloadPollInterval)`, so the restore's reload is handled at the last poll before the second attempt's deadline.
+//   - Run B: as run A, with F-RELOAD `inactiveFor(2)` before the first reload, so the first attempt also spends retries.
+//   - `t0` is the virtual time when `Helper` starts. `outside := 2500 * time.Millisecond`, the architecture's D-4 bound for what lies outside the helper's attempts (under 1 s launch, under 1 s of atomic writes, at most `detach.PollInterval` 0.5 s of watcher poll), with Prepare, Finalize and the commit taking milliseconds.
 //   - Steps:
-//     1. Run the helper.
+//     1. Run the helper for run A and run B.
 //   - Expected:
-//   - `config-apply-failed` with `restored: true`, and PC holds. This is the slowest path that still restores.
-//   - NFR-2: the virtual time from `t0` to `result.json` is ≤ 30 s. NFR-2 says "A config set that restores completes within 30 s", and helper time is the whole of that budget except Prepare and launch. With A-3's 20 s `reloadTimeout`, the path takes about 40 s and this case fails until the timeouts or NFR-2 are reconciled (review Finding 7).
-//   - The bound is computed from the constants the helper uses, never typed. A second run adds F-RELOAD `inactiveFor(2)` before the first reload, and its time from `t0` to `result.json` is also ≤ 30 s, so the inactive retries cannot push the path past the budget either.
+//   - Outcome: both runs end `config-apply-failed` with `restored: true`, and PC holds. This is the slowest path that still restores.
+//   - Attempts bounded: the virtual time from `t0` to `result.json` is ≤ `2*reloadTimeout` in both runs: the inactive retries in run B do not extend the first attempt past its deadline.
+//   - NFR-2: `2*reloadTimeout + outside ≤ 30 s`, computed from the package constants (12 s gives 26.5 s), never typed. This case now passes: it fails only if a later change to `reloadTimeout` or the attempt structure breaks NFR-2's 30 s budget.
+//   - Restore confirmation: the second attempt ends at the delayed status (applied, `sha256` equal to the backup's digest), not at its deadline.
 func TestTCRAE27_TheWorstCaseUnconfirmedThenRestoredPathCompletes(t *testing.T) {
 	t.Skip("TC-RA-E27: SKIP-only stub; un-skip when WI 4.2 lands")
 }
@@ -200,14 +201,15 @@ func TestTCRAERR22_AReloadRefusedAtStageLoadWithAnEmptyDigest(t *testing.T) {
 	t.Skip("TC-RA-ERR22: SKIP-only stub; un-skip when WI 4.2 lands")
 }
 
-// TC-RA-ERR23: An unconfirmed reload is restored, and an unconfirmed restore ends config-restore-failed. Owner WI 4.2. Requirements: FR-8.
+// TC-RA-ERR23: An unconfirmed reload is restored, and an unconfirmed restore ends config-restore-failed. Owner WI 4.2. Requirements: FR-8, NFR-2.
 //
 //   - Setup: As TC-RA-70 on `virtClock`. Run A uses `noAnswer(1)`. Run B uses `noAnswer(2)`.
 //   - Steps:
 //     1. Run the helper for each run.
 //   - Expected:
-//   - Run A: after `reloadTimeout` (the package constant, on the virtual clock), the backup is restored and confirmed. `config-apply-failed restored:true`, and PC holds.
-//   - Run B: `config-restore-failed`, with `backupPath` and the detail naming `docs/install.md#recovering-from-a-failed-configuration-change`. The disk equals the backup bytes, written but unconfirmed. Total virtual time is ≤ `configSetMaxRuntime` (130 s).
+//   - Run A: the first attempt ends at `reloadTimeout` (the package constant, 12 s, on the virtual clock), then the backup is restored and confirmed. `config-apply-failed restored:true`, and PC holds.
+//   - Run B: `config-restore-failed`, with `backupPath` and the detail naming `docs/install.md#recovering-from-a-failed-configuration-change`. The disk equals the backup bytes, written but unconfirmed.
+//   - Time, run B: each attempt ends at its own `reloadTimeout` deadline, so the total virtual time is ≤ `2*reloadTimeout` (I/O takes no virtual time), well under `configSetMaxRuntime` (54 s, A-5).
 func TestTCRAERR23_AnUnconfirmedReloadIsRestoredAndAnUnconfirmed(t *testing.T) {
 	t.Skip("TC-RA-ERR23: SKIP-only stub; un-skip when WI 4.2 lands")
 }
@@ -230,4 +232,32 @@ func TestTCRAERR24_AFileReplacedBeforeTheReloadEndsConfigConflict(t *testing.T) 
 //   - Expected: Exit 1. stderr has the "no validator" text, no `result.json` exists, the config dir is unchanged, and `reloadCalls == 0`. An update-mode input with a nil check still runs, so the nil check is scoped to config-set.
 func TestTCRAERR25_ANilValidatorMakesTheConfigSetModeRefuseToStart(t *testing.T) {
 	t.Skip("TC-RA-ERR25: SKIP-only stub; un-skip when WI 4.2 lands")
+}
+
+// TC-RA-E31: The restore attempt skips a late status for the new file and confirms only the backup's digest. Owner WI 4.2. Requirements: FR-8.
+//
+//   - Setup: As TC-RA-70 on `virtClock`, with F-RELOAD `slowApply(1, reloadTimeout + 2*time.Second)`: the first reload reads the new bytes on the next tick but writes its status (applied, `sha256 == sha(out)`) only after the first attempt's deadline, during the restore attempt. The restore's own reload is handled normally after it.
+//   - Steps:
+//     1. Run the helper.
+//   - Expected:
+//   - `config-apply-failed` with `restored: true`, never `succeeded` and never `config-conflict`: the late status for `sha(out)` arrived after the first attempt's deadline and was skipped by the restore wait.
+//   - The status that ended the restore attempt is applied with `sha256 == sha(backup bytes)`.
+//   - The disk equals the backup bytes, and PC holds (F-RELOAD's last applied bytes are the backup's).
+//   - Total virtual time is ≤ `2*reloadTimeout`.
+func TestTCRAE31_TheRestoreAttemptSkipsALateStatusForTheNewFile(t *testing.T) {
+	t.Skip("TC-RA-E31: SKIP-only stub; un-skip when WI 4.2 lands")
+}
+
+// TC-RA-E32: An inactive unit that outlasts the attempt deadline ends the attempt at reloadTimeout and restores. Owner WI 4.2. Requirements: FR-8, NFR-2.
+//
+//   - Setup: As TC-RA-70 on `virtClock`, with F-RELOAD `inactiveFor(n)` where `n := int(reloadTimeout/reloadRetryInterval) + 3`, computed from the constants. Each `sys.Reload` call's context is recorded.
+//   - Steps:
+//     1. Run the helper.
+//   - Expected:
+//   - The first attempt ends at `t0 + reloadTimeout` on the virtual clock: the retries never extend it.
+//   - Every recorded `Reload` context of the first attempt has a deadline ≤ `t0 + reloadTimeout` (the earlier of `systemctlTimeout` and the attempt deadline).
+//   - The helper then restores. The remaining inactive calls fall in the restore attempt, which gets a fresh `reloadTimeout` deadline. The outcome is `config-apply-failed restored:true` if the unit became active in time, otherwise `config-restore-failed`, and the test asserts whichever the computed `n` implies.
+//   - Total virtual time is ≤ `2*reloadTimeout`.
+func TestTCRAE32_AnInactiveUnitThatOutlastsTheAttemptDeadlineEnds(t *testing.T) {
+	t.Skip("TC-RA-E32: SKIP-only stub; un-skip when WI 4.2 lands")
 }

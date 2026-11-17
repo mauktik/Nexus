@@ -71,30 +71,33 @@ func TestTCRA61_TheConfigKeyNamePatternAcceptsEverySchemaKeyAnd(t *testing.T) {
 //   - Setup: `spec.Spec()`.
 //   - Steps:
 //     1. Find `nexusd.actions.update-config`.
+//     2. Build its generated input JSON schema.
+//     3. `json.Marshal(spec.ConfigUpdateInput{Changes: []string{"a=b"}, BaseSHA256: "x"})`.
 //   - Expected:
-//   - Declaration: `KindProviderAction`, action `update-config`, route `POST /providers/nexusd/actions/update-config`, mutating, long-running, `CancelQueuedOnly`, scope `nexusd:admin`, `MCP == nil`.
+//   - Declaration: `KindProviderAction`, action `update-config`, route `POST /providers/nexusd/actions/update-config`, mutating, long-running, `CancelQueuedOnly`, `CompletesAtAdmission` (D-7), scope `nexusd:admin`, `MCP == nil`.
 //   - CLI: `{Noun: nexusdconfig, Verb: update, Variadic: changes, EchoWarnings: true}`.
 //   - `changes` schema: `minItems` 1, `maxItems` `spec.MaxConfigChanges`, item `maxLength` `MaxConfigValueBytes + 520`.
+//   - No baseline on the wire: the input schema has no `baseSha256` property (or any property other than `changes`), and step 3's JSON is exactly `{"changes":["a=b"]}`: `BaseSHA256` is tagged `json:"-"` (D-7, A-15).
 //   - Wire types: `DaemonProperties` has `configSet` (json).
-//   - Description: it names `config-set-unavailable`, `config-apply-failed`, `config-restore-failed`, `restartRequired` and the backup path.
+//   - Description: it names `config-set-unavailable`, `config-apply-failed`, `config-restore-failed`, `restartRequired`, the backup path, and `200` with `changed false` and no operation when nothing changes.
 //   - Lane: the `LaneKey` doc mentions config set.
-//   - Catalog: one more golden row, and `catalogStubs` has a `testprovider.InProcess` entry.
+//   - Catalog: one more golden row, and `catalogStubs` has a `testprovider.InProcess` entry (which has no Admission hook; only `provider.Detached` requires one).
 func TestTCRA67_TheConfigSetOpIsDeclaredAsTheCatalogTableStates(t *testing.T) {
 	t.Skip("TC-RA-67: SKIP-only stub; un-skip when WI 4.1 lands")
 }
 
 // TC-RA-68: The deny-list keys exist in the schema, and the table holds the FR-12 entries and every path-valued key. Owner WI 4.1. Requirements: FR-12, ASM-3, NFR-5.
 //
-//   - Setup: None. The user decision of lead-review iteration 1 (`requirements.md` § User decisions): any key whose value is a file path, directory or service name is on the deny-list.
+//   - Setup: None. FR-12 as amended by the user decision of 2026-11-17 (`requirements.md` § User decisions): every key whose value is a file path, directory, file-name suffix or service name is on the deny-list. `providers.nginx.disabledSuffix` is included by analogy with `includeSuffix` (A-35, the autonomous default, awaiting confirmation). The test's list of reviewed settable strings is exactly `host.name` and `tls.mode` (D-10, A-13).
 //   - Steps:
 //     1. Run `config.LookupKey(d.Key)` for each `spec.ConfigDenyList` entry.
-//     2. Walk `config.LeafKeys()` and select every string leaf whose last segment ends in `File`, `Dir`, `Socket` or `Suffix`, or is `service`. This drift guard catches a path-valued key added to the schema later.
+//     2. Walk `config.LeafKeys()` and take every key of kind `KindString`.
 //   - Expected:
 //   - Every key is found, and every entry has a non-empty `Reason`.
-//   - The table holds exactly these 12 keys:
-//   - the three FR-12 entries: `providers.nexusd.update.trustedKeys`, `providers.nexusd.enabled` (with `Value: "false"`) and `providers.scripts.catalog` (with `Subtree: true`);
-//   - the nine path-valued keys: `tls.certFile`, `tls.keyFile`, `providers.docker.socket`, `providers.docker.configDir`, `providers.nginx.includeDir`, `providers.nginx.includeSuffix`, `providers.nginx.disabledSuffix`, `providers.nginx.service` and `providers.pihole.dnsFile`, each with `Value: ""` (any value) and `Subtree: false`.
-//   - Every key selected in step 2 is in the table.
+//   - The table holds exactly these 12 entries, in this order:
+//   - the three original FR-12 entries: `providers.nexusd.update.trustedKeys`, `providers.nexusd.enabled` (with `Value: "false"`) and `providers.scripts.catalog` (with `Subtree: true`);
+//   - the nine path-, file-name- and service-valued keys: `tls.certFile`, `tls.keyFile`, `providers.docker.socket`, `providers.docker.configDir`, `providers.nginx.includeDir`, `providers.nginx.includeSuffix`, `providers.nginx.disabledSuffix`, `providers.nginx.service` and `providers.pihole.dnsFile`, each with `Value: ""` (any value), `Subtree: false`, and the one shared path reason (each of the nine `Reason` strings is equal).
+//   - String-key classification (drift guard, A-13): every `KindString` key from step 2 is either on `spec.ConfigDenyList` or in the reviewed settable list, and the settable remainder is exactly `{host.name, tls.mode}`. A string key added to the schema later fails this test until someone classifies it. The failure message names the unclassified key.
 //   - `listen` is not in the table. It is refused as a list (OOS-3, TC-RA-ERR28), by the user decision that `listen` is not settable remotely.
 //   - `spec.LockoutKeyPrefixes` is `["tls.", "auth."]`, with no `listen` entry.
 func TestTCRA68_TheDenyListKeysExistInTheSchemaAndTheTableHolds(t *testing.T) {

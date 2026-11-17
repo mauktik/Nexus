@@ -1,6 +1,6 @@
 // Stub-style: SKIP-only (nexusd-remote-admin)
 //
-// Stubs of planning/nexusd-remote-admin/test-cases.md TC-RA-16, TC-RA-17, TC-RA-18.
+// Stubs of planning/nexusd-remote-admin/test-cases.md TC-RA-16, TC-RA-17, TC-RA-18, TC-RA-114.
 // Owner WIs: 1.5. Each stub compiles today and skips; the developer of
 // the owning work item replaces the skip and the comment with the test,
 // keeping the function name so that grep TestTCRA traces it. An
@@ -53,4 +53,19 @@ func TestTCRA17_TheIdempotencyFlagIsAbsentOnSyncMutationOnly(t *testing.T) {
 //   - Step 3: stderr has no warning line.
 func TestTCRA18_EchoWarningsPrintsResultWarningsOnStderrAfterThe(t *testing.T) {
 	t.Skip("TC-RA-18: SKIP-only stub; un-skip when WI 1.5 lands")
+}
+
+// TC-RA-114: The CLI treats a 200 from a long-running op as the final result, with no wait. Owner WI 1.5. Requirements: FR-11, FR-7.
+//
+//   - Setup: `runSpecsCLI` with a planted long-running op declaring `CompletesAtAdmission` and `CLI.EchoWarnings`, whose `httptest` target answers `200` with `json.Marshal` of the planted output (`changed: false`, `warnings: ["w1"]`), built by the real server. The target counts requests per `method path`.
+//   - Steps:
+//     1. Run the command in text format.
+//     2. Run it with `--no-wait`.
+//     3. Run it with `--output json`.
+//   - Expected:
+//   - Each exits 0 and prints the result once on stdout, with the same columns as a waited operation's result (text) or the result object (json).
+//   - The target saw 0 `GET /v1/operations/...` requests in every run.
+//   - `w1` is printed on stderr after the result in steps 1 and 3, and also in step 2, because a 200 is a final result rather than an unwaited operation.
+func TestTCRA114_TheCLITreatsA200FromALongRunningOpAsTheFinal(t *testing.T) {
+	t.Skip("TC-RA-114: SKIP-only stub; un-skip when WI 1.5 lands")
 }

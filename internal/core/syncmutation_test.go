@@ -1,6 +1,6 @@
 // Stub-style: SKIP-only (nexusd-remote-admin)
 //
-// Stubs of planning/nexusd-remote-admin/test-cases.md TC-RA-8, TC-RA-9, TC-RA-10, TC-RA-11, TC-RA-E4, TC-RA-ERR5, TC-RA-ERR6, TC-RA-ERR7, TC-RA-ERR8.
+// Stubs of planning/nexusd-remote-admin/test-cases.md TC-RA-8, TC-RA-9, TC-RA-10, TC-RA-11, TC-RA-111, TC-RA-E4, TC-RA-E29, TC-RA-ERR5, TC-RA-ERR6, TC-RA-ERR7, TC-RA-ERR8, TC-RA-ERR41.
 // Owner WIs: 1.3. Each stub compiles today and skips; the developer of
 // the owning work item replaces the skip and the comment with the test,
 // keeping the function name so that grep TestTCRA traces it. An
@@ -122,4 +122,48 @@ func TestTCRAERR7_AnIdempotencyKeyOnASyncMutationIsRefusedAndThe(t *testing.T) {
 //   - The audit health reports unhealthy, as for the upload's `stored` record.
 func TestTCRAERR8_ACompletedRecordWriteFailureKeepsThe200AndMarks(t *testing.T) {
 	t.Skip("TC-RA-ERR8: SKIP-only stub; un-skip when WI 1.3 lands")
+}
+
+// TC-RA-111: A Done answer from the Admission hook ends the call with 200, requested then completed, and no operation. Owner WI 1.3. Requirements: CON-3, FR-7, FR-13, NFR-1.
+//
+//   - Setup: `newFixture`/`registryWithAudit` with a planted detached op D declaring `CompletesAtAdmission`, bound with `provider.Detached(D, {Admission: hook, Lane: laneOf, Prepare: prep})`, a real `audit.Log` over a temp dir, and the launch spy. `hook` is a test function: for input `{"x":"same"}` it adds the fact `f=1` and returns `Admitted{Done: true, Out: out}`, where `out` is a value of D's output type; for `{"x":"diff"}` it returns `Admitted{In: in2}`, where `in2` equals the input with a `json:"-"` field set to `"carried"`. `prep` records the input it receives. Counters: `prepCalls`, `launches`, operation count.
+//   - Steps:
+//     1. Invoke D with `{"x":"same"}`.
+//     2. Invoke D with `{"x":"diff"}`.
+//   - Expected:
+//   - Step 1: `InvokeResult{Status: 200}`, `Body` equal to `out`, `OperationID == ""`. `prepCalls == 0`, `launches == 0`, the operation count is unchanged. The audit log has `requested` (params `{"x":"same"}`) then `completed` linked by `requestId`, with fact `f=1` and no `operationId`.
+//   - Step 2: `202` with an operation. `prep` received `in2` (its `json:"-"` field is `"carried"`), while the stored record's input and the `requested` params are the original request (`{"x":"diff"}`).
+func TestTCRA111_ADoneAnswerFromTheAdmissionHookEndsTheCallWith200(t *testing.T) {
+	t.Skip("TC-RA-111: SKIP-only stub; un-skip when WI 1.3 lands")
+}
+
+// TC-RA-E29: An Idempotency-Key on a Done call stores no entry, so a retry runs the hook again. Owner WI 1.3. Requirements: FR-7, CON-3.
+//
+//   - Setup: TC-RA-111's fixture. The hook counts its calls and returns `Done` while a test switch `same` is true, else `Admitted{In: in}`.
+//   - Steps:
+//     1. Invoke D with `{"x":"same"}` and `Idempotency-Key: k1`, twice.
+//     2. Set `same = false`, then invoke D with the same body and `k1`.
+//   - Expected:
+//   - Step 1: both answer 200, the hook ran twice, and `ops.LookupIdempotency(tokenID, "k1")` finds nothing.
+//   - Step 2: the hook ran a third time and the call answers 202 with a new operation, now stored under `k1`.
+func TestTCRAE29_AnIdempotencyKeyOnADoneCallStoresNoEntrySo(t *testing.T) {
+	t.Skip("TC-RA-E29: SKIP-only stub; un-skip when WI 1.3 lands")
+}
+
+// TC-RA-ERR41: The Done path still answers 409 on a busy lane, refuses when the requested record fails, and rejects an undeclared Done. Owner WI 1.3. Requirements: FR-9, FR-13, CON-3, NFR-1.
+//
+//   - Setup: TC-RA-111's fixture, plus:
+//   - a second planted detached op B in D's lane, kept Running through the launch spy;
+//   - a `failingAudit` variant that fails `requested` writes;
+//   - a planted op N without `CompletesAtAdmission`, whose erased `DetachedFuncs.Admission` returns `done == true` (built by hand, because `provider.Detached` would refuse it, TC-RA-ERR42).
+//   - Steps:
+//     1. Start B and keep it running. Invoke D with `{"x":"same"}`.
+//     2. End B. With the failing audit, invoke D with `{"x":"same"}`.
+//     3. With the real audit, invoke N.
+//   - Expected:
+//   - Step 1: 409 `conflict` with `blockingOperationId` equal to B's ID. A `refused` record, no `requested` or `completed` record, no operation.
+//   - Step 2: `audit-unavailable` (fail-closed), no `completed` record, no operation.
+//   - Step 3: `internal-error` with the generic detail. An Error log line names N's op ID, and no operation exists.
+func TestTCRAERR41_TheDonePathStillAnswers409OnABusyLane(t *testing.T) {
+	t.Skip("TC-RA-ERR41: SKIP-only stub; un-skip when WI 1.3 lands")
 }
