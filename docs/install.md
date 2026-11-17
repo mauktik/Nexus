@@ -105,7 +105,8 @@ These steps are for Ubuntu. For Alpine, see
    The token is printed once. Copy it now; it is never shown again.
    `sudo nexusd token list` lists tokens without their secrets, and `sudo
    nexusd token revoke NAME` revokes one at once. `--expires 30d` limits a
-   token's lifetime.
+   token's lifetime. To make later tokens from a client instead, without
+   logging in again, see [Manage tokens remotely](#manage-tokens-remotely).
 
 ## Install nexusd on Alpine (OpenRC)
 
@@ -282,8 +283,234 @@ With the `nexusd` provider enabled, the same can be done from a client:
 validate-config` on the file as it is on disk, without applying it, and
 `nexus nexusd reload` reloads it as `systemctl reload` does, but answers
 `config-invalid` with the errors instead of only logging them, and lists the
-changed keys that take effect only after a restart. No call writes the file:
-it is changed only by editing it on the host.
+changed keys that take effect only after a restart. On a systemd host a
+client can also set scalar keys of the file, as
+[Change the configuration remotely](#change-the-configuration-remotely)
+describes; lists, the script catalog, release keys and every key whose
+value is a path or a service still change only by editing the file on the
+host.
+
+## Manage tokens remotely
+
+Once a host has one `nexusd:admin` token, tokens can be added, listed and
+revoked from a client, on systemd and OpenRC hosts alike. They are the same
+tokens as `sudo nexusd token` manages, in the same store.
+
+**Bootstrap: one login per host.** The first `nexusd:admin` token is always
+made on the host, as root: there is no remote enrollment. On the host,
+enable the `nexusd` provider in `/etc/nexus/nexusd.yaml`:
+
+```yaml
+providers:
+  nexusd:
+    enabled: true
+```
+
+then check, reload and mint the admin token:
+
+```
+sudo nexusd validate-config
+sudo systemctl reload nexusd          # sudo rc-service nexusd reload on Alpine
+sudo nexusd token create --name admin-laptop --scope nexusd:admin --expires 90d
+```
+
+`install.sh` prints the `nexusd token create` command at the end of an
+install as a reminder; it never creates a token itself. On the client,
+register the host with that token (`nexus host add`, see
+[Install the nexus client](#install-the-nexus-client)). Everything below
+then works without logging in to the host again. `nexusd:admin` is
+root-equivalent: read [security.md](security.md#nexusdadmin-is-root-equivalent)
+before handing one out.
+
+**List.** `nexus nexusdtoken get` lists every token of the host, local ones
+included: name, ID, scopes, creation time, expiry, `createdBy` (the token
+that added it remotely) and `self`, true for the token you are using. It
+never shows a secret or a hash.
+
+```
+nexus nexusdtoken get --host nas
+nexus nexusdtoken get --host all --select name,properties.createdBy
+```
+
+**Add.** `nexus nexusdtoken add NAME` creates a token with the scopes given
+by `--scopes` (none by default) and an optional `--expires` (a Go duration
+such as `1h30m`, or days such as `90d`; never by default):
+
+```
+nexus nexusdtoken add agent --host nas --scopes containers:read --scopes scripts:run:deploy-api --expires 30d
+```
+
+The secret is printed once, on stdout, and never again: it is not stored on
+the host, and an add creates no operation and takes no idempotency key, so
+nothing can replay it. With `--host a,b` each host gets its own token, each
+printed with its host. To keep the secret off the terminal, `--save-as-host
+NAME` stores it in `~/.config/nexus/config.yaml` as host `NAME`, with the
+target's URL and pinned fingerprint, and prints the result without it. It
+takes exactly one target, and `NAME` must be a new host or the same host at
+the same URL, which rotates that host's token:
+
+```
+nexus nexusdtoken add laptop-2 --host nas --scopes nexusd:admin --expires 90d --save-as-host nas
+```
+
+**Remove.** `nexus nexusdtoken remove NAME` revokes a token by name or
+token ID, after asking for confirmation (`--yes` skips it, and is required
+without a terminal). It is refused from the next request.
+
+```
+nexus nexusdtoken remove agent --host nas
+```
+
+Removing the token you are using is allowed: the result says `revokedSelf`
+true, and the CLI warns on stderr that this client can no longer
+authenticate to that host with it. Run `nexus nexusdtoken get` first and
+check `self` to avoid it. A host's configuration change can also leave a
+client locked out (see the lock-out warning below). Either way, the way
+back is one login: `sudo nexusd token create` on the host still works with
+no running daemon and no existing token.
+
+**Limits.**
+
+- Successful adds and removes together are limited to 10 per minute per
+  host. The 11th answers 429 `rate-limited`, with a `Retry-After` header
+  saying when to retry, and changes nothing.
+- A host holds at most 256 tokens, local ones included. An add past that
+  answers 409 `token-limit-reached`; remove unused tokens first. `sudo
+  nexusd token create` is not limited.
+- A name already taken answers 409 `conflict`, and an unknown name or ID
+  answers 404 `not-found`.
+- A name that looks like a token string (`nxs_...`) is refused without being
+  echoed, so a secret pasted by mistake is never sent on in an error or the
+  audit log. Pass the token's name or ID instead.
+
+Every add, list and remove is audited: an add with the new token's name, ID,
+scopes and expiry, a remove with the token's name and ID and whether it was
+the caller's own. No audit record holds a secret.
+
+## Change the configuration remotely
+
+`nexus nexusdconfig get` reads `/etc/nexus/nexusd.yaml` and `nexus
+nexusdconfig update` sets keys in it, from a client, with a `nexusd:admin`
+token. Neither is an MCP tool.
+
+**Read.** Without a key, `get` lists every key of the schema by dotted name;
+with one, it returns that key, or every key of a section:
+
+```
+nexus nexusdconfig get --host nas
+nexus nexusdconfig get providers.host --host nas
+nexus nexusdconfig get audit.retentionDays --host nas
+```
+
+Each key shows its `value` as written in the file (null when absent), its
+`effective` value (the default when absent) and its `source`, `file` or
+`default`. Values come from the file on disk, which can differ from the
+configuration in force until a reload or restart. Secrets, such as a
+script's `env` values, are shown as `[REDACTED]`. Config get works on
+systemd and OpenRC hosts.
+
+**Set.** `update` takes one or more `KEY=VALUE` assignments, up to 32, and
+applies them together or not at all:
+
+```
+nexus nexusdconfig update providers.host.enabled=true --host nas
+nexus nexusdconfig update audit.retentionDays=30 providers.host.sampleInterval=5s --host nas,web
+```
+
+- **Keys** are dotted paths of the schema, as `nexusdconfig get` lists them.
+  A value is parsed by the key's type: `true` or `false`, an integer, a
+  duration such as `90s` or `1h`, or a string of at most 4096 bytes.
+  Assigning a key the file does not have adds it, with any missing parent
+  section. There is no unset: set a key to its default value instead.
+- **Lists and mappings cannot be set:** `listen`, `tls.extraSANs`,
+  `mcp.allowedOrigins`, `providers.docker.compose.trustedOwners`,
+  `providers.nexusd.update.trustedKeys` and the script catalog, and whole
+  sections such as `providers.host`. Edit them on the host.
+- **Denied keys:** `providers.nexusd.update.trustedKeys`,
+  `providers.nexusd.enabled=false`, anything under
+  `providers.scripts.catalog`, and every key whose value names a file,
+  directory or service: `tls.certFile`, `tls.keyFile`,
+  `providers.docker.socket`, `providers.docker.configDir`,
+  `providers.nginx.includeDir`, `providers.nginx.includeSuffix`,
+  `providers.nginx.disabledSuffix`, `providers.nginx.service` and
+  `providers.pihole.dnsFile`. [security.md](security.md#the-deny-list)
+  gives the reason for each.
+
+Before anything runs, the host checks the edited file exactly as `nexusd
+validate-config` would. An unknown key (the error names the nearest valid
+parent), a denied key, a list or mapping, a value of the wrong
+type, or an edited file that would be invalid answers 422 `config-invalid`
+with every error located by key, and nothing changes. A host on OpenRC
+answers 503 `config-set-unavailable`: config set needs systemd, and `nexus
+nexusd get` shows `configSet` unavailable there.
+
+**No change.** When every assigned key is already in the file with an equal
+value (durations compared as durations, so `60s` equals `1m`), the call
+answers at once with `changed: false`: it creates no operation, writes
+nothing and reloads nothing. An assignment to a key the file does not have
+is a change, even when the value equals the default.
+
+**A change** runs as an operation in its own `nexus-op-<id>` unit, as root,
+and the CLI waits for it:
+
+1. The current file is saved as `/etc/nexus/nexusd.yaml.bak`, mode 0600.
+   There is one backup: each change overwrites it, and it is kept after
+   success, so `sudo diff /etc/nexus/nexusd.yaml.bak /etc/nexus/nexusd.yaml`
+   shows the last change.
+2. The edited file replaces `/etc/nexus/nexusd.yaml` atomically, owned by
+   root with mode 0600 (or the file's own mode if stricter).
+3. `nexusd` reloads it, as `sudo systemctl reload nexusd` does.
+
+The result has `changed`, each key's old and new value in `changes`
+(redacted as `get` redacts them), `backupPath` and `restartRequired`. If the
+file changed on the host since the request was checked, it fails with
+`config-conflict` and nothing is written.
+
+**It never restarts `nexusd`.** Some settings are fixed at start-up:
+`listen`, `tls`, `host`, `limits`, `auth`, `audit` and `mcp`. A change to one
+is written and reloaded, but takes effect only at the next restart;
+`restartRequired` names those sections and the CLI prints `run nexus nexusd
+restart to apply: ...` on stderr. Restart when ready:
+
+```
+nexus nexusd restart --host nas
+```
+
+**Lock-out warning.** `tls.mode` and `auth.failureLimitPerMinute` change how
+clients connect once `nexusd` restarts. Switching `tls.mode` between `auto`
+and `files` changes the certificate `nexusd` serves, which then no longer
+matches the fingerprint each client pinned; `off` is accepted only when
+every listen address is loopback, which leaves only clients on the host
+itself. A lower `auth.failureLimitPerMinute` rate-limits a client with a bad
+token sooner. For each changed `tls` or `auth` key the CLI prints a warning
+on stderr that this client may be locked out after the restart. If that happens, log in to the host, fix
+the file (`/etc/nexus/nexusd.yaml.bak` holds the previous version) and
+restart; `sudo nexusd token create` makes a new token if one is needed.
+
+**If the reload refuses the new file,** or does not confirm it within 12
+seconds, the backup is put back and reloaded: the operation fails with
+`config-apply-failed` and `restored: true`, and the configuration in force
+is the one from before the change. If even that is not confirmed, it fails
+with `config-restore-failed`: follow
+[Recovering from a failed configuration change](#recovering-from-a-failed-configuration-change).
+
+**Comments and layout are kept.** Setting a key the file already has
+replaces its value in place, so the change is that one line. Adding a key
+re-encodes the whole file instead, and this normalization happens only when
+a key is added: blank lines are dropped, the spacing before line comments is collapsed to one space,
+and indentation becomes 2 spaces. Every comment stays attached to its key,
+every other key keeps its value and key order is unchanged; the new key
+goes last in its section. The shipped default file lists every key, so on
+an installed host a set is normally a one-line change.
+
+**Several hosts.** `--host a,b` or `--host all` asks for confirmation, then
+changes each host on its own, with a result per host. There is no rollback
+across hosts: a host that refused keeps its file while the others change.
+
+Config set takes turns with reload, restart, update and rollback: while one
+of them is queued or running on a host, another answers 409 naming it, even
+a set that would change nothing. Every set is audited with each key's old
+and new value, the backup path and the outcome.
 
 ## Upgrade
 
@@ -545,6 +772,61 @@ When `nexus package update` upgrades packages on a host, Ubuntu's
 services. That is expected: the upgrade itself runs in its own unit, which
 `needrestart` does not stop, and `nexusd` reports its outcome when it is
 back. Script runs survive it the same way.
+
+## Recovering from a failed configuration change
+
+A config set that fails with `config-restore-failed` changed
+`/etc/nexus/nexusd.yaml`, saw the reload refuse it (or not answer), and then
+could not confirm that the restored backup was applied either. The file on
+disk may not be the configuration in force, and `nexusd` may not be
+running. The same steps apply to a config set that ended `outcome-unknown`.
+Recover on the host, as root. The detail names the two files; with the
+default paths:
+
+1. See what state it is in:
+
+   ```
+   sudo systemctl status nexusd.service
+   sudo journalctl -u nexusd.service -n 100
+   sudo nexusd validate-config
+   sudo diff /etc/nexus/nexusd.yaml.bak /etc/nexus/nexusd.yaml
+   ```
+
+   `/etc/nexus/nexusd.yaml.bak` is the file from before the change. `sudo
+   cat /var/lib/nexus/reload-status.json` shows the last reload's outcome:
+   `applied`, its `error`, and the `sha256` of the file it read, which
+   `sudo sha256sum /etc/nexus/nexusd.yaml` can be compared with.
+
+2. If `nexusd validate-config` reports errors, put the backup back. `cp`
+   onto the existing file keeps its owner and mode; check that they are
+   still `root:root` and 0600:
+
+   ```
+   sudo cp /etc/nexus/nexusd.yaml.bak /etc/nexus/nexusd.yaml
+   sudo chown root:root /etc/nexus/nexusd.yaml
+   sudo chmod 0600 /etc/nexus/nexusd.yaml
+   sudo nexusd validate-config
+   ```
+
+   If the file is valid, keep it: it is the change you asked for, and
+   reloading it applies it.
+
+3. Apply the file and check that the reload took it:
+
+   ```
+   sudo systemctl reload nexusd.service
+   sudo journalctl -u nexusd.service -n 20
+   ```
+
+   If `nexusd.service` is not running, start it instead with `sudo systemctl
+   restart nexusd.service`.
+
+4. From a client, `nexus nexusd get` answers again, and `nexus nexusdconfig
+   get` shows the file.
+
+Another change made on the host while the set ran is kept, not restored:
+the set then fails with `config-conflict`, and the backup holds the file
+from before the set.
 
 ## Operate
 

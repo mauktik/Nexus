@@ -133,9 +133,17 @@ providers:
     maxConfigBytes: 262144 # Largest site file read or written (256 KiB); at most limits.maxBodyBytes
   # nexusd itself: get and validate-config read it (nexusd:read); reload,
   # restart, update and rollback change it and require nexusd:admin, which is
-  # root-equivalent. Restart, update and rollback run in a systemd unit
+  # root-equivalent. With nexusd:admin a client can also add, list and remove
+  # tokens (nexus nexusdtoken) and read this file and set its scalar keys
+  # (nexus nexusdconfig update KEY=VALUE); see docs/install.md. Lists, release
+  # keys, the script catalog, enabled: false here, and every key whose value
+  # names a file, directory or service change only by editing this file. A
+  # remote set saves this file as nexusd.yaml.bak, reloads, and never
+  # restarts. Restart, update, rollback and config set run in a systemd unit
   # outside the sandbox and need nexusd running as nexusd.service: systemd
-  # hosts only, not OpenRC.
+  # hosts only, not OpenRC. To administer a host remotely, enable this and
+  # mint the first admin token here, once:
+  #   sudo nexusd token create --name NAME --scope nexusd:admin
   nexusd:
     enabled: false
     healthTimeout: 30s # 5s..10m: how long a restarted nexusd may take to become healthy
