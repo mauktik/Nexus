@@ -723,3 +723,143 @@ func slugOf(m map[string]any) string {
 	}
 	return fmt.Sprintf("<%s>", typ)
 }
+
+// configSetStack is the WI 4.4 config-set stack: the T0 stack whose detach
+// launcher runs the real service helper in process, on F-SYS with F-RELOAD
+// serving the daemon's ConfigPath and writing its reload status to the
+// stack's state directory, so a config set runs Admission, Prepare, the
+// helper and Finalize end to end through REST. Launch records the
+// invocation in the csStack's spy, runs the helper over the operation's
+// spec.json and writes exit.json, which the launcher's watcher then reads.
+// F-SYS has no goroutines and is not safe for concurrent use: the helper
+// runs under mu, and the test reaches F-SYS and F-RELOAD only through
+// withFake, which holds mu too.
+type configSetStack struct {
+	*csStack
+
+	mu  sync.Mutex
+	f   *fakeSystem
+	rl  *fakeReload
+	out syncBuffer // The helper's stdout and stderr
+}
+
+// newConfigSetStack starts the config-set stack over a temp ConfigPath
+// holding body, with one reload already handled so a baseline status
+// exists, as newCSRig does.
+func newConfigSetStack(t *testing.T, body []byte, cfg stackConfig) *configSetStack {
+	t.Helper()
+	c := &configSetStack{}
+	spy := &launchSpy{}
+	cfg.launch = func(ctx context.Context, inv detach.Invocation) error {
+		if err := spy.launch(ctx, inv); err != nil {
+			return err
+		}
+		return c.runHelper(inv)
+	}
+	s := newStack(t, cfg)
+	path := filepath.Join(t.TempDir(), "nexusd.yaml")
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.daemon.setConfigPath(path)
+	c.csStack = &csStack{stack: s, spy: spy, cfgPath: path}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.f = newFakeSystem(t, 300)
+	c.f.bootActive(t, "v9.9.1", "ok")
+	c.rl = c.f.enableReload(t, path, s.stateDir)
+	c.f.sighup()
+	c.f.runUntil(c.f.now.Add(time.Second))
+	if c.rl.handled != 1 {
+		t.Fatalf("baseline reload not handled: %d", c.rl.handled)
+	}
+	return c
+}
+
+// runHelper is the in-process unit: `nexusd service-helper --dir D` from
+// the operation's spec.json, on F-SYS with the real validator, then
+// exit.json with the helper's exit code. It runs on the ops manager's
+// goroutine, so it reports a failure as an error, never through t.
+func (c *configSetStack) runHelper(inv detach.Invocation) error {
+	b, err := os.ReadFile(filepath.Join(inv.Dir, detach.SpecFile))
+	if err != nil {
+		return err
+	}
+	var sp specOnDisk
+	if err := json.Unmarshal(b, &sp); err != nil {
+		return fmt.Errorf("decode spec.json: %w", err)
+	}
+	if len(sp.Argv) < 2 || sp.Argv[1] != HelperCommand {
+		return fmt.Errorf("argv %q does not run the service helper", sp.Argv)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	started := time.Now()
+	code := runHelper(sp.Argv[2:], &c.out, &c.out, helperEnv{
+		newSystem: func(helperInput) system { return c.f },
+		mode:      modeOf,
+		check:     realCheck,
+	})
+	return detach.WriteExit(inv.Dir, detach.Exit{ExitCode: code, Started: started, Ended: time.Now()})
+}
+
+// withFake runs fn with F-SYS and F-RELOAD, never during a helper run: to
+// inject a fault before a call, or to read the fake's record after one.
+func (c *configSetStack) withFake(fn func(f *fakeSystem, rl *fakeReload)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	fn(c.f, c.rl)
+}
+
+// reloadCalls is how many times the helper called systemctl reload.
+func (c *configSetStack) reloadCalls() int {
+	n := 0
+	c.withFake(func(_ *fakeSystem, rl *fakeReload) { n = rl.reloadCalls })
+	return n
+}
+
+// statusesWritten is how many reload statuses F-RELOAD wrote, the
+// baseline's included.
+func (c *configSetStack) statusesWritten() int {
+	n := 0
+	c.withFake(func(_ *fakeSystem, rl *fakeReload) { n = len(rl.statuses) })
+	return n
+}
+
+// lastAppliedSHA is the digest of the last applied reload status.
+func (c *configSetStack) lastAppliedSHA(t *testing.T) string {
+	t.Helper()
+	sha := ""
+	c.withFake(func(_ *fakeSystem, rl *fakeReload) {
+		for _, st := range rl.statuses {
+			if st.Applied {
+				sha = st.SHA256
+			}
+		}
+		if sha != rl.appliedSHA() {
+			t.Errorf("the last applied status %s is not F-RELOAD's applied bytes %s", sha, rl.appliedSHA())
+		}
+	})
+	if sha == "" {
+		t.Fatal("no applied reload status")
+	}
+	return sha
+}
+
+// wantPC is FR-8's post-condition for an operation that ended: the disk
+// digest equals the last applied status digest, or the operation ended
+// config-restore-failed.
+func (c *configSetStack) wantPC(t *testing.T, op apitypes.Operation) {
+	t.Helper()
+	if op.Error != nil && op.Error.Slug() == problem.ConfigRestoreFailed {
+		return
+	}
+	if disk, applied := shaHex(readBytes(t, c.cfgPath)), c.lastAppliedSHA(t); disk != applied {
+		t.Errorf("PC: sha(disk) %s != the last applied status %s (operation %s %+v)", disk, applied, op.Status,
+			op.Error)
+	}
+}
+
+// helperOutput is what the helper wrote to stdout and stderr so far.
+func (c *configSetStack) helperOutput() string { return c.out.String() }
