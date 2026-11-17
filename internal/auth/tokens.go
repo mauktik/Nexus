@@ -1,7 +1,10 @@
 // Package auth is the authentication boundary of nexusd: bearer tokens stored
 // as hashes in tokens.json, the HTTP middleware that checks them, the
-// per-source failure rate limiter, and the local `nexusd token` command,
-// which is the only way to create, list or revoke a token (FR-21).
+// per-source failure rate limiter, and the token store's create, list and
+// revoke. The local `nexusd token` command stays the bootstrap and recovery
+// path: it needs no running daemon and no existing token. The nexusd
+// provider's token ops, gated by nexusd:admin, also create, list and revoke
+// through the same store; both serialize on the store's lock.
 package auth
 
 import (
@@ -62,11 +65,46 @@ var (
 
 // Token describes a stored token. It never carries the secret or its hash.
 type Token struct {
-	ID      string
-	Name    string
-	Scopes  []string // Empty unless given at creation (FR-22)
-	Created time.Time
-	Expires *time.Time // Nil means no expiry
+	ID        string
+	Name      string
+	Scopes    []string // Empty unless given at creation (FR-22)
+	Created   time.Time
+	Expires   *time.Time // Nil means no expiry
+	CreatedBy *TokenRef  // The token that created it remotely; nil for a local create
+}
+
+// TokenRef identifies a token by ID and name.
+type TokenRef struct {
+	ID   string
+	Name string
+}
+
+// NameExistsError refuses a create whose name a stored token already has.
+type NameExistsError struct {
+	Name string
+	ID   string // The existing token's ID
+}
+
+func (e *NameExistsError) Error() string {
+	return fmt.Sprintf("a token named %q already exists (id %s); revoke it first or choose another name", e.Name, e.ID)
+}
+
+// NotFoundError refuses a revoke whose reference matches no token's ID or name.
+type NotFoundError struct {
+	Ref string
+}
+
+func (e *NotFoundError) Error() string {
+	return fmt.Sprintf("no token with id or name %q", e.Ref)
+}
+
+// LimitError refuses a create when the store already holds Max tokens.
+type LimitError struct {
+	Max int
+}
+
+func (e *LimitError) Error() string {
+	return fmt.Sprintf("the token store already holds %d tokens, the most allowed; revoke one first", e.Max)
 }
 
 // record is one entry of tokens.json.
@@ -77,6 +115,15 @@ type record struct {
 	Scopes  []string   `json:"scopes"`
 	Created time.Time  `json:"created"`
 	Expires *time.Time `json:"expires,omitempty"`
+	// Absent for a local create, so an rc3 store and an rc3 reader, which
+	// ignores the unknown key, see the same file (CON-5).
+	CreatedBy *createdByJSON `json:"createdBy,omitempty"`
+}
+
+// createdByJSON is the wire form of TokenRef in tokens.json.
+type createdByJSON struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type tokenFile struct {
@@ -92,6 +139,9 @@ func (r record) token() Token {
 	if t.Scopes == nil {
 		t.Scopes = []string{}
 	}
+	if r.CreatedBy != nil {
+		t.CreatedBy = &TokenRef{ID: r.CreatedBy.ID, Name: r.CreatedBy.Name}
+	}
 	return t
 }
 
@@ -101,11 +151,17 @@ type CreateRequest struct {
 	Scopes []string      // Duplicates are dropped; none means no scopes
 	TTL    time.Duration // Zero means no expiry
 	Now    time.Time     // Zero means time.Now
+	// MaxTokens refuses the create with *LimitError when the store already
+	// holds that many tokens, checked under the lock. Zero means no cap.
+	MaxTokens int
+	CreatedBy *TokenRef // The creating token for a remote create; nil for a local one
 }
 
 // Create adds a token to the store in dir, creating dir (0700) if needed, and
 // returns the token string. That string is the only copy of the secret: the
-// store keeps its SHA-256. A 256-bit random secret needs no slow KDF.
+// store keeps its SHA-256. A 256-bit random secret needs no slow KDF. A full
+// store gives *LimitError, checked before the name, and a taken name gives
+// *NameExistsError.
 func Create(dir string, req CreateRequest) (string, Token, error) {
 	if !nameRE.MatchString(req.Name) {
 		return "", Token{}, fmt.Errorf("invalid token name %q: use 1 to 64 letters, digits, '.', '_' or '-', starting with a letter or digit", req.Name)
@@ -142,6 +198,9 @@ func Create(dir string, req CreateRequest) (string, Token, error) {
 		Scopes:  scopes,
 		Created: now,
 	}
+	if req.CreatedBy != nil {
+		rec.CreatedBy = &createdByJSON{ID: req.CreatedBy.ID, Name: req.CreatedBy.Name}
+	}
 	if req.TTL > 0 {
 		e := now.Add(req.TTL)
 		rec.Expires = &e
@@ -151,9 +210,12 @@ func Create(dir string, req CreateRequest) (string, Token, error) {
 		return "", Token{}, fmt.Errorf("create state directory: %w", err)
 	}
 	err := update(dir, func(recs []record) ([]record, error) {
+		if req.MaxTokens > 0 && len(recs) >= req.MaxTokens {
+			return nil, &LimitError{Max: req.MaxTokens}
+		}
 		for _, r := range recs {
 			if r.Name == rec.Name {
-				return nil, fmt.Errorf("a token named %q already exists (id %s); revoke it first or choose another name", r.Name, r.ID)
+				return nil, &NameExistsError{Name: r.Name, ID: r.ID}
 			}
 		}
 		for {
@@ -187,14 +249,14 @@ func List(dir string) ([]Token, error) {
 	return out, nil
 }
 
-// Revoke removes the token whose ID or name is ref. A running daemon refuses
-// it from its next request on.
+// Revoke removes the token whose ID or name is ref, or gives *NotFoundError.
+// A running daemon refuses it from its next request on.
 func Revoke(dir, ref string) (Token, error) {
 	var gone record
 	err := update(dir, func(recs []record) ([]record, error) {
 		i := slices.IndexFunc(recs, func(r record) bool { return r.ID == ref || r.Name == ref })
 		if i < 0 {
-			return nil, fmt.Errorf("no token with id or name %q", ref)
+			return nil, &NotFoundError{Ref: ref}
 		}
 		gone = recs[i]
 		return slices.Delete(recs, i, i+1), nil
