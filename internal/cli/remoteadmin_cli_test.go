@@ -442,10 +442,8 @@ func TestTCRAE10_CLITokenCommandsAcceptNoTokenValueAsAnArgument(t *testing.T) {
 
 	t.Run("a token string as NAME", func(t *testing.T) {
 		// A full nxs_<id>_<secret> matches tokenNamePattern (60 characters
-		// of [A-Za-z0-9_-]), so remove answers 404 whose detail, the CLI's
-		// stderr and the audit record's target hold the secret. Un-skip
-		// once the name pattern refuses the token shape.
-		t.Skip("TC-RA-E10 token-string half: blocked by the NFR-1 defect reported by WI 2.4")
+		// of [A-Za-z0-9_-]); the name schema's not-token-shape refine
+		// refuses it before it reaches a handler, a log or the audit target.
 		tokenStringAsName(t)
 	})
 }
@@ -462,8 +460,11 @@ func tokenStringAsName(t *testing.T) {
 		if r.code != ExitUsage {
 			t.Errorf("-o %s: remove of a token string: exit %d, want %d (validation-failed): %s", f, r.code, ExitUsage, r.stderr)
 		}
-		if f == "json" && !strings.Contains(r.stderr, "validation-failed") {
-			t.Errorf("-o json: stderr %q does not name validation-failed", r.stderr)
+		// The CLI checks the same input schema before sending, so the
+		// refusal is its local usage error; the REST call below gets the
+		// server's 400 validation-failed.
+		if f == "json" && !strings.Contains(r.stderr, "validation-failed") && !strings.Contains(r.stderr, "urn:nexus:cli:usage") {
+			t.Errorf("-o json: stderr %q names neither validation-failed nor the CLI's usage refusal", r.stderr)
 		}
 		if strings.Contains(r.stderr, h.token) || strings.Contains(r.stdout, h.token) {
 			t.Errorf("-o %s: the token string is echoed: stdout %q stderr %q", f, r.stdout, r.stderr)

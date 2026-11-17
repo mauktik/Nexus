@@ -296,20 +296,30 @@ func refineConfigName(s *jsonschema.Schema) {
 
 // Token input patterns. tokenNamePattern and tokenScopePattern equal
 // internal/auth's nameRE and scopeRE (a test pins them); a name also
-// matches a 12-hex token ID, so remove takes either. tokenExpiresPattern
-// accepts what the local nexusd token command does: days from 1 to 99999,
-// or a non-negative Go duration.
+// matches a 12-hex token ID, so remove takes either. tokenStringPattern is
+// the shape of a token string as internal/auth produces and parses it,
+// nxs_<id>_<secret> (a test pins it). It too matches tokenNamePattern, so a
+// name is also refused by a not of it: a pasted secret must never reach a
+// not-found detail or an audit target (NFR-1). tokenExpiresPattern accepts
+// what the local nexusd token command does: days from 1 to 99999, or a
+// non-negative Go duration.
 const (
 	tokenNamePattern    = `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`
+	tokenStringPattern  = `^nxs_[0-9a-f]{12}_[A-Za-z0-9_-]{43}$`
 	tokenScopePattern   = `^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*(:[A-Za-z0-9][A-Za-z0-9._-]*)?$`
 	tokenExpiresPattern = `^([1-9][0-9]{0,4}d|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$`
 	tokenExpiresMaxLen  = 32
 	tokenMaxScopes      = 32
 )
 
+// tokenStringRefusal is what a token-string name is told. It never quotes
+// the value.
+const tokenStringRefusal = "this looks like a token string, not a token name or ID; pass the token's name or ID"
+
 func refineTokenName(s *jsonschema.Schema) {
 	if p := s.Properties["name"]; p != nil {
 		p.Pattern = tokenNamePattern
+		p.Not = &jsonschema.Schema{Type: "string", Pattern: tokenStringPattern, Description: tokenStringRefusal}
 	}
 }
 

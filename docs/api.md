@@ -7494,7 +7494,7 @@ Parameters:
 
 | Name | In | Required | Schema | Description |
 | --- | --- | --- | --- | --- |
-| `name` | path | yes | `{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"}` | Name of the new token: 1 to 64 letters, digits, '.', '_' or '-', starting with a letter or digit. |
+| `name` | path | yes | `{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$","not":{"type":"string","description":"this looks like a token string, not a token name or ID; pass the token's name or ID","pattern":"^nxs_[0-9a-f]{12}_[A-Za-z0-9_-]{43}$"}}` | Name of the new token: 1 to 64 letters, digits, '.', '_' or '-', starting with a letter or digit. |
 
 Request body (`application/json`, optional):
 
@@ -7618,7 +7618,7 @@ Parameters:
 
 | Name | In | Required | Schema | Description |
 | --- | --- | --- | --- | --- |
-| `name` | path | yes | `{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"}` | Name or 12-hex ID of the token to revoke. |
+| `name` | path | yes | `{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$","not":{"type":"string","description":"this looks like a token string, not a token name or ID; pass the token's name or ID","pattern":"^nxs_[0-9a-f]{12}_[A-Za-z0-9_-]{43}$"}}` | Name or 12-hex ID of the token to revoke. |
 
 Responses:
 
