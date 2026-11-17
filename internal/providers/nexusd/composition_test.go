@@ -197,6 +197,8 @@ func TestTCSM99_NexusCommandGetListsSixNexusd(t *testing.T) {
 	}
 	slices.Sort(routes)
 	want := []string{
+		"GET /v1/providers/nexusd/config",
+		"GET /v1/providers/nexusd/config/{name}",
 		"GET /v1/providers/nexusd/daemons",
 		"GET /v1/providers/nexusd/tokens",
 		"POST /v1/providers/nexusd/actions/reload",

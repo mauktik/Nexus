@@ -1,0 +1,18 @@
+# A valid file whose script catalog carries an env secret (TC-RA-63). The
+# sentinel must never leave nexusd: config list and get show [REDACTED].
+listen: ["127.0.0.1:7443"]
+tls:
+  mode: auto
+providers:
+  nexusd:
+    enabled: true
+  scripts:
+    catalog:
+      - id: deploy
+        description: Deploy the API
+        path: /opt/deploy/deploy.sh
+        runAs: deploy
+        workingDirectory: /opt/deploy
+        env:
+          API_TOKEN: RA_ENV_SENTINEL_9f3c
+          DB_PASSWORD: "RA_ENV_SENTINEL_9f3c-db"

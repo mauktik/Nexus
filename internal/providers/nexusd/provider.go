@@ -253,7 +253,7 @@ func (p *Provider) requireSelfManagement() error {
 }
 
 // Bindings binds get, validate-config, reload, restart, update, rollback,
-// the upload and the token ops.
+// the upload, the token ops and the config reads.
 func (p *Provider) Bindings() []provider.Binding {
 	return []provider.Binding{
 		provider.Sync(spec.List, p.get),
@@ -270,6 +270,8 @@ func (p *Provider) Bindings() []provider.Binding {
 		provider.Sync(spec.TokensList, p.tokensList),
 		provider.Sync(spec.TokensAdd, p.tokensAdd),
 		provider.Sync(spec.TokensRemove, p.tokensRemove),
+		provider.Sync(spec.ConfigList, p.configList),
+		provider.Sync(spec.ConfigGet, p.configGet),
 	}
 }
 
