@@ -423,6 +423,19 @@ func operationOutcome(op apitypes.Operation) error {
 	return &operationError{id: op.ID, err: &ExitError{Code: ExitFailure, Err: fmt.Errorf("ended %s", op.Status)}}
 }
 
+// resultWarnings are the warnings of the result of the operation in body,
+// the last state await returned (EchoWarnings). An operation that has not
+// succeeded has no result, and so none.
+func resultWarnings(body []byte) []string {
+	var op struct {
+		Result json.RawMessage `json:"result"`
+	}
+	if json.Unmarshal(body, &op) != nil || len(op.Result) == 0 {
+		return nil
+	}
+	return outputWarnings(op.Result)
+}
+
 // readError is a failure to read an accepted operation. A 403 means the
 // token may start it but not read it, as with scripts:run:{id} without
 // scripts:read: exit 3, naming the scope reading needs. The operation is

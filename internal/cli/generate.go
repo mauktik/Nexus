@@ -238,6 +238,7 @@ func (a *app) newOpCommand(g *opCommand) (*cobra.Command, error) {
 		return nil, err
 	}
 	registerWhatIfFlag(cmd, b)
+	registerSaveFlag(cmd, g)
 	// A wrong flag or argument count is a usage error of a data command,
 	// printed as JSON in a machine format like any other.
 	usage := func(c *cobra.Command, err error) error {
@@ -357,9 +358,9 @@ func argsUse(g *opCommand, b *binding) string {
 	case b.positional != "":
 		return " " + strings.ToUpper(b.positional)
 	case b.variadic && b.required:
-		return " " + strings.ToUpper(variadicField) + "..."
+		return " " + strings.ToUpper(b.trailing) + "..."
 	case b.variadic:
-		return " [" + strings.ToUpper(variadicField) + "...]"
+		return " [" + strings.ToUpper(b.trailing) + "...]"
 	}
 	return ""
 }
@@ -372,8 +373,12 @@ func examples(g *opCommand, b *binding) string {
 		if p := op.CLI.Positional; p != "" {
 			line += " <" + p + ">"
 		}
-		if b.variadic {
+		switch {
+		case b.variadic && b.trailing == variadicField:
+			// The placeholder names have always shown, kept so their docs stay.
 			line += " <name>..."
+		case b.variadic:
+			line += " " + strings.ToUpper(b.trailing) + "..."
 		}
 		for _, f := range b.fields {
 			if f.kind == kindMap && b.opFields[op.ID][f.name] {
@@ -384,7 +389,8 @@ func examples(g *opCommand, b *binding) string {
 			line += " --" + u.FileFlag + " <path>"
 		}
 		lines = append(lines, "  # "+op.Summary, "  "+line)
-		if op.Mutating() && !op.OperationControl {
+		// A SyncMutation has no idempotency replay, so no key to retry with.
+		if op.Mutating() && !op.OperationControl && !op.SyncMutation {
 			lines = append(lines, "  # The same, safe to retry", "  "+line+" --"+flagIdempotencyKey+" <key>")
 		}
 	}
@@ -409,6 +415,9 @@ func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string
 	if flagSet(cmd, flagStdin) && len(g.uploads) > 0 {
 		return usagef("--%s cannot be used with a command that uploads a file", flagStdin)
 	}
+	if flagSet(cmd, flagStdin) && flagChanged(cmd, flagSaveAsHost) {
+		return usagef("--%s saves the token of one call; it cannot be used with --%s", flagSaveAsHost, flagStdin)
+	}
 	if flagSet(cmd, flagStdin) {
 		return a.interruptedExit(a.invokeStdin(cmd, g, b))
 	}
@@ -424,6 +433,10 @@ func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string
 		return err
 	}
 	w, err := waitOptionsOf(cmd)
+	if err != nil {
+		return err
+	}
+	save, err := saveAsHostOf(cmd, op)
 	if err != nil {
 		return err
 	}
@@ -452,6 +465,10 @@ func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string
 	if err != nil {
 		return err
 	}
+	// Before the confirmation, which a second target would need.
+	if err := a.checkSave(save, targets); err != nil {
+		return err
+	}
 	hosts := make([]string, len(targets))
 	for i, t := range targets {
 		hosts[i] = t.Name
@@ -475,7 +492,11 @@ func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string
 				return nil, err
 			}
 		}
-		return a.execute(ctx, c, t, op, hin, hreq, w, p)
+		body, err := a.execute(ctx, c, t, op, hin, hreq, w, p)
+		if save != nil && err == nil && body != nil {
+			return a.saveToken(save, body)
+		}
+		return body, err
 	}
 	waited := op.Mode == def.ModeLongRunning && !w.noWait
 	show := func(t hostTarget, body []byte) error { return p.response(a, t, op, in, body, waited) }
@@ -487,6 +508,13 @@ func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string
 		if body != nil {
 			if serr := show(t, body); err == nil {
 				err = serr
+			}
+		}
+		if err != nil && save != nil && body != nil {
+			// A failed save returns the answer whole: its secret must reach
+			// stdout, also in a format that prints only on close.
+			if cerr := a.closePrinter(p); cerr != nil {
+				return fmt.Errorf("%w; printing the result also failed: %v", err, cerr)
 			}
 		}
 		if err != nil {
@@ -516,8 +544,11 @@ func followsStream(op def.Op, in map[string]any) bool {
 }
 
 // execute sends one request to t and returns what to print: the response,
-// or for a long-running op, the operation once waited for (FR-33). A
-// followed stream op prints its frames as they arrive and returns nil.
+// or for a long-running op, the operation once waited for (FR-33). A 200
+// from a long-running op, which only a CompletesAtAdmission op gives, is its
+// output: the final result, with no operation to wait for, which p then
+// prints as such. A followed stream op prints its frames as they arrive and
+// returns nil.
 func (a *app) execute(ctx context.Context, c *client.Client, t hostTarget, op def.Op, in map[string]any, req client.Request,
 	w waitOptions, p *lockedPrinter) ([]byte, error) {
 	if followsStream(op, in) {
@@ -530,6 +561,10 @@ func (a *app) execute(ctx context.Context, c *client.Client, t hostTarget, op de
 	resp, err := c.Send(ctx, req)
 	if err != nil {
 		return nil, err
+	}
+	if op.Mode == def.ModeLongRunning && resp.Status == http.StatusOK {
+		p.markFinal(t.Name)
+		return resp.Body, nil
 	}
 	if op.Mode != def.ModeLongRunning || w.noWait {
 		return resp.Body, nil
@@ -552,6 +587,20 @@ func (a *app) interruptedExit(err error) error {
 type lockedPrinter struct {
 	mu sync.Mutex
 	p  *output.Printer
+	// final holds the hosts whose body to print next is a long-running op's
+	// final result, answered with 200 (execute). A host's body is printed
+	// after its execute returns, and before its next one starts.
+	final map[string]bool
+}
+
+// markFinal records that host answered a long-running op with its result.
+func (l *lockedPrinter) markFinal(host string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.final == nil {
+		l.final = map[string]bool{}
+	}
+	l.final[host] = true
 }
 
 func (l *lockedPrinter) print(obj map[string]any) error {
@@ -563,7 +612,9 @@ func (l *lockedPrinter) print(obj map[string]any) error {
 func (l *lockedPrinter) response(a *app, t hostTarget, op def.Op, in map[string]any, body []byte, waited bool) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return a.printResponse(l.p, t, op, in, body, waited)
+	final := l.final[t.Name]
+	delete(l.final, t.Name)
+	return a.printResponse(l.p, t, op, in, body, waited, final)
 }
 
 func (l *lockedPrinter) close() error {
@@ -648,10 +699,60 @@ func (a *app) outputOptions(cmd *cobra.Command, g *opCommand, op def.Op) (output
 	return o, server, nil
 }
 
-// printResponse prints each object of body, labeled with host and id.
+// printResponse prints each object of body, labeled with host and id, then
+// echoes the result's warnings on stderr when op declares EchoWarnings.
 // waited means body is the last state of the operation op answered with,
-// once waited for (FR-33).
-func (a *app) printResponse(p *output.Printer, t hostTarget, op def.Op, in map[string]any, body []byte, waited bool) error {
+// once waited for (FR-33). final means body is a long-running op's 200
+// answer: its output, printed through the same printer, and so with the
+// same columns, as a waited operation.
+func (a *app) printResponse(p *output.Printer, t hostTarget, op def.Op, in map[string]any, body []byte, waited, final bool) error {
+	if err := a.printBody(p, t, op, in, body, waited && !final); err != nil {
+		return err
+	}
+	if op.CLI.EchoWarnings {
+		a.echoWarnings(t.Name, op, body, waited, final)
+	}
+	return nil
+}
+
+// echoWarnings writes each warning of op's result to stderr through warn:
+// those of a sync op's output or of a long-running op's final 200 result,
+// and those of a waited operation's result. An operation as accepted
+// (--no-wait) has no result yet. Warnings are server-built text that never
+// holds a secret; a terminal sees their control characters made visible.
+func (a *app) echoWarnings(host string, op def.Op, body []byte, waited, final bool) {
+	var warnings []string
+	switch {
+	case op.Mode == def.ModeStream:
+		return
+	case op.Mode != def.ModeLongRunning || final:
+		warnings = outputWarnings(body)
+	case waited:
+		warnings = resultWarnings(body)
+	}
+	for _, w := range warnings {
+		if !a.format.Machine() {
+			w = output.Sanitize(w, false)
+		}
+		a.warn(host, w, nil)
+	}
+}
+
+// outputWarnings is the warnings field of an op's output, as
+// apitypes.ActionResult carries it.
+func outputWarnings(body []byte) []string {
+	var out struct {
+		Warnings []string `json:"warnings"`
+	}
+	if json.Unmarshal(body, &out) != nil {
+		return nil
+	}
+	return out.Warnings
+}
+
+// printBody prints each object of body, labeled with host and id. waited
+// is as for printResponse.
+func (a *app) printBody(p *output.Printer, t hostTarget, op def.Op, in map[string]any, body []byte, waited bool) error {
 	relabel := label
 	if printsOperations(op) {
 		relabel = labelOperation

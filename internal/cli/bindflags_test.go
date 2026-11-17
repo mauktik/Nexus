@@ -187,3 +187,43 @@ func TestFlagsFromInputSchemas(t *testing.T) {
 		t.Errorf("package install: %+v", reqs)
 	}
 }
+
+// WI 1.5: trailing arguments bind to CLI.Variadic, else to names; the
+// idempotency key is offered unless every mutating op is a SyncMutation.
+func TestBindingVariadicAndIdempotencyKey(t *testing.T) {
+	groups, err := groupOps(tcraSpecs())
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]*opCommand{}
+	for _, g := range groups {
+		byName[g.noun+" "+g.verb] = g
+	}
+	for _, tc := range []struct {
+		cmd                       string
+		variadic                  bool
+		trailing                  string
+		required, mutating, keyed bool
+	}{
+		{"tcra update", true, "changes", true, true, true},
+		{"tcra add", false, "", false, true, false},
+		{"tcra restart", false, "", false, true, false},
+		{"package install", true, "names", true, true, true},
+		{"operation cancel", false, "", false, true, true},
+		{"container get", false, "", false, false, false},
+	} {
+		g := byName[tc.cmd]
+		if g == nil {
+			t.Fatalf("no command %q", tc.cmd)
+		}
+		b, err := newBinding(g)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.cmd, err)
+		}
+		if b.variadic != tc.variadic || b.trailing != tc.trailing || b.required != tc.required ||
+			b.mutating != tc.mutating || b.keyed != tc.keyed {
+			t.Errorf("%s: variadic %t trailing %q required %t mutating %t keyed %t, want %+v",
+				tc.cmd, b.variadic, b.trailing, b.required, b.mutating, b.keyed, tc)
+		}
+	}
+}
