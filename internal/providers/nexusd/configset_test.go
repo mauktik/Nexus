@@ -1,283 +1,970 @@
-// Stub-style: SKIP-only (nexusd-remote-admin)
-//
-// Stubs of planning/nexusd-remote-admin/test-cases.md TC-RA-71, TC-RA-78, TC-RA-79, TC-RA-80, TC-RA-81, TC-RA-82, TC-RA-83, TC-RA-E22, TC-RA-E23, TC-RA-E30, TC-RA-ERR26, TC-RA-ERR27, TC-RA-ERR28, TC-RA-ERR29, TC-RA-ERR30, TC-RA-ERR31, TC-RA-ERR43.
-// Owner WIs: 4.3. Each stub compiles today and skips; the developer of
-// the owning work item replaces the skip and the comment with the test,
-// keeping the function name so that grep TestTCRA traces it. An
-// un-skipped passing test is the GREEN signal
-// (planning/nexusd-remote-admin/test-strategy.md, RED Stub Style).
-
 package nexusd
 
-import "testing"
+// Tests of planning/nexusd-remote-admin/test-cases.md TC-RA-71, TC-RA-78 to
+// TC-RA-83, TC-RA-E22, TC-RA-E23, TC-RA-E30, TC-RA-ERR26 to TC-RA-ERR31 and
+// TC-RA-ERR43 (WI 4.3): config set's admission, Prepare, Finalize and
+// availability. REST cases run on the T0 stack with the launch spy; the
+// cases that must step between admission and Prepare, or need the real
+// helper, call the erased binding directly over the WI 4.2 rig (csRig).
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"net/http"
+	"os"
+	"path/filepath"
+	"reflect"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"go.yaml.in/yaml/v3"
+
+	"github.com/mauktik/nexus/internal/apitypes"
+	"github.com/mauktik/nexus/internal/audit"
+	"github.com/mauktik/nexus/internal/config"
+	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/problem"
+	"github.com/mauktik/nexus/internal/provider"
+	"github.com/mauktik/nexus/internal/providers/nexusd/spec"
+	"github.com/mauktik/nexus/internal/systemspec"
+)
+
+// csStack is the T0 stack with the launch spy and the daemon's ConfigPath
+// on a temp file.
+type csStack struct {
+	*stack
+	spy     *launchSpy
+	cfgPath string
+}
+
+func newCSStack(t *testing.T, body []byte, cfg stackConfig) *csStack {
+	t.Helper()
+	spy := &launchSpy{}
+	cfg.launch = spy.launch
+	s := newStack(t, cfg)
+	path := filepath.Join(t.TempDir(), "nexusd.yaml")
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.daemon.setConfigPath(path)
+	return &csStack{stack: s, spy: spy, cfgPath: path}
+}
+
+// set POSTs update-config with changes.
+func (c *csStack) set(t *testing.T, token string, header http.Header, changes ...string) response {
+	t.Helper()
+	b, err := json.Marshal(map[string]any{"changes": changes})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c.do(t, http.MethodPost, "/providers/nexusd/actions/update-config", token, string(b), header)
+}
+
+// noChange wants a 200 changed:false answer and returns its result.
+func (c *csStack) noChange(t *testing.T, r response) spec.ConfigUpdateResult {
+	t.Helper()
+	r.want(t, http.StatusOK)
+	res := decodeJSON[spec.ConfigUpdateResult](t, r.body)
+	if res.Changed || res.RestartRequired == nil || len(res.RestartRequired) != 0 || res.BackupPath != "" {
+		t.Errorf("result %s, want changed false, restartRequired [] and no backupPath", r.body)
+	}
+	if !strings.Contains(string(r.body), `"restartRequired":[]`) {
+		t.Errorf("body %s, want restartRequired []", r.body)
+	}
+	if r.header.Get("Location") != "" || r.header.Get("Retry-After") != "" {
+		t.Errorf("headers %v, want no Location or Retry-After", r.header)
+	}
+	return res
+}
+
+// invalid wants a 422 config-invalid naming the config path and returns
+// its errors.
+func (c *csStack) invalid(t *testing.T, r response) []spec.ConfigError {
+	t.Helper()
+	m := wantProblem(t, r, http.StatusUnprocessableEntity, problem.ConfigInvalid)
+	if m["configPath"] != c.cfgPath {
+		t.Errorf("configPath %v, want %s", m["configPath"], c.cfgPath)
+	}
+	return decodeJSON[struct {
+		Errors []spec.ConfigError `json:"errors"`
+	}](t, r.body).Errors
+}
+
+// validations is how many times the daemon's byte check ran.
+func validations(d *fakeDaemon) int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	n := 0
+	for _, c := range d.calls {
+		if c == "CheckConfigData" {
+			n++
+		}
+	}
+	return n
+}
+
+// opsEntries lists the ops directory, empty when it does not exist.
+func opsEntries(t *testing.T, dir string) []string {
+	t.Helper()
+	es, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, e := range es {
+		out = append(out, e.Name())
+	}
+	return out
+}
+
+// wantNoSideEffects asserts that no operation, launch, write or backup
+// happened since the stack started.
+func (c *csStack) wantNoSideEffects(t *testing.T, sha string) {
+	t.Helper()
+	if ops := c.operations(t); len(ops) != 0 {
+		t.Errorf("operations %+v, want none", ops)
+	}
+	if n := c.spy.count(); n != 0 {
+		t.Errorf("launches %d, want 0", n)
+	}
+	if got := shaHex(readBytes(t, c.cfgPath)); got != sha {
+		t.Errorf("the config file changed: sha %s, want %s", got, sha)
+	}
+	if _, err := os.Lstat(c.cfgPath + ".bak"); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("%s.bak exists (%v), want none", c.cfgPath, err)
+	}
+}
+
+// endOp writes operation id's exit.json, and its result.json when res is
+// set, and waits for it to end.
+func (c *csStack) endOp(t *testing.T, id string, x detach.Exit, res *helperResult) apitypes.Operation {
+	t.Helper()
+	dir := filepath.Join(c.opsDir, id)
+	if res != nil {
+		if err := writeResult(dir, *res); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now()
+	x.Started, x.Ended = now, now
+	if err := detach.WriteExit(dir, x); err != nil {
+		t.Fatal(err)
+	}
+	return c.awaitOp(t, id)
+}
+
+// factsOf returns the facts of the last record of the update-config op
+// with outcome.
+func (c *csStack) factsOf(t *testing.T, outcome string) map[string]string {
+	t.Helper()
+	recs := c.auditOf(t, spec.UpdateConfig.Op().ID)
+	for i := len(recs) - 1; i >= 0; i-- {
+		if recs[i].Outcome == outcome {
+			return recs[i].Facts
+		}
+	}
+	t.Fatalf("no %s record in %v", outcome, outcomes(recs))
+	return nil
+}
+
+// csDirect is the erased config-set binding of a provider whose daemon
+// serves the csRig's file, with the rig's operation directory as the
+// operation's (TC-RA-E22's direct-call method).
+type csDirect struct {
+	rig   *csRig
+	p     *Provider
+	d     *fakeDaemon
+	funcs provider.DetachedFuncs
+	run   *provider.Run
+}
+
+func newCSDirect(t *testing.T, changes ...string) *csDirect {
+	t.Helper()
+	rig := newCSRig(t, 0o600, changes...)
+	d := newFakeDaemon(rig.cfgPath, rig.stateDir, time.Now().Add(-time.Minute))
+	p := New(Options{Host: StackHost, Paths: rig.f.paths, Systemd: AvailableSystemd,
+		InService: func() error { return nil }, Executable: func() (string, error) { return restartExe, nil }})
+	p.UseDaemon(d)
+	p.UseOpsDir(filepath.Dir(rig.dir))
+	return &csDirect{rig: rig, p: p, d: d, funcs: detachedOf(t, p, spec.UpdateConfig.Op().ID),
+		run: provider.NewRun(filepath.Base(rig.dir), nil)}
+}
+
+// admit runs the Admission hook and wants a change: the input Prepare runs on.
+func (c *csDirect) admit(t *testing.T, changes ...string) spec.ConfigUpdateInput {
+	t.Helper()
+	if c.funcs.Admission == nil {
+		t.Fatal("update-config has no Admission hook")
+	}
+	done, out, next, err := c.funcs.Admission(t.Context(), spec.ConfigUpdateInput{Changes: changes})
+	if err != nil || done {
+		t.Fatalf("Admission = done %t, %+v, %v; want a change", done, out, err)
+	}
+	in, ok := next.(spec.ConfigUpdateInput)
+	if !ok {
+		t.Fatalf("Admission's input is %T, want spec.ConfigUpdateInput", next)
+	}
+	return in
+}
+
+// wantNothingPrepared asserts Prepare's refusal left nothing behind: no
+// input.json, no backup, the disk at sha, and no reload.
+func (c *csDirect) wantNothingPrepared(t *testing.T, s detach.Spec, sha string) {
+	t.Helper()
+	if !reflect.DeepEqual(s, detach.Spec{}) {
+		t.Errorf("Prepare returned spec %+v, want none", s)
+	}
+	if _, err := os.Lstat(filepath.Join(c.rig.dir, inputFileName)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("input.json exists (%v), want none", err)
+	}
+	if got := shaHex(c.rig.disk(t)); got != sha {
+		t.Errorf("disk sha %s, want %s", got, sha)
+	}
+	c.rig.wantNoBackup(t)
+	if c.rig.rl.reloadCalls != 0 {
+		t.Errorf("reloadCalls %d, want 0", c.rig.rl.reloadCalls)
+	}
+}
 
 // TC-RA-71: A config set that changes nothing is answered at admission with changed:false, with no operation and no helper unit. Owner WI 4.3. Requirements: FR-7.
-//
-//   - Setup: A stack with the launch spy, F-RELOAD and a temp `ConfigPath` holding the default file with `providers.nexusd.enabled: true`. Record the file's inode, mtime and sha, the operation count, the `ops/` directory listing and `launches`. FR-7 as written (A-14, D-7): a no-op set ends at admission with `200 {changed:false}`, and no operation, unit or idempotency entry exists.
-//   - Steps:
-//     1. `POST .../actions/update-config` with `{"changes":["providers.nexusd.enabled=true"]}` as `admin` (the value already in the file).
-//     2. The same with two assignments that both equal the file: `["providers.nexusd.enabled=true","audit.retentionDays=<the file's value>"]`, the value read from the fixture with `yaml.v3`.
-//     3. Step 1's body twice more with the header `Idempotency-Key: ra-noop-1`.
-//   - Expected:
-//   - Response: each answers `200`, never `202`, with a body that decodes into `spec.ConfigUpdateResult` with `changed: false`, `changes` holding one entry per assignment with `old` equal to `new` (the decoded file value), `restartRequired []`, no `backupPath`, and no `Location` or `Retry-After` header.
-//   - No operation: the operation count and the `ops/` listing are unchanged, so no `input.json` was written.
-//   - No unit: `launches == 0`.
-//   - No idempotency entry (A-36): both step 3 calls answer `200` with the same body, and the ops store has no entry for `(admin's token ID, ra-noop-1)`.
-//   - Nothing written or reloaded: the inode, mtime and sha are unchanged, no `.bak` exists, and F-RELOAD `reloadCalls == 0`.
 func TestTCRA71_AConfigSetThatChangesNothingIsAnsweredAtAdmission(t *testing.T) {
-	t.Skip("TC-RA-71: SKIP-only stub; un-skip when WI 4.3 lands")
+	data := defaultConfigWithNexusd(t)
+	c := newCSStack(t, data, stackConfig{})
+	fi0, err := os.Stat(c.cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sha := shaHex(data)
+	var doc struct {
+		Audit struct {
+			RetentionDays int `yaml:"retentionDays"`
+		} `yaml:"audit"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	days := fmt.Sprint(doc.Audit.RetentionDays)
+
+	// Step 1.
+	res := c.noChange(t, c.set(t, c.admin, nil, "providers.nexusd.enabled=true"))
+	if len(res.Changes) != 1 || res.Changes[0].Key != "providers.nexusd.enabled" || res.Changes[0].Old != true ||
+		res.Changes[0].New != true {
+		t.Errorf("changes %+v, want providers.nexusd.enabled true -> true", res.Changes)
+	}
+
+	// Step 2.
+	res = c.noChange(t, c.set(t, c.admin, nil, "providers.nexusd.enabled=true", "audit.retentionDays="+days))
+	if len(res.Changes) != 2 || res.Changes[1].Key != "audit.retentionDays" ||
+		res.Changes[1].Old != float64(doc.Audit.RetentionDays) || res.Changes[1].Old != res.Changes[1].New {
+		t.Errorf("changes %+v, want old == new == %s for audit.retentionDays", res.Changes, days)
+	}
+
+	// Step 3.
+	key := http.Header{"Idempotency-Key": []string{"ra-noop-1"}}
+	r1 := c.set(t, c.admin, key, "providers.nexusd.enabled=true")
+	r2 := c.set(t, c.admin, key, "providers.nexusd.enabled=true")
+	c.noChange(t, r1)
+	c.noChange(t, r2)
+	if string(r1.body) != string(r2.body) {
+		t.Errorf("idempotent no-op bodies differ:\n%s\n%s", r1.body, r2.body)
+	}
+	// No idempotency entry: a stored key would answer the second call as a
+	// replay of an operation, audited replayed (A-36).
+	got := outcomes(c.auditOf(t, spec.UpdateConfig.Op().ID))
+	if want := []string{"requested", "completed", "requested", "completed", "requested", "completed",
+		"requested", "completed"}; !slices.Equal(got, want) {
+		t.Errorf("audit %v, want %v", got, want)
+	}
+
+	// No operation, unit, write or reload.
+	if names := opsEntries(t, c.opsDir); len(names) != 0 {
+		t.Errorf("ops dir holds %v, want nothing", names)
+	}
+	c.wantNoSideEffects(t, sha)
+	fi1, err := os.Stat(c.cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keyOf(fi0) != keyOf(fi1) {
+		t.Errorf("file key %+v -> %+v: the file was rewritten", keyOf(fi0), keyOf(fi1))
+	}
+	if n := c.daemon.reloadCount(); n != 0 {
+		t.Errorf("reloads %d, want 0", n)
+	}
 }
 
 // TC-RA-78: Admission accepts a valid change, and Prepare writes the config-set input. Owner WI 4.3. Requirements: FR-7, ASM-7.
-//
-//   - Setup: A stack with the launch spy and a temp `ConfigPath` (the default file with nexusd enabled). `orig := sha256(file bytes)` before the call.
-//   - Steps:
-//     1. `POST .../actions/update-config` with `{"changes":["providers.host.enabled=true"]}` as `admin`.
-//     2. Read `ops/<id>/input.json`.
-//   - Expected:
-//   - Step 1: 202, and one launch with argv `[exe service-helper --dir D]`, `KillProcess`, and `MaxRuntime == configSetMaxRuntime`, which is `2*reloadTimeout + 30*time.Second` computed from the package constants and equals 54 s (A-5).
-//   - `input.json`: `mode config-set`, `configPath`, `backupPath = configPath+".bak"`, `changes` as sent, `baseSha256 == orig` (admission's digest, handed through `ConfigUpdateInput.BaseSHA256`, D-7, A-15), `stateDir`, and `reloadTimeout` equal to the package constant (12 s, A-3). `noChange` is absent or false: a no-change set never reaches Prepare (TC-RA-71).
-//   - Prepare does not re-edit: with `CheckConfigDataForTest` counting calls, admission validates once and Prepare adds no call (the helper re-validates, TC-RA-ERR20).
-//   - Audit: the `requested` record's params carry the `changes` and no `baseSha256`.
 func TestTCRA78_AdmissionAcceptsAValidChangeAndPrepareWritesThe(t *testing.T) {
-	t.Skip("TC-RA-78: SKIP-only stub; un-skip when WI 4.3 lands")
+	data := defaultConfigWithNexusd(t)
+	c := newCSStack(t, data, stackConfig{})
+	orig := shaHex(data)
+	checks := validations(c.daemon)
+
+	// Step 1.
+	id := accepted(t, c.set(t, c.admin, nil, "providers.host.enabled=true"))
+	c.spy.await(t, id)
+	if n := c.spy.count(); n != 1 {
+		t.Errorf("launches %d, want 1", n)
+	}
+	dir := filepath.Join(c.opsDir, id)
+	sp := readSpecFile(t, dir)
+	if want := []string{"/x/nexusd", HelperCommand, "--dir", dir}; !slices.Equal(sp.Argv, want) {
+		t.Errorf("argv %q, want %q", sp.Argv, want)
+	}
+	if sp.KillMode != string(detach.KillProcess) {
+		t.Errorf("kill mode %q, want process", sp.KillMode)
+	}
+	if got := time.Duration(sp.MaxRuntimeNS); got != configSetMaxRuntime {
+		t.Errorf("MaxRuntime %v, want configSetMaxRuntime %v", got, configSetMaxRuntime)
+	}
+	if configSetMaxRuntime != 2*reloadTimeout+30*time.Second {
+		t.Errorf("configSetMaxRuntime %v, want 2*reloadTimeout + 30s (A-5)", configSetMaxRuntime)
+	}
+	if configSetMaxRuntime != 54*time.Second {
+		t.Errorf("configSetMaxRuntime %v, want 54s (A-5)", configSetMaxRuntime)
+	}
+
+	// Step 2.
+	in, raw := readInput(t, dir)
+	want := helperInput{Mode: modeConfigSet, ConfigPath: c.cfgPath, BackupPath: c.cfgPath + ".bak",
+		Changes: []string{"providers.host.enabled=true"}, BaseSHA256: orig, StateDir: c.stateDir,
+		ReloadTimeout: reloadTimeout, Paths: c.paths}
+	if !reflect.DeepEqual(in, want) {
+		t.Errorf("input.json\n got %+v\nwant %+v", in, want)
+	}
+	if reloadTimeout != 12*time.Second {
+		t.Errorf("reloadTimeout %v, want 12s", reloadTimeout)
+	}
+	if strings.Contains(string(raw), "noChange") {
+		t.Errorf("input.json %s carries noChange", raw)
+	}
+
+	// Prepare does not re-edit or re-validate.
+	if n := validations(c.daemon) - checks; n != 1 {
+		t.Errorf("CheckConfigData ran %d times, want once, at admission", n)
+	}
+
+	// Audit.
+	recs := c.auditOf(t, spec.UpdateConfig.Op().ID)
+	if len(recs) == 0 || recs[0].Outcome != audit.OutcomeRequested {
+		t.Fatalf("audit %v, want requested first", outcomes(recs))
+	}
+	var params map[string]any
+	if err := json.Unmarshal(recs[0].Params, &params); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(params, map[string]any{"changes": []any{"providers.host.enabled=true"}}) {
+		t.Errorf("requested params %s, want the changes alone", recs[0].Params)
+	}
 }
 
 // TC-RA-79: providers.nexusd.enabled=true is accepted although false is denied. Owner WI 4.3. Requirements: FR-12, ASM-3.
-//
-//   - Setup: As TC-RA-78. A file whose `host.name` is absent and whose `tls.mode` is `off` on a loopback `listen`.
-//   - Steps:
-//     1. `changes: ["providers.nexusd.enabled=true"]`.
-//     2. `changes: ["host.name=x"]`.
-//     3. `changes: ["tls.mode=auto"]`.
-//   - Expected:
-//   - Step 1: not refused by the deny-list (the `Value: "false"` entry does not match). Because the value is already true, the call is a no-op answered at admission: `200` with `changed: false`, no operation and `launches == 0` (TC-RA-71).
-//   - Steps 2 and 3: the two settable string keys (D-10) are accepted: each answers `202` with one launch. Neither message contains "cannot be set remotely".
 func TestTCRA79_ProvidersNexusdEnabledTrueIsAcceptedAlthough(t *testing.T) {
-	t.Skip("TC-RA-79: SKIP-only stub; un-skip when WI 4.3 lands")
+	body := "listen: [\"127.0.0.1:7443\"]\ntls:\n  mode: \"off\"\nproviders:\n  nexusd:\n    enabled: true\n"
+	c := newCSStack(t, []byte(body), stackConfig{})
+
+	// Step 1.
+	c.noChange(t, c.set(t, c.admin, nil, "providers.nexusd.enabled=true"))
+	if ops := c.operations(t); len(ops) != 0 || c.spy.count() != 0 {
+		t.Errorf("operations %d, launches %d; want none", len(ops), c.spy.count())
+	}
+
+	// Steps 2 and 3.
+	for i, change := range []string{"host.name=x", "tls.mode=auto"} {
+		r := c.set(t, c.admin, nil, change)
+		if strings.Contains(string(r.body), "cannot be set remotely") {
+			t.Errorf("%s: %s", change, r.body)
+		}
+		id := accepted(t, r)
+		c.spy.await(t, id)
+		if n := c.spy.count(); n != i+1 {
+			t.Errorf("%s: launches %d, want %d", change, n, i+1)
+		}
+		c.endOp(t, id, detach.Exit{ExitCode: 137}, nil)
+	}
 }
 
 // TC-RA-80: A helper that dies without a result ends outcome-unknown with a detail naming both files. Owner WI 4.3. Requirements: NFR-4, FR-8.
-//
-//   - Setup: A stack with the launch spy. The test writes `exit.json` with exit 137 and no `result.json`.
-//   - Steps:
-//     1. Accept a config set.
-//     2. End the unit.
-//     3. Await.
-//   - Expected: The operation ends `failed` with `outcome-unknown`. Its detail contains the config path, the `.bak` path, `nexusd validate-config` and `nexus nexusdconfig get`.
 func TestTCRA80_AHelperThatDiesWithoutAResultEndsOutcomeUnknown(t *testing.T) {
-	t.Skip("TC-RA-80: SKIP-only stub; un-skip when WI 4.3 lands")
+	c := newCSStack(t, defaultConfigWithNexusd(t), stackConfig{})
+	guidance := []string{c.cfgPath, c.cfgPath + ".bak", "nexusd validate-config", "nexus nexusdconfig get"}
+
+	// Steps 1 to 3.
+	id := accepted(t, c.set(t, c.admin, nil, "providers.host.enabled=true"))
+	c.spy.await(t, id)
+	op := c.endOp(t, id, detach.Exit{ExitCode: 137}, nil)
+	if op.Status != apitypes.StatusFailed || op.Error == nil || op.Error.Slug() != problem.OutcomeUnknown {
+		t.Fatalf("operation %s %+v, want failed outcome-unknown", op.Status, op.Error)
+	}
+	for _, g := range guidance {
+		if !strings.Contains(op.Error.Detail, g) {
+			t.Errorf("detail %q lacks %q", op.Error.Detail, g)
+		}
+	}
+
+	// A unit lost without exit.json: the ops manager appends LostDetail.
+	funcs := detachedOf(t, c.p, spec.UpdateConfig.Op().ID)
+	if funcs.LostDetail == nil {
+		t.Fatal("update-config has no LostDetail")
+	}
+	for _, run := range []*provider.Run{provider.NewRun(id, nil), provider.NewRun("op-none", nil)} {
+		d := funcs.LostDetail(run, spec.ConfigUpdateInput{})
+		for _, g := range guidance {
+			if !strings.Contains(d, g) {
+				t.Errorf("LostDetail(%s) %q lacks %q", run.ID(), d, g)
+			}
+		}
+	}
 }
 
+// availSeam is a Systemd seam a test flips.
+type availSeam struct {
+	mu sync.Mutex
+	a  detach.Availability
+}
+
+func (s *availSeam) get() detach.Availability {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.a
+}
+
+func (s *availSeam) set(a detach.Availability) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.a = a
+}
+
+// openRC is the Systemd seam's answer on an OpenRC host.
+const openRCReason = "requires systemd (detected openrc)"
+
 // TC-RA-81: nexus nexusd get reports configSet next to selfManagement, and it follows availability. Owner WI 4.3. Requirements: FR-9.
-//
-//   - Setup: A stack with the availability seam set available.
-//   - Steps:
-//     1. `GET .../daemons`.
-//     2. Flip the seam to `{false, "requires systemd (detected openrc)"}`.
-//     3. GET again.
-//   - Expected:
-//   - Step 1: `configSet.available == true` and equals `selfManagement`.
-//   - Step 3: `configSet.available == false`, with the same reason as `selfManagement`, so the field is recomputed on each call.
 func TestTCRA81_NexusNexusdGetReportsConfigSetNextTo(t *testing.T) {
-	t.Skip("TC-RA-81: SKIP-only stub; un-skip when WI 4.3 lands")
+	seam := &availSeam{a: detach.Availability{Available: true}}
+	s := newStack(t, stackConfig{opts: Options{Systemd: seam.get}})
+
+	// Step 1.
+	p := s.getDaemon(t, s.reader).Properties
+	if !p.ConfigSet.Available || p.ConfigSet != p.SelfManagement {
+		t.Errorf("configSet %+v selfManagement %+v, want both available", p.ConfigSet, p.SelfManagement)
+	}
+
+	// Steps 2 and 3.
+	seam.set(detach.Availability{Reason: openRCReason})
+	p = s.getDaemon(t, s.reader).Properties
+	if p.ConfigSet.Available || p.ConfigSet.Reason != openRCReason || p.ConfigSet != p.SelfManagement {
+		t.Errorf("configSet %+v selfManagement %+v, want both unavailable with %q", p.ConfigSet, p.SelfManagement,
+			openRCReason)
+	}
 }
 
 // TC-RA-82: The requested record carries the new values in params and the old values and backup path in facts. Owner WI 4.3. Requirements: FR-13, ASM-7.
-//
-//   - Setup: A file with `audit.retentionDays: 90`, without `providers.nginx.testTimeout`, and with `host.name` set to a 300-byte string. (The absent key is not path-valued: path-valued keys such as `providers.pihole.dnsFile` are denied, TC-RA-ERR27.)
-//   - Steps:
-//     1. Set `audit.retentionDays=30`, `providers.nginx.testTimeout=45s` and `host.name=short`.
-//     2. Set `audit.retentionDays=30` again, now the file's value after step 1 has succeeded (a no-change set).
-//   - Expected:
-//   - Step 1 facts:
-//   - `old.audit.retentionDays=90`;
-//   - `old.providers.nginx.testTimeout=<absent>`;
-//   - `old.host.name` holds the first 256 bytes of the old value, cut by the audit bound;
-//   - `backupPath=<configPath>.bak`.
-//   - Step 1 params: they carry the three new values.
-//   - Step 2 facts (A-14): the `completed` record has `old.audit.retentionDays=30` and `changed=false`, and no `backupPath` fact, because nothing is backed up.
 func TestTCRA82_TheRequestedRecordCarriesTheNewValuesInParamsAnd(t *testing.T) {
-	t.Skip("TC-RA-82: SKIP-only stub; un-skip when WI 4.3 lands")
+	long := strings.Repeat("n", 300)
+	body := "host:\n  name: " + long + "\nlisten: [\"127.0.0.1:7443\"]\naudit:\n  retentionDays: 90\n" +
+		"providers:\n  nexusd:\n    enabled: true\n"
+	c := newCSStack(t, []byte(body), stackConfig{})
+	changes := []string{"audit.retentionDays=30", "providers.nginx.testTimeout=45s", "host.name=short"}
+
+	// Step 1.
+	id := accepted(t, c.set(t, c.admin, nil, changes...))
+	c.spy.await(t, id)
+	facts := c.factsOf(t, audit.OutcomeRequested)
+	want := map[string]string{
+		"old.audit.retentionDays":         "90",
+		"old.providers.nginx.testTimeout": "<absent>",
+		"old.host.name":                   long[:audit.MaxFactValueBytes],
+		"backupPath":                      c.cfgPath + ".bak",
+	}
+	if audit.MaxFactValueBytes != 256 {
+		t.Errorf("MaxFactValueBytes %d, want 256", audit.MaxFactValueBytes)
+	}
+	if !reflect.DeepEqual(facts, want) {
+		t.Errorf("requested facts\n got %v\nwant %v", facts, want)
+	}
+	recs := c.auditOf(t, spec.UpdateConfig.Op().ID)
+	var params struct {
+		Changes []string `json:"changes"`
+	}
+	if err := json.Unmarshal(recs[0].Params, &params); err != nil || !slices.Equal(params.Changes, changes) {
+		t.Errorf("requested params %s (%v), want the three new values", recs[0].Params, err)
+	}
+
+	// The helper's success, as it would leave the file and result.json.
+	var as []config.Assignment
+	for _, ch := range changes {
+		a, err := config.ParseAssignment(ch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		as = append(as, a)
+	}
+	out, cs, err := config.Edit([]byte(body), c.cfgPath, as)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(c.cfgPath, out, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res := helperResult{Changed: true, BackupPath: c.cfgPath + ".bak", RestartRequired: []string{"audit", "host"}}
+	for _, ch := range cs {
+		res.ConfigChanges = append(res.ConfigChanges, spec.ConfigChange{Key: ch.Key, Old: ch.Old, New: ch.New})
+	}
+	op := c.endOp(t, id, detach.Exit{}, &res)
+	if op.Status != apitypes.StatusSucceeded {
+		t.Fatalf("operation %s %+v, want succeeded", op.Status, op.Error)
+	}
+	got := decodeJSON[spec.ConfigUpdateResult](t, op.Result)
+	if !got.Changed || got.BackupPath != c.cfgPath+".bak" || len(got.Changes) != 3 ||
+		!slices.Equal(got.RestartRequired, []string{"audit", "host"}) ||
+		!slices.Contains(got.Warnings, "run nexus nexusd restart to apply: audit, host") {
+		t.Errorf("result %s", op.Result)
+	}
+
+	// Step 2.
+	c.noChange(t, c.set(t, c.admin, nil, "audit.retentionDays=30"))
+	facts = c.factsOf(t, audit.OutcomeCompleted)
+	if want := map[string]string{"old.audit.retentionDays": "30", "changed": "false"}; !reflect.DeepEqual(facts, want) {
+		t.Errorf("completed facts %v, want %v", facts, want)
+	}
+}
+
+// csResult runs a change through Admission, Prepare, the real helper on
+// F-SYS with F-RELOAD, and Finalize.
+func csResult(t *testing.T, change string) (spec.ConfigUpdateResult, *csDirect, int) {
+	t.Helper()
+	c := newCSDirect(t, change)
+	in := c.admit(t, change)
+	if _, err := c.funcs.Prepare(t.Context(), in, c.run); err != nil {
+		t.Fatalf("Prepare = %v", err)
+	}
+	starts := c.rig.f.starts
+	if res, ok := c.rig.exec(t); !ok || res.Error != nil {
+		t.Fatalf("helper result %+v (written %t)\n%s\n%s", res, ok, c.rig.stdout.String(), c.rig.stderr.String())
+	}
+	out, err := c.funcs.Finalize(t.Context(), in, detach.Exit{}, c.run)
+	if err != nil {
+		t.Fatalf("Finalize = %v", err)
+	}
+	res, ok := out.(spec.ConfigUpdateResult)
+	if !ok {
+		t.Fatalf("Finalize = %T, want spec.ConfigUpdateResult", out)
+	}
+	return res, c, starts
 }
 
 // TC-RA-83: A tls.* or auth.* change carries the lock-out warning, and restart-required keys get the restart note. Owner WI 4.3. Requirements: ASM-3, ASM-4, FR-8, FR-11.
-//
-//   - Setup: A stack with the real helper and F-RELOAD (the 4.4 wiring helper, or the launch spy with `result.json` written by the real helper).
-//   - Steps:
-//     1. Set `auth.failureLimitPerMinute=20`.
-//     2. Set `providers.host.enabled=true`.
-//   - Expected:
-//   - Step 1, warnings: the lock-out sentence of WI 4.3 for `auth.failureLimitPerMinute`, plus `run nexus nexusd restart to apply: auth`.
-//   - Step 1, result: `restartRequired == ["auth"]`.
-//   - Step 1, no restart: F-SYS `starts` is unchanged (ASM-4).
-//   - Step 2: no warnings and `restartRequired == []`.
 func TestTCRA83_ATlsOrAuthChangeCarriesTheLockOutWarningAnd(t *testing.T) {
-	t.Skip("TC-RA-83: SKIP-only stub; un-skip when WI 4.3 lands")
+	// Step 1.
+	res, c, starts := csResult(t, "auth.failureLimitPerMinute=20")
+	lockout := "auth.failureLimitPerMinute takes effect when nexusd restarts; if it changes how this client " +
+		"connects (certificate, pin or auth limit), you may be locked out until a root login on the host fixes it"
+	if want := []string{lockout, "run nexus nexusd restart to apply: auth"}; !slices.Equal(res.Warnings, want) {
+		t.Errorf("warnings\n got %q\nwant %q", res.Warnings, want)
+	}
+	if !res.Changed || !slices.Equal(res.RestartRequired, []string{"auth"}) || res.BackupPath != c.rig.cfgPath+".bak" {
+		t.Errorf("result %+v, want changed, restartRequired [auth] and the backup", res)
+	}
+	if len(res.Changes) != 1 || res.Changes[0].Key != "auth.failureLimitPerMinute" {
+		t.Errorf("changes %+v", res.Changes)
+	}
+	if c.rig.f.starts != starts {
+		t.Errorf("F-SYS starts %d -> %d: config set restarted nexusd", starts, c.rig.f.starts)
+	}
+
+	// Step 2.
+	res, _, _ = csResult(t, "providers.host.enabled=true")
+	if len(res.Warnings) != 0 || res.RestartRequired == nil || len(res.RestartRequired) != 0 {
+		t.Errorf("result %+v, want no warnings and restartRequired []", res)
+	}
+
+	// A tls.* change warns too.
+	res, _, _ = csResult(t, "tls.mode=off")
+	if len(res.Warnings) == 0 || !strings.HasPrefix(res.Warnings[0], "tls.mode takes effect when nexusd restarts") {
+		t.Errorf("tls.mode warnings %q, want the lock-out warning", res.Warnings)
+	}
 }
 
 // TC-RA-E22: A file changed between admission and Prepare ends config-conflict with nothing written. Owner WI 4.3. Requirements: FR-7, FR-8.
-//
-//   - Setup:
-//   - FR-7 helper step 1: a change refuses with `config-conflict` if the file "no longer matches what admission validated". Admission's digest is the baseline (D-7, A-15), and Prepare compares it before writing anything.
-//   - A temp `ConfigPath` holding the default file with `providers.nexusd.enabled: true`, F-SYS with F-RELOAD, and the real `CheckConfigDataForTest`. `orig := sha(file)`.
-//   - The test calls WI 4.3's Admission hook and Prepare directly, in package `nexusd`, so that it can rewrite the file between them deterministically. It does not race the ops manager's goroutine, and it does not queue behind a held `reload`, which the reject-policy lane would refuse with 409 instead.
-//   - Steps:
-//     1. Run the Admission hook on `["providers.host.enabled=true"]` and keep the returned `Admitted`.
-//     2. Rewrite `ConfigPath` with other bytes: the default file with `audit.retentionDays: 45` (run A, valid), or the default file with `audit.retentionDays: 0` (run B, invalid). `other := sha(file)`.
-//     3. Run Prepare with `Admitted.In` as the operation's input.
-//   - Expected:
-//   - Baseline: step 1 returns `Done == false` and `In.BaseSHA256 == orig` (hex SHA-256 of the bytes admission read).
-//   - Outcome, runs A and B: Prepare fails the operation with `config-conflict`, nothing changed. Run B is reported as a conflict, not as `config-invalid`: Prepare compares digests and does not re-validate.
-//   - Nothing written: no `input.json` exists in the operation directory, Prepare returns no launch spec, the disk sha is still `other`, no `.bak` exists, and F-RELOAD `reloadCalls == 0`.
 func TestTCRAE22_AFileChangedBetweenAdmissionAndPrepareEndsConfig(t *testing.T) {
-	t.Skip("TC-RA-E22: SKIP-only stub; un-skip when WI 4.3 lands")
+	for run, days := range map[string]string{"A valid": "45", "B invalid": "0"} {
+		t.Run(run, func(t *testing.T) {
+			c := newCSDirect(t)
+			orig := shaHex(c.rig.orig)
+
+			// Step 1.
+			in := c.admit(t, "providers.host.enabled=true")
+			if in.BaseSHA256 != orig {
+				t.Errorf("BaseSHA256 %q, want %q", in.BaseSHA256, orig)
+			}
+
+			// Step 2.
+			other, _, err := config.Edit(c.rig.orig, c.rig.cfgPath,
+				[]config.Assignment{{Key: "audit.retentionDays", Value: days}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(c.rig.cfgPath, other, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			// Step 3.
+			s, err := c.funcs.Prepare(t.Context(), in, c.run)
+			if perr := problemOfErr(t, err); perr.Slug() != problem.ConfigConflict {
+				t.Errorf("Prepare = %s %q, want config-conflict", perr.Slug(), perr.Detail)
+			}
+			c.wantNothingPrepared(t, s, shaHex(other))
+		})
+	}
 }
 
 // TC-RA-E23: A no-change config set leaves requested and completed audit records and never takes the lane. Owner WI 4.3. Requirements: FR-7, FR-9, FR-13.
-//
-//   - Setup: A stack with the launch spy, as TC-RA-71.
-//   - Steps:
-//     1. Set `providers.nexusd.enabled=true` (already true).
-//     2. Immediately `POST .../actions/reload`, and keep it running.
-//     3. While the reload runs, set `providers.nexusd.enabled=true` again.
-//     4. End the reload by writing its `exit.json`.
-//     5. Set `["providers.nexusd.enabled=true","providers.host.enabled=true"]`: one assignment equals the file and one does not.
-//     6. Read `stack.auditOf(t, "actions.update-config")`.
-//   - Expected:
-//   - Step 1: `200` with `changed: false`.
-//   - Step 2: `202`, not 409, so the no-op set held no `nexusd` lane.
-//   - Step 3: 409 `conflict` naming the reload's operation ID (A-14: a no-change set still answers 409 under a busy lane, FR-9).
-//   - Step 5: `202` with an operation, `launches` incremented by 1, and `input.json` carrying both assignments as sent. A no-op is decided for the whole edit, not per assignment.
-//   - Step 6:
-//   - step 1 has exactly `requested` then `completed`, linked, with outcome `completed`, no `queued` or `running` record, facts `changed=false` and `old.providers.nexusd.enabled=true`, and no `backupPath` fact;
-//   - step 3 has one `refused` record with slug `conflict`, and no `requested` or `completed` record (the lane refusal comes before the requested record);
-//   - step 5's `requested` record is followed by `queued`.
 func TestTCRAE23_ANoChangeConfigSetLeavesRequestedAndCompletedAudit(t *testing.T) {
-	t.Skip("TC-RA-E23: SKIP-only stub; un-skip when WI 4.3 lands")
-}
+	c := newCSStack(t, defaultConfigWithNexusd(t), stackConfig{})
+	running, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	c.daemon.onReload(func(ctx context.Context) (provider.ReloadResult, error) {
+		once.Do(func() { close(running) })
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return provider.ReloadResult{}, nil
+	})
 
-// TC-RA-ERR26: Admission refuses an unknown key with its parent and creates no operation. Owner WI 4.3. Requirements: FR-7, FR-6.
-//
-//   - Setup: A stack with the launch spy. Record the operation count.
-//   - Steps:
-//     1. `changes: ["providers.host.enabeld=true"]`.
-//   - Expected:
-//   - 422 `config-invalid` with `configPath`, and `errors[0].path == "providers.host.enabeld"` with a message naming `providers.host`.
-//   - The operation count is unchanged and launches are 0.
-//   - A `refused` audit record.
-func TestTCRAERR26_AdmissionRefusesAnUnknownKeyWithItsParentAnd(t *testing.T) {
-	t.Skip("TC-RA-ERR26: SKIP-only stub; un-skip when WI 4.3 lands")
-}
+	// Step 1.
+	c.noChange(t, c.set(t, c.admin, nil, "providers.nexusd.enabled=true"))
 
-// TC-RA-ERR27: Admission refuses each deny-list entry with its reason. Owner WI 4.3. Requirements: FR-12, ASM-3, NFR-5.
-//
-//   - Setup: As TC-RA-ERR26. The twelve entries are FR-12 as amended by the user decision of 2026-11-17 (`requirements.md` § User decisions), with `providers.nginx.disabledSuffix` included by analogy (A-35, autonomous default).
-//   - Steps:
-//     1. `providers.nexusd.update.trustedKeys=x`.
-//     2. `providers.nexusd.enabled=false`.
-//     3. `providers.scripts.catalog=x`.
-//     4. `providers.scripts.catalog.foo=x`, a subtree.
-//     5. `providers.nginx.includeDir=/etc/profile.d`, the review's root file-write example.
-//     6. `providers.nginx.includeSuffix=.sh`.
-//     7. `["providers.nginx.includeDir=/etc/profile.d","providers.nginx.includeSuffix=.sh"]`, the two-key form of that example.
-//     8. `providers.nginx.service=ssh`.
-//     9. `providers.nginx.disabledSuffix=.sh`.
-//     10. One subtest per remaining path-valued entry of `spec.ConfigDenyList` (those with `Value == ""` and not `Subtree`, not already covered), each assigned a value that would otherwise pass every type and validation rule: an absolute root-owned path such as `/etc/nexus/x.conf` for path and directory keys.
-//   - Expected:
-//   - Each gives 422 `config-invalid` at the key, with the message `"cannot be set remotely: " + spec.ConfigDenyList[i].Reason`, read from the table.
-//   - Steps 1 to 10 together cover all twelve entries: the test fails if any entry of `spec.ConfigDenyList` was not refused at least once.
-//   - For steps 1 and 3, the deny reason is reported and not the list or mapping reason (D-10 order).
-//   - Step 7 reports both keys, each with its own deny reason, so a multi-key bypass is refused whole.
-//   - Steps 5 to 10 never reach the validator (`CheckConfigDataForTest` call count unchanged): the refusal is the deny reason even where the value is otherwise valid.
-//   - The operation count is unchanged, launches are 0, and the file sha is unchanged.
-func TestTCRAERR27_AdmissionRefusesEachDenyListEntryWithItsReason(t *testing.T) {
-	t.Skip("TC-RA-ERR27: SKIP-only stub; un-skip when WI 4.3 lands")
-}
+	// Step 2.
+	rid := accepted(t, c.action(t, "reload", c.admin, nil))
+	select {
+	case <-running:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the reload did not start")
+	}
 
-// TC-RA-ERR28: Admission refuses lists, mappings, wrong types, duplicates and too many changes. Owner WI 4.3. Requirements: FR-7, NFR-5, OOS-3, ASM-3.
-//
-//   - Setup: As TC-RA-ERR26. `listen` is not settable remotely, by the user decision of 2026-11-17 (`requirements.md` § User decisions, OOS-3, A-12). It is refused as a list, not through the deny-list.
-//   - Steps:
-//     1. `listen=127.0.0.1:9`, and in a second call the comma form `listen=127.0.0.1:9,127.0.0.1:10`.
-//     2. `providers.host=x`.
-//     3. `providers.host.enabled=yes`.
-//     4. `["tls.mode=auto","tls.mode=off"]`.
-//     5. 33 items.
-//     6. `host.name=` followed by 4097 bytes. The item fits the schema's `maxLength` (4096 + 520), so the value bound is admission's.
-//     7. One item longer than 4616 bytes.
-//   - Expected:
-//   - Steps 1 to 4 and 6 give 422 `config-invalid`, located at the key, with the list, mapping, type, duplicate and length messages. Step 6's message never contains the value.
-//   - Both step 1 calls are refused at `listen` with the list message, not "cannot be set remotely" (`listen` is not on `spec.ConfigDenyList`). No element is parsed or applied: the file sha is unchanged and no lock-out warning is produced.
-//   - Steps 5 and 7 give 422 `validation-failed` from the schema (`maxItems` and `maxLength`), before admission.
-//   - Each has an operation count of 0 and launches of 0.
-func TestTCRAERR28_AdmissionRefusesListsMappingsWrongTypes(t *testing.T) {
-	t.Skip("TC-RA-ERR28: SKIP-only stub; un-skip when WI 4.3 lands")
-}
+	// Step 3.
+	m := wantProblem(t, c.set(t, c.admin, nil, "providers.nexusd.enabled=true"), http.StatusConflict,
+		problem.Conflict)
+	if m["blockingOperationId"] != rid {
+		t.Errorf("blockingOperationId %v, want the reload %s", m["blockingOperationId"], rid)
+	}
 
-// TC-RA-ERR29: Admission refuses an edit that makes the file invalid. Owner WI 4.3. Requirements: FR-7.
-//
-//   - Setup: A stack config with `listen: ["0.0.0.0:8443"]` and `tls.mode: auto`.
-//   - Steps:
-//     1. `tls.mode=off`.
-//     2. `audit.retentionDays=0`.
-//   - Expected:
-//   - Step 1 gives 422 `config-invalid` with an error at `listen[0]`, whose message is the validator's loopback text.
-//   - Step 2 gives 422 at `audit.retentionDays`.
-//   - The errors equal `daemon.CheckConfigData(Edit(...))`'s list, and the operation count is 0.
-func TestTCRAERR29_AdmissionRefusesAnEditThatMakesTheFileInvalid(t *testing.T) {
-	t.Skip("TC-RA-ERR29: SKIP-only stub; un-skip when WI 4.3 lands")
-}
+	// Step 4.
+	close(release)
+	if op := c.awaitOp(t, rid); op.Status != apitypes.StatusSucceeded {
+		t.Fatalf("reload %s", op.Status)
+	}
 
-// TC-RA-ERR30: Config set on a host without systemd self-management is refused while tokens and config get still work. Owner WI 4.3. Requirements: FR-9, OOS-2.
-//
-//   - Setup: A stack with the availability seam `{false, "requires systemd (detected openrc)"}`.
-//   - Steps:
-//     1. Run config set.
-//     2. Run token list, add and remove.
-//     3. Run config get.
-//   - Expected:
-//   - Step 1: 503 `config-set-unavailable`, with `provider: nexusd` and the reason, refused before any operation exists. The operation count is 0, launches are 0, the file sha is unchanged, and there is a `refused` record.
-//   - Steps 2 and 3: 200.
-func TestTCRAERR30_ConfigSetOnAHostWithoutSystemdSelfManagementIs(t *testing.T) {
-	t.Skip("TC-RA-ERR30: SKIP-only stub; un-skip when WI 4.3 lands")
-}
+	// Step 5.
+	both := []string{"providers.nexusd.enabled=true", "providers.host.enabled=true"}
+	id := accepted(t, c.set(t, c.admin, nil, both...))
+	c.spy.await(t, id)
+	if n := c.spy.count(); n != 1 {
+		t.Errorf("launches %d, want 1", n)
+	}
+	if in, _ := readInput(t, filepath.Join(c.opsDir, id)); !slices.Equal(in.Changes, both) {
+		t.Errorf("input.json changes %q, want %q", in.Changes, both)
+	}
 
-// TC-RA-ERR31: Config set refuses a nexusd:read-only token and an unauthenticated call. Owner WI 4.3. Requirements: FR-7, NFR-7.
-//
-//   - Setup: A stack.
-//   - Steps:
-//     1. Post as `reader`.
-//     2. Post with no token.
-//   - Expected: 403 with `requiredScope nexusd:admin` and a `denied` record, then 401. Launches are 0.
-func TestTCRAERR31_ConfigSetRefusesANexusdReadOnlyTokenAndAn(t *testing.T) {
-	t.Skip("TC-RA-ERR31: SKIP-only stub; un-skip when WI 4.3 lands")
+	// Step 6.
+	recs := c.auditOf(t, spec.UpdateConfig.Op().ID)
+	if len(recs) < 5 {
+		t.Fatalf("audit %v, want at least 5 records", outcomes(recs))
+	}
+	req, done := recs[0], recs[1]
+	if req.Outcome != audit.OutcomeRequested || done.Outcome != audit.OutcomeCompleted ||
+		done.RequestID != req.ID || done.OperationID != "" {
+		t.Errorf("step 1 records %+v, %+v; want requested then completed, linked, with no operation", req, done)
+	}
+	if want := map[string]string{"changed": "false", "old.providers.nexusd.enabled": "true"}; !reflect.DeepEqual(
+		done.Facts, want) {
+		t.Errorf("step 1 completed facts %v, want %v", done.Facts, want)
+	}
+	if r := recs[2]; r.Outcome != audit.OutcomeRefused || r.Problem != string(problem.Conflict) || r.RequestID != "" {
+		t.Errorf("step 3 record %+v, want one refused conflict and no requested", r)
+	}
+	if recs[3].Outcome != audit.OutcomeRequested || recs[4].Outcome != string(apitypes.StatusQueued) ||
+		recs[4].RequestID != recs[3].ID {
+		t.Errorf("step 5 records %v, want requested then queued", outcomes(recs[3:]))
+	}
 }
 
 // TC-RA-E30: The no-change rule compares decoded values, and an absent key is always a change. Owner WI 4.3. Requirements: FR-7.
-//
-//   - Setup: As TC-RA-71, with a file that has `providers.nginx.testTimeout: 90s`, `providers.host.enabled: True` (capitalized YAML boolean) and no `audit.retentionDays`. The schema default of `audit.retentionDays` is read with `config.LookupKey`.
-//   - Steps:
-//     1. `providers.nginx.testTimeout=1m30s`.
-//     2. `providers.host.enabled=true`.
-//     3. `audit.retentionDays=<the default>`.
-//     4. `["providers.nginx.testTimeout=90s","providers.nexusd.enabled=true"]`, both equal.
-//   - Expected:
-//   - Steps 1, 2 and 4: `200 changed:false`, no operation (durations compare as `time.Duration`, booleans as decoded values, not bytes).
-//   - Step 3: `202` with an operation: an assignment to an absent key is a change even when it equals the default.
 func TestTCRAE30_TheNoChangeRuleComparesDecodedValuesAndAnAbsent(t *testing.T) {
-	t.Skip("TC-RA-E30: SKIP-only stub; un-skip when WI 4.3 lands")
+	body := "listen: [\"127.0.0.1:7443\"]\nproviders:\n  host:\n    enabled: True\n  nginx:\n    testTimeout: 90s\n" +
+		"  nexusd:\n    enabled: true\n"
+	c := newCSStack(t, []byte(body), stackConfig{})
+	if _, err := config.LookupKey("audit.retentionDays"); err != nil {
+		t.Fatal(err)
+	}
+	def := fmt.Sprint(config.Default().Audit.RetentionDays)
+
+	// Steps 1, 2 and 4.
+	for _, changes := range [][]string{
+		{"providers.nginx.testTimeout=1m30s"},
+		{"providers.host.enabled=true"},
+		{"providers.nginx.testTimeout=90s", "providers.nexusd.enabled=true"},
+	} {
+		c.noChange(t, c.set(t, c.admin, nil, changes...))
+	}
+	if ops := c.operations(t); len(ops) != 0 {
+		t.Errorf("operations %d after the no-change sets, want 0", len(ops))
+	}
+
+	// Step 3.
+	id := accepted(t, c.set(t, c.admin, nil, "audit.retentionDays="+def))
+	c.spy.await(t, id)
+}
+
+// TC-RA-ERR26: Admission refuses an unknown key with its parent and creates no operation. Owner WI 4.3. Requirements: FR-7, FR-6.
+func TestTCRAERR26_AdmissionRefusesAnUnknownKeyWithItsParentAnd(t *testing.T) {
+	data := defaultConfigWithNexusd(t)
+	c := newCSStack(t, data, stackConfig{})
+
+	errs := c.invalid(t, c.set(t, c.admin, nil, "providers.host.enabeld=true"))
+	if len(errs) == 0 || errs[0].Path != "providers.host.enabeld" || !strings.Contains(errs[0].Message,
+		"providers.host") {
+		t.Errorf("errors %+v, want providers.host.enabeld naming providers.host", errs)
+	}
+	c.wantNoSideEffects(t, shaHex(data))
+	if got := outcomes(c.auditOf(t, spec.UpdateConfig.Op().ID)); !slices.Equal(got,
+		[]string{"refused:" + string(problem.ConfigInvalid)}) {
+		t.Errorf("audit %v, want one refused config-invalid", got)
+	}
+}
+
+// TC-RA-ERR27: Admission refuses each deny-list entry with its reason. Owner WI 4.3. Requirements: FR-12, ASM-3, NFR-5.
+func TestTCRAERR27_AdmissionRefusesEachDenyListEntryWithItsReason(t *testing.T) {
+	data := defaultConfigWithNexusd(t)
+	c := newCSStack(t, data, stackConfig{})
+	refused := make([]bool, len(spec.ConfigDenyList))
+	entryOf := func(key, value string) int {
+		for i, d := range spec.ConfigDenyList {
+			if (key == d.Key || (d.Subtree && strings.HasPrefix(key, d.Key+"."))) && (d.Value == "" || d.Value == value) {
+				return i
+			}
+		}
+		t.Fatalf("%s=%s matches no deny-list entry", key, value)
+		return -1
+	}
+	steps := [][]string{
+		{"providers.nexusd.update.trustedKeys=x"},
+		{"providers.nexusd.enabled=false"},
+		{"providers.scripts.catalog=x"},
+		{"providers.scripts.catalog.foo=x"},
+		{"providers.nginx.includeDir=/etc/profile.d"},
+		{"providers.nginx.includeSuffix=.sh"},
+		{"providers.nginx.includeDir=/etc/profile.d", "providers.nginx.includeSuffix=.sh"},
+		{"providers.nginx.service=ssh"},
+		{"providers.nginx.disabledSuffix=.sh"},
+	}
+	covered := map[string]bool{}
+	for _, st := range steps {
+		for _, ch := range st {
+			k, _, _ := strings.Cut(ch, "=")
+			covered[k] = true
+		}
+	}
+	for _, d := range spec.ConfigDenyList {
+		if d.Value == "" && !d.Subtree && !covered[d.Key] {
+			steps = append(steps, []string{d.Key + "=/etc/nexus/x.conf"})
+		}
+	}
+	checks := validations(c.daemon)
+	for _, st := range steps {
+		t.Run(strings.Join(st, ","), func(t *testing.T) {
+			errs := c.invalid(t, c.set(t, c.admin, nil, st...))
+			if len(errs) != len(st) {
+				t.Fatalf("errors %+v, want one per assignment", errs)
+			}
+			for i, ch := range st {
+				k, v, _ := strings.Cut(ch, "=")
+				e := entryOf(k, v)
+				want := "cannot be set remotely: " + spec.ConfigDenyList[e].Reason
+				if errs[i].Path != k || errs[i].Message != want {
+					t.Errorf("error %+v, want %s: %q", errs[i], k, want)
+				}
+				refused[e] = true
+			}
+		})
+	}
+	for i, ok := range refused {
+		if !ok {
+			t.Errorf("deny-list entry %+v was never refused", spec.ConfigDenyList[i])
+		}
+	}
+	if n := validations(c.daemon) - checks; n != 0 {
+		t.Errorf("the validator ran %d times for denied keys, want 0", n)
+	}
+	c.wantNoSideEffects(t, shaHex(data))
+}
+
+// TC-RA-ERR28: Admission refuses lists, mappings, wrong types, duplicates and too many changes. Owner WI 4.3. Requirements: FR-7, NFR-5, OOS-3, ASM-3.
+func TestTCRAERR28_AdmissionRefusesListsMappingsWrongTypes(t *testing.T) {
+	data := defaultConfigWithNexusd(t)
+	c := newCSStack(t, data, stackConfig{})
+	long := strings.Repeat("v", spec.MaxConfigValueBytes+1)
+
+	for _, tc := range []struct {
+		name    string
+		changes []string
+		path    string
+		message string
+	}{
+		{"list", []string{"listen=127.0.0.1:9"}, "listen", "is a list"},
+		{"list, comma form", []string{"listen=127.0.0.1:9,127.0.0.1:10"}, "listen", "is a list"},
+		{"mapping", []string{"providers.host=x"}, "providers.host", "is a mapping"},
+		{"type", []string{"providers.host.enabled=yes"}, "providers.host.enabled", "expected a boolean"},
+		{"duplicate", []string{"tls.mode=auto", "tls.mode=off"}, "tls.mode", "more than once"},
+		{"length", []string{"host.name=" + long}, "host.name", "4096 bytes"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := c.set(t, c.admin, nil, tc.changes...)
+			errs := c.invalid(t, r)
+			if len(errs) != 1 || errs[0].Path != tc.path || !strings.Contains(errs[0].Message, tc.message) {
+				t.Errorf("errors %+v, want one at %s containing %q", errs, tc.path, tc.message)
+			}
+			if strings.Contains(string(r.body), "cannot be set remotely") || strings.Contains(string(r.body), long) ||
+				strings.Contains(string(r.body), "locked out") {
+				t.Errorf("body %.300s: a deny reason, the value or a lock-out warning", r.body)
+			}
+		})
+	}
+	// Steps 5 and 7: the schema's bounds, before admission.
+	many := make([]string, spec.MaxConfigChanges+1)
+	for i := range many {
+		many[i] = fmt.Sprintf("host.name=n%d", i)
+	}
+	checks := validations(c.daemon)
+	for _, changes := range [][]string{many, {"host.name=" + strings.Repeat("v", spec.MaxConfigValueBytes+521)}} {
+		wantProblem(t, c.set(t, c.admin, nil, changes...), http.StatusBadRequest, problem.ValidationFailed)
+	}
+	if n := validations(c.daemon) - checks; n != 0 {
+		t.Errorf("admission ran %d validations for schema refusals, want 0", n)
+	}
+	c.wantNoSideEffects(t, shaHex(data))
+}
+
+// TC-RA-ERR29: Admission refuses an edit that makes the file invalid. Owner WI 4.3. Requirements: FR-7.
+func TestTCRAERR29_AdmissionRefusesAnEditThatMakesTheFileInvalid(t *testing.T) {
+	body := []byte("listen: [\"0.0.0.0:8443\"]\ntls:\n  mode: auto\nproviders:\n  nexusd:\n    enabled: true\n")
+	c := newCSStack(t, body, stackConfig{})
+
+	for _, tc := range []struct{ change, path string }{
+		{"tls.mode=off", "listen[0]"},
+		{"audit.retentionDays=0", "audit.retentionDays"},
+	} {
+		r := c.set(t, c.admin, nil, tc.change)
+		errs := c.invalid(t, r)
+		if len(errs) == 0 || errs[0].Path != tc.path {
+			t.Errorf("%s: errors %+v, want one at %s", tc.change, errs, tc.path)
+		}
+		a, err := config.ParseAssignment(tc.change)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, _, err := config.Edit(body, c.cfgPath, []config.Assignment{a})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, list := CheckConfigDataForTest(out, c.cfgPath)
+		raw := decodeJSON[map[string]json.RawMessage](t, r.body)["errors"]
+		sameJSON(t, tc.change+": errors", raw, configErrors(list))
+	}
+	if !strings.Contains(fmt.Sprint(c.invalid(t, c.set(t, c.admin, nil, "tls.mode=off"))), "loopback") {
+		t.Error("the listen[0] error is not the validator's loopback text")
+	}
+	c.wantNoSideEffects(t, shaHex(body))
+}
+
+// TC-RA-ERR30: Config set on a host without systemd self-management is refused while tokens and config get still work. Owner WI 4.3. Requirements: FR-9, OOS-2.
+func TestTCRAERR30_ConfigSetOnAHostWithoutSystemdSelfManagementIs(t *testing.T) {
+	data := defaultConfigWithNexusd(t)
+	c := newCSStack(t, data, stackConfig{opts: Options{Systemd: func() detach.Availability {
+		return detach.Availability{Reason: openRCReason}
+	}}})
+	checks := validations(c.daemon)
+
+	// Step 1.
+	m := wantProblem(t, c.set(t, c.admin, nil, "providers.host.enabled=true"), http.StatusServiceUnavailable,
+		problem.ConfigSetUnavailable)
+	if m["provider"] != spec.Name || m["reason"] != openRCReason {
+		t.Errorf("problem %v, want provider nexusd and reason %q", m, openRCReason)
+	}
+	c.wantNoSideEffects(t, shaHex(data))
+	if n := validations(c.daemon) - checks; n != 0 {
+		t.Errorf("the validator ran %d times, want 0", n)
+	}
+	if got := outcomes(c.auditOf(t, spec.UpdateConfig.Op().ID)); !slices.Equal(got,
+		[]string{"refused:" + string(problem.ConfigSetUnavailable)}) {
+		t.Errorf("audit %v, want one refused record", got)
+	}
+
+	// Steps 2 and 3.
+	c.do(t, http.MethodGet, "/providers/nexusd/tokens", c.admin, "", nil).want(t, http.StatusOK)
+	c.do(t, http.MethodPost, "/providers/nexusd/tokens/ci/add", c.admin, `{"scopes":["nexusd:read"]}`, nil).
+		want(t, http.StatusOK)
+	c.do(t, http.MethodPost, "/providers/nexusd/tokens/ci/remove", c.admin, "", nil).want(t, http.StatusOK)
+	c.configGet(t, c.admin, "audit.retentionDays").want(t, http.StatusOK)
+}
+
+// TC-RA-ERR31: Config set refuses a nexusd:read-only token and an unauthenticated call. Owner WI 4.3. Requirements: FR-7, NFR-7.
+func TestTCRAERR31_ConfigSetRefusesANexusdReadOnlyTokenAndAn(t *testing.T) {
+	c := newCSStack(t, defaultConfigWithNexusd(t), stackConfig{})
+
+	// Step 1.
+	m := wantProblem(t, c.set(t, c.reader, nil, "providers.host.enabled=true"), http.StatusForbidden,
+		problem.Forbidden)
+	if m["requiredScope"] != spec.AdminScope {
+		t.Errorf("requiredScope %v, want %s", m["requiredScope"], spec.AdminScope)
+	}
+	recs := c.auditOf(t, spec.UpdateConfig.Op().ID)
+	if !slices.ContainsFunc(recs, func(r systemspec.AuditRecord) bool { return r.Outcome == audit.OutcomeDenied }) {
+		t.Errorf("audit %v, want a denied record", outcomes(recs))
+	}
+
+	// Step 2.
+	c.set(t, "", nil, "providers.host.enabled=true").want(t, http.StatusUnauthorized)
+	if n := c.spy.count(); n != 0 {
+		t.Errorf("launches %d, want 0", n)
+	}
 }
 
 // TC-RA-ERR43: Prepare refuses an empty baseline, as after a restart, and the baseline never survives a JSON round trip. Owner WI 4.3. Requirements: FR-7, FR-8.
-//
-//   - Setup: As TC-RA-E22. Run the Admission hook on `["providers.host.enabled=true"]` and keep `Admitted.In`. `recovered` is `json.Unmarshal(json.Marshal(Admitted.In))`, which is what recovery decodes from a Queued record (`internal/ops/recovery.go`).
-//   - Steps:
-//     1. Check `recovered.BaseSHA256`.
-//     2. Run Prepare with `recovered` as the operation's input.
-//   - Expected:
-//   - Step 1: `recovered.BaseSHA256 == ""` while `Admitted.In.BaseSHA256` is not empty.
-//   - Step 2: the operation fails `config-conflict` with the detail "nexusd restarted before the change was prepared; nothing was changed; run the command again". No `input.json` is written, no launch spec is returned, the file sha is unchanged, no `.bak` exists, and `reloadCalls == 0`.
 func TestTCRAERR43_PrepareRefusesAnEmptyBaselineAsAfterARestart(t *testing.T) {
-	t.Skip("TC-RA-ERR43: SKIP-only stub; un-skip when WI 4.3 lands")
+	c := newCSDirect(t)
+	in := c.admit(t, "providers.host.enabled=true")
+	b, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recovered spec.ConfigUpdateInput
+	if err := json.Unmarshal(b, &recovered); err != nil {
+		t.Fatal(err)
+	}
+
+	// Step 1.
+	if recovered.BaseSHA256 != "" || in.BaseSHA256 == "" {
+		t.Fatalf("BaseSHA256 %q after a round trip of %q, want empty after a non-empty one", recovered.BaseSHA256,
+			in.BaseSHA256)
+	}
+
+	// Step 2.
+	s, err := c.funcs.Prepare(t.Context(), recovered, c.run)
+	perr := problemOfErr(t, err)
+	if perr.Slug() != problem.ConfigConflict || perr.Detail != "nexusd restarted before the change was prepared; "+
+		"nothing was changed; run the command again" {
+		t.Errorf("Prepare = %s %q", perr.Slug(), perr.Detail)
+	}
+	c.wantNothingPrepared(t, s, shaHex(c.rig.orig))
 }

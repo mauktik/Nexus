@@ -253,7 +253,7 @@ func (p *Provider) requireSelfManagement() error {
 }
 
 // Bindings binds get, validate-config, reload, restart, update, rollback,
-// the upload, the token ops and the config reads.
+// the upload, the token ops, the config reads and config set.
 func (p *Provider) Bindings() []provider.Binding {
 	return []provider.Binding{
 		provider.Sync(spec.List, p.get),
@@ -272,12 +272,13 @@ func (p *Provider) Bindings() []provider.Binding {
 		provider.Sync(spec.TokensRemove, p.tokensRemove),
 		provider.Sync(spec.ConfigList, p.configList),
 		provider.Sync(spec.ConfigGet, p.configGet),
+		p.configSetBinding(),
 	}
 }
 
-// nexusdLane is the lane reload, restart, update and rollback share: one
-// of them queued or running at a time, and a second request answers 409
-// naming it (FR-11).
+// nexusdLane is the lane reload, restart, update, rollback and config set
+// share: one of them queued or running at a time, and a second request
+// answers 409 naming it (FR-11).
 var nexusdLane = provider.Lane{Key: spec.LaneKey, Policy: provider.LaneReject}
 
 func laneOf[In any](context.Context, In) (provider.Lane, error) { return nexusdLane, nil }

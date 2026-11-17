@@ -205,6 +205,7 @@ func TestTCSM99_NexusCommandGetListsSixNexusd(t *testing.T) {
 		"POST /v1/providers/nexusd/actions/restart",
 		"POST /v1/providers/nexusd/actions/rollback",
 		"POST /v1/providers/nexusd/actions/update",
+		"POST /v1/providers/nexusd/actions/update-config",
 		"POST /v1/providers/nexusd/actions/validate-config",
 		"POST /v1/providers/nexusd/tokens/{name}/add",
 		"POST /v1/providers/nexusd/tokens/{name}/remove",
