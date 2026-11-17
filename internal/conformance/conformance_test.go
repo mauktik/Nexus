@@ -118,6 +118,8 @@ var catalogStubs = map[string]func(*testprovider.Spy) provider.Provider{
 			testprovider.Sync(s, nexusd.TokensList),
 			testprovider.Sync(s, nexusd.TokensAdd),
 			testprovider.Sync(s, nexusd.TokensRemove),
+			testprovider.Sync(s, nexusd.ConfigList),
+			testprovider.Sync(s, nexusd.ConfigGet),
 		)
 	},
 	pihole.Name: func(s *testprovider.Spy) provider.Provider {

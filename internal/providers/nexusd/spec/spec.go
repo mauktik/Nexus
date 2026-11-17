@@ -14,6 +14,10 @@
 // The token ops manage the daemon's own bearer tokens remotely (list, add,
 // remove), each requiring nexusd:admin. Add returns the new secret once, in
 // its response only (nexusd-remote-admin FR-1 to FR-3).
+//
+// The config reads (list, get) return the keys of the on-disk configuration
+// file by dotted key path, a path in the config schema and never a file
+// path, with secret values redacted (nexusd-remote-admin FR-6).
 package spec
 
 import (
@@ -35,6 +39,7 @@ const (
 	DaemonsType = "daemons"
 	UploadsType = "uploads"
 	TokensType  = "tokens"
+	ConfigType  = "config"
 )
 
 // Remote token limits (ASM-6; A-1, A-2). MaxRemoteTokens caps the tokens a
@@ -45,6 +50,10 @@ const (
 	MaxRemoteTokens         = 256
 	TokenMutationsPerMinute = 10
 )
+
+// MaxConfigValueBytes bounds one configuration value set remotely (NFR-5).
+// internal/config's Edit enforces it.
+const MaxConfigValueBytes = 4096
 
 // LaneKey is the lane reload, restart, update and rollback share with the
 // reject policy, so only one of them is queued or running at a time (FR-11).
@@ -252,6 +261,37 @@ type TokenRemoveResult struct {
 	TokenID     string `json:"tokenId"`
 	Name        string `json:"name"`
 	RevokedSelf bool   `json:"revokedSelf"`
+}
+
+// ConfigListInput is the input of nexusd.config.list.
+type ConfigListInput struct{}
+
+// ConfigGetInput is the input of nexusd.config.get.
+type ConfigGetInput struct {
+	Name string `json:"name" jsonschema:"Dotted key of the configuration schema, such as providers.host.enabled, or a section such as providers.host."`
+}
+
+// ConfigKey is one configuration key as nexusd.config.list and get return
+// it. Its name is the dotted key, such as providers.host.enabled.
+type ConfigKey = apitypes.Resource[ConfigKeyProperties]
+
+// ConfigKeyProperties are a key's value in the on-disk file, never the
+// configuration in force. A sensitive value is config.Redacted.
+type ConfigKeyProperties struct {
+	Value     any    `json:"value"`     // As written in the file; null when absent
+	Effective any    `json:"effective"` // What the file loads as, the default included
+	Source    string `json:"source"`    // file or default
+}
+
+// configKeyPattern matches a dotted key of the config schema: 1 to 8
+// segments, each a lowercase letter then up to 63 letters or digits. It
+// never matches a file path ("/", "..", a leading or trailing dot).
+const configKeyPattern = `^[a-z][A-Za-z0-9]{0,63}(\.[a-z][A-Za-z0-9]{0,63}){0,7}$`
+
+func refineConfigName(s *jsonschema.Schema) {
+	if p := s.Properties["name"]; p != nil {
+		p.Pattern = configKeyPattern
+	}
 }
 
 // Token input patterns. tokenNamePattern and tokenScopePattern equal
@@ -491,10 +531,51 @@ var (
 	})
 )
 
+// configReadNote is what both config reads say about their values and
+// errors (FR-6).
+const configReadNote = " Values are read from the on-disk configuration file, not the configuration in force, " +
+	"which can differ until a reload or restart applies the file. A secret value, such as a script's env, is " +
+	"[REDACTED]. Fails config-invalid with located errors when the file cannot be read or parsed. Read-only, " +
+	"but audited: each call writes a requested and a completed audit record." + adminNote
+
+var configColumns = []string{"name", "properties.value", "properties.effective", "properties.source"}
+
+// The config reads (nexusd-remote-admin FR-6). Neither is an MCP tool.
+var (
+	ConfigList = def.Define[ConfigListInput, apitypes.List[ConfigKey]](def.Op{
+		ID: Name + ".config.list", Provider: Name, Kind: def.KindList, ResourceType: ConfigType,
+		Summary: "List nexusd's configuration keys",
+		Description: "Lists every leaf key of nexusd's configuration schema, in schema order, by dotted name such as " +
+			"providers.host.enabled: its value as written in the on-disk file (null when absent), its effective " +
+			"value (what the file loads as, the default when absent) and its source, file or default. An " +
+			"unknown key named to nexusd.config.get answers 404 not-found naming the nearest valid parent and " +
+			"its keys." + configReadNote,
+		Scope: def.Scope{Name: AdminScope}, Risk: def.RiskReadOnly, Mode: def.ModeSync, Idempotent: true,
+		Audited: true,
+		CLI:     def.CLIBinding{Noun: "nexusdconfig", Verb: "get"},
+		Columns: configColumns,
+	})
+
+	ConfigGet = def.Define[ConfigGetInput, ConfigKey](def.Op{
+		ID: Name + ".config.get", Provider: Name, Kind: def.KindGet, ResourceType: ConfigType,
+		Summary: "Get a nexusd configuration key",
+		Description: "Returns one key of nexusd's configuration by dotted name, such as providers.host.enabled: " +
+			"its value as written in the on-disk file (null when absent), its effective value (what the file " +
+			"loads as, the default when absent) and its source, file or default. A section, such as " +
+			"providers.host, returns its keys' values together. An unknown key answers 404 not-found whose " +
+			"detail names the nearest valid parent and its keys." + configReadNote,
+		Scope: def.Scope{Name: AdminScope}, Risk: def.RiskReadOnly, Mode: def.ModeSync, Idempotent: true,
+		Audited: true,
+		CLI:     def.CLIBinding{Noun: "nexusdconfig", Verb: "get", Positional: "name"},
+		Columns: configColumns,
+		Refine:  refineConfigName,
+	})
+)
+
 // Spec returns the nexusd provider's declarations for the catalog.
 func Spec() def.ProviderSpec {
 	return def.ProviderSpec{Name: Name, ReadScope: ReadScope, Ops: []def.Op{
 		List.Op(), ValidateConfig.Op(), Reload.Op(), Restart.Op(), Update.Op(), Rollback.Op(), Upload.Op(),
-		TokensList.Op(), TokensAdd.Op(), TokensRemove.Op(),
+		TokensList.Op(), TokensAdd.Op(), TokensRemove.Op(), ConfigList.Op(), ConfigGet.Op(),
 	}}
 }

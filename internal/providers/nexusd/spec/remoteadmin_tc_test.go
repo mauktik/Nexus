@@ -11,6 +11,7 @@ package spec_test
 
 import (
 	"encoding/json"
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -24,7 +25,9 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/auth"
+	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/def"
 	"github.com/mauktik/nexus/internal/openapi"
 	"github.com/mauktik/nexus/internal/providers/nexusd/spec"
@@ -222,7 +225,116 @@ func TestTCRA27_TokenNameAndScopePatternsEqualTheAuthPackageS(t *testing.T) {
 //   - Descriptions: each states "on-disk", `[REDACTED]`, and "404" with "nearest" parent.
 //   - Catalog: the golden table has 2 more rows, and `catalogStubs` binds both.
 func TestTCRA60_TheConfigGetOpsAreDeclaredAsTheCatalogTable(t *testing.T) {
-	t.Skip("TC-RA-60: SKIP-only stub; un-skip when WI 3.3 lands")
+	want := []struct {
+		id, route string
+		kind      def.Kind
+		pos       string
+	}{
+		{"nexusd.config.list", "GET /v1/providers/nexusd/config", def.KindList, ""},
+		{"nexusd.config.get", "GET /v1/providers/nexusd/config/{name}", def.KindGet, "name"},
+	}
+	ops := spec.Spec().Ops
+	tokens := slices.IndexFunc(ops, func(op def.Op) bool { return op.ID == "nexusd.tokens.remove" })
+	if tokens < 0 {
+		t.Fatal("Spec() has no nexusd.tokens.remove")
+	}
+	cols := []string{"name", "properties.value", "properties.effective", "properties.source"}
+	for i, w := range want {
+		at := slices.IndexFunc(ops, func(op def.Op) bool { return op.ID == w.id })
+		if at < 0 {
+			t.Errorf("Spec() has no %s", w.id)
+			continue
+		}
+		if at != tokens+1+i {
+			t.Errorf("%s is op %d of Spec(), want %d (after nexusd.tokens.remove)", w.id, at, tokens+1+i)
+		}
+		op := ops[at]
+		method, path, err := openapi.Route(op)
+		if err != nil {
+			t.Fatalf("%s: %v", op.ID, err)
+		}
+		if got := method + " " + path; got != w.route {
+			t.Errorf("%s: route %q, want %q", op.ID, got, w.route)
+		}
+		if op.Kind != w.kind || op.ResourceType != spec.ConfigType || op.Scope != (def.Scope{Name: spec.AdminScope}) ||
+			op.Risk != def.RiskReadOnly || op.Mutating() || op.Mode != def.ModeSync || !op.Audited || op.SyncMutation ||
+			op.MCP != nil {
+			t.Errorf("%s: kind %s, type %q, scope %+v, risk %s, mode %s, audited %t, sync mutation %t, MCP %+v; "+
+				"want %s, config, nexusd:admin, read-only, sync, audited, no MCP", op.ID, op.Kind, op.ResourceType,
+				op.Scope, op.Risk, op.Mode, op.Audited, op.SyncMutation, op.MCP, w.kind)
+		}
+		if !op.Idempotent {
+			t.Errorf("%s: not idempotent", op.ID)
+		}
+		// One merged command: nexusdconfig get [NAME].
+		if op.CLI.Noun != "nexusdconfig" || op.CLI.Verb != "get" || op.CLI.Positional != w.pos {
+			t.Errorf("%s: CLI %+v, want nexusdconfig get with positional %q", op.ID, op.CLI, w.pos)
+		}
+		if !slices.Equal(op.Columns, cols) {
+			t.Errorf("%s: columns %q, want %q", op.ID, op.Columns, cols)
+		}
+		for _, s := range []string{"on-disk", "not the configuration in force", "[REDACTED]", "404", "nearest",
+			"nexusd:admin", "root-equivalent", "audited"} {
+			if !strings.Contains(op.Description, s) {
+				t.Errorf("%s: description lacks %q", op.ID, s)
+			}
+		}
+	}
+	if spec.ConfigType != "config" {
+		t.Errorf("ConfigType = %q, want config", spec.ConfigType)
+	}
+
+	// The wire types: a key resource's properties are value, effective and
+	// source, and value and effective are null when absent.
+	b, err := json.Marshal(spec.ConfigKeyProperties{Source: "default"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(b); got != `{"value":null,"effective":null,"source":"default"}` {
+		t.Errorf("ConfigKeyProperties JSON %s", got)
+	}
+	var key spec.ConfigKey = apitypes.NewResource("h", spec.Name, spec.ConfigType, "host.name",
+		spec.ConfigKeyProperties{Value: "a", Effective: "a", Source: "file"})
+	if key.Name != "host.name" || key.Properties.Source != "file" {
+		t.Errorf("ConfigKey %+v", key)
+	}
+	// The catalog rows and their count are TestCatalogMatchesGoldenTable's
+	// (internal/catalog/golden_test.go); catalogStubs binding both is
+	// TestTCSM94_TheConformanceSuiteCoversNexusdThrough's (every nexusd op is
+	// served).
+}
+
+// schemaPaths returns every key path of the config schema: each leaf of
+// config.LeafKeys and each mapping, from the top level down.
+func schemaPaths(t *testing.T) []string {
+	t.Helper()
+	var root *config.UnknownKeyError
+	if _, err := config.LookupKey(""); !errors.As(err, &root) || len(root.Children) == 0 {
+		t.Fatalf("LookupKey(\"\"): %v, want the top-level keys", err)
+	}
+	var paths []string
+	var walk func(path string)
+	walk = func(path string) {
+		k, err := config.LookupKey(path)
+		if err != nil {
+			t.Fatalf("LookupKey(%q): %v", path, err)
+		}
+		paths = append(paths, path)
+		if k.Kind == config.KindMapping {
+			for _, c := range k.Children {
+				walk(path + "." + c)
+			}
+		}
+	}
+	for _, c := range root.Children {
+		walk(c)
+	}
+	for _, k := range config.LeafKeys() {
+		if !slices.Contains(paths, k.Path) {
+			t.Errorf("leaf %s is not under the top-level mappings", k.Path)
+		}
+	}
+	return paths
 }
 
 // TC-RA-61: The config key-name pattern accepts every schema key and rejects others. Owner WI 3.3. Requirements: FR-6, NFR-5.
@@ -233,7 +345,46 @@ func TestTCRA60_TheConfigGetOpsAreDeclaredAsTheCatalogTable(t *testing.T) {
 //     2. Match the rejects: `Providers.x`, `a..b`, `.a`, `a.`, `a/b`, `../etc`, 9 segments, a 65-char segment, `a b`.
 //   - Expected: Every schema path matches and every reject fails. `TestEveryStringInputIsConstrained` passes.
 func TestTCRA61_TheConfigKeyNamePatternAcceptsEverySchemaKeyAnd(t *testing.T) {
-	t.Skip("TC-RA-61: SKIP-only stub; un-skip when WI 3.3 lands")
+	r := schemaOf(t, spec.ConfigGet.Op())
+	p := r.Schema().Properties["name"]
+	if p == nil || p.Pattern == "" {
+		t.Fatalf("config get input has no name pattern: %+v", r.Schema().Properties)
+	}
+	re := regexp.MustCompile(p.Pattern)
+	accepts := func(v string) (bool, bool) {
+		return r.Validate(map[string]any{"name": v}) == nil, re.MatchString(v)
+	}
+
+	// Step 1: every schema path, leaf or mapping, is accepted.
+	paths := schemaPaths(t)
+	if len(paths) < len(config.LeafKeys()) || !slices.Contains(paths, "providers.host.enabled") ||
+		!slices.Contains(paths, "providers") {
+		t.Fatalf("schema paths %q: the walk missed keys", paths)
+	}
+	for _, path := range paths {
+		if schemaOK, reOK := accepts(path); !schemaOK || !reOK {
+			t.Errorf("schema key %q: schema %t, pattern %t; want accepted", path, schemaOK, reOK)
+		}
+	}
+	// The bounds themselves: 8 segments and a 64-character segment.
+	for _, v := range []string{strings.TrimSuffix(strings.Repeat("a.", 8), "."), "a" + strings.Repeat("B", 63)} {
+		if schemaOK, reOK := accepts(v); !schemaOK || !reOK {
+			t.Errorf("%q: schema %t, pattern %t; want accepted", v, schemaOK, reOK)
+		}
+	}
+
+	// Step 2: the rejects.
+	for _, v := range []string{
+		"Providers.x", "a..b", ".a", "a.", "a/b", "../etc",
+		strings.TrimSuffix(strings.Repeat("a.", 9), "."), "a" + strings.Repeat("b", 64), "a b",
+		"", "providers.scripts.catalog.backup\n", "host.name=x",
+	} {
+		if schemaOK, reOK := accepts(v); schemaOK || reOK {
+			t.Errorf("%q: schema %t, pattern %t; want rejected", v, schemaOK, reOK)
+		}
+	}
+	// TestEveryStringInputIsConstrained (internal/conformance) and
+	// TestInputsAreConstrained cover the name input with the others.
 }
 
 // TC-RA-67: The config set op is declared as the catalog table states. Owner WI 4.1. Requirements: FR-7, FR-9, FR-10, FR-11, NFR-5, ASM-1.

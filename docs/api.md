@@ -53,6 +53,8 @@ Only `GET /healthz` needs no token; it reports liveness only and is not part of 
 | [`POST /v1/providers/nexusd/actions/rollback`](#op-nexusd-actions-rollback) | `nexusd.actions.rollback` | destructive | Roll nexusd back to the previous binary |
 | [`POST /v1/providers/nexusd/actions/update`](#op-nexusd-actions-update) | `nexusd.actions.update` | mutating | Update nexusd from a signed release |
 | [`POST /v1/providers/nexusd/actions/validate-config`](#op-nexusd-actions-validate-config) | `nexusd.actions.validate-config` | read-only | Validate the nexusd configuration file |
+| [`GET /v1/providers/nexusd/config`](#op-nexusd-config-list) | `nexusd.config.list` | read-only | List nexusd's configuration keys |
+| [`GET /v1/providers/nexusd/config/{name}`](#op-nexusd-config-get) | `nexusd.config.get` | read-only | Get a nexusd configuration key |
 | [`GET /v1/providers/nexusd/daemons`](#op-nexusd-daemons-list) | `nexusd.daemons.list` | read-only | Get the running nexusd |
 | [`GET /v1/providers/nexusd/tokens`](#op-nexusd-tokens-list) | `nexusd.tokens.list` | read-only | List nexusd's bearer tokens |
 | [`POST /v1/providers/nexusd/tokens/{name}/add`](#op-nexusd-tokens-add) | `nexusd.tokens.add` | mutating | Add a nexusd bearer token |
@@ -7019,6 +7021,177 @@ Response `200` (`application/json`):
     "valid",
     "configPath",
     "errors"
+  ],
+  "additionalProperties": false
+}
+```
+
+<a id="op-nexusd-config-list"></a>
+
+### `GET /v1/providers/nexusd/config`
+
+List nexusd's configuration keys.
+
+- Operation ID: `nexusd.config.list`
+- Scope: Requires nexusd:admin.
+- Risk: read-only
+- Long-running: no
+
+Lists every leaf key of nexusd's configuration schema, in schema order, by dotted name such as providers.host.enabled: its value as written in the on-disk file (null when absent), its effective value (what the file loads as, the default when absent) and its source, file or default. An unknown key named to nexusd.config.get answers 404 not-found naming the nearest valid parent and its keys. Values are read from the on-disk configuration file, not the configuration in force, which can differ until a reload or restart applies the file. A secret value, such as a script's env, is [REDACTED]. Fails config-invalid with located errors when the file cannot be read or parsed. Read-only, but audited: each call writes a requested and a completed audit record. Requires nexusd:admin, which is root-equivalent.
+
+Responses:
+
+- `200`: The result.
+- `400`: Problem: validation-failed.
+- `401`: Problem: unauthorized. Headers: `WWW-Authenticate`.
+- `403`: Problem: forbidden.
+- `404`: Problem: route-not-found.
+- `405`: Problem: method-not-allowed. Headers: `Allow`.
+- `413`: Problem: payload-too-large.
+- `429`: Problem: rate-limited. Headers: `Retry-After`.
+- `500`: Problem: internal-error.
+- `503`: Problem: capability-unavailable, dependency-unavailable.
+- `default`: Any other problem, such as one the provider reports, as problem details of a registered type.
+
+Response `200` (`application/json`):
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "value": true,
+              "effective": true,
+              "source": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "value",
+              "effective",
+              "source"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "name",
+          "host",
+          "properties"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "nextCursor": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "items",
+    "nextCursor"
+  ],
+  "additionalProperties": false
+}
+```
+
+<a id="op-nexusd-config-get"></a>
+
+### `GET /v1/providers/nexusd/config/{name}`
+
+Get a nexusd configuration key.
+
+- Operation ID: `nexusd.config.get`
+- Scope: Requires nexusd:admin.
+- Risk: read-only
+- Long-running: no
+
+Returns one key of nexusd's configuration by dotted name, such as providers.host.enabled: its value as written in the on-disk file (null when absent), its effective value (what the file loads as, the default when absent) and its source, file or default. A section, such as providers.host, returns its keys' values together. An unknown key answers 404 not-found whose detail names the nearest valid parent and its keys. Values are read from the on-disk configuration file, not the configuration in force, which can differ until a reload or restart applies the file. A secret value, such as a script's env, is [REDACTED]. Fails config-invalid with located errors when the file cannot be read or parsed. Read-only, but audited: each call writes a requested and a completed audit record. Requires nexusd:admin, which is root-equivalent.
+
+Parameters:
+
+| Name | In | Required | Schema | Description |
+| --- | --- | --- | --- | --- |
+| `name` | path | yes | `{"type":"string","pattern":"^[a-z][A-Za-z0-9]{0,63}(\\.[a-z][A-Za-z0-9]{0,63}){0,7}$"}` | Dotted key of the configuration schema, such as providers.host.enabled, or a section such as providers.host. |
+
+Responses:
+
+- `200`: The result.
+- `400`: Problem: validation-failed.
+- `401`: Problem: unauthorized. Headers: `WWW-Authenticate`.
+- `403`: Problem: forbidden.
+- `404`: Problem: not-found, route-not-found.
+- `405`: Problem: method-not-allowed. Headers: `Allow`.
+- `413`: Problem: payload-too-large.
+- `429`: Problem: rate-limited. Headers: `Retry-After`.
+- `500`: Problem: internal-error.
+- `503`: Problem: capability-unavailable, dependency-unavailable.
+- `default`: Any other problem, such as one the provider reports, as problem details of a registered type.
+
+Response `200` (`application/json`):
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "host": {
+      "type": "string"
+    },
+    "properties": {
+      "type": "object",
+      "properties": {
+        "value": true,
+        "effective": true,
+        "source": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "effective",
+        "source"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "id",
+    "type",
+    "name",
+    "host",
+    "properties"
   ],
   "additionalProperties": false
 }

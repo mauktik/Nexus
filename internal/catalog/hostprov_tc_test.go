@@ -21,15 +21,16 @@ import (
 // count, the header comment and where the host ops sit in catalog.All().
 func TestTCHP104_TheCatalogGoldenTableHasTheTen(t *testing.T) {
 	// 71 rows at 47d93bc plus the ten host rows, plus the three nexusd token
-	// rows of nexusd-remote-admin (TC-RA-26).
-	if len(golden) != 84 {
-		t.Errorf("golden has %d rows, want 84", len(golden))
+	// rows (TC-RA-26) and the two config read rows (TC-RA-60) of
+	// nexusd-remote-admin.
+	if len(golden) != 86 {
+		t.Errorf("golden has %d rows, want 86", len(golden))
 	}
 	src, err := os.ReadFile("golden_test.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"(84 rows:", "the host table", "planning/system-provider/architecture.md"} {
+	for _, want := range []string{"(86 rows:", "the host table", "planning/system-provider/architecture.md"} {
 		if !strings.Contains(string(src), want) {
 			t.Errorf("golden's header comment lacks %q", want)
 		}

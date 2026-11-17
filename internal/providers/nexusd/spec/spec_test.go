@@ -5,20 +5,22 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/def"
 	"github.com/mauktik/nexus/internal/providers/nexusd/spec"
 )
 
 // TC-SM-19: Spec lists exactly the seven ops of the Operation catalog table,
 // with their kind, route segments, scope, risk, mode, CLI command and MCP
-// tool, followed by the three token ops of nexusd-remote-admin's table
-// (TC-RA-26).
+// tool, followed by the three token ops and the two config reads of
+// nexusd-remote-admin's table (TC-RA-26, TC-RA-60).
 func TestSpecListsTheOps(t *testing.T) {
 	type row struct {
 		id, resourceType, action string
@@ -39,6 +41,8 @@ func TestSpecListsTheOps(t *testing.T) {
 		{"nexusd.tokens.list", "tokens", "", def.KindList, "nexusd:admin", def.RiskReadOnly, def.ModeSync, "nexusdtoken", "get", ""},
 		{"nexusd.tokens.add", "tokens", "add", def.KindResourceAction, "nexusd:admin", def.RiskMutating, def.ModeSync, "nexusdtoken", "add", ""},
 		{"nexusd.tokens.remove", "tokens", "remove", def.KindResourceAction, "nexusd:admin", def.RiskDestructive, def.ModeSync, "nexusdtoken", "remove", ""},
+		{"nexusd.config.list", "config", "", def.KindList, "nexusd:admin", def.RiskReadOnly, def.ModeSync, "nexusdconfig", "get", ""},
+		{"nexusd.config.get", "config", "", def.KindGet, "nexusd:admin", def.RiskReadOnly, def.ModeSync, "nexusdconfig", "get", ""},
 	}
 
 	s := spec.Spec()
@@ -79,8 +83,10 @@ func TestSpecListsTheOps(t *testing.T) {
 		{"DaemonsType", spec.DaemonsType, "daemons"},
 		{"UploadsType", spec.UploadsType, "uploads"},
 		{"TokensType", spec.TokensType, "tokens"},
+		{"ConfigType", spec.ConfigType, "config"},
 		{"MaxRemoteTokens", spec.MaxRemoteTokens, 256},
 		{"TokenMutationsPerMinute", spec.TokenMutationsPerMinute, 10},
+		{"MaxConfigValueBytes", spec.MaxConfigValueBytes, 4096},
 		{"LaneKey", spec.LaneKey, "nexusd"},
 		{"DefaultMaxUploadBytes", spec.DefaultMaxUploadBytes, 64 << 20},
 		{"MaxUploadBytesCeiling", spec.MaxUploadBytesCeiling, 256 << 20},
@@ -94,7 +100,8 @@ func TestSpecListsTheOps(t *testing.T) {
 	}
 
 	// The reads are idempotent; a read op's output columns match the table.
-	for _, op := range []def.Op{spec.List.Op(), spec.ValidateConfig.Op(), spec.TokensList.Op()} {
+	for _, op := range []def.Op{spec.List.Op(), spec.ValidateConfig.Op(), spec.TokensList.Op(), spec.ConfigList.Op(),
+		spec.ConfigGet.Op()} {
 		if !op.Idempotent {
 			t.Errorf("%s: not idempotent", op.ID)
 		}
@@ -223,9 +230,9 @@ func TestInputsAreConstrained(t *testing.T) {
 			}
 		}
 	}
-	if strs != 6 {
-		t.Errorf("found %d string inputs, want 6 (uploadId, signature, token add's name, scopes[] and expires, "+
-			"and token remove's name)", strs)
+	if strs != 7 {
+		t.Errorf("found %d string inputs, want 7 (uploadId, signature, token add's name, scopes[] and expires, "+
+			"token remove's name and config get's name)", strs)
 	}
 
 	update := schemaOf(t, spec.Update.Op())
@@ -420,6 +427,26 @@ func TestDescriptions(t *testing.T) {
 			if op.Risk != def.RiskReadOnly || op.Mutating() {
 				t.Errorf("%s: risk %s, want read-only", op.ID, op.Risk)
 			}
+		}
+	}
+}
+
+// The value bound the API declares (MaxConfigValueBytes, NFR-5) is the one
+// config.Edit enforces: a string of exactly that many bytes is written, one
+// byte more is refused.
+func TestConfigEditValueBoundIsMaxConfigValueBytes(t *testing.T) {
+	data := []byte("host:\n  name: a\n")
+	for _, c := range []struct {
+		n  int
+		ok bool
+	}{{spec.MaxConfigValueBytes, true}, {spec.MaxConfigValueBytes + 1, false}} {
+		v := strings.Repeat("a", c.n)
+		out, _, err := config.Edit(data, "nexusd.yaml", []config.Assignment{{Key: "host.name", Value: v}})
+		switch {
+		case c.ok && (err != nil || !strings.Contains(string(out), v)):
+			t.Errorf("a %d-byte host.name: %v, want written", c.n, err)
+		case !c.ok && (err == nil || !strings.Contains(err.Error(), strconv.Itoa(spec.MaxConfigValueBytes))):
+			t.Errorf("a %d-byte host.name: %v, want refused naming %d bytes", c.n, err, spec.MaxConfigValueBytes)
 		}
 	}
 }

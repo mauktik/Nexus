@@ -23,11 +23,13 @@ import (
 	"unicode/utf8"
 
 	"go.yaml.in/yaml/v3"
+
+	nexusdspec "github.com/mauktik/nexus/internal/providers/nexusd/spec"
 )
 
-// maxValueBytes bounds one assigned value (NFR-5). It equals
-// nexusd/spec.MaxConfigValueBytes, which the API declares.
-const maxValueBytes = 4096
+// maxValueBytes bounds one assigned value (NFR-5): the bound the API
+// declares.
+const maxValueBytes = nexusdspec.MaxConfigValueBytes
 
 // KeyKind is what a configuration key holds.
 type KeyKind int
