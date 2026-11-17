@@ -3,7 +3,8 @@
 // and configuration management, the generated reference, and the shipped
 // default configuration.
 //
-// Stub-style: SKIP-only (nexusd-remote-admin) for TC-RA-E25, owned by WI 5.2.
+// TC-RA-E25, owned by WI 5.2, checks the T1 harness's copy of the
+// hand-commented configuration fixture.
 
 package nexusd
 
@@ -343,12 +344,13 @@ func TestTCRA92_TheShippedDefaultYAMLGainsCommentsOnly(t *testing.T) {
 	}
 }
 
-// TC-RA-E25: The harness commented fixture equals the unit-test fixture. Owner WI 5.2. Requirements: NFR-3.
-//
-//   - Setup: The repository.
-//   - Steps:
-//     1. Compare `test/harness/fixtures/nexusd-commented.yaml` with `internal/config/testdata/edit/commented.yaml`.
-//   - Expected: Byte-equal.
+// TC-RA-E25 (WI 5.2; NFR-3): the hand-commented file TC-RA-96 installs on
+// the T1 host is byte-for-byte the unit-test fixture config.Edit's NFR-3
+// cases run on, so T1 checks the same comments T0 does.
 func TestTCRAE25_TheHarnessCommentedFixtureEqualsTheUnitTest(t *testing.T) {
-	t.Skip("TC-RA-E25: SKIP-only stub; un-skip when WI 5.2 lands")
+	const harness, unit = "test/harness/fixtures/nexusd-commented.yaml", "internal/config/testdata/edit/commented.yaml"
+	got, want := docsRead(t, harness), docsRead(t, unit)
+	if got != want {
+		t.Errorf("%s (%d bytes) differs from %s (%d bytes); copy %s over it", harness, len(got), unit, len(want), unit)
+	}
 }
