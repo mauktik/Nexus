@@ -7,10 +7,17 @@
 // only on its own binary, unit and configuration file, and an update reaches
 // the host as an uploaded, signed release tarball named by an opaque,
 // server-generated upload ID. Trusted release keys are set only in the
-// root-owned configuration file; no operation adds or changes one (FR-15).
+// root-owned configuration file: no operation adds or changes one (FR-15),
+// and config set denies providers.nexusd.update.trustedKeys
+// (nexusd-remote-admin FR-12).
+//
+// The token ops manage the daemon's own bearer tokens remotely (list, add,
+// remove), each requiring nexusd:admin. Add returns the new secret once, in
+// its response only (nexusd-remote-admin FR-1 to FR-3).
 package spec
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -27,6 +34,16 @@ const (
 	AdminScope  = "nexusd:admin"
 	DaemonsType = "daemons"
 	UploadsType = "uploads"
+	TokensType  = "tokens"
+)
+
+// Remote token limits (ASM-6; A-1, A-2). MaxRemoteTokens caps the tokens a
+// host holds, local ones included, and only a remote add enforces it.
+// TokenMutationsPerMinute bounds successful remote adds and removes
+// together, per daemon process, over a rolling minute.
+const (
+	MaxRemoteTokens         = 256
+	TokenMutationsPerMinute = 10
 )
 
 // LaneKey is the lane reload, restart, update and rollback share with the
@@ -181,6 +198,93 @@ type UploadResult struct {
 	ExpiresAt time.Time `json:"expiresAt"` // When the staged upload is deleted if no update used it
 }
 
+// TokenListInput is the input of nexusd.tokens.list.
+type TokenListInput struct{}
+
+// Token is one bearer token of the host as nexusd.tokens.list returns it.
+// Its name is the token name; it never carries the secret or its hash.
+type Token = apitypes.Resource[TokenProperties]
+
+// TokenProperties describe a stored token.
+type TokenProperties struct {
+	TokenID   string     `json:"tokenId"` // 12 lowercase hex digits
+	Scopes    []string   `json:"scopes"`
+	Created   time.Time  `json:"created"`
+	Expires   *time.Time `json:"expires"`             // Null: never
+	Self      bool       `json:"self"`                // The token this request used
+	CreatedBy *TokenRef  `json:"createdBy,omitempty"` // The token that added it remotely
+}
+
+// TokenRef names a token by ID and name.
+type TokenRef struct {
+	TokenID string `json:"tokenId"`
+	Name    string `json:"name"`
+}
+
+// TokenAddInput is the input of nexusd.tokens.add.
+type TokenAddInput struct {
+	Name    string   `json:"name" jsonschema:"Name of the new token: 1 to 64 letters, digits, '.', '_' or '-', starting with a letter or digit."`
+	Scopes  []string `json:"scopes,omitempty" jsonschema:"Scopes the token holds, such as containers:read or scripts:run:backup. Default none."`
+	Expires string   `json:"expires,omitempty" jsonschema:"Lifetime: a Go duration such as 1h30m, or days such as 90d. Default: never expires."`
+}
+
+// TokenAddResult is the result of nexusd.tokens.add. Token is the secret,
+// returned once (def.Op.SecretOutput).
+type TokenAddResult struct {
+	apitypes.ActionResult
+	Token   string     `json:"token"`
+	TokenID string     `json:"tokenId"`
+	Name    string     `json:"name"`
+	Scopes  []string   `json:"scopes"`
+	Created time.Time  `json:"created"`
+	Expires *time.Time `json:"expires"` // Null: never
+}
+
+// TokenRemoveInput is the input of nexusd.tokens.remove.
+type TokenRemoveInput struct {
+	Name string `json:"name" jsonschema:"Name or 12-hex ID of the token to revoke."`
+}
+
+// TokenRemoveResult is the result of nexusd.tokens.remove. Its warnings say
+// when the revoked token is the one the request used.
+type TokenRemoveResult struct {
+	apitypes.ActionResult
+	TokenID     string `json:"tokenId"`
+	Name        string `json:"name"`
+	RevokedSelf bool   `json:"revokedSelf"`
+}
+
+// Token input patterns. tokenNamePattern and tokenScopePattern equal
+// internal/auth's nameRE and scopeRE (a test pins them); a name also
+// matches a 12-hex token ID, so remove takes either. tokenExpiresPattern
+// accepts what the local nexusd token command does: days from 1 to 99999,
+// or a non-negative Go duration.
+const (
+	tokenNamePattern    = `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`
+	tokenScopePattern   = `^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*(:[A-Za-z0-9][A-Za-z0-9._-]*)?$`
+	tokenExpiresPattern = `^([1-9][0-9]{0,4}d|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$`
+	tokenExpiresMaxLen  = 32
+	tokenMaxScopes      = 32
+)
+
+func refineTokenName(s *jsonschema.Schema) {
+	if p := s.Properties["name"]; p != nil {
+		p.Pattern = tokenNamePattern
+	}
+}
+
+func refineTokenAdd(s *jsonschema.Schema) {
+	refineTokenName(s)
+	if p := s.Properties["scopes"]; p != nil && p.Items != nil {
+		n := tokenMaxScopes
+		p.MaxItems, p.Items.Pattern = &n, tokenScopePattern
+	}
+	if p := s.Properties["expires"]; p != nil {
+		n := tokenExpiresMaxLen
+		p.Pattern, p.MaxLength = tokenExpiresPattern, &n
+	}
+}
+
 func refineUpdate(s *jsonschema.Schema) {
 	if p := s.Properties["uploadId"]; p != nil {
 		p.Pattern = UploadIDPattern
@@ -203,6 +307,9 @@ const (
 	// other providers' operations.
 	interruptNote = " Restarting nexusd neither waits for nor cancels other operations: in-process operations " +
 		"of other providers end outcome-unknown, and detached operations survive."
+	// tokenSyncNote says what a token mutation's answer is.
+	tokenSyncNote = " It answers 200 at once and creates no operation; an Idempotency-Key header is refused " +
+		"with validation-failed."
 	recordNote = " It runs in a systemd unit (systemd hosts only, not OpenRC) outside the sandbox, and the daemon that is running when the " +
 		"unit ends records the outcome. The CLI keeps reconnecting for up to 60 seconds while nexusd restarts."
 )
@@ -327,9 +434,67 @@ var (
 	})
 )
 
+// tokenLimitNote is FR-5's rate limit, shared by add and remove.
+var tokenLimitNote = " Successful token adds and removes together are limited to " +
+	strconv.Itoa(TokenMutationsPerMinute) + " per minute per daemon; past that the call answers 429 " +
+	"rate-limited with Retry-After and changes nothing."
+
+// The remote token ops (nexusd-remote-admin FR-1 to FR-3). None is an MCP
+// tool: an agent manages tokens over REST or the CLI only.
+var (
+	TokensList = def.Define[TokenListInput, apitypes.List[Token]](def.Op{
+		ID: Name + ".tokens.list", Provider: Name, Kind: def.KindList, ResourceType: TokensType,
+		Summary: "List nexusd's bearer tokens",
+		Description: "Lists every bearer token of this host, those made by the local nexusd token command " +
+			"included: each token's name, tokenId, scopes, created, expires (null: never), createdBy (the token " +
+			"that added it remotely, absent otherwise), and self, true for the token this request used. It never " +
+			"returns a secret or a hash. Read-only, but audited: each call writes a requested and a completed " +
+			"audit record." + adminNote,
+		Scope: def.Scope{Name: AdminScope}, Risk: def.RiskReadOnly, Mode: def.ModeSync, Idempotent: true,
+		Audited: true,
+		CLI:     def.CLIBinding{Noun: "nexusdtoken", Verb: "get"},
+		Columns: []string{"name", "properties.tokenId", "properties.scopes", "properties.expires", "properties.self"},
+	})
+
+	TokensAdd = def.Define[TokenAddInput, TokenAddResult](def.Op{
+		ID: Name + ".tokens.add", Provider: Name, Kind: def.KindResourceAction, ResourceType: TokensType,
+		Action:  "add",
+		Summary: "Add a nexusd bearer token",
+		Description: "Creates a bearer token named name with the given scopes (none by default) that expires " +
+			"after expires (such as 90d or 1h30m; never by default), and answers with the secret token, " +
+			"its tokenId, name, scopes, created and expires. The secret is returned once: it is never stored, " +
+			"logged or shown again, so keep it from this response. Side effects: the token is added to the " +
+			"host's token store and authenticates from the next request; the audit log records its name, ID, " +
+			"scopes and expiry, never the secret. A name already taken answers 409 conflict. A host holds at " +
+			"most " + strconv.Itoa(MaxRemoteTokens) + " tokens, local ones included: past that the call " +
+			"answers 409 token-limit-reached with maxTokens." + tokenLimitNote + tokenSyncNote + adminNote,
+		Scope: def.Scope{Name: AdminScope}, Risk: def.RiskMutating, Mode: def.ModeSync,
+		SyncMutation: true, SecretOutput: "token",
+		CLI:     def.CLIBinding{Noun: "nexusdtoken", Verb: "add", Positional: "name"},
+		Columns: []string{"name", "tokenId", "token", "expires"},
+		Refine:  refineTokenAdd,
+	})
+
+	TokensRemove = def.Define[TokenRemoveInput, TokenRemoveResult](def.Op{
+		ID: Name + ".tokens.remove", Provider: Name, Kind: def.KindResourceAction, ResourceType: TokensType,
+		Action:  "remove",
+		Summary: "Revoke a nexusd bearer token",
+		Description: "Revokes the token whose name or tokenId is name, and answers with its tokenId and name, " +
+			"and revokedSelf true when it is the token this request used; the warnings then say this client can " +
+			"no longer authenticate to this host with it. Side effects: the token is deleted from the host's " +
+			"token store and is refused from the next request. An unknown name or ID answers 404 not-found and " +
+			"changes nothing." + tokenLimitNote + tokenSyncNote + adminNote,
+		Scope: def.Scope{Name: AdminScope}, Risk: def.RiskDestructive, Mode: def.ModeSync,
+		SyncMutation: true,
+		CLI:          def.CLIBinding{Noun: "nexusdtoken", Verb: "remove", Positional: "name", EchoWarnings: true},
+		Refine:       refineTokenName,
+	})
+)
+
 // Spec returns the nexusd provider's declarations for the catalog.
 func Spec() def.ProviderSpec {
 	return def.ProviderSpec{Name: Name, ReadScope: ReadScope, Ops: []def.Op{
 		List.Op(), ValidateConfig.Op(), Reload.Op(), Restart.Op(), Update.Op(), Rollback.Op(), Upload.Op(),
+		TokensList.Op(), TokensAdd.Op(), TokensRemove.Op(),
 	}}
 }

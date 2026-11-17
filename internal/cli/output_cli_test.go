@@ -224,6 +224,12 @@ var noID = map[string]string{
 	// errors} (nexusd-self-management F2): a check of a file, not a
 	// resource.
 	"nexusd.actions.validate-config": "a sync validation result, not a resource",
+	// The architecture fixes their results as action results naming the
+	// token by tokenId and name (nexusd-remote-admin Interfaces,
+	// TokenAddResult and TokenRemoveResult): a SyncMutation answer, not a
+	// resource.
+	"nexusd.tokens.add":    "a sync token mutation result, not a resource",
+	"nexusd.tokens.remove": "a sync token mutation result, not a resource",
 }
 
 // TC-166: every object every data command prints has a host and an id, log

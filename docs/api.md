@@ -54,6 +54,9 @@ Only `GET /healthz` needs no token; it reports liveness only and is not part of 
 | [`POST /v1/providers/nexusd/actions/update`](#op-nexusd-actions-update) | `nexusd.actions.update` | mutating | Update nexusd from a signed release |
 | [`POST /v1/providers/nexusd/actions/validate-config`](#op-nexusd-actions-validate-config) | `nexusd.actions.validate-config` | read-only | Validate the nexusd configuration file |
 | [`GET /v1/providers/nexusd/daemons`](#op-nexusd-daemons-list) | `nexusd.daemons.list` | read-only | Get the running nexusd |
+| [`GET /v1/providers/nexusd/tokens`](#op-nexusd-tokens-list) | `nexusd.tokens.list` | read-only | List nexusd's bearer tokens |
+| [`POST /v1/providers/nexusd/tokens/{name}/add`](#op-nexusd-tokens-add) | `nexusd.tokens.add` | mutating | Add a nexusd bearer token |
+| [`POST /v1/providers/nexusd/tokens/{name}/remove`](#op-nexusd-tokens-remove) | `nexusd.tokens.remove` | destructive | Revoke a nexusd bearer token |
 | [`POST /v1/providers/nexusd/uploads`](#op-nexusd-uploads-add) | `nexusd.uploads.add` | mutating | Stage a release tarball for update |
 | [`POST /v1/providers/nginx/actions/reload`](#op-nginx-actions-reload) | `nginx.actions.reload` | mutating | Reload nginx |
 | [`POST /v1/providers/nginx/actions/restart`](#op-nginx-actions-restart) | `nginx.actions.restart` | mutating | Restart nginx |
@@ -7162,6 +7165,336 @@ Response `200` (`application/json`):
   "required": [
     "items",
     "nextCursor"
+  ],
+  "additionalProperties": false
+}
+```
+
+<a id="op-nexusd-tokens-list"></a>
+
+### `GET /v1/providers/nexusd/tokens`
+
+List nexusd's bearer tokens.
+
+- Operation ID: `nexusd.tokens.list`
+- Scope: Requires nexusd:admin.
+- Risk: read-only
+- Long-running: no
+
+Lists every bearer token of this host, those made by the local nexusd token command included: each token's name, tokenId, scopes, created, expires (null: never), createdBy (the token that added it remotely, absent otherwise), and self, true for the token this request used. It never returns a secret or a hash. Read-only, but audited: each call writes a requested and a completed audit record. Requires nexusd:admin, which is root-equivalent.
+
+Responses:
+
+- `200`: The result.
+- `400`: Problem: validation-failed.
+- `401`: Problem: unauthorized. Headers: `WWW-Authenticate`.
+- `403`: Problem: forbidden.
+- `404`: Problem: route-not-found.
+- `405`: Problem: method-not-allowed. Headers: `Allow`.
+- `413`: Problem: payload-too-large.
+- `429`: Problem: rate-limited. Headers: `Retry-After`.
+- `500`: Problem: internal-error.
+- `503`: Problem: capability-unavailable, dependency-unavailable.
+- `default`: Any other problem, such as one the provider reports, as problem details of a registered type.
+
+Response `200` (`application/json`):
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "tokenId": {
+                "type": "string"
+              },
+              "scopes": {
+                "type": [
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "created": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "expires": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "format": "date-time"
+              },
+              "self": {
+                "type": "boolean"
+              },
+              "createdBy": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "tokenId": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "tokenId",
+                  "name"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "tokenId",
+              "scopes",
+              "created",
+              "expires",
+              "self"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "name",
+          "host",
+          "properties"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "nextCursor": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "items",
+    "nextCursor"
+  ],
+  "additionalProperties": false
+}
+```
+
+<a id="op-nexusd-tokens-add"></a>
+
+### `POST /v1/providers/nexusd/tokens/{name}/add`
+
+Add a nexusd bearer token.
+
+- Operation ID: `nexusd.tokens.add`
+- Scope: Requires nexusd:admin.
+- Risk: mutating
+- Long-running: no
+
+Creates a bearer token named name with the given scopes (none by default) that expires after expires (such as 90d or 1h30m; never by default), and answers with the secret token, its tokenId, name, scopes, created and expires. The secret is returned once: it is never stored, logged or shown again, so keep it from this response. Side effects: the token is added to the host's token store and authenticates from the next request; the audit log records its name, ID, scopes and expiry, never the secret. A name already taken answers 409 conflict. A host holds at most 256 tokens, local ones included: past that the call answers 409 token-limit-reached with maxTokens. Successful token adds and removes together are limited to 10 per minute per daemon; past that the call answers 429 rate-limited with Retry-After and changes nothing. It answers 200 at once and creates no operation; an Idempotency-Key header is refused with validation-failed. Requires nexusd:admin, which is root-equivalent.
+
+Parameters:
+
+| Name | In | Required | Schema | Description |
+| --- | --- | --- | --- | --- |
+| `name` | path | yes | `{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"}` | Name of the new token: 1 to 64 letters, digits, '.', '_' or '-', starting with a letter or digit. |
+
+Request body (`application/json`, optional):
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "scopes": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*(:[A-Za-z0-9][A-Za-z0-9._-]*)?$"
+      },
+      "description": "Scopes the token holds, such as containers:read or scripts:run:backup. Default none.",
+      "maxItems": 32
+    },
+    "expires": {
+      "type": "string",
+      "description": "Lifetime: a Go duration such as 1h30m, or days such as 90d. Default: never expires.",
+      "maxLength": 32,
+      "pattern": "^([1-9][0-9]{0,4}d|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+)$"
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+Responses:
+
+- `200`: The result. Headers: `Cache-Control`.
+- `400`: Problem: validation-failed.
+- `401`: Problem: unauthorized. Headers: `WWW-Authenticate`.
+- `403`: Problem: forbidden.
+- `404`: Problem: not-found, route-not-found.
+- `405`: Problem: method-not-allowed. Headers: `Allow`.
+- `409`: Problem: conflict.
+- `413`: Problem: payload-too-large.
+- `429`: Problem: rate-limited. Headers: `Retry-After`.
+- `500`: Problem: internal-error.
+- `503`: Problem: audit-unavailable, capability-unavailable, dependency-unavailable.
+- `default`: Any other problem, such as one the provider reports, as problem details of a registered type.
+
+Response `200` (`application/json`):
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "changed": {
+      "type": "boolean"
+    },
+    "warnings": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "token": {
+      "type": "string"
+    },
+    "tokenId": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "scopes": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "created": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "changed",
+    "token",
+    "tokenId",
+    "name",
+    "scopes",
+    "created",
+    "expires"
+  ],
+  "additionalProperties": false
+}
+```
+
+<a id="op-nexusd-tokens-remove"></a>
+
+### `POST /v1/providers/nexusd/tokens/{name}/remove`
+
+Revoke a nexusd bearer token.
+
+- Operation ID: `nexusd.tokens.remove`
+- Scope: Requires nexusd:admin.
+- Risk: destructive
+- Long-running: no
+
+Revokes the token whose name or tokenId is name, and answers with its tokenId and name, and revokedSelf true when it is the token this request used; the warnings then say this client can no longer authenticate to this host with it. Side effects: the token is deleted from the host's token store and is refused from the next request. An unknown name or ID answers 404 not-found and changes nothing. Successful token adds and removes together are limited to 10 per minute per daemon; past that the call answers 429 rate-limited with Retry-After and changes nothing. It answers 200 at once and creates no operation; an Idempotency-Key header is refused with validation-failed. Requires nexusd:admin, which is root-equivalent.
+
+Parameters:
+
+| Name | In | Required | Schema | Description |
+| --- | --- | --- | --- | --- |
+| `name` | path | yes | `{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"}` | Name or 12-hex ID of the token to revoke. |
+
+Responses:
+
+- `200`: The result.
+- `400`: Problem: validation-failed.
+- `401`: Problem: unauthorized. Headers: `WWW-Authenticate`.
+- `403`: Problem: forbidden.
+- `404`: Problem: not-found, route-not-found.
+- `405`: Problem: method-not-allowed. Headers: `Allow`.
+- `409`: Problem: conflict.
+- `413`: Problem: payload-too-large.
+- `429`: Problem: rate-limited. Headers: `Retry-After`.
+- `500`: Problem: internal-error.
+- `503`: Problem: audit-unavailable, capability-unavailable, dependency-unavailable.
+- `default`: Any other problem, such as one the provider reports, as problem details of a registered type.
+
+Response `200` (`application/json`):
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "changed": {
+      "type": "boolean"
+    },
+    "warnings": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "tokenId": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "revokedSelf": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "changed",
+    "tokenId",
+    "name",
+    "revokedSelf"
   ],
   "additionalProperties": false
 }

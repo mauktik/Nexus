@@ -17,8 +17,9 @@ import (
 
 // TC-SM-19: Spec lists exactly the seven ops of the Operation catalog table,
 // with their kind, route segments, scope, risk, mode, CLI command and MCP
-// tool.
-func TestSpecListsTheSevenOps(t *testing.T) {
+// tool, followed by the three token ops of nexusd-remote-admin's table
+// (TC-RA-26).
+func TestSpecListsTheOps(t *testing.T) {
 	type row struct {
 		id, resourceType, action string
 		kind                     def.Kind
@@ -35,6 +36,9 @@ func TestSpecListsTheSevenOps(t *testing.T) {
 		{"nexusd.actions.update", "", "update", def.KindProviderAction, "nexusd:admin", def.RiskMutating, def.ModeLongRunning, "nexusd", "update", ""},
 		{"nexusd.actions.rollback", "", "rollback", def.KindProviderAction, "nexusd:admin", def.RiskDestructive, def.ModeLongRunning, "nexusd", "rollback", ""},
 		{"nexusd.uploads.add", "uploads", "", def.KindUpload, "nexusd:admin", def.RiskMutating, def.ModeSync, "", "", ""},
+		{"nexusd.tokens.list", "tokens", "", def.KindList, "nexusd:admin", def.RiskReadOnly, def.ModeSync, "nexusdtoken", "get", ""},
+		{"nexusd.tokens.add", "tokens", "add", def.KindResourceAction, "nexusd:admin", def.RiskMutating, def.ModeSync, "nexusdtoken", "add", ""},
+		{"nexusd.tokens.remove", "tokens", "remove", def.KindResourceAction, "nexusd:admin", def.RiskDestructive, def.ModeSync, "nexusdtoken", "remove", ""},
 	}
 
 	s := spec.Spec()
@@ -74,6 +78,9 @@ func TestSpecListsTheSevenOps(t *testing.T) {
 		{"AdminScope", spec.AdminScope, "nexusd:admin"},
 		{"DaemonsType", spec.DaemonsType, "daemons"},
 		{"UploadsType", spec.UploadsType, "uploads"},
+		{"TokensType", spec.TokensType, "tokens"},
+		{"MaxRemoteTokens", spec.MaxRemoteTokens, 256},
+		{"TokenMutationsPerMinute", spec.TokenMutationsPerMinute, 10},
 		{"LaneKey", spec.LaneKey, "nexusd"},
 		{"DefaultMaxUploadBytes", spec.DefaultMaxUploadBytes, 64 << 20},
 		{"MaxUploadBytesCeiling", spec.MaxUploadBytesCeiling, 256 << 20},
@@ -87,7 +94,7 @@ func TestSpecListsTheSevenOps(t *testing.T) {
 	}
 
 	// The reads are idempotent; a read op's output columns match the table.
-	for _, op := range []def.Op{spec.List.Op(), spec.ValidateConfig.Op()} {
+	for _, op := range []def.Op{spec.List.Op(), spec.ValidateConfig.Op(), spec.TokensList.Op()} {
 		if !op.Idempotent {
 			t.Errorf("%s: not idempotent", op.ID)
 		}
@@ -153,13 +160,16 @@ func visit(s *jsonschema.Schema, path string, f func(path string, s *jsonschema.
 var forbiddenFieldParts = []string{"path", "command", "shell", "exec", "url"}
 
 // forbiddenWords mirrors internal/conformance's op ID and route words outside
-// v1; the conformance suite applies it to the wired catalog (6.1).
+// v1; the conformance suite applies it to the wired catalog (6.1). As there,
+// allowedTokenOps alone may carry "token" and "tokens".
 var forbiddenWords = []string{
 	"create", "exec", "execute", "run", "shell", "reboot", "shutdown", "poweroff", "halt",
 	"repository", "repositories", "repo", "repos", "sources", "key", "keys",
 	"reconcile", "drift", "deploy", "deployment", "deployments", "template", "templates",
 	"schedule", "schedules", "cron", "metrics", "self", "selfupdate", "token", "tokens",
 }
+
+var allowedTokenOps = []string{"nexusd.tokens.list", "nexusd.tokens.add", "nexusd.tokens.remove"}
 
 func words(s string) []string {
 	return strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
@@ -205,13 +215,17 @@ func TestInputsAreConstrained(t *testing.T) {
 			}
 		})
 		for _, w := range slices.Concat(words(op.ID), words(route(op))) {
+			if (w == "token" || w == "tokens") && slices.Contains(allowedTokenOps, op.ID) {
+				continue
+			}
 			if slices.Contains(forbiddenWords, w) {
 				t.Errorf("%s: forbidden word %q in op ID or route %s", op.ID, w, route(op))
 			}
 		}
 	}
-	if strs != 2 {
-		t.Errorf("found %d string inputs, want 2 (uploadId and signature)", strs)
+	if strs != 6 {
+		t.Errorf("found %d string inputs, want 6 (uploadId, signature, token add's name, scopes[] and expires, "+
+			"and token remove's name)", strs)
 	}
 
 	update := schemaOf(t, spec.Update.Op())

@@ -9,7 +9,26 @@
 
 package spec_test
 
-import "testing"
+import (
+	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/google/jsonschema-go/jsonschema"
+
+	"github.com/mauktik/nexus/internal/auth"
+	"github.com/mauktik/nexus/internal/def"
+	"github.com/mauktik/nexus/internal/openapi"
+	"github.com/mauktik/nexus/internal/providers/nexusd/spec"
+)
 
 // TC-RA-26: The three token ops are declared as the catalog table states and match the golden rows. Owner WI 2.2. Requirements: FR-1, FR-2, FR-3, FR-10, FR-11, ASM-1, ASM-2.
 //
@@ -26,7 +45,108 @@ import "testing"
 //   - Descriptions: each contains "nexusd:admin" and "root-equivalent". add's also contains "returned once".
 //   - Catalog: the golden table has these three rows, and its row count has risen by 3.
 func TestTCRA26_TheThreeTokenOpsAreDeclaredAsTheCatalogTable(t *testing.T) {
-	t.Skip("TC-RA-26: SKIP-only stub; un-skip when WI 2.2 lands")
+	type row struct {
+		id, route string
+		risk      def.Risk
+		mode      def.Mode
+		verb, pos string
+		sync      bool // SyncMutation
+		audited   bool
+		secret    string
+		echo      bool // CLI.EchoWarnings
+	}
+	want := []row{
+		{"nexusd.tokens.list", "GET /v1/providers/nexusd/tokens", def.RiskReadOnly, def.ModeSync, "get", "", false, true, "", false},
+		{"nexusd.tokens.add", "POST /v1/providers/nexusd/tokens/{name}/add", def.RiskMutating, def.ModeSync, "add", "name", true, false, "token", false},
+		{"nexusd.tokens.remove", "POST /v1/providers/nexusd/tokens/{name}/remove", def.RiskDestructive, def.ModeSync, "remove", "name", true, false, "", true},
+	}
+	ops := spec.Spec().Ops
+	upload := slices.IndexFunc(ops, func(op def.Op) bool { return op.ID == "nexusd.uploads.add" })
+	if upload < 0 {
+		t.Fatal("Spec() has no nexusd.uploads.add")
+	}
+	for i, w := range want {
+		at := slices.IndexFunc(ops, func(op def.Op) bool { return op.ID == w.id })
+		if at < 0 {
+			t.Errorf("Spec() has no %s", w.id)
+			continue
+		}
+		if at != upload+1+i {
+			t.Errorf("%s is op %d of Spec(), want %d (after nexusd.uploads.add)", w.id, at, upload+1+i)
+		}
+		op := ops[at]
+		method, path, err := openapi.Route(op)
+		if err != nil {
+			t.Fatalf("%s: %v", op.ID, err)
+		}
+		got := row{op.ID, method + " " + path, op.Risk, op.Mode, op.CLI.Verb, op.CLI.Positional, op.SyncMutation,
+			op.Audited, op.SecretOutput, op.CLI.EchoWarnings}
+		if got != w {
+			t.Errorf("%s:\n got %+v\nwant %+v", op.ID, got, w)
+		}
+		if op.Scope != (def.Scope{Name: spec.AdminScope}) || op.MCP != nil || op.CLI.Noun != "nexusdtoken" {
+			t.Errorf("%s: scope %+v, MCP %+v, noun %q; want nexusd:admin, none, nexusdtoken", op.ID, op.Scope, op.MCP, op.CLI.Noun)
+		}
+		for _, s := range []string{"nexusd:admin", "root-equivalent"} {
+			if !strings.Contains(op.Description, s) {
+				t.Errorf("%s: description lacks %q", op.ID, s)
+			}
+		}
+	}
+
+	if got, want := spec.TokensList.Op().Columns, []string{"name", "properties.tokenId", "properties.scopes",
+		"properties.expires", "properties.self"}; !slices.Equal(got, want) {
+		t.Errorf("list columns %q, want %q", got, want)
+	}
+	add := spec.TokensAdd.Op()
+	if got, want := add.Columns, []string{"name", "tokenId", "token", "expires"}; !slices.Equal(got, want) {
+		t.Errorf("add columns %q, want %q", got, want)
+	}
+	if !add.Mutating() || !strings.Contains(add.Description, "returned once") {
+		t.Errorf("add: mutating %t, description %q; want mutating and \"returned once\"", add.Mutating(), add.Description)
+	}
+	if !spec.TokensRemove.Op().Mutating() {
+		t.Error("remove is not mutating")
+	}
+	// The catalog rows and their count are TestCatalogMatchesGoldenTable's
+	// (internal/catalog/golden_test.go).
+}
+
+// authRegex returns the pattern of the regexp.MustCompile literal that
+// internal/auth assigns to name, read from its source: auth keeps the
+// regexes unexported, and the spec package must not import auth.
+func authRegex(t *testing.T, name string) string {
+	t.Helper()
+	f, err := parser.ParseFile(token.NewFileSet(), filepath.Join("..", "..", "..", "auth", "tokens.go"), nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pattern := ""
+	ast.Inspect(f, func(n ast.Node) bool {
+		vs, ok := n.(*ast.ValueSpec)
+		if !ok || len(vs.Names) != 1 || vs.Names[0].Name != name || len(vs.Values) != 1 {
+			return true
+		}
+		call, ok := vs.Values[0].(*ast.CallExpr)
+		if !ok || len(call.Args) != 1 {
+			return true
+		}
+		if lit, ok := call.Args[0].(*ast.BasicLit); ok {
+			if pattern, err = strconv.Unquote(lit.Value); err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+		}
+		return false
+	})
+	if pattern == "" {
+		t.Fatalf("internal/auth/tokens.go has no %s = regexp.MustCompile(<literal>)", name)
+	}
+	return pattern
+}
+
+func tokenAddSchema(t *testing.T) *jsonschema.Resolved {
+	t.Helper()
+	return schemaOf(t, spec.TokensAdd.Op())
 }
 
 // TC-RA-27: Token name and scope patterns equal the auth package's regexes. Owner WI 2.2. Requirements: FR-1, NFR-5.
@@ -37,7 +157,57 @@ func TestTCRA26_TheThreeTokenOpsAreDeclaredAsTheCatalogTable(t *testing.T) {
 //     2. Run an accept/reject table through both: `ci`, `a.b-c_d`, a 64-char name, a 65-char name, `-x`, `a b`, `abcdefabcdef` (a 12-hex ID), `containers:read`, `x:`, `X:read`.
 //   - Expected: The strings are equal, and every table row gets the same verdict from both regexes. `go list -deps ./cmd/nexus` does not include `internal/auth`.
 func TestTCRA27_TokenNameAndScopePatternsEqualTheAuthPackageS(t *testing.T) {
-	t.Skip("TC-RA-27: SKIP-only stub; un-skip when WI 2.2 lands")
+	r := tokenAddSchema(t)
+	props := r.Schema().Properties
+	nameP, scopes := props["name"], props["scopes"]
+	if nameP == nil || scopes == nil || scopes.Items == nil {
+		t.Fatalf("add input has no name or scopes items: %+v", props)
+	}
+	authName, authScope := authRegex(t, "nameRE"), authRegex(t, "scopeRE")
+	if nameP.Pattern != authName {
+		t.Errorf("name pattern %q, auth's nameRE %q", nameP.Pattern, authName)
+	}
+	if scopes.Items.Pattern != authScope {
+		t.Errorf("scopes item pattern %q, auth's scopeRE %q", scopes.Items.Pattern, authScope)
+	}
+	nameRE, scopeRE := regexp.MustCompile(authName), regexp.MustCompile(authScope)
+
+	names := []struct {
+		v  string
+		ok bool
+	}{
+		{"ci", true}, {"a.b-c_d", true}, {strings.Repeat("a", 64), true}, {strings.Repeat("a", 65), false},
+		{"-x", false}, {"a b", false}, {"abcdefabcdef", true},
+	}
+	for _, c := range names {
+		schemaOK := r.Validate(map[string]any{"name": c.v}) == nil
+		_, _, err := auth.Create(t.TempDir(), auth.CreateRequest{Name: c.v})
+		if schemaOK != c.ok || nameRE.MatchString(c.v) != c.ok || (err == nil) != c.ok {
+			t.Errorf("name %q: schema %t, auth regex %t, auth.Create err %v; want accepted %t",
+				c.v, schemaOK, nameRE.MatchString(c.v), err, c.ok)
+		}
+	}
+	scopeCases := []struct {
+		v  string
+		ok bool
+	}{{"containers:read", true}, {"x:", false}, {"X:read", false}}
+	for _, c := range scopeCases {
+		schemaOK := r.Validate(map[string]any{"name": "ci", "scopes": []any{c.v}}) == nil
+		_, _, err := auth.Create(t.TempDir(), auth.CreateRequest{Name: "ci", Scopes: []string{c.v}})
+		if schemaOK != c.ok || scopeRE.MatchString(c.v) != c.ok || (err == nil) != c.ok {
+			t.Errorf("scope %q: schema %t, auth regex %t, auth.Create err %v; want accepted %t",
+				c.v, schemaOK, scopeRE.MatchString(c.v), err, c.ok)
+		}
+	}
+
+	// The CLI builds without auth: the spec imports it in this test only.
+	out, err := exec.Command("go", "list", "-deps", "github.com/mauktik/nexus/cmd/nexus").Output()
+	if err != nil {
+		t.Fatalf("go list -deps: %v", err)
+	}
+	if slices.Contains(strings.Fields(string(out)), "github.com/mauktik/nexus/internal/auth") {
+		t.Error("cmd/nexus depends on internal/auth")
+	}
 }
 
 // TC-RA-60: The config get ops are declared as the catalog table states. Owner WI 3.3. Requirements: FR-6, FR-10, FR-11, ASM-5, ASM-1.
@@ -113,7 +283,39 @@ func TestTCRA68_TheDenyListKeysExistInTheSchemaAndTheTableHolds(t *testing.T) {
 //   - Accepted: `90d`, `99999d`, `1h30m`, `1.5h` and `300ms`. `""` is allowed by `omitempty`.
 //   - Rejected: `0d`, `100000d`, `-1h`, `1y` and the 33-char value (`maxLength` 32).
 func TestTCRAE7_TheExpiresPatternAcceptsTheLocalCommandSFormsAnd(t *testing.T) {
-	t.Skip("TC-RA-E7: SKIP-only stub; un-skip when WI 2.2 lands")
+	r := tokenAddSchema(t)
+	p := r.Schema().Properties["expires"]
+	if p == nil || p.MaxLength == nil || *p.MaxLength != 32 {
+		t.Fatalf("expires schema %+v, want maxLength 32", p)
+	}
+	long := strings.Repeat("1h", 15) + "10s"
+	if len(long) != 33 || !regexp.MustCompile(p.Pattern).MatchString(long) {
+		t.Fatalf("fixture %q: %d characters, matches the pattern %t", long, len(long),
+			regexp.MustCompile(p.Pattern).MatchString(long))
+	}
+	for v, ok := range map[string]bool{
+		"90d": true, "99999d": true, "1h30m": true, "1.5h": true, "300ms": true,
+		"0d": false, "100000d": false, "-1h": false, "1y": false, long: false,
+	} {
+		if err := r.Validate(map[string]any{"name": "ci", "expires": v}); (err == nil) != ok {
+			t.Errorf("expires %q: error %v, want accepted %t", v, err, ok)
+		}
+	}
+	// "" is never sent: omitempty drops it, and no expiry is valid.
+	b, err := json.Marshal(spec.TokenAddInput{Name: "ci"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != `{"name":"ci"}` {
+		t.Errorf("input without expiry marshals to %s, want {\"name\":\"ci\"}", b)
+	}
+	var in map[string]any
+	if err := json.Unmarshal(b, &in); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Validate(in); err != nil {
+		t.Errorf("input without expiry refused: %v", err)
+	}
 }
 
 // TC-RA-E17: The changes item pattern and count bounds. Owner WI 4.1. Requirements: NFR-5, FR-7.

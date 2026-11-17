@@ -115,6 +115,9 @@ var catalogStubs = map[string]func(*testprovider.Spy) provider.Provider{
 			testprovider.InProcess(s, nexusd.Update),
 			testprovider.InProcess(s, nexusd.Rollback),
 			testprovider.Upload(s, nexusd.Upload),
+			testprovider.Sync(s, nexusd.TokensList),
+			testprovider.Sync(s, nexusd.TokensAdd),
+			testprovider.Sync(s, nexusd.TokensRemove),
 		)
 	},
 	pihole.Name: func(s *testprovider.Spy) provider.Provider {
@@ -738,13 +741,70 @@ func TestScopeAndAuditCoverEveryOp(t *testing.T) {
 		if tok == "" {
 			t.Fatalf("%s: no token for scope %q", op.ID, need)
 		}
-		if r := s.call(t, op, tok, inputs(op)); r.status == http.StatusForbidden {
+		if op.SyncMutation || op.Audited {
+			// A SyncMutation answers 200 with no operation, and it and an
+			// Audited read write requested, then completed.
+			name := noneToken
+			if scoped {
+				name = s.exactName[need]
+			}
+			s.assertSyncAudited(t, op, tok, name, inputs(op))
+		} else if r := s.call(t, op, tok, inputs(op)); r.status == http.StatusForbidden {
 			t.Errorf("%s with exactly %q: 403 %s", op.ID, need, r.body)
 		}
 		checked++
 	}
 	if want := len(catalog.Ops()) + len(testprovider.Spec().Ops); checked != want {
 		t.Errorf("checked %d ops, want %d", checked, want)
+	}
+}
+
+// assertSyncAudited calls a SyncMutation or Audited op with token and checks
+// it answered 200, never 202 with an operation, and wrote a requested record
+// and then a completed record that names it, neither with an operation.
+func (s *stack) assertSyncAudited(t *testing.T, op def.Op, token, tokenName string, in map[string]any) {
+	t.Helper()
+	q := audit.Query{Action: op.ID, TokenName: tokenName}
+	before := len(s.records(t, q))
+	r := s.call(t, op, token, in)
+	if r.status != http.StatusOK {
+		t.Errorf("%s: %d %.200s, want 200", op.ID, r.status, r.body)
+		return
+	}
+	var body map[string]any
+	if err := json.Unmarshal(r.body, &body); err != nil {
+		t.Fatalf("%s: body %.200s: %v", op.ID, r.body, err)
+	}
+	for _, k := range []string{"operation", "operationId"} {
+		if _, ok := body[k]; ok {
+			t.Errorf("%s: body has %q: %.200s", op.ID, k, r.body)
+		}
+	}
+	page, err := s.audit.Query(audit.Query{Action: op.ID, TokenName: tokenName, Limit: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(page.Items) - before; n != 2 {
+		t.Errorf("%s: %d new audit records, want 2 (requested, completed)", op.ID, n)
+		return
+	}
+	var req, done *systemspec.AuditRecord
+	for i := range page.Items {
+		switch it := &page.Items[i]; it.Outcome {
+		case audit.OutcomeRequested:
+			req = it
+		case audit.OutcomeCompleted:
+			done = it
+		}
+	}
+	switch {
+	case req == nil || done == nil:
+		t.Errorf("%s: records %v, want requested and completed", op.ID, s.records(t, q))
+	case done.RequestID != req.ID || done.Time.Before(req.Time):
+		t.Errorf("%s: completed %s (request %s, %v) does not follow requested %s (%v)", op.ID, done.ID,
+			done.RequestID, done.Time, req.ID, req.Time)
+	case req.OperationID != "" || done.OperationID != "":
+		t.Errorf("%s: records name operations %q and %q, want none", op.ID, req.OperationID, done.OperationID)
 	}
 }
 
@@ -927,12 +987,15 @@ var (
 // forbiddenWords are op ID and route words outside v1: container create,
 // exec and run (OOS-6), script definition changes (FR-21), reboot and
 // shutdown, repositories and keys (OOS-7), desired state and reconcile
-// (OOS-2, ASM-2), schedules (OOS-5) and tokens (no network path manages
-// tokens). Self-update is no longer out of scope (OOS-11): it is in scope
-// through the nexusd provider, whose op IDs and routes use none of these
-// words. "self" and "selfupdate" stay as guards against any other
-// self-modifying surface. "metrics" (base OOS-4) stays a guard for every
-// other op; the one exemption is allowedMetricsOp below.
+// (OOS-2, ASM-2), schedules (OOS-5) and tokens. Self-update is no longer out
+// of scope (OOS-11): it is in scope through the nexusd provider, whose
+// self-management op IDs and routes use none of these words. "self" and
+// "selfupdate" stay as guards against any other self-modifying surface.
+// Remote token management is in scope only through the nexusd provider's
+// three token ops (nexusd-remote-admin FR-1 to FR-3), held by nexusd:admin;
+// "token" and "tokens" stay guards for every other op, and allowedTokenOps
+// below are the only exemption. "metrics" (base OOS-4) stays a guard for
+// every other op; the one exemption is allowedMetricsOp below.
 var forbiddenWords = []string{
 	"create", "exec", "execute", "run", "shell", "reboot", "shutdown", "poweroff", "halt",
 	"repository", "repositories", "repo", "repos", "sources", "key", "keys",
@@ -946,6 +1009,12 @@ var forbiddenWords = []string{
 // Persistent or exported metrics stay out of scope (system-provider OOS-3),
 // so any other op ID or route with the word still fails.
 const allowedMetricsOp = "host.metrics.get"
+
+// allowedTokenOps are the only ops that may carry the words "token" and
+// "tokens": nexusd's remote token list, add and remove, each requiring
+// nexusd:admin (nexusd-remote-admin FR-10). Any other op ID or route with
+// either word still fails, nexusd's included.
+var allowedTokenOps = []string{"nexusd.tokens.list", "nexusd.tokens.add", "nexusd.tokens.remove"}
 
 func normalize(name string) string {
 	return strings.NewReplacer("_", "", "-", "").Replace(strings.ToLower(name))
@@ -971,25 +1040,41 @@ func executionSurface(t *testing.T, op def.Op) []string {
 		}
 	})
 
-	method, route, err := openapi.Route(op)
+	method, _, err := openapi.Route(op)
 	if err != nil {
 		t.Fatalf("op %s: %v", op.ID, err)
 	}
 	if method == http.MethodPut || method == http.MethodPatch {
 		out = append(out, fmt.Sprintf("%s: %s route", op.ID, method))
 	}
-	for _, w := range slices.Concat(words(op.ID), words(route)) {
-		if w == "metrics" && op.ID == allowedMetricsOp {
-			continue
-		}
-		if slices.Contains(forbiddenWords, w) {
-			out = append(out, fmt.Sprintf("%s: %q in op ID or route %s", op.ID, w, route))
-		}
-	}
+	out = append(out, forbiddenWordHits(t, op)...)
 	// Scripts are invoked, never defined or changed through the API.
 	if op.Provider == "scripts" || op.ResourceType == "scripts" {
 		if slices.Contains([]string{"add", "update", "remove", "delete", "edit", "set"}, op.Action) {
 			out = append(out, fmt.Sprintf("%s: script action %q", op.ID, op.Action))
+		}
+	}
+	return out
+}
+
+// forbiddenWordHits lists the forbidden words in op's ID and route, less
+// the exemptions of allowedMetricsOp and allowedTokenOps.
+func forbiddenWordHits(t *testing.T, op def.Op) []string {
+	t.Helper()
+	_, route, err := openapi.Route(op)
+	if err != nil {
+		t.Fatalf("op %s: %v", op.ID, err)
+	}
+	var out []string
+	for _, w := range slices.Concat(words(op.ID), words(route)) {
+		if w == "metrics" && op.ID == allowedMetricsOp {
+			continue
+		}
+		if (w == "token" || w == "tokens") && slices.Contains(allowedTokenOps, op.ID) {
+			continue
+		}
+		if slices.Contains(forbiddenWords, w) {
+			out = append(out, fmt.Sprintf("%s: %q in op ID or route %s", op.ID, w, route))
 		}
 	}
 	return out
@@ -1082,8 +1167,8 @@ func TestTCSM94_TheConformanceSuiteCoversNexusdThrough(t *testing.T) {
 			served[op.ID] = op
 		}
 	}
-	if len(served) != 7 {
-		t.Fatalf("the stack serves %d nexusd ops, want 7", len(served))
+	if len(served) != len(nexusd.Spec().Ops) {
+		t.Fatalf("the stack serves %d nexusd ops, want all %d", len(served), len(nexusd.Spec().Ops))
 	}
 
 	// Step 2: the hostile strings through uploadId and signature are 400
@@ -1134,7 +1219,7 @@ func TestTCSM94_TheConformanceSuiteCoversNexusdThrough(t *testing.T) {
 		}
 	}
 	want := []string{nexusd.Reload.Op().ID, nexusd.Restart.Op().ID, nexusd.Update.Op().ID,
-		nexusd.Rollback.Op().ID, nexusd.Upload.Op().ID}
+		nexusd.Rollback.Op().ID, nexusd.Upload.Op().ID, nexusd.TokensAdd.Op().ID, nexusd.TokensRemove.Op().ID}
 	slices.Sort(mutating)
 	slices.Sort(want)
 	if !slices.Equal(mutating, want) {
