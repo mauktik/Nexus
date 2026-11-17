@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"slices"
 	"sort"
+	"strconv"
+	"time"
 )
 
 // ContentType is the RFC 9457 media type for JSON problem details.
@@ -24,6 +26,11 @@ type Error struct {
 	Detail     string
 	Instance   string
 	Extensions map[string]any
+
+	// RetryAfter is never marshaled: MarshalJSON writes only the standard
+	// members and the extensions. Write sends it as the Retry-After header of
+	// a 429.
+	RetryAfter time.Duration
 }
 
 // FieldError is one entry of validation-failed's errors[] member.
@@ -181,9 +188,23 @@ func Write(w http.ResponseWriter, e *Error) error {
 		status = http.StatusInternalServerError
 	}
 	w.Header().Set("Content-Type", ContentType)
+	if status == http.StatusTooManyRequests && e.RetryAfter > 0 {
+		w.Header().Set("Retry-After", strconv.FormatInt(retryAfterSeconds(e.RetryAfter), 10))
+	}
 	w.WriteHeader(status)
 	if _, werr := w.Write(body); werr != nil {
 		return fmt.Errorf("write problem response: %w", werr)
 	}
 	return err
+}
+
+// retryAfterSeconds rounds a positive d up to whole seconds, so the value is
+// at least 1. It divides rather than adds a second first, which could
+// overflow near the maximum Duration.
+func retryAfterSeconds(d time.Duration) int64 {
+	secs := int64(d / time.Second)
+	if d%time.Second != 0 {
+		secs++
+	}
+	return secs
 }
