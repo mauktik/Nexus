@@ -726,11 +726,10 @@ func TestEveryOperationIsFullyDescribed(t *testing.T) {
 				if r == nil || hs["Location"] == nil || hs["Retry-After"] == nil {
 					t.Errorf("%s: long-running op lacks 202 with Location and Retry-After: %v", where, r)
 				}
-				if responses["200"] != nil {
-					t.Errorf("%s: long-running op declares 200", where)
-				}
-				if op.Mutating() && params["header:Idempotency-Key"] == nil {
-					t.Errorf("%s: no Idempotency-Key header parameter", where)
+				// Only an op that may complete at admission answers 200 too.
+				if (responses["200"] != nil) != op.CompletesAtAdmission {
+					t.Errorf("%s: long-running op declares 200 = %v, CompletesAtAdmission = %v",
+						where, responses["200"] != nil, op.CompletesAtAdmission)
 				}
 			case op.Mode == def.ModeStream:
 				ct := obj(obj(responses["200"])["content"])
@@ -742,6 +741,16 @@ func TestEveryOperationIsFullyDescribed(t *testing.T) {
 				if obj(obj(obj(responses["200"])["content"])["application/json"]) == nil {
 					t.Errorf("%s: sync op lacks a 200 application/json response", where)
 				}
+			}
+			// Idempotency-Key is for long-running mutating ops only: a
+			// SyncMutation or any other sync op refuses it.
+			keyed := op.Mode == def.ModeLongRunning && op.Mutating()
+			if (params["header:Idempotency-Key"] != nil) != keyed {
+				t.Errorf("%s: Idempotency-Key header parameter = %v, want %v",
+					where, params["header:Idempotency-Key"] != nil, keyed)
+			}
+			if cc := obj(obj(obj(responses["200"])["headers"])["Cache-Control"]); (cc != nil) != (op.SecretOutput != "") {
+				t.Errorf("%s: 200 Cache-Control header = %v, SecretOutput = %q", where, cc, op.SecretOutput)
 			}
 
 			declared := map[problem.Slug]bool{}
@@ -781,11 +790,11 @@ func TestEveryOperationIsFullyDescribed(t *testing.T) {
 			if op.Kind == def.KindUpload {
 				need = append(need, problem.UploadTooLarge, problem.Conflict, problem.StorageLimitReached)
 			}
-			if op.Mode == def.ModeLongRunning {
+			if op.Mode == def.ModeLongRunning || op.SyncMutation {
 				need = append(need, problem.Conflict)
-				if op.Mutating() {
-					need = append(need, problem.IdempotencyKeyReused, problem.StorageLimitReached)
-				}
+			}
+			if op.Mode == def.ModeLongRunning && op.Mutating() {
+				need = append(need, problem.IdempotencyKeyReused, problem.StorageLimitReached)
 			}
 			for _, slug := range need {
 				if !declared[slug] {

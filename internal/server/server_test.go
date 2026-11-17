@@ -110,15 +110,23 @@ type testServer struct {
 	logs *syncBuffer
 }
 
-// startServer runs the real server on a real loopback listener.
+// startServer runs the real server over gadgets on a real loopback listener.
 func startServer(t *testing.T, opts server.Options) *testServer {
+	t.Helper()
+	return startServerWith(t, opts, core.Options{
+		Providers: map[string]core.ProviderConfig{"gadgets": {Enabled: true}},
+	}, gadgets{})
+}
+
+// startServerWith runs the real server over ps on a real loopback
+// listener. copts names the enabled providers and may carry an audit log
+// and an operation manager; its host, version and logger are set here.
+func startServerWith(t *testing.T, opts server.Options, copts core.Options, ps ...provider.Provider) *testServer {
 	t.Helper()
 	logs := &syncBuffer{}
 	log := slog.New(slog.NewJSONHandler(logs, nil))
-	reg, err := core.New([]provider.Provider{gadgets{}}, core.Options{
-		Host: "testhost", Version: "v0.0.0-test", Logger: log,
-		Providers: map[string]core.ProviderConfig{"gadgets": {Enabled: true}},
-	})
+	copts.Host, copts.Version, copts.Logger = "testhost", "v0.0.0-test", log
+	reg, err := core.New(ps, copts)
 	if err != nil {
 		t.Fatalf("core.New: %v", err)
 	}
