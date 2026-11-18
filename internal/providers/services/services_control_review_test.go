@@ -275,3 +275,43 @@ func TestCR12_TheHelperFilesAreReadBoundedAndRegular(t *testing.T) {
 		}
 	})
 }
+
+// CR-16: CR-2's rule on OpenRC. When the deptree cannot be read, nexusd's
+// needs are the names in its init script, and a virtual one (net) is not
+// resolved to its provider (networking), whose stop would stop nexusd.
+// Control fails closed, 503 dependency-unavailable, until a preflight reads
+// the deptree.
+func TestCR16_OpenRCControlFailsClosedWhileTheDeptreeIsUnusable(t *testing.T) {
+	w := newCtlWorld(t, ctlOpenRC, "enabled: true\ncontrol:\n  - name: nx-svc-test\n  - name: crond\n", ctlOptions{})
+	deptree := filepath.Join(w.root, "run", "openrc", "deptree")
+	saved, err := os.ReadFile(deptree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(deptree); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(w.root, "etc", "init.d", "nexusd"),
+		"#!/sbin/openrc-run\ndepend() {\n\tneed cron\n}\n")
+	wantAvailable(t, w.p.Preflight(context.Background()))
+	for _, name := range []string{"crond", "nx-svc-test"} {
+		for _, action := range spec.Actions {
+			err := w.p.admitControl(context.Background(), name, action)
+			pe := wantProblem(t, err, problem.DependencyUnavailable)
+			if pe.Status != 503 || !strings.Contains(pe.Detail, "deptree") {
+				t.Errorf("%s %s: %d %q, want 503 naming the deptree", action, name, pe.Status, pe.Detail)
+			}
+		}
+	}
+	// The next preflight reads the deptree.
+	if err := os.WriteFile(deptree, saved, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(w.root, "etc", "init.d", "nexusd")); err != nil {
+		t.Fatal(err)
+	}
+	wantAvailable(t, w.p.Preflight(context.Background()))
+	if err := w.p.admitControl(context.Background(), "nx-svc-test", spec.Stop.Op().Action); err != nil {
+		t.Errorf("after a preflight that read the deptree: %v, want admitted", err)
+	}
+}
