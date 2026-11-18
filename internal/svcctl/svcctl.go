@@ -65,6 +65,11 @@ func (a Action) valid() bool {
 type Result struct {
 	ExitCode int
 	Output   []byte // Combined stdout and stderr, capped at OutputCap
+	// Truncated is true when the tool wrote more than Options.OutputCap
+	// bytes and the rest was discarded. It is reported only for a caller
+	// that set Options.OutputCap; with the default cap it stays false, as
+	// before the field existed.
+	Truncated bool
 }
 
 // ErrNotStarted is wrapped by every error that means the init system's tool
@@ -92,7 +97,13 @@ type Options struct {
 	Run      func(ctx context.Context, argv []string) (Result, error)
 	ProcRoot string        // "" = "/proc"
 	RunRoot  string        // "" = "/run" (OpenRC state)
+	EtcRoot  string        // "" = "/etc" (OpenRC init scripts, read statically)
 	Timeout  time.Duration // Per call; 0 = DefaultTimeout
+	// OutputCap is the most output the real runner keeps from one call; 0
+	// means the package's OutputCap. When it is set, output beyond it is
+	// discarded and reported as Result.Truncated. A caller-supplied Run
+	// applies its own cap.
+	OutputCap int
 }
 
 // ServiceNamePattern is what Status and Do accept as a service name.
@@ -129,24 +140,34 @@ func New(init platform.InitSystem, opts Options) (Controller, error) {
 
 // base is what both implementations share.
 type base struct {
-	run      func(ctx context.Context, argv []string) (Result, error)
-	procRoot string
-	runRoot  string
-	timeout  time.Duration
+	run       func(ctx context.Context, argv []string) (Result, error)
+	procRoot  string
+	runRoot   string
+	etcRoot   string
+	timeout   time.Duration
+	outputCap int // 0 = OutputCap, with Truncated never reported
 }
 
 // newBase is opts with its defaults filled in: a nil Run is the real runner,
-// Run.
+// Run, or with an OutputCap the real runner with that cap.
 func newBase(opts Options) base {
-	b := base{run: opts.Run, procRoot: opts.ProcRoot, runRoot: opts.RunRoot, timeout: opts.Timeout}
+	b := base{run: opts.Run, procRoot: opts.ProcRoot, runRoot: opts.RunRoot, etcRoot: opts.EtcRoot,
+		timeout: opts.Timeout, outputCap: max(opts.OutputCap, 0)}
 	if b.run == nil {
-		b.run = Run
+		if c := b.outputCap; c > 0 {
+			b.run = func(ctx context.Context, argv []string) (Result, error) { return runCapped(ctx, argv, c, true) }
+		} else {
+			b.run = Run
+		}
 	}
 	if b.procRoot == "" {
 		b.procRoot = "/proc"
 	}
 	if b.runRoot == "" {
 		b.runRoot = "/run"
+	}
+	if b.etcRoot == "" {
+		b.etcRoot = "/etc"
 	}
 	if b.timeout <= 0 {
 		b.timeout = DefaultTimeout
@@ -194,10 +215,23 @@ func (b base) call(ctx context.Context, argv []string) (Result, error) {
 // started wraps ErrNotStarted; any other error came after it started. A
 // non-zero exit is a Result, not an error.
 func Run(ctx context.Context, argv []string) (Result, error) {
+	return runCapped(ctx, argv, OutputCap, false)
+}
+
+// Call runs argv as every Controller call does: through opts.Run (nil is the
+// real runner, with opts.OutputCap), bounded by opts.Timeout. When the bound
+// expired the error wraps context.DeadlineExceeded.
+func Call(ctx context.Context, argv []string, opts Options) (Result, error) {
+	return newBase(opts).call(ctx, argv)
+}
+
+// runCapped is Run keeping at most outputCap bytes of output, and setting
+// Result.Truncated when more was discarded if report is true.
+func runCapped(ctx context.Context, argv []string, outputCap int, report bool) (Result, error) {
 	if len(argv) == 0 || !filepath.IsAbs(argv[0]) {
 		return Result{}, fmt.Errorf("%w: refusing to run %q: the program must be an absolute path", ErrNotStarted, argv)
 	}
-	out := &capWriter{max: OutputCap}
+	out := &capWriter{max: outputCap}
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Env = env()
 	cmd.Stdin = nil
@@ -217,7 +251,7 @@ func Run(ctx context.Context, argv []string) (Result, error) {
 	if ctx.Err() != nil {
 		return Result{}, ctx.Err()
 	}
-	res := Result{Output: out.buf}
+	res := Result{Output: out.buf, Truncated: report && out.dropped}
 	var exitErr *exec.ExitError
 	switch {
 	case (err == nil || errors.Is(err, exec.ErrWaitDelay)) && cmd.ProcessState != nil:
@@ -240,13 +274,18 @@ func Run(ctx context.Context, argv []string) (Result, error) {
 // capWriter keeps the first max bytes written to it and discards the rest,
 // so the tool never blocks on a full pipe.
 type capWriter struct {
-	buf []byte
-	max int
+	buf     []byte
+	max     int
+	dropped bool // Some output was discarded
 }
 
 func (w *capWriter) Write(p []byte) (int, error) {
-	if room := w.max - len(w.buf); room > 0 {
+	room := w.max - len(w.buf)
+	if room > 0 {
 		w.buf = append(w.buf, p[:min(room, len(p))]...)
+	}
+	if len(p) > max(room, 0) {
+		w.dropped = true
 	}
 	return len(p), nil
 }
