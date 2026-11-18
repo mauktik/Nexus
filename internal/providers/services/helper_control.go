@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -111,6 +112,18 @@ func runControl(ctx context.Context, raw []byte, log io.Writer, env controlHelpe
 		// left decides.
 		helperSay(log, "%s %s %s failed after it started: %v; waiting for the state", tool, in.Action, in.Service, err)
 		res = svcctl.Result{ExitCode: controlNoExitStatus, Output: []byte(err.Error())}
+	}
+	if err == nil && init == platform.OpenRC {
+		// rc-service runs the init script in the foreground, so its output
+		// is the script's, and a problem detail and the operation log are
+		// read with services:read, which does not cover services:logs
+		// (SEC-4). Only OpenRC's own verdict is kept.
+		kept := openrcVerdict(in.Service, res.Output)
+		if len(kept) < len(strings.TrimSpace(string(res.Output))) {
+			helperSay(log, "the rest of %s's output (%d bytes) is not recorded: an init script can print what services:logs "+
+				"protects", tool, len(res.Output)-len(kept))
+		}
+		res.Output = kept
 	}
 	controlLog(log, tool, in, res)
 
@@ -264,6 +277,22 @@ func controlLog(log io.Writer, tool string, in controlHelperInput, res svcctl.Re
 	}
 }
 
+// openrcFailed is the line OpenRC prints itself when an action fails:
+// ` * ERROR: NAME failed to start`.
+var openrcFailed = regexp.MustCompile(`^[ \t]*\*?[ \t]*ERROR: ([A-Za-z0-9@._-]+) failed to (start|stop)[ \t]*$`)
+
+// openrcVerdict is the lines of out that are OpenRC's own failure verdict for
+// service, and nothing else: they name only the service and the verb.
+func openrcVerdict(service string, out []byte) []byte {
+	var kept []string
+	for line := range strings.Lines(strings.ToValidUTF8(string(out), "�")) {
+		if m := openrcFailed.FindStringSubmatch(strings.TrimRight(line, "\r\n")); m != nil && m[1] == service {
+			kept = append(kept, strings.TrimSpace(strings.TrimRight(line, "\r\n")))
+		}
+	}
+	return []byte(strings.Join(kept, "\n"))
+}
+
 // controlQuote quotes a failed action for a problem detail: the exit code
 // and the first controlQuoteBytes of the output, cut at a character
 // boundary. It is empty when the tool exited 0.
@@ -281,8 +310,11 @@ func controlQuote(tool, action string, res svcctl.Result) string {
 		}
 		q = q[:n]
 	}
-	if res.ExitCode == controlNoExitStatus {
-		return fmt.Sprintf("; %s %s ended without an exit status: %s", tool, action, q)
+	if q != "" {
+		q = ": " + q
 	}
-	return fmt.Sprintf("; %s %s exited %d: %s", tool, action, res.ExitCode, q)
+	if res.ExitCode == controlNoExitStatus {
+		return fmt.Sprintf("; %s %s ended without an exit status%s", tool, action, q)
+	}
+	return fmt.Sprintf("; %s %s exited %d%s", tool, action, res.ExitCode, q)
 }

@@ -310,7 +310,12 @@ entry's `timeout`:
   `unknown`);
 - a different definite state fails `service-action-failed`, with `state`,
   `rawState`, `exitCode` and up to 2 KiB of the init system's output; the
-  full output is in the operation log;
+  full output is in the operation log. On OpenRC, `rc-service` runs the
+  init script in the foreground, so its output is the script's and can hold
+  what `services:logs` protects, while the detail and the operation log are
+  read with `services:read`: only OpenRC's own line ` * ERROR: NAME failed to
+  start` (or `stop`) is quoted and logged, and the log says that the rest was
+  not recorded. systemctl's output is its job message and is kept whole;
 - a service still changing at the timeout fails `outcome-unknown`;
 - an init tool that cannot be started fails `dependency-unavailable` and
   changes nothing.

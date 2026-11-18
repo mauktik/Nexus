@@ -248,7 +248,11 @@ services it may act on.
   logs can hold tokens, passwords and personal data. Every log read is
   audited with the service's name, so the audit log shows who read which
   service's logs. Log text, service names, descriptions and init output are
-  host data and are marked untrusted for agents.
+  host data and are marked untrusted for agents. An operation's problem
+  detail and log are read with `services:read`, so on OpenRC, where
+  `rc-service` runs the init script in the foreground, a failed action
+  records only OpenRC's own `ERROR: NAME failed to start` line, never the
+  script's output; systemctl's job message is kept whole.
 - **What runs where.** List, get and logs run inside `nexusd`, under the
   sandbox on systemd, with fixed `systemctl` and `journalctl` argument
   lists. Start, stop, restart and the reboot run as detached operations
