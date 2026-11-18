@@ -11,6 +11,8 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/mauktik/nexus/internal/problem"
+	"github.com/mauktik/nexus/internal/providers/services/spec"
 	"github.com/mauktik/nexus/internal/svcctl/svcctltest"
 )
 
@@ -107,5 +109,75 @@ func TestRebootIsUnavailableWhenAHiddenBootIDMountCannotBeRead(t *testing.T) {
 	}
 	if st.Details[DetailBootIDSource] != nil {
 		t.Errorf("bootIdSource = %v, want null", st.Details[DetailBootIDSource])
+	}
+}
+
+// SEC-1 (services-provider security review): a boot ID read past a mount
+// table that cannot be read is the kernel's whether or not a container's is
+// mounted over it, so nexusd, the ops manager and the reboot helper could
+// disagree about it, and R4 could confirm a reboot that never happened. A
+// reboot is unavailable, with the reason, until every table can be read.
+func TestSEC1_TheRebootIsUnavailableWhenAMountTableCannotBeRead(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		remove []string // Under the proc root
+	}{
+		{"this process's table", []string{"self/mountinfo"}},
+		{"PID 1's table", []string{"1/mountinfo"}},
+		{"both tables", []string{"self/mountinfo", "1/mountinfo"}},
+	} {
+		for _, container := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s, container %v", tc.name, container), func(t *testing.T) {
+				root := testRoot(t, rbCapture)
+				deb12Layout(t, root) // Both tables, and a container's boot ID mounted for PID 1
+				if !container {
+					if err := os.Remove(filepath.Join(root, ".dockerenv")); err != nil {
+						t.Fatal(err)
+					}
+				}
+				for _, f := range tc.remove {
+					if err := os.Remove(filepath.Join(root, "proc", f)); err != nil {
+						t.Fatal(err)
+					}
+				}
+				p := newOn(t, root, svcctltest.NewHost(t, rbCapture))
+				configure(t, p, section(t, "enabled: true\nreboot:\n  enabled: true\n"))
+				st := p.Preflight(context.Background())
+				wantAvailable(t, st)
+				if detail[bool](t, st, DetailRebootAvailable) {
+					t.Fatal("rebootAvailable = true with a mount table that cannot be read")
+				}
+				reason := detail[string](t, st, DetailRebootUnavailableReason)
+				for _, w := range []string{"boot ID cannot be read", "cannot be verified", "could not be confirmed"} {
+					if !strings.Contains(reason, w) {
+						t.Errorf("rebootUnavailableReason = %q, want it to name %q", reason, w)
+					}
+				}
+				if st.Details[DetailBootIDSource] != nil {
+					t.Errorf("bootIdSource = %v, want null", st.Details[DetailBootIDSource])
+				}
+			})
+		}
+	}
+}
+
+// A table that becomes unreadable after Preflight leaves admission and
+// Prepare refusing: neither sends, nor snapshots a boot ID, on an ID the
+// helper might not record.
+func TestSEC1_AdmissionAndPrepareRefuseWhenAMountTableCannotBeRead(t *testing.T) {
+	w := newRBWorld(t, rbOpts{})
+	for _, f := range []string{"self", "1"} {
+		if err := os.Remove(filepath.Join(w.root, "proc", f, "mountinfo")); err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+	}
+	err := w.p.admitReboot(context.Background(), spec.RebootInput{ConfirmHost: rbHost})
+	wantStatus(t, err, 409, problem.RebootUnavailable)
+	w.ops.set("op-own")
+	if _, err := w.prepare("op-own", `{"confirmHost":"h1"}`); err == nil {
+		t.Fatal("Prepare = nil, want a refusal")
+	}
+	if ok, _ := readHelperJSON(filepath.Join(w.opsDir, "op-own"), helperInputFile, &rebootHelperInput{}); ok {
+		t.Error("Prepare wrote input.json")
 	}
 }

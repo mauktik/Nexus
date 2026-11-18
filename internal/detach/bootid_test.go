@@ -153,15 +153,41 @@ func TestReadBoot(t *testing.T) {
 		},
 		want: Boot{ID: hostBootID},
 	}, {
-		name:  "no mount tables: the kernel's",
-		setup: func(t *testing.T, f bootFixture) {},
-		want:  Boot{ID: hostBootID},
+		// SEC-1 (services-provider security review): a boot ID read past a
+		// mount table that cannot be read is the kernel's whether or not a
+		// container's is mounted over it, so it can disagree with the one
+		// the reboot helper records. It is an error, never the fallback.
+		name:    "no mount tables: unverifiable",
+		setup:   func(t *testing.T, f bootFixture) {},
+		wantErr: "cannot be verified",
 	}, {
-		name: "PID 1's table unreadable: the kernel's",
+		name: "this process's table unreadable: unverifiable",
+		setup: func(t *testing.T, f bootFixture) {
+			f.mountinfo(t, "1", f.line(pid1RunLine)+f.line(pid1BootIDLine))
+		},
+		wantErr: "cannot be verified",
+	}, {
+		name: "this process's table over the cap: unverifiable",
+		setup: func(t *testing.T, f bootFixture) {
+			f.mountinfo(t, "1", f.line(pid1RunLine)+f.line(pid1BootIDLine))
+			f.mountinfo(t, "self", strings.Repeat("x", maxBootMountinfo+1))
+		},
+		wantErr: "cannot be verified",
+	}, {
+		name: "PID 1's table unreadable: unverifiable",
 		setup: func(t *testing.T, f bootFixture) {
 			f.mountinfo(t, "self", sandboxSysLine+f.line(sandboxRunLine))
 		},
-		want: Boot{ID: hostBootID},
+		wantErr: "cannot be verified",
+	}, {
+		name: "PID 1's table is a directory: unverifiable",
+		setup: func(t *testing.T, f bootFixture) {
+			f.mountinfo(t, "self", sandboxSysLine+f.line(sandboxRunLine))
+			if err := os.MkdirAll(filepath.Join(f.proc, "1", "mountinfo"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		},
+		wantErr: "cannot be verified",
 	}, {
 		name: "the source's device is not mounted here",
 		setup: func(t *testing.T, f bootFixture) {

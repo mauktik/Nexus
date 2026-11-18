@@ -2161,3 +2161,46 @@ func TestCR10_PreparesLogLineNamesTheBootByItsID(t *testing.T) {
 		t.Errorf("operation log %q, want it to contain %q", log.String(), want)
 	}
 }
+
+// SEC-1 (services-provider security review): the helper records and sends
+// nothing when a mount table cannot be read, since the boot ID it would
+// record may then differ from the one nexusd and the ops manager read, and
+// R4 would take the difference for a reboot that never happened.
+func TestSEC1_TheHelperRecordsAndSendsNothingWhenAMountTableCannotBeRead(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		tables []string // The mount tables the proc root has
+	}{
+		{"none", nil},
+		{"this process's only", []string{"self"}},
+		{"PID 1's only", []string{"1"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newRBHelper(t, platform.Systemd, 10)
+			h.procRoot = t.TempDir()
+			writeFile(t, filepath.Join(h.procRoot, procBootID), rbCur+"\n")
+			for _, pid := range tc.tables {
+				writeFile(t, filepath.Join(h.procRoot, pid, "mountinfo"), "22 1 0:20 / /run rw - tmpfs tmpfs rw\n")
+			}
+			// A helper that records and triggers waits for its stop; this
+			// ends it so the failure is reported, not a hang.
+			defer time.AfterFunc(3*time.Second, func() { h.cancel(errRBStop) }).Stop()
+			if code := h.run(); code != 0 {
+				t.Fatalf("exit %d, want 0 with a result", code)
+			}
+			res := readResult(t, h.dir)
+			if res.Error == nil || res.Error.Slug != problem.DependencyUnavailable ||
+				!strings.Contains(res.Error.Detail, "the boot ID cannot be read") ||
+				!strings.Contains(res.Error.Detail, "cannot be verified") ||
+				!strings.Contains(res.Error.Detail, "nothing was sent") {
+				t.Errorf("result %+v, want dependency-unavailable naming the unverifiable boot ID", res)
+			}
+			if _, ok := rbRecord(t, h.dir); ok {
+				t.Error("a reboot record exists")
+			}
+			if n := h.fake.triggerCount(); n != 0 {
+				t.Errorf("trigger calls %d, want 0", n)
+			}
+		})
+	}
+}
