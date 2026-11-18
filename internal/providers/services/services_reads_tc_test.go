@@ -5,8 +5,8 @@
 // the page shape and the untrusted label) over the T1 captures, with
 // F-HOSTS (svcctltest.NewHost) and F-ROOTS (testRoot).
 //
-// Bindings returns nil until WI 5.1, so the registry here holds readsOnly,
-// the provider with list, get and logs bound by readBindings.
+// The registry here holds readsOnly, the provider with only list, get and
+// logs bound (readBindings), so these tests exercise the reads in isolation.
 
 package services
 
