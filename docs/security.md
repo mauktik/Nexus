@@ -814,7 +814,14 @@ When the operation's process is ended by the shutdown, `nexusd` holds the
 operation `Running` instead of failing it; in the next boot, recovery finds
 the record with a different boot ID and ends the operation `Succeeded`
 with both boot IDs. Without a record, such an operation ends as any other
-does. A record that cannot be read ends it `outcome-unknown` at once, and an
+does. The boot ID is read only when both mount tables, `nexusd`'s and
+PID 1's, can be read, by `nexusd`, the operation manager, the supervisors and
+the helper alike. A boot ID read past an unreadable table could be the
+kernel's in one process and the container's in another, and the difference
+would pass for a reboot, so such a read is an error: the reboot is
+unavailable, the helper sends nothing, and an operation recovered without the
+boot ID ends `outcome-unknown`. A record that cannot be read ends it
+`outcome-unknown` at once, and an
 operation held without a reboot ends `outcome-unknown` at its maximum run
 time ([services.md](services.md#recovery-after-the-reboot)). A cancel is
 refused with `not-cancelable` once the record exists, because the reboot has

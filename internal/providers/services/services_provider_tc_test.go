@@ -131,6 +131,15 @@ func testRoot(t *testing.T, capture string) string {
 			t.Fatal(err)
 		}
 	}
+	// PID 1's mount table, which the captures predate: the boot ID is not
+	// readable without it (SEC-1). Unsandboxed, it is nexusd's own.
+	if _, err := os.Stat(filepath.Join(root, "proc", "1", "mountinfo")); errors.Is(err, fs.ErrNotExist) {
+		own, err := os.ReadFile(filepath.Join(root, "proc", "self", "mountinfo"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(root, "proc", "1", "mountinfo"), string(own))
+	}
 	pid := strconv.Itoa(os.Getpid())
 	cg, err := os.ReadFile(filepath.Join(root, "proc", "self", "cgroup"))
 	if err != nil {

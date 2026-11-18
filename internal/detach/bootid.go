@@ -59,8 +59,15 @@ type Boot struct {
 // the same device in this process's table and read there, checked to be a
 // regular file on that device holding a UUID. When that fails the error says
 // why: a boot ID that cannot be trusted is never replaced by the kernel's.
-// A mount table that cannot be read is no evidence of a hidden mount, and
-// BootIDPath is used.
+//
+// A mount table that cannot be read is an error, never BootIDPath
+// (SEC-1). Without it a hidden or absent boot-ID mount cannot be told
+// apart, so the ID could be the kernel's here and the container's for the
+// reboot helper, which runs outside any sandbox and records what PID 1 sees:
+// the ops manager would then take the difference for a reboot that never
+// happened (R4). Every reader of the boot ID, nexusd's preflight and
+// admission, the ops manager, the supervisors and the helper, goes through
+// this function, so they agree or none of them has an ID.
 func ReadBoot(procRoot string, path func(abs string) string) (Boot, error) {
 	if procRoot == "" {
 		procRoot = "/proc"
@@ -71,7 +78,7 @@ func ReadBoot(procRoot string, path func(abs string) string) (Boot, error) {
 	}
 	self, err := readMountinfo(filepath.Join(procRoot, "self", "mountinfo"))
 	if err != nil {
-		return Boot{ID: own}, nil
+		return Boot{}, unverifiable("this process's", err)
 	}
 	if m, ok := lastMountOn(self, BootIDPath); ok &&
 		unix.Major(ownDev) == m.major && unix.Minor(ownDev) == m.minor {
@@ -83,7 +90,7 @@ func ReadBoot(procRoot string, path func(abs string) string) (Boot, error) {
 	// is a boot ID mounted for this process, so PID 1's table decides.
 	pid1, err := readMountinfo(filepath.Join(procRoot, "1", "mountinfo"))
 	if err != nil {
-		return Boot{ID: own}, nil
+		return Boot{}, unverifiable("PID 1's", err)
 	}
 	m, ok := lastMountOn(pid1, BootIDPath)
 	if !ok {
@@ -95,6 +102,13 @@ func ReadBoot(procRoot string, path func(abs string) string) (Boot, error) {
 			"mount namespace hides, and it cannot be read here: %w", BootIDPath, m.root, m.major, m.minor, err)
 	}
 	return Boot{ID: id, Mounted: true, Via: via}, nil
+}
+
+// unverifiable is ReadBoot's error for a mount table, whose is named, that
+// cannot be read.
+func unverifiable(whose string, err error) error {
+	return fmt.Errorf("detach: the boot ID at %s cannot be verified: %s mount table cannot be read (%w), "+
+		"so whether a boot ID is mounted over it is unknown", BootIDPath, whose, err)
 }
 
 // readOwnBootID is BootIDPath under procRoot, trimmed, and the device of

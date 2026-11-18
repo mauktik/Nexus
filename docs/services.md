@@ -474,6 +474,16 @@ confirmed: the reboot is unavailable there, with the reason in
 `rebootUnavailableReason`, and the guard answers `reboot-unavailable`. The
 reads, logs and service actions still work.
 
+Whether a boot ID is mounted over that path is read from the mount tables of
+`nexusd` and of PID 1 (`/proc/self/mountinfo` and `/proc/1/mountinfo`). When
+either table cannot be read, the boot ID is not used, in a container or
+anywhere else: the ID `nexusd` read could then differ from the one the
+reboot helper records, and a reboot that never happened could look
+confirmed. The reboot is unavailable, with that reason; the helper sends
+nothing; and an operation recovered while the boot ID cannot be read ends
+`outcome-unknown`. On OpenRC, where the supervisors record the boot ID,
+detached operations are unavailable while it cannot be read.
+
 A guest reboots itself: `systemctl reboot` on Debian, `/sbin/reboot` on
 Alpine, issued inside the guest. The container manager is expected to start
 the container again, with a new boot ID inside it. This has not yet been

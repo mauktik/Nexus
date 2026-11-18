@@ -76,7 +76,8 @@ type Options struct {
 	// RecoveryDeadline bounds restart classification. Zero means
 	// RecoveryDeadline.
 	RecoveryDeadline time.Duration
-	// BootID reads this boot's ID once, in New. Nil means detach.BootID.
+	// BootID reads this boot's ID once, in New. Nil means detach.BootID,
+	// which fails when a mount table needed to verify it cannot be read.
 	BootID func() (string, error)
 }
 
@@ -145,6 +146,10 @@ func New(opts Options) (*Manager, error) {
 	if boot, err := bootID(); err == nil {
 		// Without it, exit.json from an earlier boot is taken at its word.
 		m.boot = boot
+	} else {
+		// No boot ID: an operation that completes across a reboot is not
+		// launched (R1), and a reboot recorded earlier is not confirmed (R4).
+		m.log.Warn("this boot's ID cannot be read; no reboot can be confirmed", "error", err.Error())
 	}
 	if m.now == nil {
 		m.now = time.Now

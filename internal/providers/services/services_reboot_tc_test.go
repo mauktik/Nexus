@@ -202,11 +202,15 @@ func rbWriteInput(t *testing.T, dir string, init platform.InitSystem, delay int)
 	}
 }
 
-// rbProcRoot is a ProcRoot holding boot only.
+// rbProcRoot is a ProcRoot holding boot and both mount tables, with no
+// boot-ID mount (the boot ID is not readable without the tables, SEC-1).
 func rbProcRoot(t *testing.T, boot string) string {
 	t.Helper()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, procBootID), boot+"\n")
+	for _, pid := range []string{"self", "1"} {
+		writeFile(t, filepath.Join(root, pid, "mountinfo"), "22 1 0:20 / /run rw - tmpfs tmpfs rw\n")
+	}
 	return root
 }
 

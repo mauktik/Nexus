@@ -77,7 +77,8 @@ func ReadIdentity(dir string) (Identity, error) {
 }
 
 // BootID is the current boot's ID, read from /proc as PID 1 sees it
-// (ReadBoot). It fails off Linux.
+// (ReadBoot). It fails off Linux, and wherever a mount table needed to
+// verify it cannot be read (SEC-1).
 func BootID() (string, error) { return bootID("/proc") }
 
 // processSubject is how outcome-unknown details name the runner of
