@@ -1,6 +1,10 @@
 package services
 
-import "github.com/mauktik/nexus/internal/provider"
+import (
+	"slices"
+
+	"github.com/mauktik/nexus/internal/provider"
+)
 
 var (
 	_ provider.Provider       = (*Provider)(nil)
@@ -9,6 +13,8 @@ var (
 	_ provider.OperationsUser = (*Provider)(nil)
 )
 
-// Bindings binds the provider's operations. WI 5.1 binds them, with the
-// catalog line; until then the provider serves none.
-func (p *Provider) Bindings() []provider.Binding { return nil }
+// Bindings binds the provider's eight operations: list, get and logs, the
+// four service controls, and the reboot.
+func (p *Provider) Bindings() []provider.Binding {
+	return slices.Concat(p.readBindings(), p.controlBindings(), p.rebootBindings())
+}

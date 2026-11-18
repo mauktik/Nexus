@@ -10,12 +10,17 @@
 package catalog_test
 
 import (
+	"maps"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mauktik/nexus/internal/catalog"
+	"github.com/mauktik/nexus/internal/def"
+	"github.com/mauktik/nexus/internal/openapi"
 )
 
 // TC-SV-4: Every existing catalog op still validates and the golden table changes only by the services rows. Owner WI 1.1. Requirements: CON-4.
@@ -145,7 +150,100 @@ func goldenRows(t *testing.T, src string) []string {
 //
 //     The provider spec declares exactly the scopes `services:read`, `services:logs`, `services:write` and `services:reboot`.
 func TestTCSV32_TheEightServicesOpsAreInThe(t *testing.T) {
-	t.Skip("TC-SV-32: SKIP-only stub; un-skip when WI 5.1 lands")
+	type want struct {
+		kind       def.Kind
+		route      string
+		mode       def.Mode
+		risk       def.Risk
+		scope      string
+		cli        string
+		tool       string
+		idempotent bool
+		audited    bool
+	}
+	table := map[string]want{
+		"services.services.list": {def.KindList, "GET /providers/services/services", def.ModeSync, def.RiskReadOnly,
+			"services:read", "service get", "list_services", true, false},
+		"services.services.get": {def.KindGet, "GET /providers/services/services/{name}", def.ModeSync, def.RiskReadOnly,
+			"services:read", "service get name", "get_service", true, false},
+		"services.services.logs": {def.KindSubresource, "GET /providers/services/services/{name}/logs", def.ModeStream,
+			def.RiskReadOnly, "services:logs", "servicelog get name", "get_service_logs", true, true},
+		"services.services.start": {def.KindResourceAction, "POST /providers/services/services/{name}/start",
+			def.ModeLongRunning, def.RiskMutating, "services:write", "service start name", "", true, false},
+		"services.services.stop": {def.KindResourceAction, "POST /providers/services/services/{name}/stop",
+			def.ModeLongRunning, def.RiskDestructive, "services:write", "service stop name", "", true, false},
+		"services.services.restart": {def.KindResourceAction, "POST /providers/services/services/{name}/restart",
+			def.ModeLongRunning, def.RiskMutating, "services:write", "service restart name", "", true, false},
+		"services.services.control": {def.KindResourceAction, "POST /providers/services/services/{name}/control",
+			def.ModeLongRunning, def.RiskDestructive, "services:write", "service invoke name", "control_service", true, false},
+		"services.actions.reboot": {def.KindProviderAction, "POST /providers/services/actions/reboot",
+			def.ModeLongRunning, def.RiskDestructive, "services:reboot", "machine restart", "", false, false},
+	}
+
+	var ops []def.Op
+	var spec def.ProviderSpec
+	for _, s := range catalog.All() {
+		for _, op := range s.Ops {
+			if strings.HasPrefix(op.ID, "services.") {
+				ops = append(ops, op)
+				spec = s
+			}
+		}
+	}
+	if len(ops) != len(table) {
+		t.Fatalf("catalog has %d services ops, want %d", len(ops), len(table))
+	}
+	scopes := map[string]bool{spec.ReadScope: true}
+	for _, op := range ops {
+		w, ok := table[op.ID]
+		if !ok {
+			t.Errorf("unexpected op %s", op.ID)
+			continue
+		}
+		scopes[op.Scope.Name] = true
+		method, path, err := openapi.Route(op)
+		if err != nil {
+			t.Fatalf("%s: %v", op.ID, err)
+		}
+		cli := op.CLI.Noun + " " + op.CLI.Verb
+		if op.CLI.Positional != "" {
+			cli += " " + op.CLI.Positional
+		}
+		tool := ""
+		if op.MCP != nil {
+			tool = op.MCP.Tool
+		}
+		got := want{op.Kind, method + " " + strings.TrimPrefix(path, "/v1"), op.Mode, op.Risk, op.Scope.Name, cli, tool,
+			op.Idempotent, op.Audited}
+		if got != w {
+			t.Errorf("%s:\n got %+v\nwant %+v", op.ID, got, w)
+		}
+		if !op.Untrusted {
+			t.Errorf("%s: not Untrusted", op.ID)
+		}
+		if op.Scope.PerTarget != "" || op.Scope.FromTarget {
+			t.Errorf("%s: unexpected scope %+v", op.ID, op.Scope)
+		}
+		reboot := op.ID == "services.actions.reboot"
+		if op.WhatIf != reboot || op.CompletesAcrossReboot != reboot || (op.Cancel == def.CancelRunning) != reboot {
+			t.Errorf("%s: WhatIf %v, CompletesAcrossReboot %v, Cancel %q", op.ID, op.WhatIf, op.CompletesAcrossReboot, op.Cancel)
+		}
+		if reboot {
+			if op.CLI.ReconnectWindow != 10*time.Minute || op.CLI.TypedConfirmation != "confirmHost" || op.MCP != nil {
+				t.Errorf("reboot: ReconnectWindow %v, TypedConfirmation %q, MCP %+v",
+					op.CLI.ReconnectWindow, op.CLI.TypedConfirmation, op.MCP)
+			}
+		} else if op.CLI.ReconnectWindow != 0 || op.CLI.TypedConfirmation != "" {
+			t.Errorf("%s: CLI %+v", op.ID, op.CLI)
+		}
+	}
+	if spec.Name != "services" || spec.ReadScope != "services:read" {
+		t.Errorf("provider spec %q read scope %q", spec.Name, spec.ReadScope)
+	}
+	wantScopes := []string{"services:logs", "services:read", "services:reboot", "services:write"}
+	if got := slices.Sorted(maps.Keys(scopes)); !slices.Equal(got, wantScopes) {
+		t.Errorf("scopes %v, want %v", got, wantScopes)
+	}
 }
 
 // TC-SV-33: The CLI grammar uses only approved verbs on the nouns service, servicelog and machine. Owner WI 5.1. Requirements: FR-15.
@@ -161,5 +259,57 @@ func TestTCSV32_TheEightServicesOpsAreInThe(t *testing.T) {
 //   - `verbs.go` is unchanged from base (no new verb);
 //   - the control op's `--action` flag is an enum of `start`, `stop` and `restart`.
 func TestTCSV33_TheCLIGrammarUsesOnlyApprovedVerbs(t *testing.T) {
-	t.Skip("TC-SV-33: SKIP-only stub; un-skip when WI 5.1 lands")
+	verbs := map[string][]string{}
+	for _, op := range catalog.Ops() {
+		if !strings.HasPrefix(op.ID, "services.") {
+			continue
+		}
+		if !def.IsApprovedVerb(op.CLI.Verb) {
+			t.Errorf("%s: unapproved verb %q", op.ID, op.CLI.Verb)
+		}
+		if !slices.Contains(verbs[op.CLI.Noun], op.CLI.Verb) {
+			verbs[op.CLI.Noun] = append(verbs[op.CLI.Noun], op.CLI.Verb)
+		}
+		if op.ID == "services.services.control" {
+			r, err := op.InputSchema()
+			if err != nil {
+				t.Fatal(err)
+			}
+			p := r.Schema().Properties["action"]
+			if p == nil || !slices.Equal(p.Enum, []any{"start", "stop", "restart"}) {
+				t.Errorf("control's action is not the enum start, stop, restart: %+v", p)
+			}
+		}
+	}
+	for noun := range verbs {
+		slices.Sort(verbs[noun])
+	}
+	want := map[string][]string{
+		"service":    {"get", "invoke", "restart", "start", "stop"},
+		"servicelog": {"get"},
+		"machine":    {"restart"},
+	}
+	if !maps.EqualFunc(verbs, want, slices.Equal) {
+		t.Errorf("nouns and verbs %v, want %v", verbs, want)
+	}
+
+	// No new verb: verbs.go is unchanged from the feature's base.
+	const base = "43e5792"
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found: cannot compare verbs.go with base " + base)
+	}
+	if err := exec.Command("git", "cat-file", "-e", base+"^{commit}").Run(); err != nil {
+		t.Skipf("base commit %s not available: %v", base, err)
+	}
+	baseSrc, err := exec.Command("git", "show", base+":internal/def/verbs.go").Output()
+	if err != nil {
+		t.Fatalf("git show %s:internal/def/verbs.go: %v", base, err)
+	}
+	headSrc, err := os.ReadFile("../def/verbs.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(baseSrc) != string(headSrc) {
+		t.Error("internal/def/verbs.go changed since base: no new verb may be added")
+	}
 }

@@ -113,10 +113,10 @@ func TestTCSM96_TheToolBudgetStaysUnder4000(t *testing.T) {
 	if d := total - base; d <= 0 || d >= 100 {
 		t.Errorf("nexusd adds %d tokens, want 1 to 99", d)
 	}
-	// 68: the 24 system, docker, apt and scripts tools, pihole's 26,
-	// nexusd's 2, nginx's 13 and host's 3.
-	if len(tools) != 68 || len(tools)-len(without) != 2 {
-		t.Errorf("%d tools, %d of them nexusd; want 68 with 2", len(tools), len(tools)-len(without))
+	// 72: the 24 system, docker, apt and scripts tools, pihole's 26,
+	// nexusd's 2, nginx's 13, host's 3 and services' 4.
+	if len(tools) != 72 || len(tools)-len(without) != 2 {
+		t.Errorf("%d tools, %d of them nexusd; want 72 with 2", len(tools), len(tools)-len(without))
 	}
 }
 

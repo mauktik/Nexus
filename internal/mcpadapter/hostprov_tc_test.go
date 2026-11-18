@@ -21,15 +21,18 @@ import (
 //
 // The host delta, the three tools, their annotations and descriptions are
 // hostToolBudget's (shared with TestHostToolBudget); this adds the total
-// and the pinned tool count.
+// and the pinned tool count. The services provider's four tools raised
+// both: the total's ceiling is now services-provider D-2's 3,100 tokens
+// (TC-SV-123, A-18), and the count 72.
 func TestTCHP106_TheMCPToolBudgetWithTheHost(t *testing.T) {
 	tools, total, base := hostToolBudget(t)
-	t.Logf("TC-HP-106: total %d tokens, host delta %d (design: 2,831 total, 135 host)", total, total-base)
-	if total >= 2850 || total >= budgetLimit {
-		t.Errorf("budget %d tokens, want under 2,850 (and under %d)", total, budgetLimit)
+	t.Logf("TC-HP-106: total %d tokens, host delta %d (design: 2,831 total, 135 host; with services at most 3,100)",
+		total, total-base)
+	if total > 3100 || total >= budgetLimit {
+		t.Errorf("budget %d tokens, want at most 3,100 (and under %d)", total, budgetLimit)
 	}
-	if len(tools) != 68 {
-		t.Errorf("%d tools, want 68", len(tools))
+	if len(tools) != 72 {
+		t.Errorf("%d tools, want 72", len(tools))
 	}
 }
 

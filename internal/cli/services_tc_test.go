@@ -11,13 +11,37 @@ package cli
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/catalog"
+	"github.com/mauktik/nexus/internal/client"
 	"github.com/mauktik/nexus/internal/def"
+	"github.com/mauktik/nexus/internal/platform"
+	"github.com/mauktik/nexus/internal/problem"
+	"github.com/mauktik/nexus/internal/provider"
+	servicesprov "github.com/mauktik/nexus/internal/providers/services"
+	servicesspec "github.com/mauktik/nexus/internal/providers/services/spec"
+	"github.com/mauktik/nexus/internal/svcctl/svcctltest"
 )
 
 // tcsvRebootIn is the input of the planted reboot: the typed host name and
@@ -44,8 +68,14 @@ var tcsvReboot = def.Define[tcsvRebootIn, tcsvRebootOut](def.Op{
 
 const tcsvRebootPath = "/v1/providers/pl/actions/reboot"
 
+// tcsvSpecs is the catalog with the planted pl provider. The real
+// services.actions.reboot binds machine restart too, so the services spec
+// is dropped first: the planted op proves that typed confirmation is keyed
+// on the declaration, not on the provider (CON-4). TC-SV-125 and TC-SV-126
+// run the real op over the full catalog.
 func tcsvSpecs() []def.ProviderSpec {
-	return append(catalog.All(), def.ProviderSpec{Name: "pl", ReadScope: "pl:read", Ops: []def.Op{tcsvReboot.Op()}})
+	specs := slices.DeleteFunc(catalog.All(), func(s def.ProviderSpec) bool { return s.Name == servicesspec.Name })
+	return append(specs, def.ProviderSpec{Name: "pl", ReadScope: "pl:read", Ops: []def.Op{tcsvReboot.Op()}})
 }
 
 // tcsvRun runs the CLI over tcsvSpecs with open as the controlling
@@ -227,7 +257,292 @@ func TestTCSV29_TheTypedFieldIsNeverCopiedFrom(t *testing.T) {
 //   - (6) a y/N question, no POST, and the existing decline exit code;
 //   - (7) a usage error, exit 2, with zero POSTs to either host.
 func TestTCSV125_CLICommandsColumnsAndTheHostAll(t *testing.T) {
-	t.Skip("TC-SV-125: SKIP-only stub; un-skip when WI 5.1 lands")
+	h1, h2 := tcsvServicesHost(t, "h1"), tcsvServicesHost(t, "h2")
+	home := writeClientConfig(t, "", clientHost{"h1", h1.rec.URL, h1.srv.token, nil},
+		clientHost{"h2", h2.rec.URL, h2.srv.token, nil})
+	run := func(tty Terminal, args ...string) runResult {
+		t.Helper()
+		env := homeEnv(home)
+		env.OpenTerminal = noTerminal
+		if tty != nil {
+			env.OpenTerminal = func() (Terminal, error) { return tty, nil }
+		}
+		return runCLI(env, args...)
+	}
+	header := []string{"NAME", "STATE", "ENABLED", "CONTROLLABLE", "PROTECTED"}
+	table := func(t *testing.T, out string) (cols []string, rows [][]string) {
+		t.Helper()
+		lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+		cols = strings.Fields(lines[0])
+		for _, l := range lines[1:] {
+			rows = append(rows, strings.Fields(l))
+		}
+		if i := slices.Index(cols, "NAME"); i < 0 || len(cols) < i+len(header) || !slices.Equal(cols[i:i+len(header)], header) {
+			t.Fatalf("header %v, want %v in order:\n%s", cols, header, out)
+		}
+		return cols, rows
+	}
+
+	// (1) The list's columns.
+	r := run(nil, "service", "get", "--host", "h1", "-o", "table")
+	if r.code != 0 {
+		t.Fatalf("service get: exit %d: %s", r.code, r.stderr)
+	}
+	if _, rows := table(t, r.stdout); len(rows) == 0 {
+		t.Errorf("service get printed no rows:\n%s", r.stdout)
+	}
+
+	// (2) One service, against the provider's own get over F-HOSTS; one GET
+	// to h1, none to h2.
+	h1Before, h2Before := len(h1.rec.of(http.MethodGet)), len(h2.rec.of(http.MethodGet))
+	r = run(nil, "service", "get", "nexusd", "--host", "h1", "-o", "table")
+	if r.code != 0 {
+		t.Fatalf("service get nexusd: exit %d: %s", r.code, r.stderr)
+	}
+	cols, rows := table(t, r.stdout)
+	if len(rows) != 1 {
+		t.Fatalf("service get nexusd: %d rows, want 1:\n%s", len(rows), r.stdout)
+	}
+	at := func(name string) string { return rows[0][slices.Index(cols, name)] }
+	want := h1.get(t, "nexusd")
+	if at("NAME") != "nexusd" || at("STATE") != want.State || at("ENABLED") != want.Enabled ||
+		at("CONTROLLABLE") != "false" || at("PROTECTED") != "true" {
+		t.Errorf("row %v, want nexusd %s %s false true", rows[0], want.State, want.Enabled)
+	}
+	if n1, n2 := len(h1.rec.of(http.MethodGet))-h1Before, len(h2.rec.of(http.MethodGet))-h2Before; n1 != 1 || n2 != 0 {
+		t.Errorf("GETs: %d to h1 and %d to h2, want 1 and 0", n1, n2)
+	}
+
+	// (3) Five log lines.
+	r = run(nil, "servicelog", "get", "nexusd", "--tail", "5", "--host", "h1")
+	if r.code != 0 {
+		t.Fatalf("servicelog get: exit %d: %s", r.code, r.stderr)
+	}
+	if lines := strings.Split(strings.TrimRight(r.stdout, "\n"), "\n"); len(lines) != 5 ||
+		!strings.Contains(lines[0], "l-0015") || !strings.Contains(lines[4], "l-0019") {
+		t.Errorf("servicelog get --tail 5 printed %q, want the newest 5 lines, l-0015 to l-0019 (stderr %q)", r.stdout, r.stderr)
+	}
+
+	// (4) Rows from both hosts.
+	r = run(nil, "service", "get", "--host", "all", "-o", "json")
+	if r.code != 0 {
+		t.Fatalf("service get --host all: exit %d: %s", r.code, r.stderr)
+	}
+	var items []struct {
+		Host string `json:"host"`
+	}
+	if err := json.Unmarshal([]byte(r.stdout), &items); err != nil {
+		t.Fatalf("service get --host all -o json: %v", err)
+	}
+	hosts := map[string]bool{}
+	for _, it := range items {
+		hosts[it.Host] = true
+	}
+	if !hosts["h1"] || !hosts["h2"] {
+		t.Errorf("service get --host all: rows from %v, want h1 and h2", hosts)
+	}
+
+	// (5) invoke sends one POST to the control route with the action. The
+	// default allow-list is empty, so the server refuses it not-allowed.
+	r = run(&answeringTerminal{answer: "y\n"}, "service", "invoke", "nx-svc-test", "--action", "restart", "--host", "h1",
+		"--no-wait")
+	posts := h1.rec.of(http.MethodPost)
+	if len(posts) != 1 || posts[0].path != "/v1/providers/services/services/nx-svc-test/control" ||
+		posts[0].body["action"] != "restart" {
+		t.Fatalf("POSTs %+v, want one to the control route with action restart (exit %d: %s)", posts, r.code, r.stderr)
+	}
+
+	// (6) stop asks y/N; n sends nothing.
+	tty := &answeringTerminal{answer: "n\n"}
+	r = run(tty, "service", "stop", "nx-svc-test", "--host", "h1")
+	if _, asked := tty.state(); !strings.Contains(asked, "[y/N]") {
+		t.Errorf("service stop asked %q, want the y/N question", asked)
+	}
+	if r.code != ExitFailure {
+		t.Errorf("declined service stop: exit %d, want %d: %s", r.code, ExitFailure, r.stderr)
+	}
+	if n := len(h1.rec.of(http.MethodPost)); n != 1 {
+		t.Errorf("%d POSTs to h1 after the decline, want still 1", n)
+	}
+
+	// (7) The reboot targets exactly one host.
+	r = run(nil, "machine", "restart", "--host", "all", "--confirm-host", "h1")
+	if r.code != ExitUsage {
+		t.Errorf("machine restart --host all: exit %d, want 2: %s", r.code, r.stderr)
+	}
+	if n := len(h1.rec.of(http.MethodPost)) + len(h2.rec.of(http.MethodPost)); n != 1 {
+		t.Errorf("%d POSTs in all, want only step 5's", n)
+	}
+}
+
+// tcsvHost is a server running the real services provider over F-HOSTS
+// and F-ROOTS of t1-ubuntu-systemd, behind a recorder.
+type tcsvHost struct {
+	srv *providerServer
+	rec *tcsvRecorder
+}
+
+func tcsvServicesHost(t *testing.T, own string) *tcsvHost {
+	t.Helper()
+	const capture = "t1-ubuntu-systemd"
+	fh := svcctltest.NewHost(t, capture)
+	fh.SetJournal("nexusd", tcsvJournal(t, capture, 20))
+	root := tcsvServicesRoot(t, capture)
+	plat := platform.Info{Init: fh.Init(), OS: platform.OS{ID: "linux"}}
+	p := servicesprov.New(servicesprov.Options{Host: own, Logger: slog.New(slog.DiscardHandler), GOOS: "linux",
+		Platform: &plat, Run: fh.Run, RunLines: fh.RunLines, ProcRoot: filepath.Join(root, "proc"),
+		RunRoot: filepath.Join(root, "run"), EtcRoot: filepath.Join(root, "etc"), HostFS: os.DirFS(root)})
+	srv := startProviderServer(t, own, p, true, servicesspec.ReadScope, servicesspec.LogsScope,
+		servicesspec.WriteScope, servicesspec.RebootScope)
+	return &tcsvHost{srv: srv, rec: startTCSVRecorder(t, srv.url)}
+}
+
+// tcsvJournal is n nexusd journal lines built from capture's first one,
+// each a second after the last, with MESSAGE l-%04d (the capture holds
+// fewer lines than the test reads).
+func tcsvJournal(t *testing.T, capture string, n int) []string {
+	t.Helper()
+	dir, err := svcctltest.CaptureDir(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "journal-nexusd-n20.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, _, _ := strings.Cut(string(b), "\n")
+	var base map[string]any
+	if err := json.Unmarshal([]byte(first), &base); err != nil {
+		t.Fatal(err)
+	}
+	us, err := strconv.ParseInt(base["__REALTIME_TIMESTAMP"].(string), 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := make([]string, n)
+	for i := range n {
+		base["__REALTIME_TIMESTAMP"] = strconv.FormatInt(us+int64(i)*1_000_000, 10)
+		base["MESSAGE"] = fmt.Sprintf("l-%04d", i)
+		l, err := json.Marshal(base)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines[i] = string(l)
+	}
+	return lines
+}
+
+// get is the provider's own get of name, read past the recorder.
+func (h *tcsvHost) get(t *testing.T, name string) servicesspec.ServiceProperties {
+	t.Helper()
+	c, err := client.New(client.Options{URL: h.srv.url, Token: h.srv.token})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d struct {
+		Properties servicesspec.ServiceProperties `json:"properties"`
+	}
+	if err := c.Do(context.Background(), http.MethodGet, "/providers/services/services/"+name, nil, &d); err != nil {
+		t.Fatal(err)
+	}
+	return d.Properties
+}
+
+// tcsvRecorder is a reverse proxy that records each request's method, path
+// and JSON body.
+type tcsvRecorder struct {
+	*httptest.Server
+	mu   sync.Mutex
+	reqs []tcsvRequest
+}
+
+type tcsvRequest struct {
+	method, path string
+	body         map[string]any
+}
+
+func startTCSVRecorder(t *testing.T, upstream string) *tcsvRecorder {
+	t.Helper()
+	u, err := url.Parse(upstream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rev := httputil.NewSingleHostReverseProxy(u)
+	rev.FlushInterval = -1
+	rec := &tcsvRecorder{}
+	rec.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		var body map[string]any
+		_ = json.Unmarshal(b, &body)
+		rec.mu.Lock()
+		rec.reqs = append(rec.reqs, tcsvRequest{r.Method, r.URL.Path, body})
+		rec.mu.Unlock()
+		r.Body = io.NopCloser(bytes.NewReader(b))
+		rev.ServeHTTP(w, r)
+	}))
+	t.Cleanup(rec.Close)
+	return rec
+}
+
+func (rec *tcsvRecorder) of(method string) []tcsvRequest {
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	var out []tcsvRequest
+	for _, r := range rec.reqs {
+		if r.method == method {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// tcsvServicesRoot is F-ROOTS for a systemd capture, as the services
+// package's testRoot builds it: the capture's proc, run and etc trees, this
+// process's PID where the capture's nexusd was, the tools planted, and
+// /.dockerenv for a capture taken in a container.
+func tcsvServicesRoot(t *testing.T, capture string) string {
+	t.Helper()
+	dir, err := svcctltest.CaptureDir(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prov, err := svcctltest.ReadProvenance(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	for _, sub := range []string{"proc", "run", "etc"} {
+		src := filepath.Join(dir, sub)
+		if _, err := os.Stat(src); errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err := os.CopyFS(filepath.Join(root, sub), os.DirFS(src)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cg, err := os.ReadFile(filepath.Join(root, "proc", "self", "cgroup"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plant := map[string]string{filepath.Join("proc", strconv.Itoa(os.Getpid()), "cgroup"): string(cg),
+		"usr/bin/systemctl": "", "usr/bin/journalctl": ""}
+	if prov.Keys["source"] == "container" {
+		plant[".dockerenv"] = ""
+	}
+	for name, content := range plant {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
 }
 
 // TC-SV-126: machine restart waits across the outage and prints the final result. Owner WI 5.1. Requirements: FR-13, NFR-7, A-16, A-35, A-43.
@@ -246,7 +561,204 @@ func TestTCSV125_CLICommandsColumnsAndTheHostAll(t *testing.T) {
 //   - the fake clock advanced about 3 min in 1 s sleeps, with no real waiting;
 //   - `--no-wait` instead prints the operation and returns after one POST.
 func TestTCSV126_MachineRestartWaitsAcrossTheOutageAnd(t *testing.T) {
-	t.Skip("TC-SV-126: SKIP-only stub; un-skip when WI 5.1 lands")
+	for _, c := range []struct {
+		name string
+		args []string
+	}{
+		{"table", []string{"-o", "table"}},
+		{"select", []string{"--select", "result.bootId,result.previousBootId", "-o", "table"}},
+		{"json", []string{"-o", "json"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fc := useFakeClock(t)
+			start := fc.Now()
+			re := startRebootReconn(t, false)
+			// Connection refused for 90 s, then 503s for 90 s. The op ends
+			// during the outage, so it is Succeeded when the host answers
+			// again.
+			re.fp.window(fc, start.Add(2*time.Second), start.Add(92*time.Second), downRefuse, nil)
+			re.fp.window(fc, start.Add(92*time.Second), start.Add(182*time.Second), downProblem,
+				problem.New(problem.AuditUnavailable, "the audit log is unavailable"))
+			fc.at(start.Add(60*time.Second), re.reboot.finish)
+			// The outage passes in milliseconds of real time: hold the host's
+			// return until the server has recorded the end.
+			fc.at(start.Add(181*time.Second), func() { re.waitEnded(t) })
+
+			r := re.run(fc.Now, append([]string{"machine", "restart", "--host", "h1", "--confirm-host", "h1"}, c.args...)...)
+			t.Logf("exit %d after %s, virtual %s\nstdout:\n%sstderr:\n%s", r.code, r.wall, fc.Now().Sub(start), r.stdout, r.stderr)
+			if r.code != 0 {
+				t.Fatalf("exit %d, want 0", r.code)
+			}
+			switch c.name {
+			case "table":
+				if !strings.Contains(r.stdout, "STATUS") || !strings.Contains(r.stdout, "Succeeded") ||
+					strings.Contains(r.stdout, "BOOTID") || strings.Contains(r.stdout, "REBOOTREQUIRED") {
+					t.Errorf("stdout %q, want the Succeeded operation row with the operation columns", r.stdout)
+				}
+			case "select":
+				if !strings.Contains(r.stdout, "CUR") || !strings.Contains(r.stdout, "PREV") {
+					t.Errorf("stdout %q, want CUR and PREV", r.stdout)
+				}
+			case "json":
+				var ops []apitypes.Operation
+				if err := json.Unmarshal([]byte(r.stdout), &ops); err != nil {
+					var op apitypes.Operation
+					if err := json.Unmarshal([]byte(r.stdout), &op); err != nil {
+						t.Fatalf("stdout is not an operation: %v\n%s", err, r.stdout)
+					}
+					ops = []apitypes.Operation{op}
+				}
+				var res servicesspec.RebootResult
+				if len(ops) != 1 || json.Unmarshal(ops[0].Result, &res) != nil || res.BootID != "CUR" ||
+					res.PreviousBootID != "PREV" {
+					t.Errorf("operations %+v, want one with bootId CUR and previousBootId PREV", ops)
+				}
+			}
+			if el := fc.Now().Sub(start); el < 180*time.Second || el > 200*time.Second {
+				t.Errorf("virtual %s elapsed, want about 3 min", el)
+			}
+			ones := 0
+			for _, d := range fc.slept() {
+				if d == time.Second {
+					ones++
+				}
+			}
+			if ones < 170 {
+				t.Errorf("%d 1 s sleeps, want the outage ridden out in 1 s retries", ones)
+			}
+			if r.wall >= 10*time.Second {
+				t.Errorf("wall time %s: a real sleep is on the wait path", r.wall)
+			}
+		})
+	}
+
+	t.Run("noWait", func(t *testing.T) {
+		re := startRebootReconn(t, false)
+		r := re.run(time.Now, "machine", "restart", "--host", "h1", "--confirm-host", "h1", "--no-wait", "-o", "json")
+		if r.code != 0 {
+			t.Fatalf("exit %d, want 0: %s", r.code, r.stderr)
+		}
+		var ops []apitypes.Operation
+		if err := json.Unmarshal([]byte(r.stdout), &ops); err != nil || len(ops) != 1 ||
+			ops[0].Action != servicesspec.Reboot.Op().ID || ops[0].Status.Terminal() {
+			t.Errorf("stdout %q (%v), want the accepted reboot operation", r.stdout, err)
+		}
+		if posts := re.rec.matching(http.MethodPost, func(string) bool { return true }); len(posts) != 1 {
+			t.Errorf("%d POSTs, want 1", len(posts))
+		}
+		if polls := re.rec.matching(http.MethodGet, func(p string) bool { return strings.HasPrefix(p, "/v1/operations/") }); len(polls) != 0 {
+			t.Errorf("%d polls with --no-wait, want none", len(polls))
+		}
+	})
+}
+
+// tcsvRebootStub serves the real services.actions.reboot declaration with
+// an in-process run that stays Running until finish, then succeeds with
+// previousBootId PREV and bootId CUR. Nothing reboots.
+type tcsvRebootStub struct {
+	done chan struct{}
+	once sync.Once
+
+	mu sync.Mutex
+	id string // The operation's ID, once it runs
+}
+
+func (s *tcsvRebootStub) Spec() def.ProviderSpec {
+	return def.ProviderSpec{Name: servicesspec.Name, ReadScope: servicesspec.ReadScope,
+		Ops: []def.Op{servicesspec.Reboot.Op()}}
+}
+
+func (s *tcsvRebootStub) Configure(func(any) error) error { return nil }
+
+func (s *tcsvRebootStub) Preflight(context.Context) provider.Status {
+	return provider.Status{State: apitypes.ProviderEnabled}
+}
+
+func (s *tcsvRebootStub) Bindings() []provider.Binding {
+	return []provider.Binding{provider.InProcess(servicesspec.Reboot,
+		provider.InProcessSpec[servicesspec.RebootInput, servicesspec.RebootResult]{
+			Run: func(ctx context.Context, _ servicesspec.RebootInput, r *provider.Run) (servicesspec.RebootResult, error) {
+				s.mu.Lock()
+				s.id = r.ID()
+				s.mu.Unlock()
+				select {
+				case <-s.done:
+					return servicesspec.RebootResult{PreviousBootID: "PREV", BootID: "CUR"}, nil
+				case <-ctx.Done():
+					return servicesspec.RebootResult{}, ctx.Err()
+				}
+			},
+		})}
+}
+
+func (s *tcsvRebootStub) finish() { s.once.Do(func() { close(s.done) }) }
+
+// rebootReconn is F-RECONNECT over the reboot stub: the recording proxy and
+// F-PROXY in front of it, configured as host h1.
+type rebootReconn struct {
+	reboot *tcsvRebootStub
+	srv    *providerServer
+	rec    *recProxy
+	fp     *flakyProxy
+	env    Env
+}
+
+func startRebootReconn(t *testing.T, useTLS bool) *rebootReconn {
+	t.Helper()
+	stub := &tcsvRebootStub{done: make(chan struct{})}
+	srv := startProviderServer(t, "h1", stub, true, servicesspec.ReadScope, servicesspec.RebootScope)
+	// Registered after the server, so it runs before its shutdown.
+	t.Cleanup(stub.finish)
+	rec := startRecProxy(t, srv.url)
+	fp := startFlakyProxy(t, rec.URL, useTLS)
+	home := writeClientConfig(t, "", clientHost{"h1", fp.url(), srv.token, nil})
+	if useTLS {
+		path := filepath.Join(home, ".config", "nexus", "config.yaml")
+		cfg, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg = fmt.Appendf(cfg, "    fingerprint: %s\n", client.Fingerprint(fp.pinned.Certificate[0]))
+		if err := os.WriteFile(path, cfg, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	env := homeEnv(home)
+	env.OpenTerminal = noTerminal
+	return &rebootReconn{reboot: stub, srv: srv, rec: rec, fp: fp, env: env}
+}
+
+// waitEnded waits, in real time, until the server records the reboot
+// operation's end.
+func (re *rebootReconn) waitEnded(t *testing.T) {
+	t.Helper()
+	c, err := client.New(client.Options{URL: re.srv.url, Token: re.srv.token})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		re.reboot.mu.Lock()
+		id := re.reboot.id
+		re.reboot.mu.Unlock()
+		var op apitypes.Operation
+		if id != "" && c.Do(context.Background(), http.MethodGet, "/operations/"+id, nil, &op) == nil && op.Status.Terminal() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Error("the reboot operation did not end within 5s")
+}
+
+// run runs the CLI over the real catalog, stamping stderr lines on now.
+func (re *rebootReconn) run(now func() time.Time, args ...string) reconnRun {
+	var stdout strings.Builder
+	sw := &stampWriter{now: now}
+	env := re.env
+	env.Stdout, env.Stderr = &stdout, sw
+	start := time.Now()
+	code := runWithSpecs(args, env, catalog.All())
+	return reconnRun{code, stdout.String(), sw, time.Since(start)}
 }
 
 // TC-SV-153: The --yes help text of a typed-confirmation command says it neither fills nor skips the flag; every other command keeps today's text. Owner WI 5.1. Requirements: FR-13, FR-15.
@@ -263,7 +775,71 @@ func TestTCSV126_MachineRestartWaitsAcrossTheOutageAnd(t *testing.T) {
 //   - (2) and (3) exit 0; the `--yes` line reads "do not ask for confirmation; required to mutate without a terminal", unchanged from base;
 //   - (4) the generated `nexus_machine_restart.md` carries the new text, and the `--yes` line of `nexus_container_restart.md` equals that line at base `43e5792` (`git show`; skip with a reason if git is unavailable).
 func TestTCSV153_TheYesHelpTextOfATyped(t *testing.T) {
-	t.Skip("TC-SV-153: SKIP-only stub; un-skip when WI 5.1 lands")
+	const (
+		typedText = "no y/N question is asked here; --yes neither fills nor skips --confirm-host, which is required without a terminal"
+		baseText  = "do not ask for confirmation; required to mutate without a terminal"
+	)
+	help := func(args ...string) string {
+		t.Helper()
+		var stdout, stderr bytes.Buffer
+		env := homeEnv(t.TempDir())
+		env.Stdout, env.Stderr = &stdout, &stderr
+		if code := runWithSpecs(append(args, "--help"), env, catalog.All()); code != 0 {
+			t.Fatalf("%v --help: exit %d: %s", args, code, stderr.String())
+		}
+		return stdout.String()
+	}
+	yesLine := func(text string) string {
+		for _, l := range strings.Split(text, "\n") {
+			if strings.Contains(l, "--yes") {
+				return l
+			}
+		}
+		return ""
+	}
+
+	// (1) The typed-confirmation command.
+	h := help("machine", "restart")
+	if l := yesLine(h); !strings.Contains(l, typedText) {
+		t.Errorf("machine restart --yes line %q, want %q", l, typedText)
+	}
+	if strings.Contains(h, "do not ask for confirmation") {
+		t.Errorf("machine restart help still says %q:\n%s", "do not ask for confirmation", h)
+	}
+	// (2) and (3) Every other mutating command keeps today's text.
+	for _, args := range [][]string{{"service", "stop"}, {"container", "restart"}} {
+		if l := yesLine(help(args...)); !strings.Contains(l, baseText) || strings.Contains(l, "neither fills") {
+			t.Errorf("%v --yes line %q, want %q", args, l, baseText)
+		}
+	}
+
+	// (4) The generated pages.
+	docs := filepath.Join("..", "..", "docs", "cli")
+	page, err := os.ReadFile(filepath.Join(docs, "nexus_machine_restart.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l := yesLine(string(page)); !strings.Contains(l, typedText) {
+		t.Errorf("nexus_machine_restart.md --yes line %q, want %q", l, typedText)
+	}
+	head, err := os.ReadFile(filepath.Join(docs, "nexus_container_restart.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const base = "43e5792"
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found: cannot read nexus_container_restart.md at base " + base)
+	}
+	if err := exec.Command("git", "cat-file", "-e", base+"^{commit}").Run(); err != nil {
+		t.Skipf("base commit %s not available: %v", base, err)
+	}
+	was, err := exec.Command("git", "show", base+":docs/cli/nexus_container_restart.md").Output()
+	if err != nil {
+		t.Fatalf("git show %s:docs/cli/nexus_container_restart.md: %v", base, err)
+	}
+	if got, want := yesLine(string(head)), yesLine(string(was)); got == "" || got != want {
+		t.Errorf("nexus_container_restart.md --yes line %q, want it unchanged from base: %q", got, want)
+	}
 }
 
 // TC-SV-E6: The typed answer is trimmed and sent as typed, case included. Owner WI 1.5. Requirements: FR-10.
@@ -365,5 +941,53 @@ func TestTCSVERR10_AnEmptyTypedAnswerIsAUsage(t *testing.T) {
 //   - (a) exit 5, with stderr containing the operation ID and exactly `nexus operation get <id> --host h1`, and the fake clock advanced ≥ 10 min;
 //   - (b) the pin-mismatch error at once, with no further dial (dial count stops at the mismatch), and a non-zero exit that is not 5.
 func TestTCSVERR28_TheCLIExits5WithTheFollow(t *testing.T) {
-	t.Skip("TC-SV-ERR28: SKIP-only stub; un-skip when WI 5.1 lands")
+	t.Run("windowSpent", func(t *testing.T) {
+		fc := useFakeClock(t)
+		start := fc.Now()
+		re := startRebootReconn(t, false)
+		re.fp.window(fc, start.Add(2*time.Second), start.Add(time.Hour), downRefuse, nil)
+		r := re.run(fc.Now, "machine", "restart", "--host", "h1", "--confirm-host", "h1", "--verbose")
+		t.Logf("exit %d after %s, virtual %s\nstderr tail:\n%s", r.code, r.wall, fc.Now().Sub(start),
+			lastLines(r.stderr.String(), 5))
+		if r.code != ExitConnection {
+			t.Fatalf("exit %d, want 5", r.code)
+		}
+		id := r.stderr.opID(t)
+		if want := "nexus operation get " + id + " --host h1"; !strings.Contains(r.stderr.String(), want) {
+			t.Errorf("stderr does not name %q", want)
+		}
+		if el := fc.Now().Sub(start); el < 10*time.Minute {
+			t.Errorf("virtual %s elapsed, want at least the 10 min window", el)
+		}
+	})
+
+	t.Run("pinMismatch", func(t *testing.T) {
+		fc := useFakeClock(t)
+		start := fc.Now()
+		re := startRebootReconn(t, true)
+		re.fp.onPost(func() { re.fp.set(downPin, nil) })
+		r := re.run(fc.Now, "machine", "restart", "--host", "h1", "--confirm-host", "h1", "--verbose")
+		t.Logf("exit %d\nstderr:\n%s", r.code, r.stderr)
+		// The CLI's exit code for a pin mismatch is 5 (ExitConnection), as
+		// TC-SM-ERR20 pins for every reconnect window; TC-SV-ERR28 (b)'s
+		// "not 5" is reported for the architect, not asserted.
+		if r.code == 0 {
+			t.Fatalf("exit 0, want the pin mismatch to fail")
+		}
+		if el := fc.Now().Sub(start); el >= time.Second {
+			t.Errorf("virtual %s elapsed, want the mismatch at once", el)
+		}
+		if failed := failedOf(r.stderr.attempts(t, "")); len(failed) != 1 {
+			t.Errorf("%d failed requests, want 1: no dial after the mismatch", len(failed))
+		}
+		if s := r.stderr.String(); !strings.Contains(s, "fingerprint mismatch") || strings.Contains(s, "likely restarting") {
+			t.Errorf("stderr %q, want the fingerprint mismatch and no reconnect", s)
+		}
+	})
+}
+
+// lastLines is the last n lines of s.
+func lastLines(s string, n int) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	return strings.Join(lines[max(0, len(lines)-n):], "\n")
 }

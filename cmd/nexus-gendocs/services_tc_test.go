@@ -9,7 +9,14 @@
 
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	services "github.com/mauktik/nexus/internal/providers/services/spec"
+)
 
 // TC-SV-128: docs/services.md covers every required topic and lists every protected name. Owner WI 5.2. Requirements: NFR-8, FR-9, ASM-3, ASM-10, A-27.
 //
@@ -78,5 +85,28 @@ func TestTCSV131_DocsAddingAProviderMd8Documents(t *testing.T) {
 //   - `docs/cli/` has pages for `nexus service`, `nexus servicelog` and `nexus machine`;
 //   - `docs/api.md` has the eight operation IDs.
 func TestTCSV133_GeneratedDocsAreCurrentAndIncludeThe(t *testing.T) {
-	t.Skip("TC-SV-133: SKIP-only stub; un-skip when WI 5.1 lands")
+	docs := repoDocs(t)
+	files := mustGenerate(t, nil)
+	if problems := check(docs, files); len(problems) > 0 {
+		t.Fatalf("generated documentation is stale; run `make docs` and commit docs/:\n  %s", strings.Join(problems, "\n  "))
+	}
+	for _, page := range []string{"nexus_service.md", "nexus_servicelog.md", "nexus_machine.md",
+		"nexus_machine_restart.md", "nexus_service_get.md", "nexus_service_invoke.md", "nexus_servicelog_get.md"} {
+		if _, err := os.Stat(filepath.Join(docs, "cli", page)); err != nil {
+			t.Errorf("docs/cli/%s: %v", page, err)
+		}
+	}
+	api, err := os.ReadFile(filepath.Join(docs, "api.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ops := services.Spec().Ops
+	if len(ops) != 8 {
+		t.Fatalf("the services spec has %d ops, want 8", len(ops))
+	}
+	for _, op := range ops {
+		if !strings.Contains(string(api), op.ID) {
+			t.Errorf("docs/api.md does not name %s", op.ID)
+		}
+	}
 }

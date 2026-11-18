@@ -247,7 +247,7 @@ func (a *app) newOpCommand(g *opCommand) (*cobra.Command, error) {
 	}
 	b.register(cmd)
 	registerOutputFlags(cmd, g)
-	registerTargetFlags(cmd, b)
+	registerTargetFlags(cmd, g, b)
 	registerStdinFlags(cmd, g)
 	if err := registerWaitFlags(cmd, g); err != nil {
 		return nil, err

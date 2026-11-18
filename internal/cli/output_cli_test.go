@@ -178,6 +178,9 @@ var patternSamples = map[string]struct {
 	"pihole.actions.add-record":        {flags: []string{"--fqdn", "nas.home.local", "--ipv4", "192.168.7.9"}},
 	"pihole.actions.apply-dns-changes": {flags: []string{"--changes", "add-record:nas.home.local=192.168.7.9"}},
 	"nexusd.actions.update-config":     {variadic: "host.name=web"},
+	// The default "web" matches ServiceNamePattern, but control's action is
+	// an enum the generic "x" is not in.
+	"services.services.control": {flags: []string{"--action", "restart"}},
 }
 
 // argsFor is a valid invocation of each op of a generated command.

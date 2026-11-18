@@ -408,7 +408,8 @@ var (
 		Action:  ActionStart,
 		Summary: "Start a system service",
 		Description: "Starts an allow-listed service through the init system and succeeds when it is running. " +
-			"Starting a running service sends nothing and succeeds with changed false." + controlOutcome +
+			"Side effects: the service runs, and does whatever it does, until it is stopped. Starting a running " +
+			"service sends nothing and succeeds with changed false." + controlOutcome +
 			controlRefusals + detached + untrusted,
 		Scope: def.Scope{Name: WriteScope}, Risk: def.RiskMutating, Mode: def.ModeLongRunning, Idempotent: true,
 		Untrusted: true,
@@ -449,7 +450,8 @@ var (
 		Summary: "Start, stop or restart a system service",
 		Description: "Runs action (start, stop or restart) on an allow-listed service, exactly as the start, stop " +
 			"and restart operations do, sharing their per-service lane. start on a running service and stop on a " +
-			"stopped one send nothing and succeed with changed false. stop takes the service down." +
+			"stopped one send nothing and succeed with changed false. Side effects: those of the action; stop takes " +
+			"the service down, and restart loses its open connections and in-memory state." +
 			controlOutcome + controlRefusals + detached + untrusted,
 		Scope: def.Scope{Name: WriteScope}, Risk: def.RiskDestructive, Mode: def.ModeLongRunning, Idempotent: true,
 		Untrusted: true,

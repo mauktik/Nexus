@@ -14,6 +14,7 @@ import (
 	nginx "github.com/mauktik/nexus/internal/providers/nginx/spec"
 	pihole "github.com/mauktik/nexus/internal/providers/pihole/spec"
 	scripts "github.com/mauktik/nexus/internal/providers/scripts/spec"
+	services "github.com/mauktik/nexus/internal/providers/services/spec"
 	"github.com/mauktik/nexus/internal/systemspec"
 )
 
@@ -28,6 +29,7 @@ func All() []def.ProviderSpec {
 		nexusd.Spec(),
 		pihole.Spec(),
 		host.Spec(),
+		services.Spec(),
 	}
 }
 

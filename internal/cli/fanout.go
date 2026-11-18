@@ -42,12 +42,26 @@ type hostTarget struct {
 }
 
 // registerTargetFlags declares --tag on cmd, and --yes when it mutates.
-func registerTargetFlags(cmd *cobra.Command, b *binding) {
+func registerTargetFlags(cmd *cobra.Command, g *opCommand, b *binding) {
 	fs := cmd.Flags()
 	fs.StringSlice(flagTag, nil, "target every configured host with this tag; comma-separated or repeated for any of several")
 	if b.mutating {
-		fs.Bool(flagYes, false, "do not ask for confirmation; required to mutate without a terminal")
+		fs.Bool(flagYes, false, yesUsage(g))
 	}
+}
+
+// yesUsage is --yes's help. A command whose op declares
+// CLI.TypedConfirmation asks no y/N question: the typed host name is the
+// confirmation, and --yes neither fills nor skips its flag
+// (typedConfirmation).
+func yesUsage(g *opCommand) string {
+	for _, op := range g.ops {
+		if f := op.CLI.TypedConfirmation; f != "" {
+			return "no y/N question is asked here; --yes neither fills nor skips --" + kebab(f) +
+				", which is required without a terminal"
+		}
+	}
+	return "do not ask for confirmation; required to mutate without a terminal"
 }
 
 // config is the client configuration, read once per invocation.

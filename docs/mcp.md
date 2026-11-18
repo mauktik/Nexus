@@ -91,7 +91,7 @@ Then restart, since listen addresses and TLS are fixed at startup: `sudo systemc
 
 ## Tool budget
 
-NFR-8 requires the tool names and descriptions, which a client loads into the model's context, to stay under a documented budget: **under 4,000 tokens** for the catalog providers (docker, apt, scripts, pihole, nexusd, nginx, host) and the system tools. With every catalog provider enabled, the tool list is measured at **2,831 tokens** across 68 tools, of which the host provider's three tools add 135, `nexusd`'s two tools add 40, and nginx's 13 tools are included.
+NFR-8 requires the tool names and descriptions, which a client loads into the model's context, to stay under a documented budget: **under 4,000 tokens** for the catalog providers (docker, apt, scripts, pihole, nexusd, nginx, host, services) and the system tools. With every catalog provider enabled, the tool list is measured at **3,024 tokens** across 72 tools, of which the services provider's four tools add 193, the host provider's three tools add 136, `nexusd`'s two tools add 41, and nginx's 13 tools are included.
 
 Method: tokens are estimated, not counted by a particular tokenizer, as
 
@@ -103,7 +103,7 @@ where `total_chars` is the sum, over every tool in the live `tools/list` of a se
 
 `TestToolBudget` in `internal/mcpadapter/budget_test.go` measures this on every test run, through the real MCP SDK client, logs the total, fails at 4,000 or more, and checks that a planted long description fails the same check. Run it with `go test ./internal/mcpadapter -run TestToolBudget -v` to see the current figure. To stay within the budget, shorten the `MCP.Description` in the provider's `spec` package; the long `Description` is the REST and CLI help and is not counted.
 
-Current figure: **68 tools, 11,322 characters, 2,831 tokens**. Without the three host tools it is 2,696 tokens (65 tools), so the host provider adds 135, within its own ceiling of 150; without the two nexusd tools it is 2,791 tokens (66 tools). Before the host tools were added, the nexusd tools accounted for 41 tokens: 2,655 tokens (63 tools) without them. Before the nginx provider's 13 tools were added it was 2,024 tokens (52 tools): the system, docker, apt and scripts tools accounted for 1,028 tokens (24 tools) and the pihole tools for 956 (26 tools), within the pihole provider's own ceiling of 1,200.
+Current figure: **72 tools, 12,093 characters, 3,024 tokens**. Without the four services tools it is 2,831 tokens (68 tools, 11,322 characters), so the services provider adds 193 tokens (771 characters), within its own ceiling of 200 and the total ceiling of 3,100. Before the services tools were added: without the three host tools it is 2,696 tokens (65 tools), so the host provider adds 135, within its own ceiling of 150; without the two nexusd tools it is 2,791 tokens (66 tools). Before the host tools were added, the nexusd tools accounted for 41 tokens: 2,655 tokens (63 tools) without them. Before the nginx provider's 13 tools were added it was 2,024 tokens (52 tools): the system, docker, apt and scripts tools accounted for 1,028 tokens (24 tools) and the pihole tools for 956 (26 tools), within the pihole provider's own ceiling of 1,200.
 
 The pihole provider adds these 26 tools:
 

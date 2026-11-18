@@ -44,6 +44,7 @@ import (
 	nginx "github.com/mauktik/nexus/internal/providers/nginx/spec"
 	pihole "github.com/mauktik/nexus/internal/providers/pihole/spec"
 	scripts "github.com/mauktik/nexus/internal/providers/scripts/spec"
+	services "github.com/mauktik/nexus/internal/providers/services/spec"
 	"github.com/mauktik/nexus/internal/server"
 	"github.com/mauktik/nexus/internal/store"
 	"github.com/mauktik/nexus/internal/systemspec"
@@ -167,6 +168,24 @@ var catalogStubs = map[string]func(*testprovider.Spy) provider.Provider{
 			testprovider.Sync(s, host.NetConfigGet),
 			testprovider.Sync(s, host.HealthGet),
 			testprovider.Sync(s, host.MetricsGet),
+		)
+	},
+	// start, stop, restart, control and the reboot are Detached in the real
+	// provider, and the reboot's binding carries AfterReboot (it declares
+	// CompletesAcrossReboot). InProcess stubs them all: the stack has no
+	// launcher, so a Detached stub would fail before Prepare, the only hook
+	// that sees the operation ID the spy is matched on, and the Dispatcher's
+	// checks before admission are the same for both kinds.
+	services.Name: func(s *testprovider.Spy) provider.Provider {
+		return testprovider.NewStub(services.Spec(),
+			testprovider.Sync(s, services.List),
+			testprovider.Sync(s, services.Get),
+			testprovider.Stream(s, services.Logs),
+			testprovider.InProcess(s, services.Start),
+			testprovider.InProcess(s, services.Stop),
+			testprovider.InProcess(s, services.Restart),
+			testprovider.InProcess(s, services.Control),
+			testprovider.InProcess(s, services.Reboot),
 		)
 	},
 }
@@ -776,13 +795,21 @@ func (s *stack) assertSyncAudited(t *testing.T, op def.Op, token, tokenName stri
 		t.Errorf("%s: %d %.200s, want 200", op.ID, r.status, r.body)
 		return
 	}
-	var body map[string]any
-	if err := json.Unmarshal(r.body, &body); err != nil {
-		t.Fatalf("%s: body %.200s: %v", op.ID, r.body, err)
-	}
-	for _, k := range []string{"operation", "operationId"} {
-		if _, ok := body[k]; ok {
-			t.Errorf("%s: body has %q: %.200s", op.ID, k, r.body)
+	// An Audited stream's body is its frames (none from the stub), never an
+	// operation; a sync body is one object.
+	if op.Mode == def.ModeStream {
+		if strings.Contains(string(r.body), `"operationId"`) {
+			t.Errorf("%s: stream body names an operation: %.200s", op.ID, r.body)
+		}
+	} else {
+		var body map[string]any
+		if err := json.Unmarshal(r.body, &body); err != nil {
+			t.Fatalf("%s: body %.200s: %v", op.ID, r.body, err)
+		}
+		for _, k := range []string{"operation", "operationId"} {
+			if _, ok := body[k]; ok {
+				t.Errorf("%s: body has %q: %.200s", op.ID, k, r.body)
+			}
 		}
 	}
 	page, err := s.audit.Query(audit.Query{Action: op.ID, TokenName: tokenName, Limit: 1000})
@@ -1000,7 +1027,10 @@ var (
 // three token ops (nexusd-remote-admin FR-1 to FR-3), held by nexusd:admin;
 // "token" and "tokens" stay guards for every other op, and allowedTokenOps
 // below are the only exemption. "metrics" (base OOS-4) stays a guard for
-// every other op; the one exemption is allowedMetricsOp below.
+// every other op; the one exemption is allowedMetricsOp below. "reboot"
+// (base OOS-7) stays a guard for every other op; the one exemption is
+// allowedRebootOp below. "shutdown", "poweroff" and "halt" stay guards for
+// every op, the reboot included.
 var forbiddenWords = []string{
 	"create", "exec", "execute", "run", "shell", "reboot", "shutdown", "poweroff", "halt",
 	"repository", "repositories", "repo", "repos", "sources", "key", "keys",
@@ -1014,6 +1044,14 @@ var forbiddenWords = []string{
 // Persistent or exported metrics stay out of scope (system-provider OOS-3),
 // so any other op ID or route with the word still fails.
 const allowedMetricsOp = "host.metrics.get"
+
+// allowedRebootOp is the single op that may carry the word "reboot": the
+// services provider's guarded host reboot, held by services:reboot and off
+// by default (services-provider FR-10, and the amendment of base OOS-7 by
+// its WI 5.2). Its op ID and route may carry the word; any other op ID or
+// route with it still fails, and "shutdown", "poweroff" and "halt" stay
+// forbidden for every op, this one included.
+const allowedRebootOp = "services.actions.reboot"
 
 // allowedTokenOps are the only ops that may carry the words "token" and
 // "tokens": nexusd's remote token list, add and remove, each requiring
@@ -1063,7 +1101,7 @@ func executionSurface(t *testing.T, op def.Op) []string {
 }
 
 // forbiddenWordHits lists the forbidden words in op's ID and route, less
-// the exemptions of allowedMetricsOp and allowedTokenOps.
+// the exemptions of allowedMetricsOp, allowedRebootOp and allowedTokenOps.
 func forbiddenWordHits(t *testing.T, op def.Op) []string {
 	t.Helper()
 	_, route, err := openapi.Route(op)
@@ -1073,6 +1111,9 @@ func forbiddenWordHits(t *testing.T, op def.Op) []string {
 	var out []string
 	for _, w := range slices.Concat(words(op.ID), words(route)) {
 		if w == "metrics" && op.ID == allowedMetricsOp {
+			continue
+		}
+		if w == "reboot" && op.ID == allowedRebootOp {
 			continue
 		}
 		if (w == "token" || w == "tokens") && slices.Contains(allowedTokenOps, op.ID) {
