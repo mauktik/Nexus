@@ -1637,23 +1637,24 @@ func TestTCRA101_RemoteAddAndLocalSudoCreateOfOneNameRaceOnThe(t *testing.T) {
 }
 
 // systemctlReloadInactive is what `systemctl reload nexusd.service` printed
-// on this harness's real systemd for a stopped unit (captured by
-// TestTCRA72's run, 2026-11-17). The unit tests in internal/providers/nexusd
-// feed it to the helper's classification; this test fails when a systemd
-// says something else, so the golden cannot drift from the real wording.
+// on this harness's real systemd 259 for a stopped unit (captured by
+// TestTCRAE33's run, 2026-11-17). internal/providers/nexusd's
+// reload_classify_test.go reads this same file by a relative path and feeds
+// it to the helper's classification; this test fails when a systemd says
+// something else, so the golden cannot drift from the real wording.
 // systemd's own source: src/shared/bus-wait-for-jobs.c, check_wait_response,
-// `%s is not active, cannot reload.` for a job result of "invalid"
-// (unchanged from v252 to v258).
+// `%s is not active, cannot reload.` for a job result of "invalid".
 //
 //go:embed testdata/systemctl-reload-inactive.txt
 var systemctlReloadInactive string
 
-// TC-RA-72's trigger (code review CR-10; FR-8): on real systemd, `systemctl
-// reload` of a unit that is not active fails with the text the helper's
-// retry classification matches. The unit tests feed classifyReloadError the
-// capture of this run (internal/providers/nexusd/testdata), so this is where
+// TC-RA-E33 (WI 4.2; FR-8; code review CR-10, CR-17): on real systemd,
+// `systemctl reload` of a unit that is not active fails with the text the
+// helper's retry classification matches (TC-RA-72 is the T0 retry test). The
+// unit tests feed classifyReloadError the capture of this run
+// (test/integration/testdata/systemctl-reload-inactive.txt), so this is where
 // the wording is pinned to a real systemd, not to a string the fake composes.
-func TestTCRA72_RealSystemctlReloadOfAnInactiveUnitSaysNotActive(t *testing.T) {
+func TestTCRAE33_OnRealSystemdReloadOfAnInactiveUnitSaysNotActive(t *testing.T) {
 	h := newRAHost(t)
 	mustSh(t, "systemctl", "stop", nexusdUnit)
 	t.Cleanup(func() { startExact(t); h.waitHealthz() })
