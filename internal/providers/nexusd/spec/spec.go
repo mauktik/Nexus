@@ -406,8 +406,11 @@ func refineConfigUpdate(s *jsonschema.Schema) {
 // Token input patterns. tokenNamePattern and tokenScopePattern equal
 // internal/auth's nameRE and scopeRE (a test pins them); a name also
 // matches a 12-hex token ID, so remove takes either. tokenStringPattern is
-// what gives a token's secret away (a test pins it against internal/auth's
-// format): the token prefix and ID in any case, or any run of 43
+// what gives a token's secret away; it and tokenStringRefusal equal
+// auth.TokenStringPattern and auth.TokenStringRefusal, which the local token
+// create applies too (a test pins them, and the pattern against auth's
+// format; this package cannot import internal/auth, since cmd/nexus does
+// not): the token prefix and ID in any case, or any run of 43
 // base64url characters, the length of the secret. The run is unanchored, so
 // nxs_<id>_<secret>, <id>_<secret>, NXS_<id>_<secret>, the bare secret and a
 // name that merely holds it are all caught. Each matches tokenNamePattern,

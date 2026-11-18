@@ -53,6 +53,18 @@ const (
 	encodedLen        = 43 // base64.RawURLEncoding.EncodedLen(tokenEntropyBytes)
 )
 
+// TokenStringPattern matches a name that gives a token's secret away: the
+// token prefix and ID in any case, or any run of encodedLen base64url
+// characters, the length of the secret. The run is unanchored, so a name
+// that merely holds a secret matches too. The nexusd provider's token name
+// schema repeats it (cmd/nexus must not import this package), and a test
+// pins the two and derives both from the constants above.
+const TokenStringPattern = `^[Nn][Xx][Ss]_[0-9A-Fa-f]{12}_|[A-Za-z0-9_-]{43}`
+
+// TokenStringRefusal is what a name matching TokenStringPattern is told,
+// locally and remotely. It never quotes the value.
+const TokenStringRefusal = "this looks like, or contains, a token string; pass the token's name or ID, never the token itself"
+
 // strictB64 rejects non-canonical encodings, so exactly one string encodes
 // each 32-byte value.
 var strictB64 = base64.RawURLEncoding.Strict()
@@ -61,6 +73,8 @@ var (
 	idRE    = regexp.MustCompile(`^[0-9a-f]{12}$`)
 	nameRE  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 	scopeRE = regexp.MustCompile(`^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*(:[A-Za-z0-9][A-Za-z0-9._-]*)?$`)
+
+	tokenStringRE = regexp.MustCompile(TokenStringPattern)
 )
 
 // Token describes a stored token. It never carries the secret or its hash.
@@ -161,8 +175,12 @@ type CreateRequest struct {
 // returns the token string. That string is the only copy of the secret: the
 // store keeps its SHA-256. A 256-bit random secret needs no slow KDF. A full
 // store gives *LimitError, checked before the name, and a taken name gives
-// *NameExistsError.
+// *NameExistsError. A name carrying a token string is refused first, so its
+// error never quotes it, however long it is.
 func Create(dir string, req CreateRequest) (string, Token, error) {
+	if tokenStringRE.MatchString(req.Name) {
+		return "", Token{}, errors.New("invalid token name: " + TokenStringRefusal)
+	}
 	if !nameRE.MatchString(req.Name) {
 		return "", Token{}, fmt.Errorf("invalid token name %q: use 1 to 64 letters, digits, '.', '_' or '-', starting with a letter or digit", req.Name)
 	}

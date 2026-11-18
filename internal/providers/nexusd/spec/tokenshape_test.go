@@ -76,6 +76,18 @@ func TestTokenNameRefusesTheTokenStringShape(t *testing.T) {
 		if r.not != want {
 			t.Errorf("%s: name not-pattern %q, want auth's token format %q", r.op, r.not, want)
 		}
+		// One rule everywhere (user decision at confirm-before-merge,
+		// 2026-11-17): the local create refuses with auth's own pattern and
+		// message, which the spec repeats because cmd/nexus must not import
+		// internal/auth.
+		if r.not != auth.TokenStringPattern {
+			t.Errorf("%s: name not-pattern %q, want auth.TokenStringPattern %q", r.op, r.not, auth.TokenStringPattern)
+		}
+	}
+	for op, r := range map[string]*jsonschema.Resolved{"add": add, "remove": remove} {
+		if p := r.Schema().Properties["name"]; p == nil || p.Not == nil || p.Not.Description != auth.TokenStringRefusal {
+			t.Errorf("%s: name refusal is not auth.TokenStringRefusal %q", op, auth.TokenStringRefusal)
+		}
 	}
 
 	dir := t.TempDir()

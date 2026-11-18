@@ -381,9 +381,11 @@ no running daemon and no existing token.
   answers 404 `not-found`.
 - A name that looks like, or contains, a token string (`nxs_<id>_` in any
   case, or a run of 43 letters, digits, `_` or `-`) is refused without being
-  echoed, and a not-found or conflict answer never repeats the name, so a
-  secret pasted by mistake is never sent on in an error or the audit log.
-  Pass the token's name or ID instead.
+  echoed, remotely and by `sudo nexusd token create` alike, and a not-found
+  or conflict answer never repeats the name, so a secret pasted by mistake
+  is never sent on in an error or the audit log. Pass the token's name or ID
+  instead, and break a long name with `.`. A token created under such a name
+  before this rule keeps working: remove it by its ID.
 
 Every add, list and remove is audited: an add with the new token's name, ID,
 scopes and expiry, a remove with the token's name and ID and whether it was

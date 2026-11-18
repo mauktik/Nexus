@@ -108,11 +108,14 @@ Keep `nexusd` LAN only.
   outlives its own revocation or expiry. `createdBy` in `nexus nexusdtoken
   get` and the audit log show which token made which; after revoking a
   stolen token, revoke every token it created.
-- **Names are not secrets.** A remote add or remove refuses a name shaped
-  like, or containing, a token string (`nxs_<id>_` in any case, or a run of
-  43 base64url characters, the length of a secret) without quoting it, and
-  its not-found and conflict answers never repeat the name, so a secret
-  pasted by mistake never reaches an error body or the audit log.
+- **Names are not secrets.** A name shaped like, or containing, a token
+  string (`nxs_<id>_` in any case, or a run of 43 base64url characters, the
+  length of a secret) is refused without being quoted: by a remote add or
+  remove and by the local `sudo nexusd token create`, with the same message.
+  A remote not-found or conflict answer never repeats the name, so a secret
+  pasted by mistake never reaches an error body or the audit log. A token
+  already stored under such a name keeps working; list it and revoke it by
+  its ID.
 - A new token has no scopes unless `--scope` (local) or `--scopes`
   (remote) gives them. Revocation takes effect on the next request,
   without a restart. A remote remove of the token the request itself used
