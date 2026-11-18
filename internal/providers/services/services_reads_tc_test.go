@@ -914,14 +914,10 @@ func TestTCSV86_OpenRCFileLogsKeepTheNewestLines(t *testing.T) {
 				t.Fatalf("frame %d has time %s, want none", i, f.T)
 			}
 		}
-		t.Run("no t key in JSON", func(t *testing.T) {
-			// BLOCKED on a contract outside WI 4.2's files: the TC and
-			// architecture.md (DF-2 step 4, A-38) say Frame.T is omitzero,
-			// but apitypes.Frame.MarshalJSON writes dataFrameWire, whose T
-			// has no omitzero (internal/apitypes/frame.go), so every data
-			// frame carries "t". Escalated to the architect; un-skip when
-			// frame.go leaves a zero T out.
-			t.Skip("BLOCKED: apitypes.Frame.MarshalJSON always writes t; see the WI 4.2 report")
+		t.Run("t is the zero time on the wire", func(t *testing.T) {
+			// The data-frame wire shape always carries t (OpenAPI: required),
+			// so an untimed frame sends the zero time and consumers key on
+			// T.IsZero() (orchestrator decision after WI 4.2; A-38).
 			for i, f := range frames {
 				b, err := json.Marshal(f)
 				if err != nil {
@@ -931,8 +927,8 @@ func TestTCSV86_OpenRCFileLogsKeepTheNewestLines(t *testing.T) {
 				if err := json.Unmarshal(b, &m); err != nil {
 					t.Fatal(err)
 				}
-				if _, ok := m["t"]; ok {
-					t.Fatalf("frame %d JSON has a t key: %s", i, b)
+				if got := string(m["t"]); got != `"0001-01-01T00:00:00Z"` {
+					t.Fatalf("frame %d JSON t = %s, want the zero time: %s", i, got, b)
 				}
 			}
 		})
