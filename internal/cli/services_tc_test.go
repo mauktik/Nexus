@@ -67,6 +67,22 @@ var tcsvReboot = def.Define[tcsvRebootIn, tcsvRebootOut](def.Op{
 	CLI: def.CLIBinding{Noun: "machine", Verb: "restart", TypedConfirmation: "confirmHost"},
 })
 
+// tcsvTypedThing is a typed-confirmation op that, unlike the reboot, has a
+// positional, so it has --stdin (CR-7).
+type tcsvTypedIn struct {
+	Name        string `json:"name" jsonschema:"The thing's name." pattern:"^[a-z]+$"`
+	ConfirmHost string `json:"confirmHost" jsonschema:"The target host's name, typed to confirm."`
+}
+
+var tcsvTypedThing = def.Define[tcsvTypedIn, tcsvRebootOut](def.Op{
+	ID: "plt.things.restart", Provider: "plt", Kind: def.KindResourceAction, ResourceType: "things", Action: "restart",
+	Summary: "Restart a thing",
+	Description: "Restarts a planted thing. Side effects: the thing restarts. " +
+		"Long-running: answers 202 with an operation.",
+	Scope: def.Scope{Name: "plt:write"}, Risk: def.RiskDestructive, Mode: def.ModeLongRunning,
+	CLI: def.CLIBinding{Noun: "thing", Verb: "restart", Positional: "name", TypedConfirmation: "confirmHost"},
+})
+
 const tcsvRebootPath = "/v1/providers/pl/actions/reboot"
 
 // tcsvSpecs is the catalog with the planted pl provider. The real
@@ -899,8 +915,8 @@ func TestTypedConfirmationFailsWhenCapabilitiesAreUnavailable(t *testing.T) {
 	if _, asked := tty.state(); asked != "" {
 		t.Errorf("the terminal was asked %q, want nothing", asked)
 	}
-	if r.code == 0 || !strings.Contains(r.stderr, "box-admin") || !strings.Contains(r.stderr, "capabilities") {
-		t.Errorf("exit %d, stderr %q; want a failure naming the host and its capabilities", r.code, r.stderr)
+	if r.code != ExitFailure || !strings.Contains(r.stderr, "box-admin") || !strings.Contains(r.stderr, "capabilities") {
+		t.Errorf("exit %d, stderr %q; want exit %d naming the host and its capabilities", r.code, r.stderr, ExitFailure)
 	}
 	if n := posts.Load(); n != 0 {
 		t.Errorf("%d POSTs, want none", n)
@@ -1036,4 +1052,86 @@ func TestTCSVERR28_TheCLIExits5WithTheFollow(t *testing.T) {
 func lastLines(s string, n int) string {
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
 	return strings.Join(lines[max(0, len(lines)-n):], "\n")
+}
+
+// brokenTerminal is a controlling terminal whose reads or writes fail.
+type brokenTerminal struct {
+	answeringTerminal
+	failRead, failWrite bool
+}
+
+func (b *brokenTerminal) open() (Terminal, error) {
+	b.answeringTerminal.opened++
+	return b, nil
+}
+
+func (b *brokenTerminal) Write(p []byte) (int, error) {
+	if b.failWrite {
+		return 0, errors.New("write /dev/tty: input/output error")
+	}
+	return b.answeringTerminal.Write(p)
+}
+
+func (b *brokenTerminal) ReadLine() (string, error) {
+	if b.failRead {
+		return "", io.EOF
+	}
+	return b.answer, nil
+}
+
+// CR-7 (services-provider code review): the refusal branches of the typed
+// confirmation. Each sends nothing.
+func TestCR7_TheTypedConfirmationsRefusals(t *testing.T) {
+	// The planted reboot has no positional, so it has no --stdin flag at all;
+	// the --stdin refusal guards a typed-confirmation op that has one, so
+	// that a stdin fan-out never skips the typed host name.
+	t.Run("--stdin on an op with a positional", func(t *testing.T) {
+		f, home := tcsvOneHost(t)
+		tty := &brokenTerminal{}
+		env := homeEnv(home)
+		env.OpenTerminal = tty.open
+		var stdout, stderr bytes.Buffer
+		env.Stdin, env.Stdout, env.Stderr = strings.NewReader(`{"name":"web"}`+"\n"), &stdout, &stderr
+		specs := append(tcsvSpecs(), def.ProviderSpec{Name: "plt", ReadScope: "plt:read", Ops: []def.Op{tcsvTypedThing.Op()}})
+		code := runWithSpecs([]string{"thing", "restart", "--stdin", "--host", "h1", "--yes", "--no-wait"}, env, specs)
+		if code != ExitUsage || !strings.Contains(stderr.String(), "--stdin cannot be used with nexus thing restart") {
+			t.Errorf("exit %d, stderr %q; want 2, refusing --stdin", code, stderr.String())
+		}
+		if n := len(f.mutations()); n != 0 || tty.opened != 0 {
+			t.Errorf("%d POSTs, terminal opened %d times; want none", n, tty.opened)
+		}
+	})
+	for _, c := range []struct {
+		name     string
+		args     []string
+		tty      func() *brokenTerminal
+		wantCode int
+		wantErr  string
+		wantOpen int // Times the terminal is opened
+	}{
+		{"--confirm-host empty", []string{"machine", "restart", "--host", "h1", "--confirm-host", "", "--no-wait"},
+			func() *brokenTerminal { return &brokenTerminal{} }, ExitUsage, "--confirm-host is empty", 0},
+		{"the terminal cannot be written", []string{"machine", "restart", "--host", "h1", "--no-wait"},
+			func() *brokenTerminal { return &brokenTerminal{failWrite: true} }, ExitUsage, "the terminal cannot be written", 1},
+		{"the answer cannot be read", []string{"machine", "restart", "--host", "h1", "--no-wait"},
+			func() *brokenTerminal { return &brokenTerminal{failRead: true} }, ExitFailure, "not confirmed", 1},
+		{"an empty answer", []string{"machine", "restart", "--host", "h1", "--no-wait"},
+			func() *brokenTerminal { return &brokenTerminal{answeringTerminal: answeringTerminal{answer: "\n"}} }, ExitUsage,
+			"no host name was typed", 1},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f, home := tcsvOneHost(t)
+			tty := c.tty()
+			r := tcsvRun(home, tty.open, c.args...)
+			if r.code != c.wantCode || !strings.Contains(r.stderr, c.wantErr) {
+				t.Errorf("exit %d, stderr %q; want exit %d naming %q", r.code, r.stderr, c.wantCode, c.wantErr)
+			}
+			if tty.opened != c.wantOpen {
+				t.Errorf("terminal opened %d times, want %d", tty.opened, c.wantOpen)
+			}
+			if n := len(f.mutations()); n != 0 {
+				t.Errorf("%d POSTs, want none", n)
+			}
+		})
+	}
 }
