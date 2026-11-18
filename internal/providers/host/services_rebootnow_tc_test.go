@@ -25,7 +25,7 @@ func TestTCSV115_RebootRequiredNowEqualsTheHostProvidersOwnRule(t *testing.T) {
 		setup   func(s *hostStack)
 		state   string
 	}{
-		{"ubuntu as captured", capUBU, func(s *hostStack) { s.outsideContainer() }, ""},
+		{"ubuntu as captured", capUBU, func(s *hostStack) { s.outsideContainer() }, spec.RebootFalse},
 		{"ubuntu marker and pkgs", capUBU, func(s *hostStack) { s.outsideContainer(); s.rebootMarker(pkgs) },
 			spec.RebootTrue},
 		{"ubuntu marker in a container", capUBU, func(s *hostStack) { s.insideContainer(); s.rebootMarker(pkgs) },
@@ -45,9 +45,19 @@ func TestTCSV115_RebootRequiredNowEqualsTheHostProvidersOwnRule(t *testing.T) {
 			c.setup(s)
 			plat := s.plat
 			got := RebootRequiredNow(Options{FS: s.ffs, Platform: &plat, GOOS: "linux"})
-			want := s.p.rebootRequired()
+			// The provider's public answer (health's rebootRequired), not
+			// rebootRequired() itself, which RebootRequiredNow wraps.
+			want := s.health().RebootRequired
+			// The health item went through JSON: an empty list or map comes
+			// back as nil, or the reverse.
+			for _, r := range []*spec.RebootRequired{&got, &want} {
+				r.Packages = append([]string{}, r.Packages...)
+				if r.Unavailable == nil {
+					r.Unavailable = map[string]string{}
+				}
+			}
 			if !reflect.DeepEqual(got, want) {
-				t.Fatalf("RebootRequiredNow = %+v\nrebootRequired() = %+v", got, want)
+				t.Fatalf("RebootRequiredNow = %+v\nhealth rebootRequired = %+v", got, want)
 			}
 			if c.state != "" && got.State != c.state {
 				t.Errorf("state %q, want %q (%+v)", got.State, c.state, got)

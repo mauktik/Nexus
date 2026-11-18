@@ -138,8 +138,9 @@ func tcsvConfirmHost(t *testing.T, f *apiFake) any {
 func tcsvPrompted(t *testing.T, tty *answeringTerminal) {
 	t.Helper()
 	opened, asked := tty.state()
-	if opened != 1 || strings.Count(asked, "Type the host name") != 1 || !strings.Contains(asked, "h1") {
-		t.Errorf("terminal opened %d times, asked %q; want once, for the host name h1", opened, asked)
+	// srv-h1 is the fake's own name: the entry's, h1, must not be asked for.
+	if opened != 1 || strings.Count(asked, "Type the host name") != 1 || !strings.Contains(asked, "Type the host name srv-h1 to confirm") {
+		t.Errorf("terminal opened %d times, asked %q; want once, for the host's own name srv-h1", opened, asked)
 	}
 	if strings.Contains(asked, "[y/N]") {
 		t.Errorf("the terminal was asked the y/N question: %q", asked)

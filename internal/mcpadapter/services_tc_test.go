@@ -624,16 +624,19 @@ func TestTCSV152_AnMCPPageThatFillsEndsTheAudited(t *testing.T) {
 		name       string
 		frames     []apitypes.Frame
 		waitForCtx bool
+		emitErr    bool // The handler returns the emit error (code review CR-15)
 		full       bool
 	}{
-		{"a page fills, handler returns nil", timed(20), false, true},
-		{"b page fills, handler returns ctx.Err()", timed(20), true, true},
-		{"c page does not fill", timed(3), false, false},
+		{"a page fills, handler returns the emit error", timed(20), false, true, true},
+		{"b page fills, handler returns ctx.Err()", timed(20), true, false, true},
+		{"c page does not fill", timed(3), false, false, false},
+		{"d page fills, handler returns nil", timed(20), false, false, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			pw := newPagedWorld(t, 64)
 			pw.p.set(tc.frames, tc.waitForCtx)
+			pw.p.setReturnsEmitError(tc.emitErr)
 			p, _ := toolPage(t, pw.cs, pagedAuditedTool, map[string]any{})
 			if p.Truncated != tc.full {
 				t.Errorf("truncated %v, want %v", p.Truncated, tc.full)
@@ -658,11 +661,6 @@ func TestTCSV152_AnMCPPageThatFillsEndsTheAudited(t *testing.T) {
 			}
 		})
 	}
-	t.Run("step 3 the wrapped sentinel", func(t *testing.T) {
-		if err := fmt.Errorf("%w: page full", core.ErrStreamStopped); !errors.Is(err, core.ErrStreamStopped) {
-			t.Errorf("errors.Is(%v, core.ErrStreamStopped) is false", err)
-		}
-	})
 }
 
 // The planted since-paged stream ops of TC-SV-151 and TC-SV-152: an input
@@ -705,6 +703,13 @@ type pagedProv struct {
 	mu         sync.Mutex
 	frames     []apitypes.Frame
 	waitForCtx bool
+	emitErr    bool // Return the emit error itself, as a handler that passes it up does
+}
+
+func (p *pagedProv) setReturnsEmitError(v bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.emitErr = v
 }
 
 func (p *pagedProv) set(frames []apitypes.Frame, waitForCtx bool) {
@@ -723,10 +728,13 @@ func (p *pagedProv) Preflight(context.Context) provider.Status {
 func (p *pagedProv) Bindings() []provider.Binding {
 	h := func(ctx context.Context, _ PagedInput, emit func(apitypes.Frame) error) error {
 		p.mu.Lock()
-		frames, wait := p.frames, p.waitForCtx
+		frames, wait, passUp := p.frames, p.waitForCtx, p.emitErr
 		p.mu.Unlock()
 		for _, f := range frames {
 			if err := emit(f); err != nil {
+				if passUp {
+					return err
+				}
 				if wait {
 					<-ctx.Done()
 					return ctx.Err()

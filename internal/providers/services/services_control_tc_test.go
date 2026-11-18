@@ -989,7 +989,7 @@ func TestTCSV97_TheHelperReChecksTheStaticProtected(t *testing.T) {
 // TC-SV-98: Prepare snapshots the entry and declares the helper argv and bounds. Owner WI 4.3. Requirements: FR-7, CON-1, CON-2.
 func TestTCSV98_PrepareSnapshotsTheEntryAndDeclaresThe(t *testing.T) {
 	w := newCtlWorld(t, ctlSystemd, "enabled: true\ncontrol:\n  - name: nx-svc-test\n    actions: [start, restart]\n"+
-		"    timeout: 45s\n", ctlOptions{names: []string{"nx-svc-test"}})
+		"    timeout: 45s\n", ctlOptions{names: []string{"nx-svc-test"}, agent: true})
 	r := w.prepare(spec.Start.Op(), `{"name":"nx-svc-test"}`)
 	if want := []string{ctlExe, "services-helper", "run", "--dir", r.dir}; !slices.Equal(r.spec.Argv, want) {
 		t.Errorf("argv %q, want %q", r.spec.Argv, want)
@@ -1028,8 +1028,14 @@ func TestTCSV98_PrepareSnapshotsTheEntryAndDeclaresThe(t *testing.T) {
 		}
 		n, _ := m["name"].(string)
 		names = append(names, n)
+		// The dynamic protection (TC-SV-77: nexus-agent.service runs
+		// nexusd and Requires= nexusd-db) is in the snapshot, with its
+		// reason (CR-15).
+		if n == "nexusd-db" && m["reason"] != ctlAgentDepsReason {
+			t.Errorf("nexusd-db's reason %q, want %q", m["reason"], ctlAgentDepsReason)
+		}
 	}
-	for _, want := range append([]string{"nexusd"}, spec.ProtectedSystemd...) {
+	for _, want := range append([]string{"nexusd", "nexus-agent", "nexusd-db"}, spec.ProtectedSystemd...) {
 		if !slices.Contains(names, want) {
 			t.Errorf("protected names %v lack %s", names, want)
 		}

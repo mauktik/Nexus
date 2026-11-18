@@ -207,7 +207,7 @@ func TestReadBoot(t *testing.T) {
 			f.mountinfo(t, "1", f.line(pid1RunLine)+f.line(pid1BootIDLine))
 			f.mountinfo(t, "self", sandboxSysLine+f.line(sandboxRunLine))
 		},
-		wantErr: "nx-boot-id",
+		wantErr: "symbolic links", // ELOOP: O_NOFOLLOW refused the link
 	}, {
 		name: "the longest root holding the source is used",
 		setup: func(t *testing.T, f bootFixture) {
