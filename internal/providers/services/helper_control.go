@@ -242,9 +242,11 @@ func controlDefinite(d svcctl.Details, want svcctl.State, res svcctl.Result) boo
 // restartNotDone reports whether a restart whose tool did not exit 0 has
 // left the instance that ran before it: the same main PID and the same
 // start time. Only a new instance shows that the restart happened despite
-// the tool's failure.
+// the tool's failure. A service that was not running had no such instance:
+// its restart is a start, and is judged by the state it leaves (CR-19).
 func restartNotDone(action string, before, now svcctl.Details, res svcctl.Result) bool {
-	if action != spec.ActionRestart || res.ExitCode == 0 || now.MainPID != before.MainPID {
+	if action != spec.ActionRestart || res.ExitCode == 0 || now.MainPID != before.MainPID ||
+		svcctl.State(before.State) != svcctl.Running {
 		return false
 	}
 	if before.Since == nil || now.Since == nil {
