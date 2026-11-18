@@ -349,7 +349,7 @@ func (p *Provider) prepareReboot(ctx context.Context, in spec.RebootInput, r *pr
 	if in.WhatIf {
 		helperSay(r.Output(), "reboot whatIf runs in detached operation %s; nothing is rebooted", r.ID())
 	} else {
-		helperSay(r.Output(), "reboot of boot %s runs in detached operation %s in %s", boot, r.ID(), delay)
+		helperSay(r.Output(), "reboot of boot %s runs in detached operation %s in %s", boot.ID, r.ID(), delay)
 	}
 	return detach.Spec{
 		Argv:       []string{exe, HelperCommand, "run", "--dir", dir},

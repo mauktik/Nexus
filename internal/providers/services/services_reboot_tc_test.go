@@ -2146,3 +2146,18 @@ func TestCR9_TheFirstStopCheckHonoursEitherHalfAndReportsAnUncheckableCancel(t *
 		}
 	})
 }
+
+// CR-10 (services-provider code review): Prepare's log line names the boot
+// by its ID, not by the whole detach.Boot struct.
+func TestCR10_PreparesLogLineNamesTheBootByItsID(t *testing.T) {
+	w := newRBWorld(t, rbOpts{})
+	w.ops.set("op-own")
+	_, f := w.funcs()
+	var log bytes.Buffer
+	if _, err := f.Prepare(context.Background(), w.decode(`{"confirmHost":"h1"}`), provider.NewRun("op-own", &log)); err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	if want := "reboot of boot " + rbCur + " runs in detached operation op-own"; !strings.Contains(log.String(), want) {
+		t.Errorf("operation log %q, want it to contain %q", log.String(), want)
+	}
+}
