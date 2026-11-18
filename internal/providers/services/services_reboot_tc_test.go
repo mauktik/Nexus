@@ -2090,3 +2090,59 @@ func TestTCSVERR32_SIGTERMWithNoCancelRequestBetweenThe(t *testing.T) {
 		})
 	}
 }
+
+// CR-9 (services-provider code review): the helper's first stop check, at
+// step 2, sees a cancel file alone and a stop context alone, as the second
+// check does; and a cancel file that cannot be checked, with no stop, ends
+// with an explicit internal-error result instead of exiting 143 with none.
+func TestCR9_TheFirstStopCheckHonoursEitherHalfAndReportsAnUncheckableCancel(t *testing.T) {
+	atDelay := func(h *rbHelper, f func()) {
+		h.fake.stageFn = func(stage string) {
+			if stage == stageAfterDelay {
+				f()
+			}
+		}
+	}
+	t.Run("the cancel file alone", func(t *testing.T) {
+		h := newRBHelper(t, platform.Systemd, 10)
+		atDelay(h, func() {
+			if err := detach.RequestCancel(h.dir); err != nil {
+				t.Error(err)
+			}
+		})
+		if code := h.run(); code != rebootStopExit {
+			t.Fatalf("exit %d, want %d", code, rebootStopExit)
+		}
+		rbWantNothing(t, h)
+	})
+	t.Run("the stop context alone", func(t *testing.T) {
+		h := newRBHelper(t, platform.Systemd, 10)
+		atDelay(h, func() { h.cancel(errRBStop) })
+		if code := h.run(); code != rebootStopExit {
+			t.Fatalf("exit %d, want %d", code, rebootStopExit)
+		}
+		rbWantNothing(t, h)
+	})
+	t.Run("the cancel file cannot be checked", func(t *testing.T) {
+		h := newRBHelper(t, platform.Systemd, 10)
+		env := h.fake.env(h.procRoot)
+		env.cancelRequested = func(string) (bool, error) { return false, errors.New("planted: input/output error") }
+		var log bytes.Buffer
+		env.Out = &log
+		if code := runReboot(h.ctx, h.dir, env); code != 0 {
+			t.Fatalf("exit %d, want 0 with a result", code)
+		}
+		res := readResult(t, h.dir)
+		if res.Error == nil || res.Error.Slug != problem.InternalError ||
+			!strings.Contains(res.Error.Detail, "the cancel request cannot be checked") ||
+			!strings.Contains(res.Error.Detail, "nothing was recorded or sent") {
+			t.Errorf("result %+v, want internal-error naming the cancel check", res)
+		}
+		if _, ok := rbRecord(t, h.dir); ok {
+			t.Error("a reboot record exists")
+		}
+		if n := h.fake.triggerCount(); n != 0 {
+			t.Errorf("trigger calls %d, want 0", n)
+		}
+	})
+}

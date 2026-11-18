@@ -69,6 +69,8 @@ type rebootHelperEnv struct {
 	Out io.Writer
 	// hook, when set, is called at each stage* just after its step.
 	hook func(stage string)
+	// cancelRequested, when set, replaces detach.CancelRequested.
+	cancelRequested func(dir string) (bool, error)
 }
 
 // runRebootMode is the helper's reboot mode.
@@ -124,6 +126,9 @@ func runReboot(stop context.Context, dir string, env rebootHelperEnv) int {
 	if env.Out == nil {
 		env.Out = io.Discard
 	}
+	if env.cancelRequested == nil {
+		env.cancelRequested = detach.CancelRequested
+	}
 	hook := func(stage string) {
 		if env.hook != nil {
 			env.hook(stage)
@@ -155,17 +160,19 @@ func runReboot(stop context.Context, dir string, env rebootHelperEnv) int {
 	}
 	delay := time.Duration(in.DelaySeconds) * time.Second
 	timeout := time.Duration(in.TimeoutSeconds) * time.Second
-	stopped := func() bool {
+	// stopped reports a stop before the record. checkErr is set when the
+	// cancel file could not be checked and no SIGTERM came: unknown is taken
+	// for a cancel, since nothing has been recorded yet.
+	stopped := func() (bool, error) {
 		if stop.Err() != nil {
-			return true
+			return true, nil
 		}
-		cancel, err := detach.CancelRequested(dir)
+		cancel, err := env.cancelRequested(dir)
 		if err != nil {
-			// Unknown is taken for a cancel: nothing has been recorded yet.
 			helperSay(log, "the cancel request cannot be checked (%v); taking it as a cancel", err)
-			return true
+			return true, err
 		}
-		return cancel
+		return cancel, nil
 	}
 
 	// Step 1 (S1).
@@ -176,7 +183,13 @@ func runReboot(stop context.Context, dir string, env rebootHelperEnv) int {
 	}
 	hook(stageAfterDelay)
 	// Step 2 (S1).
-	if stopped() {
+	if st, cerr := stopped(); st {
+		if cerr != nil {
+			// As step 4 does: a stop nobody asked for reports why, so the
+			// operation does not end "exited without reporting a result".
+			return writeHelperOutcome(dir, nil, helperFailure(problem.InternalError,
+				"the cancel request cannot be checked: %v; nothing was recorded or sent", cerr), log, io.Discard)
+		}
 		helperSay(log, "stopped before the reboot was recorded; nothing was recorded or sent")
 		return rebootStopExit
 	}
@@ -204,7 +217,7 @@ func runReboot(stop context.Context, dir string, env rebootHelperEnv) int {
 	// writes the file before it signals, so a SIGTERM seen here with the
 	// file absent is never a cancel (S3), and one with it always is (S2).
 	term := stop.Err() != nil
-	cancel, cerr := detach.CancelRequested(dir)
+	cancel, cerr := env.cancelRequested(dir)
 	if cerr != nil {
 		helperSay(log, "the cancel request cannot be checked (%v); taking it as a cancel", cerr)
 		cancel = true
