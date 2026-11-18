@@ -48,6 +48,12 @@ var ErrTargetNotFound = errors.New("target operation not found")
 // upload-too-large.
 var ErrUploadTooLarge = errors.New("upload exceeds the size limit")
 
+// ErrStreamStopped is what a stream's consumer returns, or an error wrapping
+// it, from emit to end the stream on purpose. The stream is then complete:
+// an Audited stream is audited completed with no clientDisconnected fact,
+// whatever its handler returns after the stop, and the stream returns nil.
+var ErrStreamStopped = errors.New("stream stopped by its consumer")
+
 // TargetRecord is what authorization needs from the operation record a
 // Scope.FromTarget op names.
 type TargetRecord struct {
@@ -802,18 +808,24 @@ func (d *Dispatcher) callStream(ctx context.Context, b provider.Binding, in any,
 // stream runs a stream handler under the transport's context sctx, with the
 // values of the call's context callCtx (its facts collector and principal),
 // and writes an Audited stream's one terminal record, naming its requested
-// record requestID (D-7): completed when the handler returns nil; when the
-// client is gone (sctx is done, or emit failed), completed after a delivered
-// frame and refused before one, both with the fact clientDisconnected=true;
-// refused with the sanitized problem for any other error. A stream that is
-// not audited writes nothing.
+// record requestID (D-7): completed when the handler returns nil, or when
+// the consumer ended the stream on purpose (emit returned ErrStreamStopped),
+// whatever the handler returned after; when the client is gone (sctx is
+// done, or emit failed), completed after a delivered frame and refused
+// before one, both with the fact clientDisconnected=true; refused with the
+// sanitized problem for any other error. A stream that is not audited writes
+// nothing.
 func (d *Dispatcher) stream(callCtx, sctx context.Context, op def.Op, req InvokeRequest, b provider.Binding, in any,
 	emit func(apitypes.Frame) error, requestID string) error {
 	var delivered atomic.Int64
-	var emitFailed atomic.Bool
+	var emitFailed, consumerStopped atomic.Bool
 	counted := func(f apitypes.Frame) error {
 		if err := emit(f); err != nil {
-			emitFailed.Store(true)
+			if errors.Is(err, ErrStreamStopped) {
+				consumerStopped.Store(true)
+			} else {
+				emitFailed.Store(true)
+			}
 			return err
 		}
 		delivered.Add(1)
@@ -821,7 +833,9 @@ func (d *Dispatcher) stream(callCtx, sctx context.Context, op def.Op, req Invoke
 	}
 	err := d.callStream(valuesFrom{Context: sctx, vals: callCtx}, b, in, counted)
 	auditedCall := audited(op, req)
-	if err == nil {
+	// The consumer's own stop also cancels sctx, so it is checked before the
+	// client-gone branch below.
+	if err == nil || consumerStopped.Load() {
 		if auditedCall {
 			d.completed(callCtx, op, req, requestID)
 		}
