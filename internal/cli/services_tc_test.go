@@ -29,6 +29,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -858,6 +859,47 @@ func TestTCSVE6_TheTypedAnswerIsTrimmedAndSent(t *testing.T) {
 	}
 	if got := tcsvConfirmHost(t, f); got != "H1" {
 		t.Errorf("confirmHost %q, want H1: trimmed, case kept", got)
+	}
+}
+
+// The typed confirmation asks for the host's own name, as its capabilities
+// report it, and not the name of its entry in the client configuration: the
+// server compares confirmHost with the former (FR-10, D-8).
+func TestTypedConfirmationAsksForTheHostsOwnName(t *testing.T) {
+	f := startAPIFake(t, "box")
+	home := writeClientConfig(t, "", clientHost{"box-admin", f.URL, "tok", nil})
+	tty := &answeringTerminal{answer: "box\n"}
+	r := tcsvRun(home, tty.open, "machine", "restart", "--host", "box-admin", "--no-wait")
+	if r.code != 0 {
+		t.Fatalf("exit %d, want 0: %s", r.code, r.stderr)
+	}
+	opened, asked := tty.state()
+	if opened != 1 || !strings.Contains(asked, "Type the host name box to confirm") || strings.Contains(asked, "box-admin") {
+		t.Errorf("terminal opened %d times, asked %q; want once, for the host's own name box and not its entry box-admin", opened, asked)
+	}
+	if got := tcsvConfirmHost(t, f); got != "box" {
+		t.Errorf("confirmHost %v, want box", got)
+	}
+}
+
+// Without the host's capabilities the CLI cannot say which name to type, so
+// it fails without prompting, falling back to nothing, and sends nothing.
+func TestTypedConfirmationFailsWhenCapabilitiesAreUnavailable(t *testing.T) {
+	var posts atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			posts.Add(1)
+		}
+		http.Error(w, "down", http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+	home := writeClientConfig(t, "", clientHost{"box-admin", srv.URL, "tok", nil})
+	r := tcsvRun(home, failTerminal(t), "machine", "restart", "--host", "box-admin", "--no-wait")
+	if r.code == 0 || !strings.Contains(r.stderr, "box-admin") || !strings.Contains(r.stderr, "capabilities") {
+		t.Errorf("exit %d, stderr %q; want a failure naming the host and its capabilities", r.code, r.stderr)
+	}
+	if n := posts.Load(); n != 0 {
+		t.Errorf("%d POSTs, want none", n)
 	}
 }
 

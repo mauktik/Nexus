@@ -59,6 +59,10 @@ func startAPIFake(t *testing.T, own string, containers ...string) *apiFake {
 		case strings.HasPrefix(r.URL.Path, "/v1/operations/"):
 			id := strings.TrimPrefix(r.URL.Path, "/v1/operations/")
 			_ = json.NewEncoder(w).Encode(f.operation(id, apitypes.StatusSucceeded, json.RawMessage(`{"changed":true,"whatIf":true}`)))
+		case r.URL.Path == "/v1/capabilities":
+			// The host's own name, as nexusd reports it: not the name the
+			// client configuration gives the host.
+			_ = json.NewEncoder(w).Encode(apitypes.Capabilities{ID: apitypes.CapabilitiesID, Host: f.own, APIVersion: "v1", Version: "x"})
 		case r.URL.Path == "/v1/providers/docker/containers":
 			var list apitypes.List[apitypes.Resource[map[string]any]]
 			for _, c := range f.containers {
