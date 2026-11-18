@@ -1,14 +1,103 @@
 // Stub-style: SKIP-only (services-provider)
 //
-// Stubs of planning/services-provider/test-cases.md TC-SV-26, TC-SV-27, TC-SV-28, TC-SV-29, TC-SV-125, TC-SV-126, TC-SV-E6, TC-SV-ERR8, TC-SV-ERR9, TC-SV-ERR10, TC-SV-ERR28.
-// Owner WIs: 1.5, 5.1. Each stub compiles today and skips; the
-// developer of the owning work item replaces the skip and the comment with
-// the test, keeping the function name. An un-skipped passing test is the
-// GREEN signal (planning/services-provider/test-strategy.md, RED Stub Style).
+// Tests and stubs of planning/services-provider/test-cases.md TC-SV-26, TC-SV-27, TC-SV-28, TC-SV-29, TC-SV-125, TC-SV-126, TC-SV-E6, TC-SV-ERR8, TC-SV-ERR9, TC-SV-ERR10, TC-SV-ERR28.
+// Owner WIs: 1.5, 5.1. The WI 1.5 cases (typed confirmation) are tests;
+// each remaining stub compiles today and skips; the developer of the owning
+// work item replaces the skip and the comment with the test, keeping the
+// function name. An un-skipped passing test is the GREEN signal
+// (planning/services-provider/test-strategy.md, RED Stub Style).
 
 package cli
 
-import "testing"
+import (
+	"bytes"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/mauktik/nexus/internal/apitypes"
+	"github.com/mauktik/nexus/internal/catalog"
+	"github.com/mauktik/nexus/internal/def"
+)
+
+// tcsvRebootIn is the input of the planted reboot: the typed host name and
+// one optional field.
+type tcsvRebootIn struct {
+	ConfirmHost  string `json:"confirmHost" jsonschema:"The target host's name, typed to confirm."`
+	DelaySeconds int    `json:"delaySeconds,omitempty" jsonschema:"Seconds to wait before the reboot."`
+}
+
+type tcsvRebootOut struct {
+	apitypes.ActionResult
+}
+
+// tcsvReboot is TC-SV-26's planted pl.actions.reboot: destructive and
+// long-running, bound to machine restart, with confirmHost typed.
+var tcsvReboot = def.Define[tcsvRebootIn, tcsvRebootOut](def.Op{
+	ID: "pl.actions.reboot", Provider: "pl", Kind: def.KindProviderAction, Action: "reboot",
+	Summary: "Reboot the host",
+	Description: "Reboots the host. Side effects: the host restarts. " +
+		"Long-running: answers 202 with an operation.",
+	Scope: def.Scope{Name: "pl:reboot"}, Risk: def.RiskDestructive, Mode: def.ModeLongRunning,
+	CLI: def.CLIBinding{Noun: "machine", Verb: "restart", TypedConfirmation: "confirmHost"},
+})
+
+const tcsvRebootPath = "/v1/providers/pl/actions/reboot"
+
+func tcsvSpecs() []def.ProviderSpec {
+	return append(catalog.All(), def.ProviderSpec{Name: "pl", ReadScope: "pl:read", Ops: []def.Op{tcsvReboot.Op()}})
+}
+
+// tcsvRun runs the CLI over tcsvSpecs with open as the controlling
+// terminal. noTerminal (wait_test.go) is the in-process noTTY: the noTTY
+// helper runs the built CLI, whose catalog lacks the planted op.
+func tcsvRun(home string, open func() (Terminal, error), args ...string) runResult {
+	env := homeEnv(home)
+	env.OpenTerminal = open
+	var stdout, stderr bytes.Buffer
+	env.Stdin, env.Stdout, env.Stderr = strings.NewReader(""), &stdout, &stderr
+	code := runWithSpecs(args, env, tcsvSpecs())
+	return runResult{code, stdout.String(), stderr.String()}
+}
+
+// failTerminal is a terminal whose opening fails the test.
+func failTerminal(t *testing.T) func() (Terminal, error) {
+	return func() (Terminal, error) {
+		t.Errorf("the terminal was opened")
+		return nil, errors.New("the terminal must not be opened")
+	}
+}
+
+// tcsvOneHost is the planted API on one configured host, h1.
+func tcsvOneHost(t *testing.T) (*apiFake, string) {
+	t.Helper()
+	f := startAPIFake(t, "srv-h1")
+	return f, writeClientConfig(t, "", clientHost{"h1", f.URL, "tok", nil})
+}
+
+// tcsvConfirmHost is the confirmHost of the only POST f received, and fails
+// the test unless there is exactly one, to the planted reboot.
+func tcsvConfirmHost(t *testing.T, f *apiFake) any {
+	t.Helper()
+	posts := f.mutations()
+	if len(posts) != 1 || posts[0].path != tcsvRebootPath {
+		t.Fatalf("posts %+v, want exactly one to %s", posts, tcsvRebootPath)
+	}
+	return posts[0].body["confirmHost"]
+}
+
+// tcsvPrompted checks that tty was opened once and asked for the typed
+// host name of h1, never the y/N question.
+func tcsvPrompted(t *testing.T, tty *answeringTerminal) {
+	t.Helper()
+	opened, asked := tty.state()
+	if opened != 1 || strings.Count(asked, "Type the host name") != 1 || !strings.Contains(asked, "h1") {
+		t.Errorf("terminal opened %d times, asked %q; want once, for the host name h1", opened, asked)
+	}
+	if strings.Contains(asked, "[y/N]") {
+		t.Errorf("the terminal was asked the y/N question: %q", asked)
+	}
+}
 
 // TC-SV-26: Without the flag, the CLI prompts on the terminal for the host name and sends the trimmed answer. Owner WI 1.5. Requirements: FR-10, FR-13, FR-15.
 //
@@ -26,7 +115,16 @@ import "testing"
 //   - exactly one POST, whose body has `"confirmHost":"h1"`;
 //   - exit 0.
 func TestTCSV26_WithoutTheFlagTheCLIPromptsOn(t *testing.T) {
-	t.Skip("TC-SV-26: SKIP-only stub; un-skip when WI 1.5 lands")
+	f, home := tcsvOneHost(t)
+	tty := &answeringTerminal{answer: "h1\n"}
+	r := tcsvRun(home, tty.open, "machine", "restart", "--host", "h1", "--no-wait")
+	if r.code != 0 {
+		t.Fatalf("exit %d, want 0: %s", r.code, r.stderr)
+	}
+	tcsvPrompted(t, tty)
+	if got := tcsvConfirmHost(t, f); got != "h1" {
+		t.Errorf("confirmHost %v, want h1", got)
+	}
 }
 
 // TC-SV-27: An explicit --confirm-host is the confirmation: no prompt and no y/N question. Owner WI 1.5. Requirements: FR-10, FR-13.
@@ -37,7 +135,21 @@ func TestTCSV26_WithoutTheFlagTheCLIPromptsOn(t *testing.T) {
 //
 // - Expected: In both subtests the terminal is never opened, one POST is sent with `confirmHost: h1`, and the exit is 0.
 func TestTCSV27_AnExplicitConfirmHostIsTheConfirmation(t *testing.T) {
-	t.Skip("TC-SV-27: SKIP-only stub; un-skip when WI 1.5 lands")
+	for _, c := range []struct {
+		name string
+		open func() (Terminal, error)
+	}{{"terminal", failTerminal(t)}, {"noTTY", noTerminal}} {
+		t.Run(c.name, func(t *testing.T) {
+			f, home := tcsvOneHost(t)
+			r := tcsvRun(home, c.open, "machine", "restart", "--host", "h1", "--confirm-host", "h1", "--no-wait")
+			if r.code != 0 {
+				t.Fatalf("exit %d, want 0: %s", r.code, r.stderr)
+			}
+			if got := tcsvConfirmHost(t, f); got != "h1" {
+				t.Errorf("confirmHost %v, want h1", got)
+			}
+		})
+	}
 }
 
 // TC-SV-28: --yes neither fills nor skips the typed confirmation. Owner WI 1.5. Requirements: FR-10, FR-13.
@@ -51,7 +163,28 @@ func TestTCSV27_AnExplicitConfirmHostIsTheConfirmation(t *testing.T) {
 //   - step 1 prompts for the typed host name exactly as TC-SV-26 does, and sends `confirmHost: h1`;
 //   - step 2 is a usage error, exit 2, naming `--confirm-host`, with zero POSTs.
 func TestTCSV28_YesNeitherFillsNorSkipsTheTyped(t *testing.T) {
-	t.Skip("TC-SV-28: SKIP-only stub; un-skip when WI 1.5 lands")
+	t.Run("terminal", func(t *testing.T) {
+		f, home := tcsvOneHost(t)
+		tty := &answeringTerminal{answer: "h1\n"}
+		r := tcsvRun(home, tty.open, "machine", "restart", "--host", "h1", "--yes", "--no-wait")
+		if r.code != 0 {
+			t.Fatalf("exit %d, want 0: %s", r.code, r.stderr)
+		}
+		tcsvPrompted(t, tty)
+		if got := tcsvConfirmHost(t, f); got != "h1" {
+			t.Errorf("confirmHost %v, want h1", got)
+		}
+	})
+	t.Run("noTTY", func(t *testing.T) {
+		f, home := tcsvOneHost(t)
+		r := tcsvRun(home, noTerminal, "machine", "restart", "--host", "h1", "--yes", "--no-wait")
+		if r.code != ExitUsage || !strings.Contains(r.stderr, "--confirm-host") {
+			t.Errorf("exit %d, stderr %q; want 2, naming --confirm-host", r.code, r.stderr)
+		}
+		if n := len(f.mutations()); n != 0 {
+			t.Errorf("%d POSTs, want none", n)
+		}
+	})
 }
 
 // TC-SV-29: The typed field is never copied from --host. Owner WI 1.5. Requirements: FR-10.
@@ -62,7 +195,15 @@ func TestTCSV28_YesNeitherFillsNorSkipsTheTyped(t *testing.T) {
 //
 // - Expected: The POST body has `"confirmHost":"other"`, not `h1`. The CLI does not pre-validate the value against `--host`; the server compares it (FR-10).
 func TestTCSV29_TheTypedFieldIsNeverCopiedFrom(t *testing.T) {
-	t.Skip("TC-SV-29: SKIP-only stub; un-skip when WI 1.5 lands")
+	f, home := tcsvOneHost(t)
+	tty := &answeringTerminal{answer: "other\n"}
+	r := tcsvRun(home, tty.open, "machine", "restart", "--host", "h1", "--no-wait")
+	if r.code != 0 {
+		t.Fatalf("exit %d, want 0: %s", r.code, r.stderr)
+	}
+	if got := tcsvConfirmHost(t, f); got != "other" {
+		t.Errorf("confirmHost %v, want other, as typed and not --host", got)
+	}
 }
 
 // TC-SV-125: CLI commands, columns and the --host all rules. Owner WI 5.1. Requirements: FR-15, FR-10.
@@ -112,7 +253,15 @@ func TestTCSV126_MachineRestartWaitsAcrossTheOutageAnd(t *testing.T) {
 //
 // - Expected: The body has `"confirmHost":"H1"`, with no case folding.
 func TestTCSVE6_TheTypedAnswerIsTrimmedAndSent(t *testing.T) {
-	t.Skip("TC-SV-E6: SKIP-only stub; un-skip when WI 1.5 lands")
+	f, home := tcsvOneHost(t)
+	tty := &answeringTerminal{answer: "  H1 \t\n"}
+	r := tcsvRun(home, tty.open, "machine", "restart", "--host", "h1", "--no-wait")
+	if r.code != 0 {
+		t.Fatalf("exit %d, want 0: %s", r.code, r.stderr)
+	}
+	if got := tcsvConfirmHost(t, f); got != "H1" {
+		t.Errorf("confirmHost %q, want H1: trimmed, case kept", got)
+	}
 }
 
 // TC-SV-ERR8: No terminal and no flag is a usage error naming the flag, with nothing sent. Owner WI 1.5. Requirements: FR-10, FR-13.
@@ -123,7 +272,14 @@ func TestTCSVE6_TheTypedAnswerIsTrimmedAndSent(t *testing.T) {
 //
 // - Expected: Exit 2, stderr names `--confirm-host`, and the fake recorded zero POSTs.
 func TestTCSVERR8_NoTerminalAndNoFlagIsA(t *testing.T) {
-	t.Skip("TC-SV-ERR8: SKIP-only stub; un-skip when WI 1.5 lands")
+	f, home := tcsvOneHost(t)
+	r := tcsvRun(home, noTerminal, "machine", "restart", "--host", "h1")
+	if r.code != ExitUsage || !strings.Contains(r.stderr, "--confirm-host") {
+		t.Errorf("exit %d, stderr %q; want 2, naming --confirm-host", r.code, r.stderr)
+	}
+	if n := len(f.mutations()); n != 0 {
+		t.Errorf("%d POSTs, want none", n)
+	}
 }
 
 // TC-SV-ERR9: --host all and host lists are refused before anything is sent. Owner WI 1.5. Requirements: FR-10, FR-15.
@@ -136,7 +292,21 @@ func TestTCSVERR8_NoTerminalAndNoFlagIsA(t *testing.T) {
 //
 // - Expected: Each is exit 2, with a message saying the command targets exactly one host. Zero POSTs, and the terminal is never opened.
 func TestTCSVERR9_HostAllAndHostListsAreRefused(t *testing.T) {
-	t.Skip("TC-SV-ERR9: SKIP-only stub; un-skip when WI 1.5 lands")
+	h1, h2 := startAPIFake(t, "srv-h1"), startAPIFake(t, "srv-h2")
+	home := writeClientConfig(t, "", clientHost{"h1", h1.URL, "tok", nil}, clientHost{"h2", h2.URL, "tok", nil})
+	for _, args := range [][]string{
+		{"--host", "all", "--confirm-host", "h1"},
+		{"--host", "h1,h2", "--confirm-host", "h1"},
+		{"--host", "all"},
+	} {
+		r := tcsvRun(home, failTerminal(t), append([]string{"machine", "restart"}, args...)...)
+		if r.code != ExitUsage || !strings.Contains(r.stderr, "exactly one host") {
+			t.Errorf("%v: exit %d, stderr %q; want 2, saying it targets exactly one host", args, r.code, r.stderr)
+		}
+	}
+	if n := len(h1.mutations()) + len(h2.mutations()); n != 0 {
+		t.Errorf("%d POSTs, want none", n)
+	}
 }
 
 // TC-SV-ERR10: An empty typed answer is a usage error. Owner WI 1.5. Requirements: FR-10.
@@ -147,7 +317,21 @@ func TestTCSVERR9_HostAllAndHostListsAreRefused(t *testing.T) {
 //
 // - Expected: Exit 2 and zero POSTs in both cases.
 func TestTCSVERR10_AnEmptyTypedAnswerIsAUsage(t *testing.T) {
-	t.Skip("TC-SV-ERR10: SKIP-only stub; un-skip when WI 1.5 lands")
+	for _, answer := range []string{"\n", "   \n"} {
+		f, home := tcsvOneHost(t)
+		tty := &answeringTerminal{answer: answer}
+		r := tcsvRun(home, tty.open, "machine", "restart", "--host", "h1")
+		if r.code != ExitUsage {
+			t.Errorf("answer %q: exit %d, want 2: %s", answer, r.code, r.stderr)
+		}
+		// The exit 2 is the empty answer's, not an earlier refusal's.
+		if opened, asked := tty.state(); opened != 1 || !strings.Contains(asked, "Type the host name") {
+			t.Errorf("answer %q: terminal opened %d times, asked %q; want the host name asked once", answer, opened, asked)
+		}
+		if n := len(f.mutations()); n != 0 {
+			t.Errorf("answer %q: %d POSTs, want none", answer, n)
+		}
+	}
 }
 
 // TC-SV-ERR28: The CLI exits 5 with the follow-up command when the window is spent, and never retries a pin mismatch. Owner WI 5.1. Requirements: FR-13, ASM-9.
