@@ -1,0 +1,3 @@
+Job for nx-svc-fail.service failed because the control process exited with error code.
+See "systemctl status nx-svc-fail.service" and "journalctl -xeu nx-svc-fail.service" for details.
+Exit 1

@@ -167,3 +167,96 @@ were removed afterwards.
 | `systemd/list-units-failed-escaped.txt` | ubuntu-harness | Ubuntu 26.04.1 LTS | systemd 259 (259.9-0ubuntu0.1) | nginx 1.28.3-2ubuntu1.12 | `systemctl list-units --state=failed --plain --no-legend --no-pager --full` (transient units planted with `systemd-run --unit 'tc-hp\x2dfail' /bin/false` and `systemd-run --unit tc-hp-plain /bin/false`; the first field of the first is printed with a literal backslash, as systemd-escape(1) writes it) | 0 | 2026-11-15 |
 | `openrc/rc-status-crashed.txt` | alpine-harness | Alpine Linux 3.24.4 | OpenRC 0.63.2-r0 | nginx 1.30.6-r0 | `rc-status --crashed` (start-stop-daemon service tc-hp-crash and nginx started, then killed with SIGKILL behind OpenRC) | 0 | 2026-11-15 |
 | `openrc/rc-status-crashed-none.txt` | alpine-harness | Alpine Linux 3.24.4 | OpenRC 0.63.2-r0 | nginx 1.30.6-r0 | `rc-status --crashed` (no service crashed) | 1 | 2026-11-15 |
+
+## Services captures
+
+`services/` holds whole-host captures for the services provider
+(services-provider WI 3.1 and WI 6.0): one directory per host or image, each
+written by `services/capture.sh NAME OUTDIR`. The script is POSIX sh and
+read-only (TC-SV-41): it lists, shows and reads, and never starts, stops,
+enables or changes anything, so the same script runs on the live hosts. These
+captures are not in the provenance table above; each directory carries its
+own `PROVENANCE`.
+
+**The `Exit`-line convention.** Every tool runs as root with svcctl's exact
+environment, `env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C`, by its
+absolute path. A command's combined stdout and stderr go to one `.txt` file,
+followed by a last line `Exit <code>`, the tool's exit status. Three kinds of
+file differ:
+
+- a journal command (`journal-nexusd-*.jsonl`) has its stdout alone in the
+  `.jsonl` file, and its stderr and `Exit` line in the `.txt` file of the
+  same name;
+- a copied file (`proc/...`, `run/openrc/...`, `etc/init.d/...`,
+  `etc/conf.d/...`) holds only the file's bytes at the path a parser reads
+  it from (for example `proc/self/cgroup` is the running nexusd's
+  `/proc/<MainPID>/cgroup`), and its status line is in `copy-status.txt`;
+  `etc/init.d/NAME` and `etc/conf.d/NAME` hold only the `output_log`,
+  `error_log`, `output_logger`, `error_logger` and `description` lines;
+- the oracle (`oracle/is-active.tsv`, `oracle/is-enabled.tsv`,
+  `oracle/rc-service-status.tsv`) is `NAME<TAB>WORD<TAB>EXIT` per name, the
+  tool's own answer for every name in the listings (or every script), the
+  independent expected value of NFR-2; `oracle/failed.txt` is
+  `systemctl list-units --state=failed --type=service --plain --no-legend`.
+
+`PROVENANCE` has `host`, `source` (`container` or `host`), `date` (RFC 3339),
+`os-release` (`PRETTY_NAME`), `init-version` (the first line of
+`systemctl --version` or `openrc --version`), `kernel`, `captured-as: root`,
+`image` (container captures: the harness image ID and the base image's
+digest), `redaction`, and `commands`: one `FILE: ARGV` line per output file.
+Sanitizing: only the fixed `show -p` properties and `--output-fields=MESSAGE,PRIORITY`
+of `nexusd.service`'s own journal are read, so no unit environment, command
+line or other unit's log is captured (TC-SV-43 checks the committed tree).
+
+### Container captures (WI 3.1, `source: container`)
+
+Made by the T1 capture driver, `TestServicesCapture`
+(`test/integration/services_capture_test.go`), in the T1 harness on Docker
+29.2.1 (colima, linux/arm64, kernel 6.8.0-100-generic) on 2026-11-18. The
+driver installs nexusd with `install.sh`, plants the T1 services of
+test-strategy.md (`nx-svc-test`, `nx-svc-fail`, `nx-svc-slow`,
+`nx-svc-other`, and `nx-svc-alias` with `Alias=nx-netalias.service`,
+enabled; on OpenRC the three scripts), starts nexusd under the shipped unit
+(`startExact`) or the shipped OpenRC script (`lib.sh start-nexusd`), with
+no boot-ID bind mount, runs each action with svcctl's exact argv
+(`systemctl ACTION -- NAME.service`, `rc-service -C NAME ACTION`) into
+`actions/`, then runs `capture.sh` into
+`/harness/out/services-capture/<name>/`, which run.sh copies to
+`build/harness/logs/<stamp>/`. The directory was copied here as is, with the
+`image` line added from `docker image inspect` (a container cannot see its
+own image). The harness's run is `PARITY=0` since only the capture is
+needed.
+
+- `t1-ubuntu-systemd`: `make test-harness PARITY=0 RUN='^TestServicesCapture$'`
+  (`ubuntu:latest`, Ubuntu 26.04.1 LTS, systemd 259); matches home-server.
+- `t1-debian-systemd`: `make test-harness PARITY=0 BASE=debian:stable RUN='^TestServicesCapture$'`
+  (Debian 13, systemd 257).
+- `t1-debian12-systemd`: `make test-harness PARITY=0 BASE=debian:12 RUN='^TestServicesCapture$'`
+  (Debian 12, systemd 252); matches pihole (A-22, A-23).
+- `t1-alpine-openrc`: `make test-harness-alpine PARITY=0 RUN='^TestServicesCapture$'`
+  (`alpine:latest`, Alpine 3.24, OpenRC 0.63.2).
+- `t1-alpine322-openrc`: `make test-harness-alpine PARITY=0 BASE=alpine:3.22 RUN='^TestServicesCapture$'`
+  (Alpine 3.22, OpenRC 0.62.6); matches Public-Nginx (A-5, A-8, A-9, A-10).
+
+What these captures show, and what they cannot:
+
+- `deps-nexusd.txt` is exactly WI 3.4's `Dependencies` argv; the shipped
+  unit's only one is `Requires=system.slice sysinit.target` (implicit).
+  `stop-propagated-from-nexusd.txt` is an empty `StopPropagatedFrom=` with
+  `Exit 0` on systemd 252, 257 and 259 (A-39, container evidence).
+- `is-enabled-nexusd.txt` is `disabled`, exit 1: the harness's install does
+  not enable the unit.
+- `show-failed.txt` is `nx-svc-fail` after its failed start; Ubuntu and
+  Debian 13 also list `systemd-modules-load.service` failed on its own in a
+  container. Debian 12's `list-unit-files` prints `autovt@.service` twice.
+- `run/openrc/deptree` is the whole deptree. In a Docker container OpenRC
+  leaves nexusd's `need net` out of it and no script provides `net`
+  (`networking` has `keyword -docker`), so nexusd's entry has only
+  `iafter` and `ibefore`; the `ineed`, `iprovide` and `providedby` keys are
+  other scripts' (A-9's key format).
+- `proc/self/mountinfo` is empty (no `boot_id` mount in a container), and
+  `stat-etc-pve.txt` fails: there is no Proxmox here.
+- Left to WI 6.0's host captures (`source: host`): a per-container boot ID
+  in a Proxmox LXC guest and the lxcfs `/proc` view (A-3), `/etc/pve` on a
+  real host, A-11 under the host's real unit and cgroup layout, and the
+  `net` provider of Public-Nginx's own deptree (A-9's value).

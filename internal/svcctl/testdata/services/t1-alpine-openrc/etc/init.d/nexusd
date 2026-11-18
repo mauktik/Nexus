@@ -1,0 +1,3 @@
+description="Nexus server manager daemon"
+output_logger="logger -t nexusd -p daemon.info"
+error_logger="logger -t nexusd -p daemon.err"

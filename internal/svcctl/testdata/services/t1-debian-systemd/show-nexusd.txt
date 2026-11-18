@@ -1,0 +1,14 @@
+MainPID=461
+Result=success
+NRestarts=0
+MemoryCurrent=12595200
+Id=nexusd.service
+Description=Nexus server manager daemon
+LoadState=loaded
+ActiveState=active
+SubState=running
+FragmentPath=/etc/systemd/system/nexusd.service
+UnitFileState=disabled
+ActiveEnterTimestamp=@1795002068
+InactiveEnterTimestamp=
+Exit 0

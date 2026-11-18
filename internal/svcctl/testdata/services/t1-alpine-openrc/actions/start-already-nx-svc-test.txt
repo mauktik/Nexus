@@ -1,0 +1,2 @@
+ * WARNING: nx-svc-test has already been started
+Exit 0

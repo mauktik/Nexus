@@ -1,0 +1,2 @@
+::shutdown:/sbin/openrc shutdown
+Exit 0

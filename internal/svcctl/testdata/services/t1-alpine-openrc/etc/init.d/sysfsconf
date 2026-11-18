@@ -1,0 +1,1 @@
+description="Set sysfs variables from /etc/sysfs.conf and /etc/sysfs.d/*.conf"

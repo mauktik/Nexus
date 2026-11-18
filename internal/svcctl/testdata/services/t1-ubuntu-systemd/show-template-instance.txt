@@ -1,0 +1,14 @@
+Id=getty@tty1.service
+Description=Getty on tty1
+LoadState=loaded
+ActiveState=active
+SubState=running
+FragmentPath=/usr/lib/systemd/system/getty@.service
+UnitFileState=enabled
+ActiveEnterTimestamp=@1795002043
+InactiveEnterTimestamp=
+MainPID=74
+Result=success
+NRestarts=0
+MemoryCurrent=368640
+Exit 0

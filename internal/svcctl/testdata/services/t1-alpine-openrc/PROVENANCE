@@ -1,0 +1,126 @@
+host: t1-alpine-openrc
+source: container
+date: 2026-11-18T11:41:54Z
+os-release: Alpine Linux v3.24
+init-version: openrc (OpenRC [DOCKER]) 0.63.2
+kernel: 6.8.0-100-generic
+captured-as: root
+image: nexus-harness:alpine-alpine-latest (sha256:5260fdbad82cd645e9a6d9e5dfd8314ac25d31c73a12acd026598e82d1136191) built FROM alpine@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
+redaction: none needed; only the fixed show -p properties, MESSAGE and PRIORITY of nexusd.service's journal, and the output_log, error_log, output_logger, error_logger and description lines of /etc/init.d and /etc/conf.d are read
+commands:
+  openrc-version.txt: /sbin/openrc --version
+  rc-status.txt: /bin/rc-status -s -C
+  rc-update.txt: /sbin/rc-update show -v
+  rc-service-nexusd-status.txt: /sbin/rc-service -C nexusd status
+  run/openrc/deptree: /bin/cat /run/openrc/deptree
+  ls-options-nexusd.txt: /bin/ls /run/openrc/options/nexusd
+  run/openrc/options/nexusd/child_pid: /bin/cat /run/openrc/options/nexusd/child_pid
+  proc/self/cgroup: /bin/cat /proc/915/cgroup
+  proc/self/mountinfo: /bin/grep -F boot_id /proc/915/mountinfo
+  proc/sys/kernel/osrelease: /bin/cat /proc/915/root/proc/sys/kernel/osrelease
+  proc/uptime: /bin/cat /proc/915/root/proc/uptime
+  proc/sys/kernel/random/boot_id: /bin/cat /proc/sys/kernel/random/boot_id
+  readlink-sbin-reboot.txt: /usr/bin/readlink /sbin/reboot
+  readlink-sbin-init.txt: /usr/bin/readlink /sbin/init
+  inittab-shutdown.txt: /bin/grep -e :shutdown: /etc/inittab
+  etc/init.d/acpid: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/acpid
+  etc/init.d/agetty: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/agetty
+  etc/init.d/binfmt: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/binfmt
+  etc/init.d/bootmisc: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/bootmisc
+  etc/init.d/cgroups: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/cgroups
+  etc/init.d/consolefont: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/consolefont
+  etc/init.d/containerd: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/containerd
+  etc/init.d/crond: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/crond
+  etc/init.d/devfs: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/devfs
+  etc/init.d/dmesg: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/dmesg
+  etc/init.d/docker: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/docker
+  etc/init.d/ebtables: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/ebtables
+  etc/init.d/firstboot: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/firstboot
+  etc/init.d/fsck: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/fsck
+  etc/init.d/functions.sh: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/functions.sh
+  etc/init.d/harness-cgroups: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/harness-cgroups
+  etc/init.d/hostname: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/hostname
+  etc/init.d/hwclock: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/hwclock
+  etc/init.d/hwdrivers: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/hwdrivers
+  etc/init.d/ip6tables: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/ip6tables
+  etc/init.d/iptables: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/iptables
+  etc/init.d/killprocs: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/killprocs
+  etc/init.d/klogd: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/klogd
+  etc/init.d/loadkmap: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/loadkmap
+  etc/init.d/local: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/local
+  etc/init.d/localmount: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/localmount
+  etc/init.d/loopback: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/loopback
+  etc/init.d/machine-id: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/machine-id
+  etc/init.d/modloop: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/modloop
+  etc/init.d/modules: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/modules
+  etc/init.d/mount-ro: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/mount-ro
+  etc/init.d/mtab: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/mtab
+  etc/init.d/net-online: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/net-online
+  etc/init.d/netmount: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/netmount
+  etc/init.d/networking: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/networking
+  etc/init.d/nexusd: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/nexusd
+  etc/init.d/nginx: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/nginx
+  etc/init.d/ntpd: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/ntpd
+  etc/init.d/numlock: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/numlock
+  etc/init.d/nx-svc-fail: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/nx-svc-fail
+  etc/init.d/nx-svc-slow: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/nx-svc-slow
+  etc/init.d/nx-svc-test: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/nx-svc-test
+  etc/init.d/osclock: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/osclock
+  etc/init.d/procfs: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/procfs
+  etc/init.d/rdate: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/rdate
+  etc/init.d/rfkill: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/rfkill
+  etc/init.d/root: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/root
+  etc/init.d/runsvdir: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/runsvdir
+  etc/init.d/s6-svscan: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/s6-svscan
+  etc/init.d/save-keymaps: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/save-keymaps
+  etc/init.d/save-termencoding: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/save-termencoding
+  etc/init.d/savecache: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/savecache
+  etc/init.d/seedrng: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/seedrng
+  etc/init.d/staticroute: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/staticroute
+  etc/init.d/swap: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/swap
+  etc/init.d/swclock: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/swclock
+  etc/init.d/sysctl: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/sysctl
+  etc/init.d/sysfs: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/sysfs
+  etc/init.d/sysfsconf: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/sysfsconf
+  etc/init.d/syslog: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/syslog
+  etc/init.d/termencoding: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/termencoding
+  etc/init.d/user: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/user
+  etc/init.d/watchdog: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/init.d/watchdog
+  etc/conf.d/agetty: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/agetty
+  etc/conf.d/bootmisc: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/bootmisc
+  etc/conf.d/consolefont: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/consolefont
+  etc/conf.d/containerd: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/containerd
+  etc/conf.d/crond: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/crond
+  etc/conf.d/devfs: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/devfs
+  etc/conf.d/dmesg: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/dmesg
+  etc/conf.d/docker: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/docker
+  etc/conf.d/ebtables: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/ebtables
+  etc/conf.d/fsck: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/fsck
+  etc/conf.d/hwclock: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/hwclock
+  etc/conf.d/ip6tables: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/ip6tables
+  etc/conf.d/iptables: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/iptables
+  etc/conf.d/killprocs: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/killprocs
+  etc/conf.d/klogd: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/klogd
+  etc/conf.d/loadkmap: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/loadkmap
+  etc/conf.d/localmount: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/localmount
+  etc/conf.d/modloop: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/modloop
+  etc/conf.d/modules: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/modules
+  etc/conf.d/mtab: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/mtab
+  etc/conf.d/net-online: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/net-online
+  etc/conf.d/netmount: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/netmount
+  etc/conf.d/nginx: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/nginx
+  etc/conf.d/ntpd: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/ntpd
+  etc/conf.d/rdate: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/rdate
+  etc/conf.d/rfkill: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/rfkill
+  etc/conf.d/seedrng: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/seedrng
+  etc/conf.d/staticroute: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/staticroute
+  etc/conf.d/swap: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/swap
+  etc/conf.d/swclock: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/swclock
+  etc/conf.d/syslog: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/syslog
+  etc/conf.d/watchdog: /bin/grep -E ^[	 ]*(output_log|error_log|output_logger|error_logger|description)= /etc/conf.d/watchdog
+  oracle/rc-service-status.tsv: /sbin/rc-service -C NAME status (each executable /etc/init.d/NAME; the word after 'status:')
+  actions/start-nx-svc-test.txt: /sbin/rc-service -C nx-svc-test start
+  actions/start-already-nx-svc-test.txt: /sbin/rc-service -C nx-svc-test start
+  actions/stop-nx-svc-test.txt: /sbin/rc-service -C nx-svc-test stop
+  actions/restart-nx-svc-test.txt: /sbin/rc-service -C nx-svc-test restart
+  actions/start-nx-svc-fail.txt: /sbin/rc-service -C nx-svc-fail start

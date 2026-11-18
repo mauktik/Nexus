@@ -540,6 +540,11 @@ func TestFixtureProvenance(t *testing.T) {
 	}
 	var files []string
 	err = filepath.WalkDir("testdata", func(path string, d fs.DirEntry, err error) error {
+		// The services captures carry their provenance in each
+		// directory's PROVENANCE instead (services-provider TC-SV-42).
+		if err == nil && d.IsDir() && path == filepath.Join("testdata", "services") {
+			return filepath.SkipDir
+		}
 		if err != nil || d.IsDir() || path == filepath.Join("testdata", "README.md") {
 			return err
 		}

@@ -1,0 +1,27 @@
+Failed to get unit file state for NetworkManager.service: No such file or directory
+Failed to get unit file state for auditd.service: No such file or directory
+Failed to retrieve unit state: Unit name autovt@.service is neither a valid invocation ID nor unit name.
+Failed to get unit file state for connman.service: No such file or directory
+Failed to retrieve unit state: Unit name container-getty@.service is neither a valid invocation ID nor unit name.
+Failed to get unit file state for display-manager.service: No such file or directory
+Failed to retrieve unit state: Unit name e2scrub@.service is neither a valid invocation ID nor unit name.
+Failed to retrieve unit state: Unit name e2scrub_fail@.service is neither a valid invocation ID nor unit name.
+Failed to get unit file state for firewalld.service: No such file or directory
+Failed to retrieve unit state: Unit name getty@.service is neither a valid invocation ID nor unit name.
+Failed to retrieve unit state: Unit name modprobe@.service is neither a valid invocation ID nor unit name.
+Failed to get unit file state for plymouth-quit-wait.service: No such file or directory
+Failed to get unit file state for plymouth-start.service: No such file or directory
+Failed to retrieve unit state: Unit name serial-getty@.service is neither a valid invocation ID nor unit name.
+Failed to get unit file state for syslog.service: No such file or directory
+Failed to retrieve unit state: Unit name systemd-backlight@.service is neither a valid invocation ID nor unit name.
+Failed to retrieve unit state: Unit name systemd-fsck@.service is neither a valid invocation ID nor unit name.
+Failed to retrieve unit state: Unit name systemd-hibernate-resume@.service is neither a valid invocation ID nor unit name.
+Failed to retrieve unit state: Unit name systemd-journald@.service is neither a valid invocation ID nor unit name.
+Failed to retrieve unit state: Unit name systemd-networkd-wait-online@.service is neither a valid invocation ID nor unit name.
+Failed to get unit file state for systemd-udev-settle.service: No such file or directory
+Failed to get unit file state for systemd-udev-trigger.service: No such file or directory
+Failed to get unit file state for systemd-udevd.service: No such file or directory
+Failed to get unit file state for systemd-update-done.service: No such file or directory
+Failed to get unit file state for systemd-vconsole-setup.service: No such file or directory
+Failed to retrieve unit state: Unit name user-runtime-dir@.service is neither a valid invocation ID nor unit name.
+Failed to retrieve unit state: Unit name user@.service is neither a valid invocation ID nor unit name.

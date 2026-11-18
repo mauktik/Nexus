@@ -1,0 +1,14 @@
+MainPID=0
+Result=exit-code
+NRestarts=0
+MemoryCurrent=[not set]
+Id=nx-svc-fail.service
+Description=nexus T1 failing service
+LoadState=loaded
+ActiveState=failed
+SubState=failed
+FragmentPath=/etc/systemd/system/nx-svc-fail.service
+UnitFileState=static
+ActiveEnterTimestamp=
+InactiveEnterTimestamp=@1795002068
+Exit 0

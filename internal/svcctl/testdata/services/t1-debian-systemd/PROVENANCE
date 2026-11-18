@@ -1,0 +1,42 @@
+host: t1-debian-systemd
+source: container
+date: 2026-11-18T11:41:10Z
+os-release: Debian GNU/Linux 13 (trixie)
+init-version: systemd 257 (257.13-1~deb13u1)
+kernel: 6.8.0-100-generic
+captured-as: root
+image: nexus-harness:debian-stable (sha256:29d8d4b084e973a2aa4cd44227110c2f0d75700876376f4078145f790f0710bc) built FROM debian@sha256:3f0347f4b50e7a54a91d1beaf6ce6fa5aec392347da6a9184b5bfe4e1b814538
+redaction: none needed; only the fixed show -p properties, MESSAGE and PRIORITY of nexusd.service's journal, and the output_log, error_log, output_logger, error_logger and description lines of /etc/init.d and /etc/conf.d are read
+commands:
+  systemctl-version.txt: /usr/bin/systemctl --version
+  list-units.txt: /usr/bin/systemctl list-units --type=service --all --plain --no-legend --no-pager --full
+  list-unit-files.txt: /usr/bin/systemctl list-unit-files --type=service --plain --no-legend --no-pager --full
+  show-nexusd.txt: /usr/bin/systemctl show --timestamp=unix -p Id,LoadState,ActiveState,SubState,UnitFileState,Description,MainPID,ActiveEnterTimestamp,InactiveEnterTimestamp,Result,NRestarts,MemoryCurrent,FragmentPath -- nexusd.service
+  show-failed.txt: /usr/bin/systemctl show --timestamp=unix -p Id,LoadState,ActiveState,SubState,UnitFileState,Description,MainPID,ActiveEnterTimestamp,InactiveEnterTimestamp,Result,NRestarts,MemoryCurrent,FragmentPath -- nx-svc-fail.service
+  show-inactive.txt: /usr/bin/systemctl show --timestamp=unix -p Id,LoadState,ActiveState,SubState,UnitFileState,Description,MainPID,ActiveEnterTimestamp,InactiveEnterTimestamp,Result,NRestarts,MemoryCurrent,FragmentPath -- apt-daily-upgrade.service
+  show-template-instance.txt: /usr/bin/systemctl show --timestamp=unix -p Id,LoadState,ActiveState,SubState,UnitFileState,Description,MainPID,ActiveEnterTimestamp,InactiveEnterTimestamp,Result,NRestarts,MemoryCurrent,FragmentPath -- getty@tty1.service
+  show-masked.txt: /usr/bin/systemctl show --timestamp=unix -p Id,LoadState,ActiveState,SubState,UnitFileState,Description,MainPID,ActiveEnterTimestamp,InactiveEnterTimestamp,Result,NRestarts,MemoryCurrent,FragmentPath -- cryptdisks-early.service
+  show-alias.txt: /usr/bin/systemctl show --timestamp=unix -p Id,LoadState,ActiveState,SubState,UnitFileState,Description,MainPID,ActiveEnterTimestamp,InactiveEnterTimestamp,Result,NRestarts,MemoryCurrent,FragmentPath -- nx-netalias.service
+  is-enabled-nexusd.txt: /usr/bin/systemctl is-enabled -- nexusd.service
+  deps-nexusd.txt: /usr/bin/systemctl show -p Requires -p BindsTo -p Requisite -p PartOf -- nexusd.service
+  stop-propagated-from-nexusd.txt: /usr/bin/systemctl show -p StopPropagatedFrom -- nexusd.service
+  journal-nexusd-n20.jsonl: /usr/bin/journalctl --no-pager --quiet -o json --output-fields=MESSAGE,PRIORITY -u nexusd.service -n 20
+  journal-nexusd-since.jsonl: /usr/bin/journalctl --no-pager --quiet -o json --output-fields=MESSAGE,PRIORITY -u nexusd.service --since=@1795001470.5
+  journal-nexusd-perr.jsonl: /usr/bin/journalctl --no-pager --quiet -o json --output-fields=MESSAGE,PRIORITY -u nexusd.service -p err
+  mainpid-nexusd.txt: /usr/bin/systemctl show -p MainPID -- nexusd.service
+  proc/self/cgroup: /usr/bin/cat /proc/461/cgroup
+  proc/self/mountinfo: /usr/bin/grep -F boot_id /proc/461/mountinfo
+  proc/sys/kernel/osrelease: /usr/bin/cat /proc/461/root/proc/sys/kernel/osrelease
+  proc/uptime: /usr/bin/cat /proc/461/root/proc/uptime
+  proc/sys/kernel/random/boot_id: /usr/bin/cat /proc/sys/kernel/random/boot_id
+  readlink-sbin-reboot.txt: /usr/bin/readlink -f /sbin/reboot
+  ls-systemctl-journalctl.txt: /usr/bin/ls -l /usr/bin/systemctl /usr/bin/journalctl
+  stat-etc-pve.txt: /usr/bin/stat /etc/pve
+  oracle/names.txt: awk '$1 ~ /[.]service$/ { print $1 }' list-units.txt list-unit-files.txt | sort -u
+  oracle/is-active.tsv: /usr/bin/systemctl is-active -- NAME (each NAME of oracle/names.txt; stderr in oracle/stderr.txt)
+  oracle/is-enabled.tsv: /usr/bin/systemctl is-enabled -- NAME (each NAME of oracle/names.txt; stderr in oracle/stderr.txt)
+  oracle/failed.txt: /usr/bin/systemctl list-units --state=failed --type=service --plain --no-legend
+  actions/start-nx-svc-test.txt: /usr/bin/systemctl start -- nx-svc-test.service
+  actions/stop-nx-svc-test.txt: /usr/bin/systemctl stop -- nx-svc-test.service
+  actions/restart-nx-svc-test.txt: /usr/bin/systemctl restart -- nx-svc-test.service
+  actions/start-nx-svc-fail.txt: /usr/bin/systemctl start -- nx-svc-fail.service

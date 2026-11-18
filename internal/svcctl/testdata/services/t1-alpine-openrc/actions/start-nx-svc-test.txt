@@ -1,0 +1,2 @@
+ * Starting nx-svc-test ... [ ok ]
+Exit 0

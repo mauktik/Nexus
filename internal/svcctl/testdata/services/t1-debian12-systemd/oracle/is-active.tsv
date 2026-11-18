@@ -1,0 +1,125 @@
+NetworkManager.service	inactive	3
+apt-daily-upgrade.service	inactive	3
+apt-daily.service	inactive	3
+auditd.service	inactive	3
+autovt@.service		1
+connman.service	inactive	3
+console-getty.service	inactive	3
+container-getty@.service		1
+containerd.service	active	0
+cryptdisks-early.service	inactive	3
+cryptdisks.service	inactive	3
+dbus-org.freedesktop.hostname1.service	inactive	3
+dbus-org.freedesktop.locale1.service	inactive	3
+dbus-org.freedesktop.login1.service	active	0
+dbus-org.freedesktop.timedate1.service	inactive	3
+dbus.service	active	0
+debug-shell.service	inactive	3
+display-manager.service	inactive	3
+docker.service	active	0
+dpkg-db-backup.service	inactive	3
+e2scrub@.service		1
+e2scrub_all.service	inactive	3
+e2scrub_fail@.service		1
+e2scrub_reap.service	inactive	3
+emergency.service	inactive	3
+firewalld.service	inactive	3
+fstrim.service	inactive	3
+getty-static.service	inactive	3
+getty@.service		1
+getty@tty1.service	active	0
+hwclock.service	inactive	3
+initrd-cleanup.service	inactive	3
+initrd-parse-etc.service	inactive	3
+initrd-switch-root.service	inactive	3
+initrd-udevadm-cleanup-db.service	inactive	3
+kmod-static-nodes.service	inactive	3
+kmod.service	active	0
+modprobe@.service		1
+modprobe@configfs.service	inactive	3
+modprobe@dm_mod.service	inactive	3
+modprobe@drm.service	inactive	3
+modprobe@efi_pstore.service	inactive	3
+modprobe@fuse.service	inactive	3
+modprobe@loop.service	inactive	3
+nexusd.service	active	0
+nginx.service	active	0
+nx-netalias.service	inactive	3
+nx-svc-alias.service	inactive	3
+nx-svc-fail.service	failed	3
+nx-svc-other.service	inactive	3
+nx-svc-slow.service	inactive	3
+nx-svc-test.service	active	0
+pam_namespace.service	inactive	3
+plymouth-quit-wait.service	inactive	3
+plymouth-start.service	inactive	3
+procps.service	active	0
+quotaon.service	inactive	3
+rc-local.service	inactive	3
+rc.service	inactive	3
+rcS.service	inactive	3
+rescue.service	inactive	3
+serial-getty@.service		1
+syslog.service	inactive	3
+system-update-cleanup.service	inactive	3
+systemd-ask-password-console.service	inactive	3
+systemd-ask-password-wall.service	inactive	3
+systemd-backlight@.service		1
+systemd-binfmt.service	inactive	3
+systemd-boot-check-no-failures.service	inactive	3
+systemd-exit.service	inactive	3
+systemd-firstboot.service	inactive	3
+systemd-fsck-root.service	inactive	3
+systemd-fsck@.service		1
+systemd-fsckd.service	inactive	3
+systemd-halt.service	inactive	3
+systemd-hibernate-resume@.service		1
+systemd-hibernate.service	inactive	3
+systemd-hostnamed.service	inactive	3
+systemd-hybrid-sleep.service	inactive	3
+systemd-initctl.service	inactive	3
+systemd-journal-flush.service	active	0
+systemd-journald.service	active	0
+systemd-journald@.service		1
+systemd-kexec.service	inactive	3
+systemd-localed.service	inactive	3
+systemd-logind.service	active	0
+systemd-machine-id-commit.service	inactive	3
+systemd-modules-load.service	active	0
+systemd-network-generator.service	inactive	3
+systemd-networkd-wait-online.service	inactive	3
+systemd-networkd-wait-online@.service		1
+systemd-networkd.service	inactive	3
+systemd-pcrphase-initrd.service	inactive	3
+systemd-pcrphase-sysinit.service	inactive	3
+systemd-pcrphase.service	inactive	3
+systemd-poweroff.service	inactive	3
+systemd-pstore.service	inactive	3
+systemd-quotacheck.service	inactive	3
+systemd-random-seed.service	inactive	3
+systemd-reboot.service	inactive	3
+systemd-remount-fs.service	active	0
+systemd-repart.service	inactive	3
+systemd-rfkill.service	inactive	3
+systemd-suspend-then-hibernate.service	inactive	3
+systemd-suspend.service	inactive	3
+systemd-sysctl.service	active	0
+systemd-sysext.service	inactive	3
+systemd-sysusers.service	active	0
+systemd-time-wait-sync.service	inactive	3
+systemd-timedated.service	inactive	3
+systemd-tmpfiles-clean.service	inactive	3
+systemd-tmpfiles-setup-dev.service	active	0
+systemd-tmpfiles-setup.service	active	0
+systemd-udev-settle.service	inactive	3
+systemd-udev-trigger.service	inactive	3
+systemd-udevd.service	inactive	3
+systemd-update-done.service	inactive	3
+systemd-update-utmp-runlevel.service	inactive	3
+systemd-update-utmp.service	active	0
+systemd-user-sessions.service	active	0
+systemd-vconsole-setup.service	inactive	3
+systemd-volatile-root.service	inactive	3
+user-runtime-dir@.service		1
+user@.service		1
+x11-common.service	inactive	3

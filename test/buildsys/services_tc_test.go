@@ -9,7 +9,11 @@
 package buildsys
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -53,9 +57,70 @@ func TestTCSV22_TheExistingRecoveryAndDetachedSuitesAre(t *testing.T) {
 //   - no line matches `systemctl +(start|stop|restart|reload|enable|disable|mask|kill|reboot|daemon-reload)`, `rc-service +\S+ +(start|stop|restart|zap)`, `rc-update +(add|del)`, `(^|[;&|] *)(/sbin/)?(reboot|poweroff|halt|shutdown)\b`, `\brm\b` or `kill`;
 //   - every `>` redirect targets a path under `"$OUT"`;
 //   - no Bash-only syntax (`[[`, `function `, arrays, `$'…'`).
+//
+// A `>&N` duplication (`2>&1`, `1>&2`) names a descriptor, not a path, so
+// it is not a redirect target.
 func TestTCSV41_CaptureShIsPOSIXShAndRead(t *testing.T) {
-	t.Skip("TC-SV-41: SKIP-only stub; un-skip when WI 3.1 lands")
+	script := filepath.Join(repoRoot(t), "internal", "svcctl", "testdata", "services", "capture.sh")
+	b, err := os.ReadFile(script)
+	if err != nil {
+		t.Fatalf("capture.sh: %v", err)
+	}
+	for _, shell := range []string{"sh", "dash"} {
+		if _, err := exec.LookPath(shell); err != nil {
+			if shell == "sh" {
+				t.Fatal("no sh on PATH")
+			}
+			t.Logf("%s not on PATH: not checked with it", shell)
+			continue
+		}
+		if out, code := run(t, filepath.Dir(script), nil, shell, "-n", script); code != 0 {
+			t.Errorf("%s -n capture.sh: exit %d\n%s", shell, code, out)
+		}
+	}
+	text := string(b)
+	if first, _, _ := strings.Cut(text, "\n"); first != "#!/bin/sh" {
+		t.Errorf("shebang %q, want #!/bin/sh", first)
+	}
+	for i, line := range strings.Split(text, "\n") {
+		code := strings.TrimSpace(line)
+		if code == "" || strings.HasPrefix(code, "#") {
+			continue
+		}
+		for _, f := range tcsv41Forbidden {
+			if f.re.MatchString(code) {
+				t.Errorf("capture.sh:%d %s: %s", i+1, f.what, line)
+			}
+		}
+		for _, m := range tcsv41Redirect.FindAllStringSubmatch(code, -1) {
+			target := m[1]
+			if !strings.HasPrefix(target, "&") && !strings.HasPrefix(target, `"$OUT/`) {
+				t.Errorf("capture.sh:%d writes outside \"$OUT\" (%s): %s", i+1, target, line)
+			}
+		}
+	}
 }
+
+// tcsv41Forbidden are TC-SV-41's patterns: a state change, a deletion, a
+// signal, or Bash-only syntax.
+var tcsv41Forbidden = []struct {
+	what string
+	re   *regexp.Regexp
+}{
+	{"systemctl changes state", regexp.MustCompile(`systemctl +(start|stop|restart|reload|enable|disable|mask|kill|reboot|daemon-reload)`)},
+	{"rc-service changes state", regexp.MustCompile(`rc-service +\S+ +(start|stop|restart|zap)`)},
+	{"rc-update changes runlevels", regexp.MustCompile(`rc-update +(add|del)`)},
+	{"power command", regexp.MustCompile(`(^|[;&|] *)(/sbin/)?(reboot|poweroff|halt|shutdown)\b`)},
+	{"rm", regexp.MustCompile(`\brm\b`)},
+	{"kill", regexp.MustCompile(`kill`)},
+	{"Bash-only [[", regexp.MustCompile(`\[\[`)},
+	{"Bash-only function keyword", regexp.MustCompile(`(^|[;&|] *)function `)},
+	{"Bash-only array", regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*=\(|\$\{[A-Za-z_][A-Za-z0-9_]*\[`)},
+	{"Bash-only $'...'", regexp.MustCompile(`\$'`)},
+}
+
+// tcsv41Redirect is an output redirect (>, >>, N>, N>>) and its target.
+var tcsv41Redirect = regexp.MustCompile(`[0-9]*>>? *(&[0-9-]|"[^"]*"|[^ ;&|)]+)`)
 
 // TC-SV-132: Base OOS-7 is amended in place, keeping the original text. Owner WI 5.2. Requirements: NFR-8.
 //
