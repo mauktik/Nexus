@@ -437,7 +437,12 @@ nexus machine restart --host nas --confirm-host nas
   reports it. That name may differ from the name the client configuration
   uses for the host (an entry `nas-admin` for the host `nas`), and the host
   compares the answer with its own. If the capabilities cannot be fetched,
-  the command fails without asking, and nothing is sent. An explicit
+  the command fails without asking, and nothing is sent. The same happens
+  when the name they report is not plain printable text (a control,
+  format or separator character, such as an escape sequence or a
+  right-to-left override) or is not one the server would accept: the name is
+  never written to the terminal raw, the error shows it quoted, and the
+  operator checks the host and passes `--confirm-host`. An explicit
   `--confirm-host` is the confirmation, sent as given for the host to
   check, and no y/N question follows. `--yes` neither fills nor skips it.
   Without a terminal and without the flag, the command is a usage error

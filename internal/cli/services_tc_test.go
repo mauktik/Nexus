@@ -1153,7 +1153,6 @@ func TestSEC3_TheTypedConfirmationRefusesAHostNameThatIsNotPlainText(t *testing.
 		{"a bidirectional override", "box‮pihole"},
 		{"a zero-width space", "box​"},
 		{"a line separator", "box pihole"},
-		{"a name over the server's length", strings.Repeat("a", 254)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := startAPIFake(t, tc.own)
@@ -1185,4 +1184,43 @@ func TestSEC3_TheTypedConfirmationRefusesAHostNameThatIsNotPlainText(t *testing.
 			t.Errorf("exit %d, asked %q, stderr %q; want it asked for", r.code, asked, r.stderr)
 		}
 	})
+}
+
+// SEC-3: the name is checked against what the real op's confirmHost accepts
+// (its pattern and length), so a name the server would refuse is never asked
+// for, and what the check says quotes the name.
+func TestSEC3_TypeableHostNameFollowsTheOpsFieldSchema(t *testing.T) {
+	op := servicesspec.Reboot.Op()
+	for _, tc := range []struct {
+		name, host string
+		wantErr    string // Substring; "" when the name may be asked for
+	}{
+		{"a host name", "home-server", ""},
+		{"a name with a space and a non-ASCII letter", "nas B\u00fcro", ""},
+		{"the longest", strings.Repeat("a", servicesspec.MaxConfirmHostLength), ""},
+		{"one over", strings.Repeat("a", servicesspec.MaxConfirmHostLength+1), "over 253 characters"},
+		{"an escape", "a\x1bb", `"a\x1bb"`},
+		{"a newline", "a\nb", `"a\nb"`},
+		{"a DEL", "a\x7fb", `"a\x7fb"`},
+		{"a bidirectional override", "a\u202eb", `"a\u202eb"`},
+		{"invalid UTF-8", "a\xffb", "not valid text"},
+		{"a long bad name is cut", strings.Repeat("x", 200) + "\x1b", strings.Repeat("x", 80) + `"...`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := typeableHostName(op, "confirmHost", tc.host)
+			switch {
+			case tc.wantErr == "" && err != nil:
+				t.Fatalf("typeableHostName(%q) = %v, want nil", tc.host, err)
+			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
+				t.Fatalf("typeableHostName(%q) = %v, want it to contain %s", tc.host, err, tc.wantErr)
+			}
+			if err != nil {
+				for _, raw := range []string{"\x1b", "\n", "\x7f", "\u202e", "\xff"} {
+					if strings.Contains(err.Error(), raw) {
+						t.Errorf("error %q carries %q raw", err, raw)
+					}
+				}
+			}
+		})
+	}
 }

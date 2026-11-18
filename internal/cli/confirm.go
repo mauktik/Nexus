@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -125,7 +128,10 @@ func relaxTypedConfirmation(g *opCommand, b *binding) error {
 // with its own name, as its capabilities report it, which need not be the
 // name of the host's entry in the client configuration. So the CLI fetches
 // the capabilities and asks for that name; if it cannot, it fails without
-// asking, since the entry name may be the wrong one to ask for. The answer
+// asking, since the entry name may be the wrong one to ask for. A name that
+// is not plain printable text, or that the server would not accept (the
+// pattern and length of the op's field), is refused too, and is never
+// written to the terminal raw (SEC-3). The answer
 // is never taken from --host or --yes, and is not checked here beyond being
 // non-empty. With no terminal, it is a usage error naming the flag: exit 2,
 // nothing sent.
@@ -159,6 +165,9 @@ func (a *app) typedConfirmation(cmd *cobra.Command, op def.Op, targets []hostTar
 		return fmt.Errorf("%s on %s: cannot ask for the host name to type, as its capabilities are unavailable: %w; nothing was sent",
 			command, host, err)
 	}
+	if err := typeableHostName(op, field, own); err != nil {
+		return fmt.Errorf("%s on %s: %w; nothing was sent: check the host, then pass --%s <host name>", command, host, err, flag)
+	}
 	if _, err := fmt.Fprintf(tty, "Type the host name %s to confirm: ", own); err != nil {
 		return usagef("%s on %s needs the host name typed to confirm and the terminal cannot be written: pass --%s <host name>; nothing was sent",
 			command, host, flag)
@@ -174,6 +183,56 @@ func (a *app) typedConfirmation(cmd *cobra.Command, op def.Op, targets []hostTar
 	}
 	in[field] = answer
 	return nil
+}
+
+// typeableHostName refuses name, the host's own name as its server reports
+// it, unless it is safe to write on the terminal and to ask for: valid text
+// of printable characters only (no control, format or separator characters,
+// which can rewrite the prompt line or carry terminal commands), and
+// matching the pattern and length the op's input schema gives field, which
+// is what the server will check the answer against.
+func typeableHostName(op def.Op, field, name string) error {
+	bad := func(why string) error {
+		return fmt.Errorf("the host reports a name that cannot be typed to confirm, %s (%s)", why, quotedPrefix(name, 80))
+	}
+	if !utf8.ValidString(name) {
+		return bad("it is not valid text")
+	}
+	for _, r := range name {
+		if !unicode.IsPrint(r) {
+			return bad("it has a control, format or separator character")
+		}
+	}
+	res, err := op.InputSchema()
+	if err != nil {
+		return fmt.Errorf("the input schema of %s cannot be read to check the host's name: %w", op.ID, err)
+	}
+	prop := res.Schema().Properties[field]
+	if prop == nil {
+		return nil
+	}
+	if prop.MaxLength != nil && utf8.RuneCountInString(name) > *prop.MaxLength {
+		return bad(fmt.Sprintf("it is over %d characters", *prop.MaxLength))
+	}
+	if prop.Pattern != "" {
+		re, err := regexp.Compile(prop.Pattern)
+		if err != nil {
+			return fmt.Errorf("the pattern of %s cannot be used to check the host's name: %w", field, err)
+		}
+		if !re.MatchString(name) {
+			return bad("it does not match what the server accepts")
+		}
+	}
+	return nil
+}
+
+// quotedPrefix is s as a Go-quoted string of at most n characters of it, so
+// nothing in it is interpreted by a terminal.
+func quotedPrefix(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return strconv.Quote(string(r[:n])) + "..."
+	}
+	return strconv.Quote(s)
 }
 
 // hostOwnName is t's own name, as the capabilities of its nexusd report it.
