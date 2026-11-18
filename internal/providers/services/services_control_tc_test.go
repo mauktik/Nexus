@@ -27,6 +27,7 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/audit"
@@ -1185,5 +1186,20 @@ func TestTCSVERR24_AToolThatNeverStartedEndsDependency(t *testing.T) {
 	wantSent(t, sentSince(w.fh, n), start)
 	if kv := w.show("nx-svc-test"); kv["ActiveState"] != "inactive" {
 		t.Errorf("nx-svc-test is %s after a start that never ran, want inactive", kv["ActiveState"])
+	}
+}
+
+// TC-SV-ERR22 (quote bound): invalid UTF-8 in the tool output must not push
+// the quote past 2 KiB once it is made valid.
+func TestTCSVERR22_QuoteStaysWithin2KiBForInvalidUTF8(t *testing.T) {
+	out := bytes.Repeat([]byte{0xff, 'a'}, 5<<10) // each invalid byte is its own run
+	q := controlQuote("systemctl", "start", svcctl.Result{ExitCode: 1, Output: out})
+	prefix := "; systemctl start exited 1: "
+	body := strings.TrimPrefix(q, prefix)
+	if len(body) > controlQuoteBytes {
+		t.Fatalf("quote body is %d bytes, want at most %d", len(body), controlQuoteBytes)
+	}
+	if !utf8.ValidString(body) {
+		t.Fatalf("quote body is not valid UTF-8")
 	}
 }

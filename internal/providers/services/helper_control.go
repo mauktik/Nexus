@@ -243,15 +243,16 @@ func controlQuote(tool, action string, res svcctl.Result) string {
 	if res.ExitCode == 0 {
 		return ""
 	}
-	out := res.Output
-	if len(out) > controlQuoteBytes {
+	// Make the output valid first, then cut on a rune boundary, so the
+	// replacement characters cannot push the quote past controlQuoteBytes.
+	q := strings.ToValidUTF8(string(res.Output), "�")
+	if len(q) > controlQuoteBytes {
 		n := controlQuoteBytes
-		for n > 0 && !utf8.RuneStart(out[n]) {
+		for n > 0 && !utf8.RuneStart(q[n]) {
 			n--
 		}
-		out = out[:n]
+		q = q[:n]
 	}
-	q := strings.ToValidUTF8(string(out), "�")
 	if res.ExitCode == controlNoExitStatus {
 		return fmt.Sprintf("; %s %s ended without an exit status: %s", tool, action, q)
 	}
