@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -31,7 +32,7 @@ func TestCR1_ASystemdRestartThatFailsWithTheOldInstanceRunningFails(t *testing.T
 		Output: []byte("Failed to restart nx-svc-test.service: Unit nx-svc-test.service is masked.\n")}, nil)
 	r := w.act(spec.Restart.Op(), `{"name":"nx-svc-test"}`, ctlPoll)
 	pe := wantProblem(t, r.err, problem.ServiceActionFailed)
-	if got := fmt.Sprint(pe.Extensions["exitCode"]); got != "1" {
+	if got := fmt.Sprintf("%s", pe.Extensions["exitCode"]); got != "1" {
 		t.Errorf("exitCode = %s, want 1", got)
 	}
 	if !strings.Contains(pe.Detail, "is masked") || !strings.Contains(pe.Detail, "nx-svc-test") {
@@ -50,7 +51,7 @@ func TestCR1_AnOpenRCRestartWhoseStopFailsFails(t *testing.T) {
 		Output: []byte(" * Stopping nx-svc-test ...\n * ERROR: nx-svc-test failed to stop\n")}, nil)
 	r := w.act(spec.Restart.Op(), `{"name":"nx-svc-test"}`, ctlPoll)
 	pe := wantProblem(t, r.err, problem.ServiceActionFailed)
-	if got := fmt.Sprint(pe.Extensions["exitCode"]); got != "1" {
+	if got := fmt.Sprintf("%s", pe.Extensions["exitCode"]); got != "1" {
 		t.Errorf("exitCode = %s, want 1", got)
 	}
 	if !strings.Contains(pe.Detail, "failed to stop") {
@@ -64,20 +65,13 @@ func TestCR1_ARestartThatExitsNonZeroButStartedANewInstanceSucceeds(t *testing.T
 	w := newCtlWorld(t, ctlSystemd, "enabled: true\ncontrol:\n  - name: nx-svc-test\n",
 		ctlOptions{names: []string{"nx-svc-test"}})
 	p0 := w.show("nx-svc-test")["MainPID"]
-	r := w.prepare(spec.Restart.Op(), `{"name":"nx-svc-test"}`)
-	env := w.env(ctlPoll)
-	run := env.control.Run
-	env.control.Run = func(ctx context.Context, argv []string) (svcctl.Result, error) {
-		res, err := run(ctx, argv)
-		if len(argv) == 4 && argv[1] == "restart" {
-			res.ExitCode = 1
+	w.post = func(argv []string, res svcctl.Result) svcctl.Result {
+		if slices.Equal(argv, systemdArgv("restart", "nx-svc-test")) {
+			res.ExitCode = 1 // The restart happened, and the tool still says it failed.
 		}
-		return res, err
+		return res
 	}
-	var out bytes.Buffer
-	r.code = runHelper(context.Background(), r.spec.Argv[2:], &out, &out, env)
-	r.log = out.String()
-	w.finalize(spec.Restart.Op(), `{"name":"nx-svc-test"}`, &r)
+	r := w.act(spec.Restart.Op(), `{"name":"nx-svc-test"}`, ctlPoll)
 	if r.err != nil {
 		t.Fatalf("%v\n%s", r.err, r.log)
 	}

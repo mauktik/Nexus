@@ -226,8 +226,13 @@ func (p *Provider) allowList(ctx context.Context, init platform.InitSystem, snap
 			continue
 		}
 		switch load := units[vi].load; load {
-		case "loaded", "masked":
+		case "loaded":
 			e.Status = StatusOK
+		case "masked":
+			// systemd refuses start and restart of a masked unit (systemctl
+			// man page: masking makes it "impossible to start"); stop works.
+			e.Status, e.Reason = StatusUnknown, fmt.Sprintf("%s.service is masked: systemd refuses to start or "+
+				"restart it", e.Name)
 		case "not-found":
 			e.Status, e.Reason = StatusMissing, fmt.Sprintf("systemd has no unit %s.service", e.Name)
 		case "":

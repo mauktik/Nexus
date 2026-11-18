@@ -85,6 +85,9 @@ type ctlWorld struct {
 	opsDir  string
 	allow   string
 	seq     int
+	// post, when set, rewrites the fake's Result for the helper's calls
+	// after the fake modeled them, so the model's state change stands.
+	post func(argv []string, res svcctl.Result) svcctl.Result
 }
 
 func newCtlWorld(t *testing.T, capture, allow string, o ctlOptions) *ctlWorld {
@@ -123,7 +126,17 @@ func newCtlWorld(t *testing.T, capture, allow string, o ctlOptions) *ctlWorld {
 
 // env is the helper's seams: F-HOSTS and the world's roots.
 func (w *ctlWorld) env(poll time.Duration) helperEnv {
-	return helperEnv{control: controlHelperEnv{Run: w.fh.Run, Poll: poll, ProcRoot: filepath.Join(w.root, "proc"),
+	run := w.fh.Run
+	if w.post != nil {
+		run = func(ctx context.Context, argv []string) (svcctl.Result, error) {
+			res, err := w.fh.Run(ctx, argv)
+			if err == nil {
+				res = w.post(argv, res)
+			}
+			return res, err
+		}
+	}
+	return helperEnv{control: controlHelperEnv{Run: run, Poll: poll, ProcRoot: filepath.Join(w.root, "proc"),
 		RunRoot: filepath.Join(w.root, "run"), EtcRoot: filepath.Join(w.root, "etc")}}
 }
 
@@ -758,6 +771,12 @@ func TestTCSV93_AStopOfAFailedUnitThat(t *testing.T) {
 	wantSent(t, sentSince(w.fh, n), systemdArgv("stop", "nx-svc-fail"))
 }
 
+// exitCodeOf is e's exitCode extension as JSON.
+func exitCodeOf(e *problem.Error) string {
+	b, _ := json.Marshal(e.Extensions["exitCode"])
+	return string(b)
+}
+
 // TC-SV-94: A second action on the same service answers 409 conflict, while another service runs in parallel. Owner WI 4.3. Requirements: FR-7.
 func TestTCSV94_ASecondActionOnTheSameService(t *testing.T) {
 	w := newCtlWorld(t, ctlSystemd, "enabled: true\ncontrol:\n  - name: nx-svc-test\n  - name: nx-svc-fail\n",
@@ -791,8 +810,13 @@ func TestTCSV94_ASecondActionOnTheSameService(t *testing.T) {
 
 	other := s.accepted(spec.Start.Op(), `{"name":"nx-svc-fail"}`, "")
 	rec := s.wait(other, terminal)
-	if rec.Status != apitypes.StatusSucceeded {
-		t.Errorf("start nx-svc-fail: %s %v", rec.Status, rec.Error)
+	// The capture's start of nx-svc-fail exits 1 (actions/start-nx-svc-fail.txt),
+	// so the parallel operation ends Failed: it ran, which is what this test
+	// needs, and it was not blocked by the held lane.
+	if rec.Status != apitypes.StatusFailed || rec.Error == nil || rec.Error.Slug() != problem.ServiceActionFailed ||
+		exitCodeOf(rec.Error) != "1" {
+		t.Errorf("start nx-svc-fail: %s %v, want Failed service-action-failed with exitCode 1 (the capture's)",
+			rec.Status, rec.Error)
 	}
 	if r, _ := s.st.Get(first); r.Status != apitypes.StatusRunning {
 		t.Errorf("the held restart is %s while nx-svc-fail ran, want running", r.Status)
@@ -1017,7 +1041,6 @@ func TestTCSV98_PrepareSnapshotsTheEntryAndDeclaresThe(t *testing.T) {
 // The argv is svcctl's, `rc-service -C NAME VERB`.
 func TestTCSV99_OpenRCControlThroughFHOSTSUsesRc(t *testing.T) {
 	w := newCtlWorld(t, ctlOpenRC, "enabled: true\ncontrol:\n  - name: nx-svc-test\n  - name: nx-svc-fail\n", ctlOptions{})
-	w.fh.FailsOnStart("nx-svc-fail")
 	w.do(svcctl.Stop, "nx-svc-test")
 	n := len(w.fh.Sent())
 	for _, c := range []struct {
@@ -1122,7 +1145,6 @@ func TestTCSV101_StartStopAndRestartAreAuditedRequested(t *testing.T) {
 func TestTCSVERR22_AFailedStartEndsServiceActionFailed(t *testing.T) {
 	w := newCtlWorld(t, ctlSystemd, "enabled: true\ncontrol:\n  - name: nx-svc-fail\n",
 		ctlOptions{names: []string{"nx-svc-fail"}})
-	w.fh.FailsOnStart("nx-svc-fail")
 	captured, err := svcctltest.CaptureOutput(ctlSystemd, "actions/start-nx-svc-fail.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -1131,7 +1153,14 @@ func TestTCSVERR22_AFailedStartEndsServiceActionFailed(t *testing.T) {
 	for i := 0; len(padded) < 5<<10; i++ {
 		padded = append(padded, fmt.Sprintf("%04d %s", i, captured.Output)...)
 	}
-	w.fh.Answer(systemdArgv("start", "nx-svc-fail"), svcctl.Result{ExitCode: 1, Output: padded}, nil)
+	// The fake models the failed start (state failed, exit 1, as captured);
+	// only its output is replaced by the long one.
+	w.post = func(argv []string, res svcctl.Result) svcctl.Result {
+		if slices.Equal(argv, systemdArgv("start", "nx-svc-fail")) {
+			res.Output = padded
+		}
+		return res
+	}
 	r := w.act(spec.Start.Op(), `{"name":"nx-svc-fail"}`, ctlPoll)
 	pe := wantProblem(t, r.err, problem.ServiceActionFailed)
 	for k, v := range map[string]string{"service": `"nx-svc-fail"`, "action": `"start"`, "state": `"failed"`,

@@ -31,13 +31,19 @@ package svcctltest
 //   - systemd start of a stopped service exits 0 with no output; the unit
 //     then reports ActiveState=activating for Settle polls of show, then
 //     active/running with a new MainPID and a later ActiveEnterTimestamp;
-//   - start of a FailsOnStart service exits 1 with actions/start-nx-svc-fail
+//   - start of a service whose actions/start-NAME.txt exits non-zero (the
+//     planted nx-svc-fail), or of a FailsOnStart service, exits 1 with actions/start-nx-svc-fail
 //     and leaves ActiveState=failed, SubState=failed, Result=exit-code,
 //     MainPID=0 (OpenRC: stopped, as captured);
 //   - start of a running service exits 0 and changes nothing (OpenRC: the
 //     captured "has already been started" warning);
 //   - stop of a failed systemd unit exits 0 and it stays failed
-//     (testdata/systemd/stop-failed.txt).
+//     (testdata/systemd/stop-failed.txt);
+//   - start and restart of a masked systemd unit (its list-unit-files state is
+//     masked, which show reports as LoadState=masked, as show-masked.txt
+//     does) exit 1 and leave it as it was (systemctl man page: masking makes
+//     it "impossible to start" the unit). The captures hold no output of
+//     this refusal, so the wording is systemd's, not captured.
 //
 // It is also an svcctl.Options.RunLines serving a systemd capture's journal
 // (WI 3.3): the lines of journal-NAME-n20.jsonl, or of SetJournal, with
@@ -597,6 +603,7 @@ func (h *Host) unit(name string) *unit {
 	if res, ok := h.served[strings.Join(showArgv(name), " ")]; ok {
 		u.keys, u.props = parseKV(res.Output)
 		u.captured = res.Output
+		u.failsOnStart = h.startFailsInCapture(name)
 		return u
 	}
 	u.keys = h.order
@@ -630,8 +637,22 @@ func (h *Host) unit(name string) *unit {
 	}
 	if hasFile {
 		u.props["UnitFileState"] = state
+		if state == "masked" {
+			// As testdata/services/*/show-masked.txt: a masked unit file
+			// loads as masked, not loaded.
+			u.props["LoadState"] = "masked"
+		}
 	}
+	u.failsOnStart = h.startFailsInCapture(name)
 	return u
+}
+
+// startFailsInCapture reports whether the capture's actions/start-NAME.txt
+// exists and ended non-zero: the planted nx-svc-fail. Such a service fails
+// to start without the test asking for it.
+func (h *Host) startFailsInCapture(name string) bool {
+	res, err := CaptureOutput(h.dir, "actions/start-"+name+".txt")
+	return err == nil && res.ExitCode != 0
 }
 
 func (h *Host) newPID() int {
@@ -733,6 +754,12 @@ func (h *Host) systemdAction(verb, name string) (svcctl.Result, error) {
 	}
 	active := u.props["ActiveState"]
 	running := active == "active" || active == "reloading" || active == "activating"
+	if u.props["LoadState"] == "masked" && verb != "stop" {
+		// systemctl man page: masking makes it "impossible to start" the
+		// unit, and a failure exits non-zero. The unit's state is unchanged.
+		return svcctl.Result{ExitCode: 1, Output: []byte(fmt.Sprintf("Failed to %s %s.service: Unit %s.service is masked.\n",
+			verb, name, name))}, nil
+	}
 	switch verb {
 	case "stop":
 		switch {
@@ -877,7 +904,7 @@ func (h *Host) script(name string) *script {
 	if s, ok := h.scripts[name]; ok {
 		return s
 	}
-	s := &script{word: "stopped"}
+	s := &script{word: "stopped", failsOnStart: h.startFailsInCapture(name)}
 	h.scripts[name] = s
 	if words, err := h.rcWords(); err == nil {
 		s.word, s.exists = words[name]

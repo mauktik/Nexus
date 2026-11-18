@@ -125,6 +125,20 @@ func runControl(ctx context.Context, raw []byte, log io.Writer, env controlHelpe
 		switch {
 		case herr != nil:
 			last = herr.Detail
+		case st.Known && state == want && restartNotDone(in.Action, before, st, res):
+			// restart found the service running, so it met want before the
+			// tool did anything. A tool that failed and left the same
+			// instance running did not restart it (a masked unit, an
+			// OpenRC stop that failed). One that ended without an exit
+			// status may still be working: the wait goes on to its bound.
+			if res.ExitCode != controlNoExitStatus {
+				return nil, helperFailure(problem.ServiceActionFailed, "%s is still %s (%s) after %s: the instance "+
+					"that ran before is still running, so it was not restarted%s", in.Service, state, st.RawState,
+					in.Action, controlQuote(tool, in.Action, res)).
+					with("service", in.Service).with("action", in.Action).with("state", st.State).
+					with("rawState", st.RawState).with("exitCode", res.ExitCode)
+			}
+			last = fmt.Sprintf("it is still the instance that ran before the restart (%s)", st.RawState)
 		case st.Known && state == want:
 			helperSay(log, "%s is %s (%s)", in.Service, state, st.RawState)
 			return controlResult(in, true, st), nil
@@ -210,6 +224,20 @@ func controlDefinite(d svcctl.Details, want svcctl.State, res svcctl.Result) boo
 		return state == svcctl.Running && res.ExitCode != 0
 	}
 	return false
+}
+
+// restartNotDone reports whether a restart whose tool did not exit 0 has
+// left the instance that ran before it: the same main PID and the same
+// start time. Only a new instance shows that the restart happened despite
+// the tool's failure.
+func restartNotDone(action string, before, now svcctl.Details, res svcctl.Result) bool {
+	if action != spec.ActionRestart || res.ExitCode == 0 || now.MainPID != before.MainPID {
+		return false
+	}
+	if before.Since == nil || now.Since == nil {
+		return before.Since == now.Since
+	}
+	return before.Since.Equal(*now.Since)
 }
 
 // controlResult is the ServiceResult of in observed in d.
