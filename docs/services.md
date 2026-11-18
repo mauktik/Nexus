@@ -95,8 +95,9 @@ providers:
 - **Only the file changes it.** No API, MCP or CLI call adds, changes or
   removes an entry, and remote config set refuses lists
   ([security.md](security.md#lists-and-mappings-are-not-settable)).
-- **Defaults.** An entry without `actions` allows all three; `actions: []`
-  allows none. An entry without `timeout` waits 90 seconds. An explicit
+- **Defaults.** An entry without an `actions` key allows all three;
+  `actions: []` allows none, and so does `actions:` with no value (null,
+  also written `actions: ~`). An entry without `timeout` waits 90 seconds. An explicit
   `timeout: 0s` is refused, as is anything over `10m`.
 - **`nexusd validate-config` refuses** a name that does not match the
   pattern, a name ending in `.service` (write the name without it), a
@@ -108,7 +109,9 @@ providers:
   `controlAllowList`, each entry with `name`, `actions`, `timeoutSeconds` and
   a `status`: `ok`, `missing`, `protected` (with the reason, for a protection
   `validate-config` cannot see, such as a dependency of `nexusd` or an alias
-  of a protected unit), or `unknown` (the check failed, with the reason).
+  of a protected unit), or `unknown` (the entry cannot be acted on as
+  listed, or the check failed, with the reason: a masked unit is `unknown`
+  with "is masked", since systemd refuses to start or restart it).
 
 A request for a service that is not listed, or for an action its entry does
 not allow, answers 409 `not-allowed` with `configKey:
@@ -173,6 +176,19 @@ and `dependencyResolution` is `skipped`. If the OpenRC dependency tree can be
 read only in part, `dependencyResolution` is `partial` with
 `dependencyResolutionReason`; every needed name stays protected. Otherwise
 it is `complete`. Capabilities list the resolved set as `protected`.
+
+Control is refused while what `nexusd` depends on is not known. On systemd
+that is a failed dependency lookup (`systemctl show` timed out or answered
+an error). On OpenRC it is a partial resolution: a need that the deptree
+cannot map to its provider (an unusable deptree, or no entry for it), which
+may be a virtual name such as `net` whose provider is not otherwise
+protected. `dependencyResolution` is `partial` with the error as its
+reason, and every action on every allow-listed service answers 503
+`dependency-unavailable`, after the allow-list and action checks (a
+protected or unlisted name still answers 409). The next preflight tries
+again: a configuration reload (`sudo systemctl reload nexusd`, or
+`rc-service nexusd reload` on OpenRC) or `nexus capability get --refresh`. Reads, logs and the reboot are not
+affected.
 
 A refusal answers 409 `protected-service` with the reason, before any
 operation exists and with nothing sent to the init system. The operation's
