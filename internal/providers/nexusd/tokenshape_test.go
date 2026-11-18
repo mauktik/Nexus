@@ -34,6 +34,12 @@ func TestTCRAE10_TokenStringAsNameIsRefusedWithoutEchoingIt(t *testing.T) {
 		"ci-" + secret,
 		secret + "-x",
 	}
+	// Secrets that start with "-" and "_" also fail the name's own pattern,
+	// so these cases are fixed, not left to the minted secret's first
+	// character: the client must still be told the refusal, not the pattern.
+	for _, fixed := range []string{"-" + strings.Repeat("aB3_", 10) + "xy", "_" + strings.Repeat("-Z9a", 10) + "xy"} {
+		variants = append(variants, fixed, "ci-"+fixed, fixed+"-x", id+"_"+fixed, "NXS_"+id+"_"+fixed)
+	}
 	needles := append([]string{s.admin, unknown, minted.Token, secret}, variants...)
 	before := s.storeSum(t)
 	type call struct {

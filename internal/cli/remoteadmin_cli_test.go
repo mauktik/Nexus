@@ -459,11 +459,18 @@ func tokenStringAsName(t *testing.T) {
 	secret := strings.SplitN(sec, "_", 3)[2]
 	variants := []string{h.token, sec, minted.ID + "_" + secret, "NXS_" + minted.ID + "_" + secret, secret,
 		"ci-" + secret, secret + "-x"}
+	// Secrets that start with "-" and "_" also fail the name's own pattern:
+	// fixed, so the client is always shown the refusal, not the pattern.
+	// NAME follows "--": a leading "-" is otherwise parsed (and echoed by
+	// cobra's own flag error) as a flag, not read as the name.
+	for _, fixed := range []string{"-" + strings.Repeat("aB3_", 10) + "xy", "_" + strings.Repeat("-Z9a", 10) + "xy"} {
+		variants = append(variants, fixed, "ci-"+fixed, fixed+"-x", minted.ID+"_"+fixed, "NXS_"+minted.ID+"_"+fixed)
+	}
 	before := h.tokens(t)
 	for _, name := range variants {
 		for _, verb := range []string{"remove", "add"} {
 			for _, f := range []string{"json", "table"} {
-				r := runCLI(tokenEnv(home), "nexusdtoken", verb, name, "--yes", "-o", f)
+				r := runCLI(tokenEnv(home), "nexusdtoken", verb, "--yes", "-o", f, "--", name)
 				if r.code != ExitUsage {
 					t.Errorf("-o %s: %s of a token string: exit %d, want %d (validation-failed): %s", f, verb, r.code, ExitUsage, r.stderr)
 				}
