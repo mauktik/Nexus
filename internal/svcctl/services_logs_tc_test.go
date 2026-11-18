@@ -491,6 +491,8 @@ func TestTCSV64_OpenRCLogFilesResolvesLiteralOutputLogAndError(t *testing.T) {
 		{"g", "svc-g", "output_log=log/rel.log\n", "", want{reason: "output_log=log/rel.log"}},
 		{"h", "svc-h", desc + "\ncommand=/bin/true\n", "foo=conf-secret\n", want{reason: noFile}},
 		{"i", "svc-i", "error_log='/var/log/e.err'\n", "", want{err: "/var/log/e.err"}},
+		{"j-empty", "svc-j", "output_log=\n", "", want{reason: noFile}},
+		{"j-empty-quoted", "svc-j2", "output_log=\"\"\n", "", want{reason: noFile}},
 		{"captured nx-svc-test", "nx-svc-test", "", "", want{out: "/var/log/nx-svc-test.log", err: "/var/log/nx-svc-test.err"}},
 	}
 	for _, tc := range cases {
@@ -789,6 +791,8 @@ func TestTCSVE10_AJournalLineOver64KiBIs(t *testing.T) {
 				{`[104,105,0,255]`, "hi\x00�"},
 				{`"a\udc80b"`, "a�b"},
 				{`"a` + "\xff" + `b"`, "a�b"},
+				{`null`, ""},
+				{`["first","second"]`, "first\nsecond"},
 			} {
 				fh := svcctltest.NewHost(t, c)
 				fh.SetJournal("nexusd", []string{withMessage(t, base, tc.v)})
@@ -836,6 +840,17 @@ func TestTCSVE11_TailFileHandlesALineSpanningABlock(t *testing.T) {
 	}
 	if got, err := svcctl.TailFile(empty, 3, 1<<20); err != nil || len(got) != 0 {
 		t.Errorf("TailFile(empty): %q, %v; want [] and no error", got, err)
+	}
+
+	// A 100 KiB line under a 4096-byte cap: the marker, then the newest part
+	// of the line, and not the line before it.
+	longLine := filepath.Join(dir, "longline")
+	body := strings.Repeat("x", 100<<10-len("TAILEND")) + "TAILEND"
+	writeLines(t, longLine, []string{"head", body})
+	got, err = svcctl.TailFile(longLine, 3, 4096)
+	if err != nil || len(got) != 1 || len(got[0]) > 4096 || !strings.HasSuffix(got[0], "TAILEND") ||
+		!strings.Contains(got[0], svcctl.LineTruncatedMarker) {
+		t.Errorf("TailFile(longline, 4096): %d lines, %v; want one line of at most 4096 bytes with the marker, ending TAILEND", len(got), err)
 	}
 }
 
@@ -918,5 +933,48 @@ func TestTCSVERR15_TailFileRefusesASymlinkAFIFOA(t *testing.T) {
 		if p == link && !errors.Is(err, syscall.ELOOP) {
 			t.Errorf("TailFile(symlink): %v, want ELOOP", err)
 		}
+	}
+}
+
+// TC-SV-ERR33: OpenRCLogFiles follows a symlinked init script and refuses a
+// FIFO without blocking.
+func TestTCSVERR33_OpenRCLogFilesFollowsASymlinkedInitScript(t *testing.T) {
+	etc := logEtc(t, "net.lo", "output_log=/var/log/net.log\n", "")
+	initd := filepath.Join(etc, "init.d")
+	// The Alpine shape: net.eth0 is a relative link to net.lo.
+	if err := os.Symlink("net.lo", filepath.Join(initd, "net.eth0")); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(initd, "fifo"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// (a)
+	want, err := svcctl.OpenRCLogFiles(etc, "net.lo")
+	if err != nil || want.Output != "/var/log/net.log" {
+		t.Fatalf("OpenRCLogFiles(net.lo): %+v, %v; want output /var/log/net.log", want, err)
+	}
+	if got, err := svcctl.OpenRCLogFiles(etc, "net.eth0"); err != nil || got != want {
+		t.Errorf("OpenRCLogFiles(net.eth0): %+v, %v; want %+v, the target's result", got, err, want)
+	}
+
+	// (b)
+	done := make(chan struct{})
+	var got svcctl.LogFiles
+	start := time.Now()
+	go func() {
+		defer close(done)
+		got, err = svcctl.OpenRCLogFiles(etc, "fifo")
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("OpenRCLogFiles(fifo) blocked for 2 s")
+	}
+	if el := time.Since(start); el > 100*time.Millisecond {
+		t.Errorf("OpenRCLogFiles(fifo) took %s, want under 100 ms", el)
+	}
+	if err == nil || got.Output != "" || got.Error != "" {
+		t.Errorf("OpenRCLogFiles(fifo): %+v, %v; want an error and no path", got, err)
 	}
 }

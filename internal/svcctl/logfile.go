@@ -97,9 +97,11 @@ func OpenRCLogFiles(etcRoot, name string) (LogFiles, error) {
 }
 
 // readAssignments reads the last assignment of each log key in path. A
-// missing file is an error only when required.
+// missing file is an error only when required. A symlink is followed, but
+// what it reaches must be a regular file: a FIFO there would otherwise block
+// the daemon's request.
 func readAssignments(path string, required bool) (map[string]assignment, error) {
-	f, err := os.Open(path)
+	f, _, err := openRegularFollowing(path)
 	if err != nil {
 		if !required && errors.Is(err, os.ErrNotExist) {
 			return nil, nil
