@@ -38,6 +38,9 @@ var tabledExits = map[problem.Slug]int{
 	"rollback-unavailable": 1,
 	// nexusd-remote-admin Problem types table (HTTP-level rows).
 	"config-set-unavailable": 4, "token-limit-reached": 1,
+	// services-provider Problem types table (HTTP-level rows).
+	"not-allowed": 1, "protected-service": 1, "reboot-unavailable": 1, "nexusd-not-enabled-at-boot": 1,
+	"operations-running": 1, "logs-unavailable": 1,
 }
 
 // nginxExits are the nginx provider's non-operation-level problem types.
@@ -111,6 +114,8 @@ var planTables = []planTable{
 	{"nexusd-self-management", "| Slug | Status | Exit |", 8},
 	// Its rows with a status and an exit: the two new slugs and config-invalid.
 	{"nexusd-remote-admin", "| Slug | Status | Exit | Extensions | OperationLevel |", 3},
+	// Its HTTP-level rows; the two op-level rows have no status.
+	{"services-provider", "| Slug | Status | Exit | Extensions | Raised by |", 6},
 }
 
 // architectureExits parses the same column out of one architecture.md table,

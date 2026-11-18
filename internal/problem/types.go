@@ -56,6 +56,14 @@ const (
 	// types).
 	ConfigSetUnavailable Slug = "config-set-unavailable"
 	TokenLimitReached    Slug = "token-limit-reached"
+
+	// services-provider (services-provider architecture.md, Problem types).
+	NotAllowed             Slug = "not-allowed"
+	ProtectedService       Slug = "protected-service"
+	RebootUnavailable      Slug = "reboot-unavailable"
+	NexusdNotEnabledAtBoot Slug = "nexusd-not-enabled-at-boot"
+	OperationsRunning      Slug = "operations-running"
+	LogsUnavailable        Slug = "logs-unavailable"
 )
 
 // Operation-level problem types: they appear only inside operation.error.
@@ -87,6 +95,10 @@ const (
 	// nexusd-remote-admin: the outcomes of a config set operation.
 	ConfigConflict      Slug = "config-conflict"
 	ConfigRestoreFailed Slug = "config-restore-failed"
+
+	// services-provider: the outcomes of a service action and of a reboot.
+	ServiceActionFailed Slug = "service-action-failed"
+	RebootDidNotHappen  Slug = "reboot-did-not-happen"
 )
 
 // Type is one registered problem type. Problem types are part of the
@@ -159,6 +171,15 @@ var registry = []Type{
 	// MaxRemoteTokens.
 	{Slug: ConfigSetUnavailable, Title: "Configuration set unavailable", Status: 503, Exit: 4, Extensions: []string{"provider", "reason"}},
 	{Slug: TokenLimitReached, Title: "Token limit reached", Status: 409, Exit: 1, Extensions: []string{"maxTokens"}},
+	// services-provider. configKey names the providers.services key that
+	// would allow the action; protected-service's reason names the matched
+	// protected entry, and the helper re-checks it inside the operation.
+	{Slug: NotAllowed, Title: "Not allowed", Status: 409, Exit: 1, Extensions: []string{"service", "action", "configKey"}},
+	{Slug: ProtectedService, Title: "Protected service", Status: 409, Exit: 1, Extensions: []string{"service", "reason"}},
+	{Slug: RebootUnavailable, Title: "Reboot unavailable", Status: 409, Exit: 1, Extensions: []string{"reason", "configKey"}},
+	{Slug: NexusdNotEnabledAtBoot, Title: "nexusd not enabled at boot", Status: 409, Exit: 1, Extensions: []string{"service", "state"}},
+	{Slug: OperationsRunning, Title: "Operations running", Status: 409, Exit: 1, Extensions: []string{"operationIds"}},
+	{Slug: LogsUnavailable, Title: "Logs unavailable", Status: 422, Exit: 1, Extensions: []string{"service", "logSource", "reason"}},
 
 	// An operation that fails makes the CLI exit 1.
 	{Slug: OutcomeUnknown, Title: "Outcome unknown", Exit: 1, OperationLevel: true},
@@ -208,6 +229,13 @@ var registry = []Type{
 	// be confirmed back in place.
 	{Slug: ConfigConflict, Title: "Configuration conflict", Exit: 1, OperationLevel: true},
 	{Slug: ConfigRestoreFailed, Title: "Configuration restore failed", Exit: 1, OperationLevel: true, Extensions: []string{"backupPath"}},
+	// services-provider: a service action that did not reach its target
+	// state, and a reboot whose trigger failed or never took the host down
+	// (stage trigger or wait; bootId is the boot the request was made in).
+	{Slug: ServiceActionFailed, Title: "Service action failed", Exit: 1, OperationLevel: true,
+		Extensions: []string{"service", "action", "state", "rawState", "exitCode"}},
+	{Slug: RebootDidNotHappen, Title: "Reboot did not happen", Exit: 1, OperationLevel: true,
+		Extensions: []string{"stage", "bootId", "exitCode"}},
 }
 
 var bySlug = func() map[Slug]Type {

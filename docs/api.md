@@ -14758,6 +14758,40 @@ Response `202` (`application/json`):
 }
 ```
 
+### Problem.logs-unavailable
+
+```json
+{
+  "properties": {
+    "logSource": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "service": {
+      "type": "string"
+    },
+    "status": {
+      "const": 422
+    },
+    "type": {
+      "const": "urn:nexus:problem:logs-unavailable"
+    }
+  },
+  "title": "Logs unavailable",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
 ### Problem.method-not-allowed
 
 ```json
@@ -14771,6 +14805,37 @@ Response `202` (`application/json`):
     }
   },
   "title": "Method not allowed",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.nexusd-not-enabled-at-boot
+
+```json
+{
+  "properties": {
+    "service": {
+      "type": "string"
+    },
+    "state": {
+      "type": "string"
+    },
+    "status": {
+      "const": 409
+    },
+    "type": {
+      "const": "urn:nexus:problem:nexusd-not-enabled-at-boot"
+    }
+  },
+  "title": "nexusd not enabled at boot",
   "required": [
     "type",
     "status"
@@ -14993,6 +15058,40 @@ Response `202` (`application/json`):
 }
 ```
 
+### Problem.not-allowed
+
+```json
+{
+  "properties": {
+    "action": {
+      "type": "string"
+    },
+    "configKey": {
+      "type": "string"
+    },
+    "service": {
+      "type": "string"
+    },
+    "status": {
+      "const": 409
+    },
+    "type": {
+      "const": "urn:nexus:problem:not-allowed"
+    }
+  },
+  "title": "Not allowed",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
 ### Problem.not-cancelable
 
 ```json
@@ -15065,6 +15164,34 @@ Response `202` (`application/json`):
     }
   },
   "title": "Not updatable",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.operations-running
+
+```json
+{
+  "properties": {
+    "operationIds": {
+      "type": "string"
+    },
+    "status": {
+      "const": 409
+    },
+    "type": {
+      "const": "urn:nexus:problem:operations-running"
+    }
+  },
+  "title": "Operations running",
   "required": [
     "type",
     "status"
@@ -15226,6 +15353,37 @@ Response `202` (`application/json`):
 }
 ```
 
+### Problem.protected-service
+
+```json
+{
+  "properties": {
+    "reason": {
+      "type": "string"
+    },
+    "service": {
+      "type": "string"
+    },
+    "status": {
+      "const": 409
+    },
+    "type": {
+      "const": "urn:nexus:problem:protected-service"
+    }
+  },
+  "title": "Protected service",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
 ### Problem.rate-limited
 
 ```json
@@ -15239,6 +15397,69 @@ Response `202` (`application/json`):
     }
   },
   "title": "Rate limited",
+  "required": [
+    "type",
+    "status"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.reboot-did-not-happen
+
+```json
+{
+  "properties": {
+    "bootId": {
+      "type": "string"
+    },
+    "exitCode": {
+      "type": "integer",
+      "description": "The script's exit code; -1 when a signal ended it or it never started."
+    },
+    "stage": {
+      "type": "string"
+    },
+    "type": {
+      "const": "urn:nexus:problem:reboot-did-not-happen"
+    }
+  },
+  "title": "Reboot did not happen",
+  "description": "Appears only inside a failed operation's error.",
+  "required": [
+    "type"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.reboot-unavailable
+
+```json
+{
+  "properties": {
+    "configKey": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "status": {
+      "const": 409
+    },
+    "type": {
+      "const": "urn:nexus:problem:reboot-unavailable"
+    }
+  },
+  "title": "Reboot unavailable",
   "required": [
     "type",
     "status"
@@ -15461,6 +15682,44 @@ Response `202` (`application/json`):
     }
   },
   "title": "Script timed out",
+  "description": "Appears only inside a failed operation's error.",
+  "required": [
+    "type"
+  ],
+  "allOf": [
+    {
+      "$ref": "#/components/schemas/Problem"
+    }
+  ]
+}
+```
+
+### Problem.service-action-failed
+
+```json
+{
+  "properties": {
+    "action": {
+      "type": "string"
+    },
+    "exitCode": {
+      "type": "integer",
+      "description": "The script's exit code; -1 when a signal ended it or it never started."
+    },
+    "rawState": {
+      "type": "string"
+    },
+    "service": {
+      "type": "string"
+    },
+    "state": {
+      "type": "string"
+    },
+    "type": {
+      "const": "urn:nexus:problem:service-action-failed"
+    }
+  },
+  "title": "Service action failed",
   "description": "Appears only inside a failed operation's error.",
   "required": [
     "type"
