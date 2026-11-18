@@ -252,15 +252,20 @@ func (b base) describeOpenRC(ctx context.Context, name string) (Details, error) 
 	return d, nil
 }
 
-// openrcMainPID is the PID of a running OpenRC service: from
-// start-stop-daemon's records, else supervise-daemon's
-// <RunRoot>/openrc/options/<name>/child_pid, kept only when <ProcRoot>/<pid>
-// exists. 0 when neither names a live process.
+// openrcMainPID is the PID of a running OpenRC service. A service run under
+// supervise-daemon has <RunRoot>/openrc/options/<name>/child_pid, and its
+// start-stop-daemon-style record in openrc/daemons/<name> names the
+// supervisor's own pidfile (supervise-<name>.pid), so the child is the
+// service's process and the record is not consulted: when the child is not
+// live the answer is 0, never the supervisor. Any other service uses
+// start-stop-daemon's records. A PID is kept only when <ProcRoot>/<pid>
+// exists; 0 when none names a live process.
 func (b base) openrcMainPID(name string) int {
-	if pid := (&openrc{base: b}).mainPID(name); pid > 0 {
-		return pid
+	childPID := filepath.Join(b.runRoot, "openrc", "options", name, "child_pid")
+	if _, err := os.Lstat(childPID); err != nil {
+		return (&openrc{base: b}).mainPID(name)
 	}
-	pid := readPIDFile(filepath.Join(b.runRoot, "openrc", "options", name, "child_pid"))
+	pid := readPIDFile(childPID)
 	if pid <= 0 {
 		return 0
 	}
