@@ -708,8 +708,8 @@ var UpdateConfig = def.Define[ConfigUpdateInput, ConfigUpdateResult](def.Op{
 		"providers.host.enabled=true, where KEY is a dotted key of the configuration schema, and reloads it. " +
 		"Before any operation exists it is refused with 422 config-invalid and located errors when a key is " +
 		"unknown (naming the nearest valid parent), cannot be set remotely (release keys, " +
-		"providers.nexusd.enabled=false, the scripts catalog, and every key whose value names a file, directory " +
-		"or service), is a list or a mapping, or has a value of the wrong type, or when the edited file would " +
+		"providers.nexusd.enabled=false, the scripts catalog, audit.retentionDays, auth.failureLimitPerMinute, and " +
+		"every key whose value names a file, directory or service), is a list or a mapping, or has a value of the wrong type, or when the edited file would " +
 		"be invalid; and with 503 config-set-unavailable on a host without systemd self-management, such as " +
 		"OpenRC. A set that changes nothing answers 200 with changed false and creates no operation. Side " +
 		"effects: the current file is saved as <config file>.bak, returned as backupPath, the edited file " +
