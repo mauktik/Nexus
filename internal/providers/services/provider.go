@@ -102,6 +102,9 @@ type snapshot struct {
 	cfg   config.ServicesConfig
 	allow map[string]config.ServiceControl
 	prot  *protectedSet
+	// unresolved is why the services nexusd depends on could not be looked
+	// up ("" when they were, or the lookup answered partially).
+	unresolved string
 }
 
 // controllable reports whether start, stop and restart may act on name
@@ -198,7 +201,11 @@ func newSnapshot(c config.ServicesConfig, res *resolution, init platform.InitSys
 		allow[e.Name] = e
 	}
 	c.Control = control
-	return &snapshot{cfg: c, allow: allow, prot: newProtectedSet(init, res)}
+	snap := &snapshot{cfg: c, allow: allow, prot: newProtectedSet(init, res)}
+	if res != nil {
+		snap.unresolved = res.lookupErr
+	}
+	return snap
 }
 
 // UseOpsDir sets the directory of the operations' directories. It

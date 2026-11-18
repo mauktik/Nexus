@@ -133,6 +133,13 @@ func (p *Provider) checkControl(ctx context.Context, snap *snapshot, name, actio
 		return entry, "", notAllowedProblem(name, action, fmt.Sprintf("%s allows %v on %s, not %s", controlConfigKey,
 			e.Actions, name, action))
 	}
+	if snap.unresolved != "" {
+		// Fail closed (FR-9): what nexusd depends on is unknown, so this
+		// service might be one of its dependencies.
+		return entry, "", problem.New(problem.DependencyUnavailable, fmt.Sprintf("the services nexusd depends on could "+
+			"not be resolved (%s), so %s cannot be checked against them; reload the configuration to retry",
+			snap.unresolved, name)).With("provider", spec.Name)
+	}
 	return controlEntry{actions: slices.Clone(e.Actions), timeout: e.Timeout}, d.CanonicalName, nil
 }
 

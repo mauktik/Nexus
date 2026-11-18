@@ -52,6 +52,11 @@ type resolution struct {
 	deps       []protectEntry
 	status     string // ResolutionComplete, Partial or Skipped
 	reason     string // Why the resolution is not complete
+	// lookupErr is set when the dependency lookup itself failed (an exec
+	// timeout, a bus error), as opposed to a lookup that answered with a
+	// partial result. The dependencies are then unknown, so control fails
+	// closed until the next preflight.
+	lookupErr string
 }
 
 // newProtectedSet is init's protected set with res's dynamic protections
@@ -136,7 +141,8 @@ func (s *protectedSet) names() []string {
 // systemd that is one exec (svcctl.Dependencies); on OpenRC none. When the
 // running service is unknown nothing else is resolved. A dependency lookup
 // that fails leaves the resolution partial, with the error as its reason;
-// the static list and nexusd stay protected.
+// the static list and nexusd stay protected, and control is refused
+// (resolution.lookupErr) because what nexusd depends on is not known.
 func (p *Provider) resolve(ctx context.Context) *resolution {
 	init := p.plat.Init
 	self, err := svcctl.SelfService(init, p.procRoot, p.runRoot, os.Getpid())
@@ -166,7 +172,7 @@ func (p *Provider) resolve(ctx context.Context) *resolution {
 	}
 	deps, err := svcctl.Dependencies(ctx, init, self, opts)
 	if err != nil {
-		res.status, res.reason = ResolutionPartial, err.Error()
+		res.status, res.reason, res.lookupErr = ResolutionPartial, err.Error(), err.Error()
 		return res
 	}
 	var via map[string]string

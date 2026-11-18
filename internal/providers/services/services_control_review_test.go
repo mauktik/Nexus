@@ -146,3 +146,32 @@ func TestCR4_TheFakeReplaysTheCapturedFailingStart(t *testing.T) {
 		})
 	}
 }
+
+// CR-2: a dependency lookup that fails at preflight (the 1 s bound expiring
+// while PID 1 is busy, a bus error) leaves nexusd's dependencies unknown.
+// Control then fails closed, instead of admitting a stop that systemd may
+// propagate to nexusd, and recovers when the next preflight resolves them.
+func TestCR2_ControlFailsClosedWhileTheDependencyLookupFailed(t *testing.T) {
+	depsArgv := []string{systemctlTool, "show", "-p", "Requires", "-p", "BindsTo", "-p", "Requisite", "-p", "PartOf",
+		"--", "nexus-agent.service"}
+	w := newCtlWorld(t, ctlSystemd, "enabled: true\ncontrol:\n  - name: nx-svc-test\n",
+		ctlOptions{names: []string{"nx-svc-test"}, agent: true, setup: func(fh *svcctltest.Host) {
+			fh.Answer(depsArgv, svcctl.Result{}, fmt.Errorf("svcctl: %s: %w", depsArgv[0], context.DeadlineExceeded))
+		}})
+	for _, action := range spec.Actions {
+		err := w.p.admitControl(context.Background(), "nx-svc-test", action)
+		pe := wantProblem(t, err, problem.DependencyUnavailable)
+		if pe.Status != 503 || !strings.Contains(pe.Detail, "deadline exceeded") {
+			t.Errorf("%s: %d %q, want 503 naming the lookup's error", action, pe.Status, pe.Detail)
+		}
+	}
+	// The next preflight resolves them.
+	w.fh.Answer(depsArgv, svcctl.Result{Output: []byte("Requires=nexusd-db.service\nBindsTo=\nRequisite=\nPartOf=\n")}, nil)
+	wantAvailable(t, w.p.Preflight(context.Background()))
+	if err := w.p.admitControl(context.Background(), "nx-svc-test", spec.Stop.Op().Action); err != nil {
+		t.Errorf("after a preflight that resolved the dependencies: %v, want admitted", err)
+	}
+	if err := w.p.admitControl(context.Background(), "nexusd-db", spec.Stop.Op().Action); err == nil {
+		t.Error("nexusd-db, a dependency, was admitted")
+	}
+}
