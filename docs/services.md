@@ -206,6 +206,10 @@ among the unit files, whose state is `unknown`, because systemd reports the
 state of the alias's target, not of the alias. `enabledRaw` is empty, and
 `enabled` is `unknown`, for a loaded unit that has no unit file.
 `controllable` is true when the service is allow-listed and not protected.
+In the list, both go by the listed name alone and do not resolve aliases:
+an allow-listed systemd alias of a protected unit is listed as controllable,
+while get reports it protected (by its canonical unit) and an action on it
+is refused with 409 `protected-service`.
 
 Names that do not match the name pattern, such as systemd-escaped
 `\x2d` units, are listed but cannot be named by get, logs or an action.
@@ -294,7 +298,11 @@ entry's `timeout`:
 - start on a running service, or stop on a stopped one, sends nothing and
   succeeds with `changed: false`. A stop of a failed service that stays
   failed with no main process also succeeds with `changed: false`;
-- the target state succeeds with the final state;
+- the target state succeeds with the final state. A restart whose tool
+  exits non-zero while the same instance (main PID and start time) keeps
+  running did not restart it, and fails `service-action-failed` (systemd
+  refuses to start or restart a masked unit, which capabilities report as
+  `unknown`);
 - a different definite state fails `service-action-failed`, with `state`,
   `rawState`, `exitCode` and up to 2 KiB of the init system's output; the
   full output is in the operation log;

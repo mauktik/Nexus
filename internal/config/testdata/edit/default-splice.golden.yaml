@@ -190,7 +190,7 @@ providers:
   # services listed under control (services:write), and reboot the host
   # (services:reboot). nexusd itself, the unit running it and its
   # dependencies, ssh, dbus, getty, networking and the other built-in
-  # protected services, and nexus-op-* units can never be listed or acted on.
+  # protected services, and nexus-op-* units can never be allow-listed or acted on.
   # systemd and OpenRC only; never on a Proxmox VE node. See docs/services.md.
   services:
     enabled: false             # Off until enabled here
