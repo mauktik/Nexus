@@ -1,7 +1,7 @@
 // Stub-style: SKIP-only (services-provider)
 //
-// Stubs of planning/services-provider/test-cases.md TC-SV-42, TC-SV-43, TC-SV-44, TC-SV-45.
-// Owner WIs: 3.1. Each stub compiles today and skips; the
+// Stubs of planning/services-provider/test-cases.md TC-SV-42, TC-SV-43, TC-SV-44, TC-SV-45, TC-SV-148.
+// Owner WIs: 3.1, 6.0. Each stub compiles today and skips; the
 // developer of the owning work item replaces the skip and the comment with
 // the test, keeping the function name. An un-skipped passing test is the
 // GREEN signal (planning/services-provider/test-strategy.md, RED Stub Style).
@@ -41,25 +41,26 @@ func TestTCSV43_NoCaptureCarriesEnvironmentCommandLinesOr(t *testing.T) {
 	t.Skip("TC-SV-43: SKIP-only stub; un-skip when WI 3.1 lands")
 }
 
-// TC-SV-44: The three T1-container captures exist. Owner WI 3.1. Requirements: NFR-3, CON-3.
+// TC-SV-44: The five T1-container captures exist. Owner WI 3.1. Requirements: NFR-3, CON-3.
 //
-// - Setup: None.
+// - Setup: None. The captures were made by WI 3.1's `capture.sh` inside the T1 images (`make test-harness` with `BASE` unset, `debian:stable` and `debian:12`; `make test-harness-alpine` with `BASE` unset and `alpine:3.22`).
 // - Steps:
-//  1. Stat `t1-ubuntu-systemd`, `t1-debian-systemd` and `t1-alpine-openrc`.
+//  1. Stat `t1-ubuntu-systemd`, `t1-debian-systemd`, `t1-debian12-systemd`, `t1-alpine-openrc` and `t1-alpine322-openrc`.
 //
 // - Expected:
-//   - all three exist with `source: container`;
-//   - their `init-version` lines show systemd 259 (Ubuntu), systemd 257 (Debian) and OpenRC;
-//   - each systemd capture's `actions/` holds `start-nx-svc-test.txt`, `stop-nx-svc-test.txt`, `restart-nx-svc-test.txt` and `start-nx-svc-fail.txt` with an `Exit` line, and the Alpine capture holds `start-already-nx-svc-test.txt`.
-func TestTCSV44_TheThreeT1ContainerCapturesExist(t *testing.T) {
+//   - all five exist with `source: container`;
+//   - `init-version` shows systemd 259 (`t1-ubuntu-systemd`), systemd 257 (`t1-debian-systemd`), systemd 252 (`t1-debian12-systemd`, pihole's version), and OpenRC for both Alpine captures;
+//   - `os-release` of `t1-debian12-systemd` names Debian 12, `os-release` of `t1-alpine322-openrc` names Alpine 3.22 (Public-Nginx's release), and its `init-version` differs from `t1-alpine-openrc`'s;
+//   - each systemd capture's `actions/` holds `start-nx-svc-test.txt`, `stop-nx-svc-test.txt`, `restart-nx-svc-test.txt` and `start-nx-svc-fail.txt` with an `Exit` line, and each Alpine capture holds `start-already-nx-svc-test.txt`.
+func TestTCSV44_TheFiveT1ContainerCapturesExist(t *testing.T) {
 	t.Skip("TC-SV-44: SKIP-only stub; un-skip when WI 3.1 lands")
 }
 
-// TC-SV-45: The three real-host captures exist and carry the A-3, A-5, A-8, A-11 and A-22 evidence. Owner WI 3.1 (operator-deferred; un-skipped by TC-SV-L0). Requirements: NFR-3, NFR-4, CON-3, A-3, A-5, A-8, A-11, A-22.
+// TC-SV-45: The three real-host captures exist and carry the A-3, A-5, A-8, A-11 and A-22 evidence. Owner WI 6.0 (operator host captures; un-skipped by TC-SV-L0). Requirements: NFR-3, NFR-4, CON-3, A-3, A-5, A-8, A-11, A-22.
 //
 // - Setup: The operator has run `capture.sh` on home-server, pihole and Public-Nginx and committed `home-server/`, `pihole/` and `public-nginx/`.
 // - Steps:
-//  1. For each missing directory: `t.Skip("operator capture pending (WI 3.1): <dir>")`.
+//  1. For each missing directory: `t.Skip("operator capture pending (WI 6.0): <dir>")`.
 //  2. Otherwise read the evidence files.
 //
 // - Expected:
@@ -68,8 +69,27 @@ func TestTCSV44_TheThreeT1ContainerCapturesExist(t *testing.T) {
 //   - public-nginx's `readlink-sbin-reboot.txt` is `/bin/busybox`, and its `inittab-shutdown.txt` contains `/sbin/openrc shutdown` (A-5);
 //   - public-nginx's `run/openrc/options/nexusd/child_pid` holds a decimal PID (A-8);
 //   - home-server's `proc/self/cgroup` has a `0::` line ending `/nexusd.service` (A-11);
-//   - pihole's `journal-nexusd-since.txt` records `Exit 0` (A-22: systemd 252 accepts `--since=@s.us`);
-//   - pihole's `init-version` is systemd 252.
+//   - pihole's `journal-nexusd-since.txt` records `Exit 0` (A-22: systemd 252 accepts `--since=@s.us`; first checked locally by TC-SV-148 on `t1-debian12-systemd`, confirmed here on the real host);
+//   - pihole's `init-version` is systemd 252, the same version as `t1-debian12-systemd` (so TC-SV-148's local evidence applied to the right version).
 func TestTCSV45_TheThreeRealHostCapturesExistAnd(t *testing.T) {
-	t.Skip("TC-SV-45: SKIP-only stub; un-skip when WI 3.1 lands")
+	t.Skip("TC-SV-45: SKIP-only stub; un-skip when WI 6.0 lands")
+}
+
+// TC-SV-148: The version-matched T1 captures carry the A-5, A-8, A-9, A-10, A-22 and A-23 evidence. Owner WI 3.1. Requirements: NFR-3, CON-3, A-5, A-8, A-9, A-10, A-22, A-23.
+//
+// - Setup: The two version-matched container captures of TC-SV-44. They let these A-ledger rows fail locally during Phase 3 instead of at the operator's end-of-run host capture (review Finding 4).
+// - Steps:
+//  1. Read the evidence files of both captures.
+//  2. Run the capture-driven tables of TC-SV-46, TC-SV-47, TC-SV-49, TC-SV-62 and TC-SV-70 restricted to these two directories.
+//
+// - Expected:
+//   - `t1-debian12-systemd`: `journal-nexusd-since.txt` records `Exit 0`, and every line of `journal-nexusd-since.jsonl` decodes with `MESSAGE` and `PRIORITY` (A-22: journalctl 252 accepts the DF-2 argv, `--since=@s.us` with `--output-fields=MESSAGE,PRIORITY`);
+//   - `t1-debian12-systemd`: TC-SV-46 and TC-SV-47 pass on its `list-units.txt` and `list-unit-files.txt` against its oracle (A-23: the plain columns are stable on 252);
+//   - `t1-alpine322-openrc`: `readlink-sbin-reboot.txt` is `/bin/busybox`, and `inittab-shutdown.txt` contains `/sbin/openrc shutdown` (A-5; the harness image deletes only the getty lines from the stock inittab, `test/harness/Dockerfile.alpine:26`);
+//   - `t1-alpine322-openrc`: `run/openrc/options/nexusd/child_pid` holds a decimal PID (A-8);
+//   - `t1-alpine322-openrc`: `run/openrc/deptree` has `depinfo_N_service`, `_ineed_M`, `_iprovide_M` and `_providedby_M` keys, and TC-SV-70 passes on it (A-9);
+//   - `t1-alpine322-openrc`: TC-SV-49 passes on its `rc-status.txt` and `rc-update.txt` against `oracle/rc-service-status.tsv` (A-10);
+//   - a failure names the A-ledger row it falsifies, and that row's WI (3.2, 3.3 or 3.4) is reopened before Phase 4.
+func TestTCSV148_TheVersionMatchedT1CapturesCarryThe(t *testing.T) {
+	t.Skip("TC-SV-148: SKIP-only stub; un-skip when WI 3.1 lands")
 }

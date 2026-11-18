@@ -1,6 +1,6 @@
 // Stub-style: SKIP-only (services-provider)
 //
-// Stubs of planning/services-provider/test-cases.md TC-SV-102, TC-SV-103, TC-SV-104, TC-SV-105, TC-SV-106, TC-SV-107, TC-SV-108, TC-SV-109, TC-SV-110, TC-SV-111, TC-SV-112, TC-SV-113, TC-SV-114, TC-SV-116, TC-SV-E16, TC-SV-E17, TC-SV-E18, TC-SV-E20, TC-SV-ERR25, TC-SV-ERR26, TC-SV-ERR27, TC-SV-ERR29.
+// Stubs of planning/services-provider/test-cases.md TC-SV-102, TC-SV-103, TC-SV-104, TC-SV-105, TC-SV-106, TC-SV-107, TC-SV-108, TC-SV-109, TC-SV-110, TC-SV-111, TC-SV-112, TC-SV-113, TC-SV-114, TC-SV-116, TC-SV-E16, TC-SV-E17, TC-SV-E18, TC-SV-E20, TC-SV-ERR25, TC-SV-ERR26, TC-SV-ERR27, TC-SV-ERR29, TC-SV-ERR30, TC-SV-ERR31, TC-SV-ERR32.
 // Owner WIs: 4.4. Each stub compiles today and skips; the
 // developer of the owning work item replaces the skip and the comment with
 // the test, keeping the function name. An un-skipped passing test is the
@@ -49,7 +49,7 @@ func TestTCSV103_ForceSkipsOnlyTheOperationsGuardAnd(t *testing.T) {
 
 // TC-SV-104: whatIf reports every guard and reboots nothing. Owner WI 4.4. Requirements: FR-10, FR-12.
 //
-// - Setup: F-ROOTS with `boot_id` = `CUR`, `uptime` `5640281.12 …` and `osrelease` `7.0.0-42-generic`. The host provider's debian reboot marker lists `linux-image-7.0.0-43-generic`. Two subtests: guards all passing, and `nexusd` disabled plus F-OPS `01X`.
+// - Setup: F-ROOTS with `proc/sys/kernel/random/boot_id` = `CUR`, `proc/uptime` `5640281.12 …` and `proc/sys/kernel/osrelease` `7.0.0-42-generic`, read under `ProcRoot`. The host rule's debian marker is planted in F-ROOTS' host subtree: `var/run/reboot-required` and `var/run/reboot-required.pkgs` listing `linux-image-7.0.0-43-generic`, reaching `host.RebootRequiredNow` through the `services.Options` host seam (review Finding 6; test-strategy Required test seams). Two subtests: guards all passing, and `nexusd` disabled plus F-OPS `01X`.
 // - Steps:
 //  1. Admit `{confirmHost: h1, whatIf: true}` and run the op through the helper.
 //
@@ -82,19 +82,23 @@ func TestTCSV105_AdmissionRecordsConfirmHostForceAndBootIdAs(t *testing.T) {
 // - Expected:
 //   - no refusal (its own ID is excluded);
 //   - `input.json` holds `mode: reboot`, `delaySeconds: 10`, `timeoutSeconds: 300`, `init: systemd`, `bootId: CUR`, `kernelRelease: 7.0.0-42-generic` and `rebootRequired` (from `host.RebootRequiredNow`);
-//   - the spec has `KillMode: process`, `Timeout == 10s + 5m + 60s` and `MaxRuntime == 10s + 5m + 120s`.
+//   - the spec has `KillMode: process`, `Timeout == 10s + 5m + 60s` and `MaxRuntime == 10s + 5m + 120s`;
+//   - the spec's `Grace` is set explicitly to the value DF-4 step 3 states (non-zero, and longer than TC-SV-ERR30's measured record-retract-exit time), so a cancel's SIGTERM is never escalated to SIGKILL before the helper has retracted the record.
 func TestTCSV106_PrepareReRunsTheGuardsExcludingIts(t *testing.T) {
 	t.Skip("TC-SV-106: SKIP-only stub; un-skip when WI 4.4 lands")
 }
 
 // TC-SV-107: DF-5: a cancel during the delay ends Canceled with no record and no trigger. Owner WI 4.4. Requirements: FR-10, FR-11.
 //
-// - Setup: F-HELPER, with `hook("after-delay")` writing the cancel-request file.
+// - Setup: F-HELPER. The cancel is the real cancel: the cancel-request file and the stop (the test cancels the ctx the helper runs under, the in-process stand-in for the SIGTERM `Launcher.Cancel` sends). Two subtests:
+//   - (a) during the delay: `Sleep` blocks until its ctx is done, and the test injects the cancel while `Sleep` is blocked;
+//   - (b) at the delay's end: `hook("after-delay")` injects the cancel.
+//
 // - Steps:
 //  1. Run the helper in reboot mode.
 //
-// - Expected:
-//   - the helper exits as canceled (the existing helper cancel convention, ending `Canceled` through the manager);
+// - Expected: In both subtests:
+//   - the helper exits as canceled (the existing helper cancel convention, ending `Canceled` through the manager); in (a) `Sleep` returned the ctx error;
 //   - `ReadReboot` gives `ok == false`, and no `after-record` hook fired;
 //   - trigger calls: 0.
 func TestTCSV107_DF5ACancelDuringTheDelay(t *testing.T) {
@@ -103,22 +107,21 @@ func TestTCSV107_DF5ACancelDuringTheDelay(t *testing.T) {
 
 // TC-SV-108: DF-5: a cancel between the two checks retracts the record and does not trigger. Owner WI 4.4. Requirements: FR-10, FR-11.
 //
-// - Setup: F-HELPER, with `hook("after-record")` writing the cancel-request file.
+// - Setup: F-HELPER. The hook injects the real cancel (the cancel-request file and the ctx cancel that stands in for SIGTERM) at one stage per subtest: `after-check-1`, `after-record` and `after-check-2`. Every stage is before the trigger starts, so the helper's SIGTERM handling (review Finding 1) is in force.
 // - Steps:
-//  1. Run the helper.
+//  1. Run the helper, once per subtest.
 //
-// - Expected:
-//   - `after-record` fired with the record present (`ReadReboot` ok, `BootID == CUR`);
-//   - at exit the record is absent (retracted);
+// - Expected: In every subtest:
 //   - trigger calls: 0;
-//   - the exit is canceled.
+//   - at exit the record is absent: retracted when it had been written (`after-record` and `after-check-2` fired with `ReadReboot` ok and `BootID == CUR`), and never written for `after-check-1`;
+//   - the helper returns as canceled and writes no `result.json` claiming a reboot.
 func TestTCSV108_DF5ACancelBetweenTheTwo(t *testing.T) {
 	t.Skip("TC-SV-108: SKIP-only stub; un-skip when WI 4.4 lands")
 }
 
-// TC-SV-109: DF-5: a cancel after the second check does not stop the trigger. Owner WI 4.4. Requirements: FR-10, FR-11, A-28.
+// TC-SV-109: DF-5: a cancel that lands after the trigger started does not retract the record. Owner WI 4.4. Requirements: FR-10, FR-11, A-28.
 //
-// - Setup: F-HELPER, with `hook("after-check-2")` writing the cancel-request file. The trigger returns exit 0, and the test then cancels the helper's ctx (standing in for the shutdown's SIGTERM).
+// - Setup: F-HELPER. The trigger fake, once called, injects the real cancel (the cancel-request file and the ctx cancel standing in for SIGTERM) and then returns exit 0: the cancel arrives after the trigger has started, which is the only cancel that can no longer stop the reboot (A-28).
 // - Steps:
 //  1. Run the helper.
 //
@@ -126,7 +129,7 @@ func TestTCSV108_DF5ACancelBetweenTheTwo(t *testing.T) {
 //   - exactly one trigger call;
 //   - the record is still present after the helper returns (not retracted);
 //   - the helper wrote no `result.json`, so the manager's R3/R4 decide (TC-SV-15).
-func TestTCSV109_DF5ACancelAfterTheSecond(t *testing.T) {
+func TestTCSV109_DF5ACancelThatLandsAfter(t *testing.T) {
 	t.Skip("TC-SV-109: SKIP-only stub; un-skip when WI 4.4 lands")
 }
 
@@ -176,7 +179,7 @@ func TestTCSV112_TheTriggerIsRebootArgvThroughSvcctlsRunner(t *testing.T) {
 
 // TC-SV-113: AfterReboot builds the result from Rebooted, the new kernel and the reboot-required state. Owner WI 4.4. Requirements: FR-11.
 //
-// - Setup: `input.json` from TC-SV-106 (kernel `7.0.0-42-generic`, reboot required true). F-ROOTS has `osrelease` `7.0.0-43-generic` and no reboot marker. `Rebooted{PREV, CUR, T0, T1}`.
+// - Setup: `input.json` from TC-SV-106 (kernel `7.0.0-42-generic`, reboot required true). F-ROOTS has `proc/sys/kernel/osrelease` `7.0.0-43-generic` (read under `ProcRoot`), no `var/run/reboot-required` in its host subtree, and `lib/modules/7.0.0-43-generic/` present; the host subtree reaches `host.RebootRequiredNow` through the `services.Options` host seam (review Finding 6). `Rebooted{PREV, CUR, T0, T1}`.
 // - Steps:
 //  1. `AfterReboot(ctx, in, rb, run)`.
 //
@@ -323,4 +326,68 @@ func TestTCSVERR27_TheRebootAnswers503CapabilityUnavailableWhen(t *testing.T) {
 // - Expected: 400 `validation-failed`, naming `delaySeconds`, with no guard evaluated (F-OPS and F-DAEMON call counts 0).
 func TestTCSVERR29_OutOfRangeDelaySecondsIsRefusedWith(t *testing.T) {
 	t.Skip("TC-SV-ERR29: SKIP-only stub; un-skip when WI 4.4 lands")
+}
+
+// TC-SV-ERR30: A real cancel (request file plus SIGTERM) before the trigger retracts the record and never triggers. Owner WI 4.4. Requirements: FR-10, FR-11, CON-5.
+//
+// - Setup: The TC-SV-ERR26 subprocess (the test binary re-executed as the helper, real signal handling, `delaySeconds: 5`, `Sleep` returning at once). Its test-only hook, selected by an env switch, writes `<dir>/hook-<stage>` at the chosen stage and then polls every 10 ms for `<dir>/hook-<stage>.release` (10 s bound). The trigger seam writes `<dir>/trigger-called`. One subtest per stage: `after-check-1`, `after-record` and `after-check-2`.
+// - Steps:
+//  1. Start the process and wait for `hook-<stage>`.
+//  2. Write the cancel-request file with `detach.RequestCancel(dir)`, then send the process a real SIGTERM, in that order (as `Launcher.Cancel` does).
+//  3. Wait 200 ms, then write `hook-<stage>.release`.
+//
+// - Expected:
+//
+//   - the process is still alive at step 3 (the SIGTERM was handled, not fatal);
+//
+//   - it exits within 1 s of the release with status 143 (the TC-SV-ERR26 convention); under a supervisor that end is reported `canceled`, because the request file is present (TC-SV-ERR31 checks that through the real backend);
+//
+//   - `ReadReboot` gives `ok == false` (retracted for `after-record` and `after-check-2`, never written for `after-check-1`);
+//
+//   - no `trigger-called`;
+//
+//   - the measured time from SIGTERM to exit is logged; it bounds the spec `Grace` of TC-SV-106.
+//
+//     On the current design (no handler after the delay) the default SIGTERM action kills the helper in the hook, so the record is left behind and this case fails: it is the regression test for review Finding 1.
+func TestTCSVERR30_ARealCancelRequestFilePlusSIGTERM(t *testing.T) {
+	t.Skip("TC-SV-ERR30: SKIP-only stub; un-skip when WI 4.4 lands")
+}
+
+// TC-SV-ERR31: Through the real manager, a cancel accepted before the record whose SIGTERM lands after it ends Canceled, not held. Owner WI 4.4. Requirements: FR-10, FR-11, CON-4, CON-5.
+//
+// - Setup:
+//   - TC-SV-114's stack (the real Dispatcher, store, audit log and `ops.Manager` with F-BOOT `CUR`; the helper run as a subprocess under the local detach backend), with `delaySeconds: 5` and `Sleep` returning at once;
+//   - the TC-SV-ERR30 hook at `after-check-1` and `after-record`, and the `trigger-called` marker;
+//   - F-UNIT-END's delayed-signal wrapper on the backend's `Signal`: it returns at once and forwards the same SIGTERM to the real supervisor only after `hook-after-record` exists, then writes `<dir>/sigterm-forwarded`. It never drops, adds or changes a signal; it only reproduces the real ordering in which R2 ran before `RecordReboot` and the SIGTERM arrived after it.
+//
+// - Steps:
+//  1. POST the reboot `{confirmHost: h1, delaySeconds: 5}` and wait for `hook-after-check-1`.
+//  2. `POST /v1/operations/<id>/cancel` (R2 finds no record).
+//  3. Wait for the cancel-request file, then write `hook-after-check-1.release`.
+//  4. Wait for `sigterm-forwarded`, wait 200 ms, then write `hook-after-record.release`.
+//  5. Wait for terminal, at most 5 s after step 4.
+//
+// - Expected:
+//   - step 2 is accepted (not 409);
+//   - the operation ends `Canceled` within 5 s, never `outcome-unknown`, and was never held to `MaxRuntime`;
+//   - `reboot-requested` is absent at the end, and there is no `trigger-called`;
+//   - `mgr.Active()` no longer lists it, and a second reboot `{confirmHost: h1, whatIf: true}` is admitted (the `reboot` lane is free);
+//   - the audit log has `requested` then the cancel records, and no terminal record names a reboot.
+func TestTCSVERR31_ThroughTheRealManagerACancelAccepted(t *testing.T) {
+	t.Skip("TC-SV-ERR31: SKIP-only stub; un-skip when WI 4.4 lands")
+}
+
+// TC-SV-ERR32: SIGTERM with no cancel request between the record and the trigger leaves the record and never triggers. Owner WI 4.4. Requirements: FR-10, FR-11.
+//
+// - Setup: The TC-SV-ERR30 subprocess, one subtest per stage: `after-record` and `after-check-2`. No cancel-request file is written: this is an operator's `systemctl stop` of the op unit, or a shutdown that came from elsewhere. The behavior pinned here is review Finding 1's recommendation (leave the record, exit without triggering); if D-4 records a different choice, this case follows D-4.
+// - Steps:
+//  1. Start the process and wait for `hook-<stage>`.
+//  2. Send a real SIGTERM, wait 200 ms, and write `hook-<stage>.release`.
+//
+// - Expected:
+//   - the process exits within 1 s of the release with status 143; under a supervisor that end is reported `interrupted`, because there is no request file;
+//   - `ReadReboot` gives `ok == true` with `BootID == CUR` (the record is left, so the manager's R3 holds and R4 completes if the host does reboot: TC-SV-12, TC-SV-14, TC-SV-8);
+//   - no `trigger-called`.
+func TestTCSVERR32_SIGTERMWithNoCancelRequestBetweenThe(t *testing.T) {
+	t.Skip("TC-SV-ERR32: SKIP-only stub; un-skip when WI 4.4 lands")
 }

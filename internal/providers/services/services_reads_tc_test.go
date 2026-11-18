@@ -102,7 +102,7 @@ func TestTCSV85_LogsWithSinceAndNoTailPages(t *testing.T) {
 // - Expected:
 //   - the default call gives the newest 200 `out-*` frames with `s: stdout` and the 10 `err-*` with `s: stderr`;
 //   - `tail=1000` keeps the newest lines within 64 KiB of text in total, and the oldest kept line is the one the bound forces;
-//   - no frame has a `t` (file lines carry no time).
+//   - every frame's `t` is what DF-2 defines for a file frame (file lines carry no time of their own; review Finding 5), identical across the frames of one page, and never a time read from the line text.
 func TestTCSV86_OpenRCFileLogsKeepTheNewestLines(t *testing.T) {
 	t.Skip("TC-SV-86: SKIP-only stub; un-skip when WI 4.2 lands")
 }

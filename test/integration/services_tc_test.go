@@ -121,21 +121,22 @@ func TestTCSV141_T1NotAllowedAndUnknownNamesCreate(t *testing.T) {
 
 // TC-SV-142: T1 the reboot is unavailable without a boot-ID mount and available with one. Owner WI 5.3. Requirements: FR-3, FR-10, A-3, ASM-7.
 //
-// - Setup: `reboot.enabled: true` written with `writeConfig`.
+// - Setup: `reboot.enabled: true` written with `writeConfig`. `/run/nx-boot-id` written as in test-strategy Test Data.
 // - Steps:
 //  1. Start without the bind mount, and read capabilities.
-//  2. Stop, `mount --bind /run/nx-boot-id /proc/sys/kernel/random/boot_id`, start, and read capabilities again.
+//  2. Stop, `mount --bind /run/nx-boot-id /proc/sys/kernel/random/boot_id` (registering `umount /proc/sys/kernel/random/boot_id` in `t.Cleanup` at once), start with `startExact`, and read capabilities again.
 //
 // - Expected:
 //   - (1) `rebootAvailable: false`, with the ASM-7 reason, and a POST reboot answers 409 `reboot-unavailable` with that reason;
-//   - (2) `bootIdSource: container-mount`, `rebootAvailable: true`, and `cat /proc/sys/kernel/random/boot_id` inside the container equals `/run/nx-boot-id`.
+//   - (2) `bootIdSource: container-mount`, `rebootAvailable: true`, and `cat /proc/sys/kernel/random/boot_id` inside the container equals `/run/nx-boot-id`;
+//   - after cleanup, `/proc/self/mountinfo` has no mount on `/proc/sys/kernel/random/boot_id`.
 func TestTCSV142_T1TheRebootIsUnavailableWithoutA(t *testing.T) {
 	t.Skip("TC-SV-142: SKIP-only stub; un-skip when WI 5.3 lands")
 }
 
 // TC-SV-143: T1 every reboot guard refuses on the real host state. Owner WI 5.3. Requirements: FR-10, FR-16.
 //
-// - Setup: TC-SV-142 step 2 state. The host name is read from `system.capabilities.get`.
+// - Setup: TC-SV-142 step 2 state (bind mount up, unmounted in cleanup), with `bootIdSource: container-mount` asserted before any POST. The host name is read from `system.capabilities.get`.
 // - Steps:
 //  1. `reboot.enabled: false` (file edit and SIGHUP), then POST.
 //  2. Re-enable it and POST `confirmHost` = the host name uppercased.
@@ -159,7 +160,7 @@ func TestTCSV143_T1EveryRebootGuardRefusesOnThe(t *testing.T) {
 
 // TC-SV-144: T1 whatIf reports the guards with the container's boot ID and writes no record. Owner WI 5.3. Requirements: FR-10.
 //
-// - Setup: The TC-SV-142 step 2 state, with all guards passing.
+// - Setup: The TC-SV-142 step 2 state (bind mount up, unmounted in cleanup), with `bootIdSource: container-mount` asserted first, and all guards passing.
 // - Steps:
 //  1. POST `{confirmHost: <host>, whatIf: true}`, and wait.
 //
@@ -175,15 +176,22 @@ func TestTCSV144_T1WhatIfReportsTheGuardsWithThe(t *testing.T) {
 
 // TC-SV-145: T1 a delay-window cancel ends Canceled with no record and no trigger. Owner WI 5.3. Requirements: FR-10, FR-11, CON-5.
 //
-// - Setup: The TC-SV-142 step 2 state.
+// - Setup: The TC-SV-142 step 2 state (bind mount up, unmounted in cleanup), with `bootIdSource: container-mount` asserted first. Every guard passes, so a cancel that does not land would let the helper run the real `systemctl reboot` (or BusyBox `reboot`) inside the privileged container after the delay. Fail-safe (review Finding 3): registered in `t.Cleanup` before the POST, and also run by step 4 on timeout. If the operation is not terminal 10 s after the cancel, the test kills the helper before it can trigger and then fails:
+//
+//   - systemd: `systemctl kill -s SIGKILL nexus-op-<id>.service`;
+//
+//   - OpenRC: `pkill -KILL -f <op directory>` (the supervisor and the helper both carry the op directory in their argv), then checks that `pgrep -f <op directory>` finds nothing.
+//
+//     The 300 s delay leaves about 290 s between the fail-safe and the earliest possible trigger.
+//
 // - Steps:
 //  1. POST `{confirmHost: <host>, delaySeconds: 300}`, and wait for Running.
 //  2. On systemd, check that `systemctl show -p ActiveState nexus-op-<id>.service` is `active`.
 //  3. `POST /v1/operations/<id>/cancel`.
-//  4. Wait for terminal.
+//  4. Wait for terminal, at most 10 s. On timeout, run the fail-safe and `t.Fatalf` naming the op ID and its last state.
 //
 // - Expected:
-//   - Canceled within 10 s;
+//   - Canceled within 10 s (the fail-safe never ran);
 //   - no `reboot-requested` ever existed (checked every 100 ms during the run);
 //   - systemd: `systemctl list-jobs` never showed `reboot.target`, and the journal has no `reboot` request from the op unit;
 //   - OpenRC: no `openrc shutdown` in `/var/log/messages` or the op log;

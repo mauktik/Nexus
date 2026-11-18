@@ -70,8 +70,8 @@ func TestTCSV29_TheTypedFieldIsNeverCopiedFrom(t *testing.T) {
 // - Setup: `startProviderServer` with the services provider over F-HOSTS. The client config has hosts `h1` and `h2` (two servers).
 // - Steps:
 //  1. `nexus service get --host h1`.
-//  2. `nexus service get nexusd`.
-//  3. `nexus servicelog get nexusd --tail 5`.
+//  2. `nexus service get nexusd --host h1`.
+//  3. `nexus servicelog get nexusd --tail 5 --host h1` (it names the host for the same reason as step 2).
 //  4. `nexus service get --host all`.
 //  5. `nexus service invoke nx-svc-test --action restart --host h1 --no-wait`.
 //  6. `nexus service stop nx-svc-test --host h1` with F-TTY answering `n`.
@@ -79,6 +79,7 @@ func TestTCSV29_TheTypedFieldIsNeverCopiedFrom(t *testing.T) {
 //
 // - Expected:
 //   - (1) the columns `NAME STATE ENABLED CONTROLLABLE PROTECTED` (the header from `name, properties.state, …`);
+//   - (2) the same header and exactly one row, `nexusd`, whose `STATE` and `ENABLED` equal the provider's `get` response for `nexusd` over F-HOSTS (decoded into `spec.ServiceProperties`, not hard-coded), with `CONTROLLABLE` false and `PROTECTED` true; one GET to `h1` only, none to `h2`;
 //   - (3) 5 lines;
 //   - (4) rows from both hosts;
 //   - (5) one POST to `/v1/providers/services/services/nx-svc-test/control` with `{action: restart}`;

@@ -122,9 +122,9 @@ func TestTCSV14_R3TheHoldEndsOutcomeUnknownAt(t *testing.T) {
 //
 // - Setup: As TC-SV-12.
 // - Steps:
-//  1. Start and wait for Running. Write the cancel-request file in the op directory, as the manager's cancel path does before the record exists (the DF-5 race: the helper has passed its second check).
+//  1. Start and wait for Running. Write the cancel-request file in the op directory, as the manager's cancel path does when R2 accepted the cancel before the record existed (the DF-5 race in which the cancel lands only after the helper has started the trigger, A-28).
 //  2. Record with `PREV`.
-//  3. Stop the unit through the backend's cancel path, so the supervisor writes `exit.json` with `canceled: true`.
+//  3. Stop the unit through the backend's cancel path (the cancel-request file plus SIGTERM), so the supervisor writes `exit.json` with `canceled: true`.
 //
 // - Expected: The record stays `Running` (held), not `Canceled`. After TC-SV-13's step 3 (new boot `CUR`), it ends Succeeded through `AfterReboot` (A-28).
 func TestTCSV15_R3ACanceledExitAfterTheRecord(t *testing.T) {
@@ -178,12 +178,14 @@ func TestTCSV18_AnOperationThatDoesNotDeclareThe(t *testing.T) {
 // - Steps:
 //  1. Op A: Running, no record; `w.cancel`.
 //  2. Op B: Running, record at `T0`; `w.cancel`.
+//  3. Op C: Running, with a `reboot-requested` file that cannot be read (`{"bootId":`, truncated, as TC-SV-ERR4); `w.cancel`.
 //
 // - Expected:
 //   - A ends `Canceled`;
 //   - B's cancel answers 409 `not-cancelable`, with extension `operationId` = B and a detail containing `the reboot was already requested at` followed by `T0` in RFC 3339;
 //   - B stays `Running`, and its unit is not signaled (`unitSpy.signaled(B)` is empty);
-//   - the refusal is audited `refused` with slug `not-cancelable`.
+//   - C's cancel also answers 409 `not-cancelable` (R2 fails closed on a read error, review Finding 10), with `operationId` = C and a detail containing `the reboot record cannot be read; the reboot may have been requested`; C stays `Running`, `unitSpy.signaled(C)` is empty, and no cancel-request file exists in C's directory;
+//   - each refusal is audited `refused` with slug `not-cancelable`.
 func TestTCSV19_R2CancelAnswers409NotCancelableOnce(t *testing.T) {
 	t.Skip("TC-SV-19: SKIP-only stub; un-skip when WI 1.3 lands")
 }
@@ -236,11 +238,18 @@ func TestTCSVE4_TheLaneIsReleasedOnlyWhenThe(t *testing.T) {
 
 // TC-SV-E19: A record whose boot ID cannot be read ends outcome-unknown with the read error, never Succeeded. Owner WI 1.3. Requirements: FR-11.
 //
-// - Setup: TC-SV-8, but the `reboot-requested` file contains `{"bootId":` (truncated).
-// - Steps:
-//  1. Recover in boot `CUR`.
+// - Setup: TC-SV-8, but the `reboot-requested` file contains `{"bootId":` (truncated). Two subtests:
+//   - (R4) the unit ended interrupted in boot `PREV`; recover in boot `CUR`;
+//   - (R3) the live watcher sees the unit end interrupted in the same boot (TC-SV-12's setup with the corrupt file), with `MaxRuntime` 2 s.
 //
-// - Expected: Failed `outcome-unknown`, with a detail naming `reboot-requested` and the read error. `AfterReboot` is not called (test-strategy Open Item 7).
+// - Steps:
+//  1. Recover (R4), or let the watcher observe the exit (R3).
+//
+// - Expected: In both subtests:
+//   - Failed `outcome-unknown` at once, with a detail naming `reboot-requested` and the read error (review Finding 10);
+//   - in R3, the operation is terminal within 500 ms of the exit, well before `MaxRuntime` (no hold), and the lane is released;
+//   - `AfterReboot` is not called;
+//   - never Succeeded.
 func TestTCSVE19_ARecordWhoseBootIDCannotBe(t *testing.T) {
 	t.Skip("TC-SV-E19: SKIP-only stub; un-skip when WI 1.3 lands")
 }
