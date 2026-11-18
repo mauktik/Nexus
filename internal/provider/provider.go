@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/def"
@@ -139,6 +140,22 @@ type DetachedSpec[In, Out any] struct {
 	// LostDetail is appended to outcome-unknown when the unit died without
 	// exit.json. Optional.
 	LostDetail func(*Run, In) string
+	// AfterReboot decides the outcome of an op declaring
+	// def.Op.CompletesAcrossReboot whose unit ended without a result of its
+	// own after its helper recorded a reboot request in an earlier boot.
+	// Same rules as Finalize: idempotent, reads files, never waits, never
+	// depends on sensitive input. Required exactly when the op declares
+	// CompletesAcrossReboot; Detached panics otherwise.
+	AfterReboot func(context.Context, In, Rebooted, *Run) (Out, error)
+}
+
+// Rebooted is what the manager knows when an op declaring
+// def.Op.CompletesAcrossReboot finds itself in a new boot.
+type Rebooted struct {
+	PreviousBootID string    // From ops/<id>/reboot-requested
+	BootID         string    // This boot's
+	RequestedAt    time.Time // When the helper recorded the request
+	ReadyAt        time.Time // When this nexusd sent READY=1 and began recovery
 }
 
 // BindingKind is how a binding executes.
@@ -171,6 +188,9 @@ type DetachedFuncs struct {
 	// Admission is the spec's Admission hook: done with out, or the input
 	// next that Prepare runs on. Nil when the spec has none.
 	Admission func(ctx context.Context, in any) (done bool, out any, next any, err error)
+	// AfterReboot is the spec's AfterReboot hook. Nil exactly when the op
+	// does not declare def.Op.CompletesAcrossReboot.
+	AfterReboot func(ctx context.Context, in any, rb Rebooted, r *Run) (any, error)
 }
 
 // UploadBody is the raw request body of a KindUpload call.
@@ -369,6 +389,12 @@ func Detached[In, Out any](op def.Typed[In, Out], s DetachedSpec[In, Out]) Bindi
 	if d.CompletesAtAdmission && s.Admission == nil {
 		panic(fmt.Sprintf("provider: op %q: declares CompletesAtAdmission, so DetachedSpec needs Admission", d.ID))
 	}
+	if d.CompletesAcrossReboot && s.AfterReboot == nil {
+		panic(fmt.Sprintf("provider: op %q: declares CompletesAcrossReboot, so DetachedSpec needs AfterReboot", d.ID))
+	}
+	if !d.CompletesAcrossReboot && s.AfterReboot != nil {
+		panic(fmt.Sprintf("provider: op %q: DetachedSpec sets AfterReboot, but the op does not declare CompletesAcrossReboot", d.ID))
+	}
 	funcs := &DetachedFuncs{
 		Admit: func(ctx context.Context, in any) error {
 			v, err := typedInput[In](d, in)
@@ -426,6 +452,15 @@ func Detached[In, Out any](op def.Typed[In, Out], s DetachedSpec[In, Out]) Bindi
 				return true, a.Out, nil, nil
 			}
 			return false, nil, a.In, nil
+		}
+	}
+	if s.AfterReboot != nil {
+		funcs.AfterReboot = func(ctx context.Context, in any, rb Rebooted, r *Run) (any, error) {
+			v, err := typedInput[In](d, in)
+			if err != nil {
+				return nil, err
+			}
+			return s.AfterReboot(ctx, v, rb, r)
 		}
 	}
 	return Binding{op: d, kind: BindDetached, decode: decoder[In](), detached: funcs}
