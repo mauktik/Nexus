@@ -146,6 +146,9 @@ type rbWorld struct {
 	*world
 	rb   *rbProv
 	boot atomic.Pointer[string]
+	// unbound registers the world without rbProv, as a restart with the
+	// provider disabled does (CR-6).
+	unbound bool
 }
 
 var rbWho = who("ops", "rb:reboot", "td:write", "test:write")
@@ -200,9 +203,13 @@ func (rw *rbWorld) open() {
 	if w.mgr, err = ops.New(opts); err != nil {
 		t.Fatal(err)
 	}
-	w.reg, err = core.New([]provider.Provider{w.tp, w.tq, w.td, rw.rb}, core.Options{
-		Host: "testhost", Logger: w.log, Audit: w.alog, Ops: w.mgr,
-		Providers: map[string]core.ProviderConfig{"tp": {Enabled: true}, "tq": {Enabled: true}, "td": {Enabled: true}, "rb": {Enabled: true}},
+	provs := []provider.Provider{w.tp, w.tq, w.td, rw.rb}
+	cfgs := map[string]core.ProviderConfig{"tp": {Enabled: true}, "tq": {Enabled: true}, "td": {Enabled: true}, "rb": {Enabled: true}}
+	if rw.unbound {
+		provs, cfgs = provs[:3], map[string]core.ProviderConfig{"tp": {Enabled: true}, "tq": {Enabled: true}, "td": {Enabled: true}}
+	}
+	w.reg, err = core.New(provs, core.Options{
+		Host: "testhost", Logger: w.log, Audit: w.alog, Ops: w.mgr, Providers: cfgs,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1147,4 +1154,146 @@ func TestTCSVERR6_R1ADeclaringOpIsNotLaunched(t *testing.T) {
 	if rec := rw.waitEnd(plain.ID, 15*time.Second); rec.Status != apitypes.StatusSucceeded || spy.launched(plain.ID) != 1 {
 		t.Fatalf("plain op: %s %+v, %d launches; want Succeeded after one", rec.Status, rec.Error, spy.launched(plain.ID))
 	}
+}
+
+// CR-6 (services-provider code review): the fail-closed branches of the
+// manager's reboot rules that no TC reached.
+
+// A record is present at a start whose boot ID cannot be read: the unit is
+// lost, so the reboot cannot be confirmed. Without the m.boot == "" case the
+// record's boot would differ from the empty one and AfterReboot would mark
+// an unconfirmed reboot Succeeded.
+func TestCR6_ARecordAtAStartWhoseBootIDCannotBeReadIsOutcomeUnknown(t *testing.T) {
+	perBackend(t, func(t *testing.T, backend detachtest.Backend) {
+		var seams detach.Options
+		rw := newRBWorld(t, bootPrev, withBackend(t, backend, &seams))
+		op := rw.startRB("r")
+		rw.running(&seams, op.ID)
+		rw.record(op.ID, bootPrev, requestedAt())
+		rw.reboot("", func() {
+			if err := seams.Signal(context.Background(), detach.Unit(op.ID), syscall.SIGKILL); err != nil {
+				t.Fatal(err)
+			}
+			waitUnitGone(t, seams, detach.Unit(op.ID))
+		})
+		waitClosed(t, rw.recoverNow(), 15*time.Second, "classification")
+		rec := rw.waitEnd(op.ID, 15*time.Second)
+		wantOutcomeUnknown(t, rec, "this boot's ID cannot be read")
+		wantNoHooks(t, rw.rb)
+	})
+}
+
+// An operation whose binding is gone at the restart (its provider disabled)
+// has no reboot rules; a record from an earlier boot must still not make it
+// Succeeded: it ends outcome-unknown, with no AfterReboot.
+func TestCR6_ARecoveredRebootWhoseBindingIsGoneIsOutcomeUnknown(t *testing.T) {
+	perBackend(t, func(t *testing.T, backend detachtest.Backend) {
+		var seams detach.Options
+		rw := newRBWorld(t, bootPrev, withBackend(t, backend, &seams))
+		op := rw.startRB("r")
+		rw.running(&seams, op.ID)
+		rw.record(op.ID, bootPrev, requestedAt())
+		rw.unbound = true
+		rw.reboot(bootCur, func() {
+			if err := seams.Signal(context.Background(), detach.Unit(op.ID), syscall.SIGKILL); err != nil {
+				t.Fatal(err)
+			}
+			waitUnitGone(t, seams, detach.Unit(op.ID))
+		})
+		waitClosed(t, rw.recoverNow(), 15*time.Second, "classification")
+		wantOutcomeUnknown(t, rw.waitEnd(op.ID, 15*time.Second), "")
+		wantNoHooks(t, rw.rb)
+	})
+}
+
+// reattached starts the op in bootPrev, restarts nexusd in the same boot
+// with the unit still live, and recovers: the manager's entry is a
+// restored one.
+func reattached(t *testing.T, rw *rbWorld, seams *detach.Options) (op apitypes.Operation, pid int) {
+	t.Helper()
+	op = rw.startRB("r")
+	pid = rw.running(seams, op.ID)
+	rw.reboot(bootPrev, nil)
+	waitClosed(t, rw.recoverNow(), 15*time.Second, "classification")
+	rw.stillRunning(op.ID)
+	return op, pid
+}
+
+// R2 holds for an entry rebuilt by Restore: once the record exists a cancel
+// answers 409 not-cancelable, and sends neither a cancel request nor a
+// signal.
+func TestCR6_R2CoversAReattachedReboot(t *testing.T) {
+	perBackend(t, func(t *testing.T, backend detachtest.Backend) {
+		var seams detach.Options
+		rw := newRBWorld(t, bootPrev, withBackend(t, backend, &seams))
+		op, pid := reattached(t, rw, &seams)
+		requested := requestedAt()
+		rw.record(op.ID, bootPrev, requested)
+		_, err := rw.cancel(rbWho, op.ID, "")
+		pe := wantProblem(t, err, problem.NotCancelable)
+		if pe.Status != http.StatusConflict || !strings.Contains(pe.Detail, "the reboot was already requested at "+requested.Format(time.RFC3339)) {
+			t.Fatalf("cancel: %+v, want 409 not-cancelable naming the request", pe)
+		}
+		if ok, err := detach.CancelRequested(rw.opDir(op.ID)); err != nil || ok {
+			t.Fatalf("a cancel request was written (%v, %v)", ok, err)
+		}
+		time.Sleep(3 * detach.PollInterval)
+		if err := syscall.Kill(pid, 0); err != nil {
+			t.Fatalf("the operation's process was signaled: %v", err)
+		}
+		rw.stillRunning(op.ID)
+	})
+}
+
+// A reattached operation whose unit ends interrupted with this boot's
+// record is held Running, with its lane, not ended.
+func TestCR6_AReattachedRebootThatEndsInterruptedIsHeld(t *testing.T) {
+	perBackend(t, func(t *testing.T, backend detachtest.Backend) {
+		var seams detach.Options
+		rw := newRBWorld(t, bootPrev, withBackend(t, backend, &seams))
+		op, _ := reattached(t, rw, &seams)
+		rw.record(op.ID, bootPrev, requestedAt())
+		if err := seams.Signal(context.Background(), detach.Unit(op.ID), syscall.SIGTERM); err != nil {
+			t.Fatal(err)
+		}
+		if x := rw.waitExit(op.ID); !x.Interrupted {
+			t.Fatalf("exit.json %+v, want interrupted", x)
+		}
+		time.Sleep(3*detach.PollInterval + time.Second)
+		rw.stillRunning(op.ID)
+		wantNoHooks(t, rw.rb)
+		_, err := rw.call(rbWho, rbOp.Op(), `{"name":"second"}`, "")
+		if pe := wantProblem(t, err, problem.Conflict); pe.Extensions["blockingOperationId"] != op.ID {
+			t.Fatalf("409 %+v, want blockingOperationId %s", pe, op.ID)
+		}
+	})
+}
+
+// A hold that recovery started (the unit ended before nexusd restarted, in
+// the same boot) ends at shutdown with the record Running, and the next
+// boot completes it through AfterReboot (R4).
+func TestCR6_ARecoveredHoldEndsAtShutdownAndCompletesNextBoot(t *testing.T) {
+	perBackend(t, func(t *testing.T, backend detachtest.Backend) {
+		var seams detach.Options
+		rw := newRBWorld(t, bootPrev, withBackend(t, backend, &seams))
+		op := rw.startRB("r")
+		rw.running(&seams, op.ID)
+		requested := requestedAt()
+		rw.record(op.ID, bootPrev, requested)
+		if err := seams.Signal(context.Background(), detach.Unit(op.ID), syscall.SIGTERM); err != nil {
+			t.Fatal(err)
+		}
+		if x := rw.waitExit(op.ID); !x.Interrupted {
+			t.Fatalf("exit.json %+v, want interrupted", x)
+		}
+		rw.reboot(bootPrev, nil) // nexusd restarts in the same boot
+		waitClosed(t, rw.recoverNow(), 15*time.Second, "classification")
+		time.Sleep(time.Second)
+		rw.stillRunning(op.ID)
+		wantNoHooks(t, rw.rb)
+		rw.reboot(bootCur, nil) // The hold ends at shutdown; the host rebooted
+		waitClosed(t, rw.recoverNow(), 15*time.Second, "classification")
+		wantAfterReboot(t, rw.rb, rw.waitEnd(op.ID, 15*time.Second), requested)
+		rw.wantRebootFacts(op.ID)
+	})
 }
