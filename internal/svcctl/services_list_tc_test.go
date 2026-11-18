@@ -848,6 +848,101 @@ func TestTCSV55_DescribeOnOpenRCReturnsStatusRunlevelsScript(t *testing.T) {
 	}
 }
 
+// describeMainPID runs Describe on the t1-alpine-openrc capture's started
+// nexusd with a fresh run and proc root, so MainPID comes only from what
+// plant lays out there, and returns the MainPID.
+func describeMainPID(t *testing.T, plant func(run, proc string)) int {
+	t.Helper()
+	const c = "t1-alpine-openrc"
+	dir, err := svcctltest.CaptureDir(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, proc := t.TempDir(), t.TempDir()
+	plant(run, proc)
+	fh := svcctltest.NewHost(t, c)
+	d, err := svcctl.Describe(t.Context(), platform.OpenRC, "nexusd", svcctl.Options{Run: fh.Run,
+		EtcRoot: copyEtc(t, dir), RunRoot: run, ProcRoot: proc})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.State != "running" {
+		t.Fatalf("State %q, want running", d.State)
+	}
+	return d.MainPID
+}
+
+func plantProcs(t *testing.T, proc string, pids ...int) {
+	t.Helper()
+	for _, p := range pids {
+		if err := os.MkdirAll(filepath.Join(proc, strconv.Itoa(p)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TC-SV-55 (supervise-daemon): a service under supervise-daemon has a
+// daemons record whose pidfile is the supervisor's (live: `pidfile=/var/run/
+// supervise-<name>.pid` beside options/<name>/child_pid), and MainPID is the
+// service's own process, the child_pid, not the supervisor.
+func TestTCSV55_DescribeOnOpenRCSupervisedServiceReportsTheChildPID(t *testing.T) {
+	const supervisor, child = 2125, 2126
+	got := describeMainPID(t, func(run, proc string) {
+		plantProcs(t, proc, supervisor, child)
+		pidfile := filepath.Join(run, "supervise-nexusd.pid")
+		if err := svcctltest.WriteDaemonRecord(run, "nexusd", pidfile, supervisor); err != nil {
+			t.Fatal(err)
+		}
+		opts := filepath.Join(run, "openrc", "options", "nexusd")
+		if err := os.MkdirAll(opts, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(opts, "child_pid"), []byte(strconv.Itoa(child)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if got != child {
+		t.Errorf("MainPID %d, want the child %d (not the supervisor %d)", got, child, supervisor)
+	}
+}
+
+// A supervised service whose child is not live reports no PID, never the
+// supervisor's.
+func TestTCSV55_DescribeOnOpenRCSupervisedServiceWithADeadChildHasNoPID(t *testing.T) {
+	const supervisor, child = 2125, 2126
+	got := describeMainPID(t, func(run, proc string) {
+		plantProcs(t, proc, supervisor)
+		if err := svcctltest.WriteDaemonRecord(run, "nexusd", filepath.Join(run, "supervise-nexusd.pid"), supervisor); err != nil {
+			t.Fatal(err)
+		}
+		opts := filepath.Join(run, "openrc", "options", "nexusd")
+		if err := os.MkdirAll(opts, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(opts, "child_pid"), []byte(strconv.Itoa(child)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if got != 0 {
+		t.Errorf("MainPID %d, want 0", got)
+	}
+}
+
+// A start-stop-daemon service has a daemons record and no child_pid:
+// MainPID is the pidfile's PID.
+func TestTCSV55_DescribeOnOpenRCStartStopDaemonServiceReportsThePidfilePID(t *testing.T) {
+	const pid = 3131
+	got := describeMainPID(t, func(run, proc string) {
+		plantProcs(t, proc, pid)
+		if err := svcctltest.WriteDaemonRecord(run, "nexusd", filepath.Join(run, "nexusd.pid"), pid); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if got != pid {
+		t.Errorf("MainPID %d, want the pidfile's %d", got, pid)
+	}
+}
+
 // TC-SV-56: EnabledAtBoot follows is-enabled on systemd and the boot or
 // default runlevel on OpenRC.
 func TestTCSV56_EnabledAtBootFollowsIsEnabledOnSystemdAnd(t *testing.T) {
