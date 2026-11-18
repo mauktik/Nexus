@@ -44,9 +44,15 @@ var helperModes = map[string]helperMode{
 // supervisor forwards on a cancel or a stop, is its stop context, made
 // before input.json is read.
 func Helper(args []string, stdout, stderr io.Writer) int {
+	return helper(args, stdout, stderr, helperEnv{})
+}
+
+// helper is Helper with its seams. The tests' helper processes run it, so
+// the SIGTERM stop context they are signaled through is the production one.
+func helper(args []string, stdout, stderr io.Writer, env helperEnv) int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM)
 	defer stop()
-	return runHelper(ctx, args, stdout, stderr, helperEnv{})
+	return runHelper(ctx, args, stdout, stderr, env)
 }
 
 // runHelper is Helper with its stop context and seams.

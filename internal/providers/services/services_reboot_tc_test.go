@@ -34,7 +34,6 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -258,11 +257,10 @@ type rbHelperConfig struct {
 }
 
 // rbHelperProcess is this binary as `nexusd services-helper run --dir D`
-// with F-HELPER seams: the stop context is made with signal.NotifyContext
-// before input.json is read, exactly as Helper makes it.
+// with F-HELPER seams. It runs the production helper (Helper's own body),
+// so the SIGTERM stop context a real cancel reaches is the production one,
+// made before input.json is read (CR-5).
 func rbHelperProcess(path string) int {
-	stop, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM)
-	defer cancel()
 	b, err := os.ReadFile(path)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -323,7 +321,7 @@ func rbHelperProcess(path string) int {
 			}
 		},
 	}
-	return runHelper(stop, args, os.Stdout, os.Stderr, helperEnv{reboot: env})
+	return helper(args, os.Stdout, os.Stderr, helperEnv{reboot: env})
 }
 
 // rbHelperEnvFor writes cfg and returns the environment entry that makes
