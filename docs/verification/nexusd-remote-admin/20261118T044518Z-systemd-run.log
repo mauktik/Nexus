@@ -1,0 +1,1363 @@
+harness: docker context default, daemon architecture aarch64 -> GOARCH=arm64, BASE=ubuntu:latest, init systemd
+harness: building image nexus-harness:ubuntu-latest from test/harness/Dockerfile
+harness: building linux/arm64 test-only binaries into build/harness/
+harness: building the self-update fixtures (v9.9.1 v9.9.2 v9.9.3 v9.9.4 v9.9.5 v9.9.6 v9.9.7) into build/harness/selfupdate
+harness: per-run signing key build/harness/release-test.key, public key QBsGSModrBefZV9ZZ7sF9r7Krx2h9cFejTqWA4nC7cU=; untrusted key build/harness/release-untrusted.key
+harness: fixture v9.9.1: nexus-release: /Users/devuser/Projects/Nexus/build/harness/selfupdate/pkg/nexusd-v9.9.1-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.2: nexus-release: /Users/devuser/Projects/Nexus/build/harness/selfupdate/pkg/nexusd-v9.9.2-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.3: nexus-release: /Users/devuser/Projects/Nexus/build/harness/selfupdate/pkg/nexusd-v9.9.3-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.4: nexus-release: /Users/devuser/Projects/Nexus/build/harness/selfupdate/pkg/nexusd-v9.9.4-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.5: nexus-release: /Users/devuser/Projects/Nexus/build/harness/selfupdate/pkg/nexusd-v9.9.5-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.6: refused by the per-run key, as intended (signed by build/harness/release-untrusted.key)
+harness: fixture v9.9.7: nexus-release: /Users/devuser/Projects/Nexus/build/harness/selfupdate/pkg/nexusd-v9.9.7-linux-arm64.tar.gz: signature verified
+harness: starting container nexus-harness-20261118T044518Z-14107
+harness: mounts: volume:/var/lib/containerd volume:/var/lib/docker 
+harness: waiting for systemd (running or degraded)
+harness: system state: degraded
+harness: failed units: systemd-modules-load.service
+harness: required unit systemd-journald.service active
+harness: required unit dbus.service active
+harness: required unit docker.service active
+harness: versions: systemd 259 (259.9-0ubuntu0.1) apt 3.2.0 dpkg 1.23.7ubuntu1 nginx version: nginx/1.28.3 (Ubuntu) curl 8.18.0 (aarch64-unknown-linux-gnu) libcurl/8.18.0 OpenSSL/3.5.5 zlib/1.3.1 brotli/1.2.0 zstd/1.5.7 libidn2/2.3.8 libpsl/0.21.2 libssh2/1.11.1 nghttp2/1.68.0 librtmp/2.3 mit-krb5/1.22.1 OpenLDAP/2.6.10 Ubuntu 26.04.1 LTS
+harness: copying binaries, unit, lib.sh and fixtures in with docker cp
+harness: host signing key /Users/devuser/.config/nexus/release-signing.key unchanged (mtime 1794699338)
+harness: fixture file: total 217152
+harness: fixture file: -rw-r--r--  1 devuser  staff  15531808 Nov 17 20:45 nexusd-v9.9.1-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 17 20:45 nexusd-v9.9.1-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  15531835 Nov 17 20:45 nexusd-v9.9.2-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 17 20:45 nexusd-v9.9.2-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  15531837 Nov 17 20:45 nexusd-v9.9.3-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 17 20:45 nexusd-v9.9.3-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff   1086332 Nov 17 20:45 nexusd-v9.9.4-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 17 20:45 nexusd-v9.9.4-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  29979794 Nov 17 20:45 nexusd-v9.9.5-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 17 20:45 nexusd-v9.9.5-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  15531832 Nov 17 20:45 nexusd-v9.9.6-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 17 20:45 nexusd-v9.9.6-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  15531966 Nov 17 20:45 nexusd-v9.9.7-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 17 20:45 nexusd-v9.9.7-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff        45 Nov 17 20:45 release-test.pub
+harness: copying the self-update fixtures into /harness/selfupdate
+harness: copying the parity suites in
+harness: parity suite internal/detach as root -> detach.log
+harness: parity suite internal/detach as root exited 0: 59 PASS, 1 SKIP, 0 FAIL
+harness: parity suite internal/ops as root -> ops.log
+harness: parity suite internal/ops as root exited 0: 97 PASS, 0 SKIP, 0 FAIL
+harness: parity suite internal/detach as nonroot -> detach-nonroot.log
+harness: parity suite internal/detach as nonroot exited 0: 54 PASS, 6 SKIP, 0 FAIL
+harness: parity suite internal/ops as nonroot -> ops-nonroot.log
+harness: parity suite internal/ops as nonroot exited 0: 97 PASS, 0 SKIP, 0 FAIL
+harness: running tests
+=== RUN   TestTCRA93_TheHardenedUnitIsUnchangedOnTheRealHost
+    nexusd_remoteadmin_test.go:890: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    nexusd_remoteadmin_test.go:890: T1 host: install.sh default config with the nexusd provider enabled; nexusd.service MainPID 2366, NRestarts 0, certificate 79:95:BA:BF:A0:12:1A:3E:B7:0C:A9:22:40:92:CB:78:68:D6:C1:8A:0C:7D:EF:84:6A:70:79:C5:0E:01:1F:27
+    nexusd_remoteadmin_test.go:892: sha256 /etc/systemd/system/nexusd.service 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a; /harness/deploy/nexusd.service (the repository's deploy/nexusd.service) 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a
+    nexusd_remoteadmin_test.go:897: systemctl show nexusd: map[CapabilityBoundingSet:cap_dac_read_search ProtectSystem:strict ReadOnlyPaths: ReadWritePaths:]
+    nexusd_remoteadmin_test.go:924: systemctl cat nexusd: ["# /etc/systemd/system/nexusd.service"]
+--- PASS: TestTCRA93_TheHardenedUnitIsUnchangedOnTheRealHost (0.62s)
+=== RUN   TestTCRA94_ConfigSetOnRealSystemdAppliesTheChangeWritesThe
+    nexusd_remoteadmin_test.go:948: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    nexusd_remoteadmin_test.go:948: T1 host: install.sh default config with the nexusd provider enabled; nexusd.service MainPID 2567, NRestarts 0, certificate 45:5E:A7:36:9E:34:F7:14:12:8D:4B:1C:57:7F:F5:B5:1C:BE:5F:2B:C6:75:43:42:05:40:26:2F:35:17:7B:66
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes -o json providers.host.enabled=true: exit 0 in 807ms
+        stdout: [
+          {
+            "action": "nexusd.actions.update-config",
+            "created": "2026-11-18T04:48:00.049172874Z",
+            "ended": "2026-11-18T04:48:00.584775257Z",
+            "error": null,
+            "host": "t1",
+            "id": "01a1ecfb-b031-7079-b3a5-9cdefc1415fc",
+            "outputEvicted": false,
+            "provider": "nexusd",
+            "result": {
+              "backupPath": "/etc/nexus/nexusd.yaml.bak",
+              "changed": true,
+              "changes": [
+                {
+                  "key": "providers.host.enabled",
+                  "new": true,
+                  "old": false
+                }
+              ],
+              "restartRequired": [],
+              "restored": false
+            },
+            "started": "2026-11-18T04:48:00.053485028Z",
+            "status": "Succeeded",
+            "target": "",
+            "tokenName": "ra"
+          }
+        ]
+        stderr: 
+    nexusd_remoteadmin_test.go:954: config set ["providers.host.enabled=true"]: operation 01a1ecfb-b031-7079-b3a5-9cdefc1415fc Succeeded, error <nil>, result {"changed":true,"changes":[{"key":"providers.host.enabled","old":false,"new":true}],"restartRequired":[],"backupPath":"/etc/nexus/nexusd.yaml.bak","restored":false}
+    nexusd_remoteadmin_test.go:980: PC: sha256(disk) 91b30c763b9bff73a3bc32b1e34f203935c498a6a9c72630c5c53e5a04993dd9 == reload-status.json sha256, applied, seq 1
+    nexusd_selfmgmt_test.go:205: nexus hostsummary get -o json: exit 0 in 34ms
+        stdout: [
+          {
+            "host": "t1",
+            "id": "/providers/host/summary/current",
+            "name": "current",
+            "properties": {
+              "cpu": {
+                "load": {
+                  "load1": 0.16,
+                  "load15": 0.06,
+                  "load5": 0.12
+                },
+                "logicalCpus": 4,
+                "model": null,
+                "unavailable": {
+                  "model": "not reported: no model name in /proc/cpuinfo",
+                  "usagePercent": "warming up"
+                },
+                "usagePercent": null
+              },
+              "filesystems": [
+                {
+                  "mountPoint": "/",
+                  "sizeBytes": 63088406528,
+                  "usedPercent": 55.26300715284849
+                },
+                {
+                  "mountPoint": "/dev/shm",
+                  "sizeBytes": 67108864,
+                  "usedPercent": 0
+                },
+                {
+                  "mountPoint": "/run",
+                  "sizeBytes": 4154470400,
+                  "usedPercent": 0.0016760740430356658
+                },
+                {
+                  "mountPoint": "/tmp",
+                  "sizeBytes": 4154474496,
+                  "usedPercent": 0.00009859249356191018
+                },
+                {
+                  "mountPoint": "/var/lib/docker",
+                  "sizeBytes": 63088406528,
+                  "usedPercent": 55.26300715284849
+                }
+              ],
+              "filesystemsTotal": 5,
+              "filesystemsTruncated": false,
+              "health": {
+                "failedServicesCount": 1,
+                "oomKills": 0,
+                "rebootRequired": "false"
+              },
+              "identity": {
+                "architecture": "aarch64",
+                "bootTime": "2026-10-17T13:30:49Z",
+                "hostname": "693308035db9",
+                "initSystem": "systemd",
+                "kernelRelease": "6.8.0-100-generic",
+                "os": {
+                  "id": "ubuntu",
+                  "prettyName": "Ubuntu 26.04.1 LTS",
+                  "versionId": "26.04"
+                },
+                "uptimeSeconds": 2733431.49
+              },
+              "memory": {
+                "availableBytes": 7349272576,
+                "swapTotalBytes": 0,
+                "swapUsedBytes": 0,
+                "totalBytes": 8308944896,
+                "usedPercent": 11.549869833196208
+              },
+              "network": {
+                "defaultGateways": [
+                  {
+                    "address": "172.17.0.1",
+                    "family": "ipv4",
+                    "interface": "eth0",
+                    "metric": 0
+                  }
+                ],
+                "interfaces": [
+                  {
+                    "ipv4": "172.18.0.1/16",
+                    "ipv6": null,
+                    "name": "docker0",
+                    "rxBytesPerSecond": null,
+                    "state": "down",
+                    "txBytesPerSecond": null,
+                    "unavailable": {
+                      "ipv6": "not reported: no IPv6 address",
+                      "rxBytesPerSecond": "warming up",
+                      "txBytesPerSecond": "warming up"
+                    }
+                  },
+                  {
+                    "ipv4": "172.17.0.2/16",
+                    "ipv6": null,
+                    "name": "eth0",
+                    "rxBytesPerSecond": null,
+                    "state": "up",
+                    "txBytesPerSecond": null,
+                    "unavailable": {
+                      "ipv6": "not reported: no IPv6 address",
+                      "rxBytesPerSecond": "warming up",
+                      "txBytesPerSecond": "warming up"
+                    }
+                  }
+                ],
+                "interfacesTotal": 2,
+                "interfacesTruncated": false
+              },
+              "sampler": {
+                "ageSeconds": 0.711019337,
+                "intervalSeconds": null,
+                "sampledAt": "2026-11-18T04:48:00.139125804Z",
+                "state": "warming-up",
+                "unavailable": {
+                  "intervalSeconds": "warming up"
+                }
+              }
+            },
+            "type": "summary"
+          }
+        ]
+        stderr: 
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig get providers.host.enabled -o json: exit 0 in 26ms
+        stdout: [
+          {
+            "host": "t1",
+            "id": "/providers/nexusd/config/providers.host.enabled",
+            "name": "providers.host.enabled",
+            "properties": {
+              "effective": true,
+              "source": "file",
+              "value": true
+            },
+            "type": "config"
+          }
+        ]
+        stderr: 
+    nexusd_remoteadmin_test.go:998: journalctl -u nexus-op-01a1ecfb-b031-7079-b3a5-9cdefc1415fc.service: 3 lines
+--- PASS: TestTCRA94_ConfigSetOnRealSystemdAppliesTheChangeWritesThe (1.92s)
+=== RUN   TestTCRA95_CommentsInTheInstalledDefaultFileSurviveAReal
+    nexusd_remoteadmin_test.go:1006: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    nexusd_remoteadmin_test.go:1006: T1 host: install.sh default config with the nexusd provider enabled; nexusd.service MainPID 2819, NRestarts 0, certificate 48:58:9F:3D:84:65:20:D8:8B:EE:D7:E1:07:A4:D9:3E:87:90:A3:97:17:9C:7D:0B:C3:57:87:12:24:31:3C:FF
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes -o json providers.host.enabled=true: exit 0 in 795ms
+        stdout: [
+          {
+            "action": "nexusd.actions.update-config",
+            "created": "2026-11-18T04:48:01.514503668Z",
+            "ended": "2026-11-18T04:48:02.042813544Z",
+            "error": null,
+            "host": "t1",
+            "id": "01a1ecfb-b5ea-7777-8999-83239b54d7d2",
+            "outputEvicted": false,
+            "provider": "nexusd",
+            "result": {
+              "backupPath": "/etc/nexus/nexusd.yaml.bak",
+              "changed": true,
+              "changes": [
+                {
+                  "key": "providers.host.enabled",
+                  "new": true,
+                  "old": false
+                }
+              ],
+              "restartRequired": [],
+              "restored": false
+            },
+            "started": "2026-11-18T04:48:01.518464611Z",
+            "status": "Succeeded",
+            "target": "",
+            "tokenName": "ra"
+          }
+        ]
+        stderr: 
+    nexusd_remoteadmin_test.go:1007: config set ["providers.host.enabled=true"]: operation 01a1ecfb-b5ea-7777-8999-83239b54d7d2 Succeeded, error <nil>, result {"changed":true,"changes":[{"key":"providers.host.enabled","old":false,"new":true}],"restartRequired":[],"backupPath":"/etc/nexus/nexusd.yaml.bak","restored":false}
+    nexusd_remoteadmin_test.go:1032: the one changed line, 183, under "host:":
+        -     enabled: false             # Off until enabled here
+        +     enabled: true             # Off until enabled here
+    nexusd_remoteadmin_test.go:1058: lines with '#': /etc/nexus/nexusd.yaml.bak 144, /etc/nexus/nexusd.yaml 144
+--- PASS: TestTCRA95_CommentsInTheInstalledDefaultFileSurviveAReal (1.42s)
+=== RUN   TestTCRA96_AddingAnAbsentKeyToAHandCommentedFileOnTheReal
+    nexusd_remoteadmin_test.go:1067: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    nexusd_remoteadmin_test.go:1067: T1 host: install.sh default config with the nexusd provider enabled; nexusd.service MainPID 3049, NRestarts 0, certificate 82:E6:BC:82:FF:C2:7A:5A:E1:C1:DE:20:06:65:90:21:D7:42:EA:1E:39:93:43:96:86:7F:B5:BE:D5:87:1A:74
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes -o json providers.pihole.enabled=false: exit 0 in 796ms
+        stdout: [
+          {
+            "action": "nexusd.actions.update-config",
+            "created": "2026-11-18T04:48:03.09718045Z",
+            "ended": "2026-11-18T04:48:03.645962005Z",
+            "error": null,
+            "host": "t1",
+            "id": "01a1ecfb-bc19-7096-8eac-61030326c6ad",
+            "outputEvicted": false,
+            "provider": "nexusd",
+            "result": {
+              "backupPath": "/etc/nexus/nexusd.yaml.bak",
+              "changed": true,
+              "changes": [
+                {
+                  "key": "providers.pihole.enabled",
+                  "new": false,
+                  "old": null
+                }
+              ],
+              "restartRequired": [
+                "host"
+              ],
+              "restored": false,
+              "warnings": [
+                "run nexus nexusd restart to apply: host"
+              ]
+            },
+            "started": "2026-11-18T04:48:03.10144702Z",
+            "status": "Succeeded",
+            "target": "",
+            "tokenName": "ra"
+          }
+        ]
+        stderr: {"host":"t1","level":"warning","message":"run nexus nexusd restart to apply: host"}
+    nexusd_remoteadmin_test.go:1093: config set ["providers.pihole.enabled=false"]: operation 01a1ecfb-bc19-7096-8eac-61030326c6ad Succeeded, error <nil>, result {"changed":true,"warnings":["run nexus nexusd restart to apply: host"],"changes":[{"key":"providers.pihole.enabled","old":null,"new":false}],"restartRequired":["host"],"backupPath":"/etc/nexus/nexusd.yaml.bak","restored":false}
+    nexusd_remoteadmin_test.go:1098: PC: sha256(disk) ebfad0d546c0af41cf6c9ef5eef272a8d2b9385d7e872d4bb9b60f938e7954d9 == reload-status.json sha256, applied, seq 2
+    nexusd_remoteadmin_test.go:1126: new lines 33-34: ["  pihole:" "    enabled: false"]; 10 comment paths unchanged
+--- PASS: TestTCRA96_AddingAnAbsentKeyToAHandCommentedFileOnTheReal (1.56s)
+=== RUN   TestTCRA97_AConfigSetThatChangesNothingTouchesNothingOnThe
+    nexusd_remoteadmin_test.go:1133: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    nexusd_remoteadmin_test.go:1133: T1 host: install.sh default config with the nexusd provider enabled; nexusd.service MainPID 3300, NRestarts 0, certificate 2E:E9:EA:BA:93:01:94:02:20:12:6E:83:1F:98:DD:3B:0D:E3:59:77:01:1F:29:C8:E5:82:30:4E:1F:67:0F:F9
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes providers.nexusd.enabled=true --verbose: exit 0 in 36ms
+        stdout: {"changed":false,"changes":[{"key":"providers.nexusd.enabled","new":true,"old":true}],"host":"t1","restartRequired":[],"restored":false}
+        stderr: > POST https://127.0.0.1:7443/v1/providers/nexusd/actions/update-config
+        < 200 OK (7ms)
+    nexusd_remoteadmin_test.go:1150: step 2: POST /v1/providers/nexusd/actions/update-config: 200 map[Content-Length:[124] Content-Type:[application/json] Date:[Wed, 18 Nov 2026 04:48:05 GMT]] {"changed":false,"changes":[{"key":"providers.nexusd.enabled","old":true,"new":true}],"restartRequired":[],"restored":false}
+    nexusd_remoteadmin_test.go:1156: before step 3: /etc/nexus/nexusd.yaml unchanged (sha256 80c389be70b3d3dbfc5af9554f85de400c2b9583ee1e40055434e28b5cf8a89d, inode 3672550, mtime 2026-11-18T04:48:04.362064087Z), .bak present false, reload status seq 0
+    nexusd_selfmgmt_test.go:205: nexus nexusd reload --yes -o json --verbose: exit 0 in 282ms
+        stdout: [
+          {
+            "action": "nexusd.actions.reload",
+            "created": "2026-11-18T04:48:05.078788715Z",
+            "ended": "2026-11-18T04:48:05.086572808Z",
+            "error": null,
+            "host": "t1",
+            "id": "01a1ecfb-c3d6-7205-b89f-fe055353041e",
+            "outputEvicted": false,
+            "provider": "nexusd",
+            "result": {
+              "applied": true,
+              "changed": true,
+              "restartRequired": []
+            },
+            "started": "2026-11-18T04:48:05.080447893Z",
+            "status": "Succeeded",
+            "target": "",
+            "tokenName": "ra"
+          }
+        ]
+        stderr: > POST https://127.0.0.1:7443/v1/providers/nexusd/actions/reload
+        < 202 Accepted (5ms)
+        > GET https://127.0.0.1:7443/v1/operations/01a1ecfb-c3d6-7205-b89f-fe055353041e
+        < 200 OK (1ms)
+    nexusd_remoteadmin_test.go:1177: hold armed: /run/systemd/system/nexus-op-.service.d/ra-hold.conf, nexusd.service still exact with no drop-in
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes --no-wait -o json --verbose providers.host.enabled=true: exit 0 in 31ms
+        stdout: [
+          {
+            "action": "nexusd.actions.update-config",
+            "created": "2026-11-18T04:48:05.454481624Z",
+            "ended": null,
+            "error": null,
+            "host": "t1",
+            "id": "01a1ecfb-c54e-7150-843d-f007d6d9bb74",
+            "outputEvicted": false,
+            "provider": "nexusd",
+            "result": null,
+            "started": null,
+            "status": "Queued",
+            "target": "",
+            "tokenName": "ra"
+          }
+        ]
+        stderr: > POST https://127.0.0.1:7443/v1/providers/nexusd/actions/update-config
+        < 202 Accepted (8ms)
+    nexusd_remoteadmin_test.go:1178: gate: 01a1ecfb-c54e-7150-843d-f007d6d9bb74 reached; nexus-op-01a1ecfb-c54e-7150-843d-f007d6d9bb74.service DropInPaths=/run/systemd/system/nexus-op-.service.d/ra-hold.conf ActiveState=activating SubState=start-pre
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes providers.nexusd.enabled=true: exit 1 in 27ms
+        stdout: 
+        stderr: {"blockingOperationId":"01a1ecfb-c54e-7150-843d-f007d6d9bb74","detail":"another operation holds this operation's lane","exit":1,"host":"t1","level":"error","message":"host t1: conflict: another operation holds this operation's lane","status":409,"title":"Conflict","type":"urn:nexus:problem:conflict"}
+    nexusd_remoteadmin_test.go:1186: gate open at 2026-11-18T04:48:05.533394314Z
+    nexusd_remoteadmin_test.go:1189: PC: sha256(disk) 91b30c763b9bff73a3bc32b1e34f203935c498a6a9c72630c5c53e5a04993dd9 == reload-status.json sha256, applied, seq 2
+    nexusd_remoteadmin_test.go:532: hold released: /run/systemd/system/nexus-op-.service.d/ra-hold.conf removed, nexusd.service exact with no drop-in
+--- PASS: TestTCRA97_AConfigSetThatChangesNothingTouchesNothingOnThe (2.38s)
+=== RUN   TestTCRA98_ARestartOnlyKeyIsWrittenAndReportedNeverApplied
+    nexusd_remoteadmin_test.go:1234: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    nexusd_remoteadmin_test.go:1234: T1 host: install.sh default config with the nexusd provider enabled; nexusd.service MainPID 3603, NRestarts 0, certificate 59:7E:11:7D:96:ED:D1:61:E5:E2:F2:64:88:96:24:A8:EE:60:3D:70:EF:BE:32:37:88:65:38:0E:8F:25:5A:C2
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes -o json tls.mode=off limits.outputCapBytes=20971520: exit 0 in 783ms
+        stdout: [
+          {
+            "action": "nexusd.actions.update-config",
+            "created": "2026-11-18T04:48:06.882035385Z",
+            "ended": "2026-11-18T04:48:07.4167926Z",
+            "error": null,
+            "host": "t1",
+            "id": "01a1ecfb-cae2-76f4-8fee-fb13bcb64351",
+            "outputEvicted": false,
+            "provider": "nexusd",
+            "result": {
+              "backupPath": "/etc/nexus/nexusd.yaml.bak",
+              "changed": true,
+              "changes": [
+                {
+                  "key": "tls.mode",
+                  "new": "off",
+                  "old": "auto"
+                },
+                {
+                  "key": "limits.outputCapBytes",
+                  "new": 20971520,
+                  "old": 10485760
+                }
+              ],
+              "restartRequired": [
+                "limits",
+                "tls"
+              ],
+              "restored": false,
+              "warnings": [
+                "tls.mode takes effect when nexusd restarts; if it changes how this client connects (certificate or pin), you may be locked out until a root login on the host fixes it",
+                "run nexus nexusd restart to apply: limits, tls"
+              ]
+            },
+            "started": "2026-11-18T04:48:06.88595812Z",
+            "status": "Succeeded",
+            "target": "",
+            "tokenName": "ra"
+          }
+        ]
+        stderr: {"host":"t1","level":"warning","message":"tls.mode takes effect when nexusd restarts; if it changes how this client connects (certificate or pin), you may be locked out until a root login on the host fixes it"}
+        {"host":"t1","level":"warning","message":"run nexus nexusd restart to apply: limits, tls"}
+    nexusd_remoteadmin_test.go:1236: config set ["tls.mode=off" "limits.outputCapBytes=20971520"]: operation 01a1ecfb-cae2-76f4-8fee-fb13bcb64351 Succeeded, error <nil>, result {"changed":true,"warnings":["tls.mode takes effect when nexusd restarts; if it changes how this client connects (certificate or pin), you may be locked out until a root login on the host fixes it","run nexus nexusd restart to apply: limits, tls"],"changes":[{"key":"tls.mode","old":"auto","new":"off"},{"key":"limits.outputCapBytes","old":10485760,"new":20971520}],"restartRequired":["limits","tls"],"backupPath":"/etc/nexus/nexusd.yaml.bak","restored":false}
+    nexusd_remoteadmin_test.go:1261: PC: sha256(disk) 241bce2a923655de689415120b4e243161535902fff3e54c070250541595336f == reload-status.json sha256, applied, seq 1
+--- PASS: TestTCRA98_ARestartOnlyKeyIsWrittenAndReportedNeverApplied (1.41s)
+=== RUN   TestTCRA99_TheNexusdLaneRefusesAReloadWhileAConfigSetRunsOn
+    nexusd_remoteadmin_test.go:1267: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    nexusd_remoteadmin_test.go:1267: T1 host: install.sh default config with the nexusd provider enabled; nexusd.service MainPID 3836, NRestarts 0, certificate 22:42:DC:76:2F:21:FF:76:71:30:2D:E5:A3:12:02:7B:8D:D2:CD:A0:E3:C1:51:87:35:0C:21:03:23:3B:0C:D9
+    nexusd_remoteadmin_test.go:1269: hold armed: /run/systemd/system/nexus-op-.service.d/ra-hold.conf, nexusd.service still exact with no drop-in
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes --no-wait -o json --verbose providers.host.enabled=true: exit 0 in 32ms
+        stdout: [
+          {
+            "action": "nexusd.actions.update-config",
+            "created": "2026-11-18T04:48:08.390657313Z",
+            "ended": null,
+            "error": null,
+            "host": "t1",
+            "id": "01a1ecfb-d0c6-76fd-ba7e-fc8250877901",
+            "outputEvicted": false,
+            "provider": "nexusd",
+            "result": null,
+            "started": null,
+            "status": "Queued",
+            "target": "",
+            "tokenName": "ra"
+          }
+        ]
+        stderr: > POST https://127.0.0.1:7443/v1/providers/nexusd/actions/update-config
+        < 202 Accepted (8ms)
+    nexusd_remoteadmin_test.go:1270: gate: 01a1ecfb-d0c6-76fd-ba7e-fc8250877901 reached; nexus-op-01a1ecfb-d0c6-76fd-ba7e-fc8250877901.service DropInPaths=/run/systemd/system/nexus-op-.service.d/ra-hold.conf ActiveState=activating SubState=start-pre
+    nexusd_selfmgmt_test.go:205: nexus nexusd reload --yes: exit 1 in 25ms
+        stdout: 
+        stderr: {"blockingOperationId":"01a1ecfb-d0c6-76fd-ba7e-fc8250877901","detail":"another operation holds this operation's lane","exit":1,"host":"t1","level":"error","message":"host t1: conflict: another operation holds this operation's lane","status":409,"title":"Conflict","type":"urn:nexus:problem:conflict"}
+    nexusd_selfmgmt_test.go:205: nexus nexusd restart --yes: exit 1 in 24ms
+        stdout: 
+        stderr: {"blockingOperationId":"01a1ecfb-d0c6-76fd-ba7e-fc8250877901","detail":"another operation holds this operation's lane","exit":1,"host":"t1","level":"error","message":"host t1: conflict: another operation holds this operation's lane","status":409,"title":"Conflict","type":"urn:nexus:problem:conflict"}
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes limits.outputCapBytes=20971520: exit 1 in 25ms
+        stdout: 
+        stderr: {"blockingOperationId":"01a1ecfb-d0c6-76fd-ba7e-fc8250877901","detail":"another operation holds this operation's lane","exit":1,"host":"t1","level":"error","message":"host t1: conflict: another operation holds this operation's lane","status":409,"title":"Conflict","type":"urn:nexus:problem:conflict"}
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes providers.nexusd.enabled=true: exit 1 in 25ms
+        stdout: 
+        stderr: {"blockingOperationId":"01a1ecfb-d0c6-76fd-ba7e-fc8250877901","detail":"another operation holds this operation's lane","exit":1,"host":"t1","level":"error","message":"host t1: conflict: another operation holds this operation's lane","status":409,"title":"Conflict","type":"urn:nexus:problem:conflict"}
+    nexusd_remoteadmin_test.go:1298: gate open at 2026-11-18T04:48:08.55255947Z
+    nexusd_remoteadmin_test.go:1301: PC: sha256(disk) 91b30c763b9bff73a3bc32b1e34f203935c498a6a9c72630c5c53e5a04993dd9 == reload-status.json sha256, applied, seq 1
+    nexusd_remoteadmin_test.go:532: hold released: /run/systemd/system/nexus-op-.service.d/ra-hold.conf removed, nexusd.service exact with no drop-in
+    nexusd_selfmgmt_test.go:205: nexus nexusd reload --yes -o json: exit 0 in 288ms
+        stdout: [
+          {
+            "action": "nexusd.actions.reload",
+            "created": "2026-11-18T04:48:09.301978945Z",
+            "ended": "2026-11-18T04:48:09.314311193Z",
+            "error": null,
+            "host": "t1",
+            "id": "01a1ecfb-d455-7033-b266-637e00ad15e7",
+            "outputEvicted": false,
+            "provider": "nexusd",
+            "result": {
+              "applied": true,
+              "changed": true,
+              "restartRequired": []
+            },
+            "started": "2026-11-18T04:48:09.303899624Z",
+            "status": "Succeeded",
+            "target": "",
+            "tokenName": "ra"
+          }
+        ]
+        stderr: 
+--- PASS: TestTCRA99_TheNexusdLaneRefusesAReloadWhileAConfigSetRunsOn (1.92s)
+=== RUN   TestTCRA100_TokenSecretsNeverReachStateDbTheAuditLogThe
+    nexusd_remoteadmin_test.go:1338: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    nexusd_remoteadmin_test.go:1338: T1 host: install.sh default config with the nexusd provider enabled; nexusd.service MainPID 4154, NRestarts 0, certificate CF:EA:7D:61:B6:E6:6A:DF:98:1E:00:F1:AF:BF:DF:72:3A:3A:60:52:13:1D:AD:7F:83:7C:DC:CA:F0:EB:AD:4D
+    nexusd_selfmgmt_test.go:205: nexus nexusdtoken add t1cli --yes -o json: exit 0 in 33ms
+        stdout: [
+          {
+            "changed": true,
+            "created": "2026-11-18T04:48:11.039475855Z",
+            "expires": null,
+            "host": "t1",
+            "name": "t1cli",
+            "scopes": [],
+            "token": "nxs_7526df6d509b_<REDACTED>",
+            "tokenId": "7526df6d509b"
+          }
+        ]
+        stderr: 
+    nexusd_selfmgmt_test.go:205: nexus nexusdtoken remove t1cli --yes -o json: exit 0 in 25ms
+        stdout: [
+          {
+            "changed": true,
+            "host": "t1",
+            "name": "t1cli",
+            "revokedSelf": false,
+            "tokenId": "7526df6d509b"
+          }
+        ]
+        stderr: 
+    nexusd_remoteadmin_test.go:1461: swept 7 sinks for 3 needles each of 2 tokens: 0 occurrences expected
+--- PASS: TestTCRA100_TokenSecretsNeverReachStateDbTheAuditLogThe (1.50s)
+=== RUN   TestTCRA101_RemoteAddAndLocalSudoCreateOfOneNameRaceOnThe
+    nexusd_remoteadmin_test.go:1468: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    nexusd_remoteadmin_test.go:1468: T1 host: install.sh default config with the nexusd provider enabled; nexusd.service MainPID 4370, NRestarts 0, certificate 0E:E6:B4:7D:A4:91:23:25:E0:B6:86:C8:1B:7C:A9:1A:77:FB:70:FF:17:10:40:47:28:07:E8:35:95:1D:3C:16
+    nexusd_remoteadmin_test.go:1547: round 0: REST held back 0s, 12.044 to 12.054: 409 {"type":"urn:nexus:problem:conflict","title":"Conflict","status":409,"detail":"a token with this name already exists (id 6d992bf940bb); revoke it first or choose another name"}; nexusd token create 12.044 to 12.054: exit 0 Created token "race0" (id 6d992bf940bb). It is shown only this once; store it now.
+    nexusd_remoteadmin_test.go:1547: round 1: REST held back 2ms, 12.057 to 12.062: 200 {"changed":true,"token":"nxs_64b25a9537cf_<REDACTED>","tokenId":"64b25a9537cf","name":"race1","scopes":[],"created":"2026-11-18T04:48:12.059209918Z","expires":null}; nexusd token create 12.054 to 12.063: exit 1 nexusd token create: a token named "race1" already exists (id 64b25a9537cf); revoke it first or choose another name
+    nexusd_remoteadmin_test.go:1547: round 2: REST held back 3ms, 12.067 to 12.072: 409 {"type":"urn:nexus:problem:conflict","title":"Conflict","status":409,"detail":"a token with this name already exists (id 8e364692451e); revoke it first or choose another name"}; nexusd token create 12.063 to 12.071: exit 0 Created token "race2" (id 8e364692451e). It is shown only this once; store it now.
+    nexusd_remoteadmin_test.go:1547: round 3: REST held back 5ms, 12.077 to 12.082: 200 {"changed":true,"token":"nxs_b4f48699aa5a_<REDACTED>","tokenId":"b4f48699aa5a","name":"race3","scopes":[],"created":"2026-11-18T04:48:12.0790788Z","expires":null}; nexusd token create 12.072 to 12.082: exit 1 nexusd token create: a token named "race3" already exists (id b4f48699aa5a); revoke it first or choose another name
+    nexusd_remoteadmin_test.go:1547: round 4: REST held back 7ms, 12.089 to 12.093: 409 {"type":"urn:nexus:problem:conflict","title":"Conflict","status":409,"detail":"a token with this name already exists (id f60f998e365e); revoke it first or choose another name"}; nexusd token create 12.082 to 12.091: exit 0 Created token "race4" (id f60f998e365e). It is shown only this once; store it now.
+    nexusd_remoteadmin_test.go:1547: round 5: REST held back 8ms, 12.102 to 12.104: 409 {"type":"urn:nexus:problem:conflict","title":"Conflict","status":409,"detail":"a token with this name already exists (id 84f15291b81e); revoke it first or choose another name"}; nexusd token create 12.093 to 12.102: exit 0 Created token "race5" (id 84f15291b81e). It is shown only this once; store it now.
+    nexusd_remoteadmin_test.go:1547: round 6: REST held back 10ms, 12.115 to 12.117: 409 {"type":"urn:nexus:problem:conflict","title":"Conflict","status":409,"detail":"a token with this name already exists (id d0ed90096e39); revoke it first or choose another name"}; nexusd token create 12.104 to 12.112: exit 0 Created token "race6" (id d0ed90096e39). It is shown only this once; store it now.
+    nexusd_remoteadmin_test.go:1547: round 7: REST held back 12ms, 12.130 to 12.133: 409 {"type":"urn:nexus:problem:conflict","title":"Conflict","status":409,"detail":"a token with this name already exists (id f46baa73457b); revoke it first or choose another name"}; nexusd token create 12.117 to 12.126: exit 0 Created token "race7" (id f46baa73457b). It is shown only this once; store it now.
+    nexusd_remoteadmin_test.go:1547: round 8: REST held back 13ms, 12.147 to 12.150: 409 {"type":"urn:nexus:problem:conflict","title":"Conflict","status":409,"detail":"a token with this name already exists (id f092d675fbf7); revoke it first or choose another name"}; nexusd token create 12.133 to 12.142: exit 0 Created token "race8" (id f092d675fbf7). It is shown only this once; store it now.
+    nexusd_remoteadmin_test.go:1547: round 9: REST held back 15ms, 12.165 to 12.167: 409 {"type":"urn:nexus:problem:conflict","title":"Conflict","status":409,"detail":"a token with this name already exists (id 838a3d017838); revoke it first or choose another name"}; nexusd token create 12.150 to 12.158: exit 0 Created token "race9" (id 838a3d017838). It is shown only this once; store it now.
+    nexusd_remoteadmin_test.go:1570: a local create takes 12.641209ms: REST won 2 rounds, the local create 8, the two overlapped in 6
+    nexusd_selfmgmt_test.go:205: nexus nexusdtoken get -o json: exit 0 in 25ms
+        stdout: [
+          {
+            "host": "t1",
+            "id": "/providers/nexusd/tokens/ra",
+            "name": "ra",
+            "properties": {
+              "created": "2026-11-18T04:48:11.67670567Z",
+              "expires": null,
+              "scopes": [
+                "nexusd:read",
+                "nexusd:admin",
+                "host:read"
+              ],
+              "self": true,
+              "tokenId": "a2463fae02fe"
+            },
+            "type": "tokens"
+          },
+          {
+            "host": "t1",
+            "id": "/providers/nexusd/tokens/calib0",
+            "name": "calib0",
+            "properties": {
+              "created": "2026-11-18T04:48:12.018093145Z",
+              "expires": null,
+              "scopes": [],
+              "self": false,
+              "tokenId": "71330ecf6304"
+            },
+            "type": "tokens"
+          },
+          {
+            "host": "t1",
+            "id": "/providers/nexusd/tokens/calib1",
+            "name": "calib1",
+            "properties": {
+              "created": "2026-11-18T04:48:12.031247982Z",
+              "expires": null,
+              "scopes": [],
+              "self": false,
+              "tokenId": "dc841430d64b"
+            },
+            "type": "tokens"
+          },
+          {
+            "host": "t1",
+            "id": "/providers/nexusd/tokens/calib2",
+            "name": "calib2",
+            "properties": {
+              "created": "2026-11-18T04:48:12.041738385Z",
+              "expires": null,
+              "scopes": [],
+              "self": false,
+              "tokenId": "ef0f70b2f2c8"
+            },
+            "type": "tokens"
+          },
+          {
+            "host": "t1",
+            "id": "/providers/nexusd/tokens/race0",
+            "name": "race0",
+            "properties": {
+              "created": "2026-11-18T04:48:12.050998572Z",
+              "expires": null,
+              "scopes": [],
+              "self": false,
+              "tokenId": "6d992bf940bb"
+            },
+            "type": "tokens"
+          },
+          {
+            "host": "t1",
+            "id": "/providers/nexusd/tokens/race1",
+            "name": "race1",
+            "properties": {
+              "created": "2026-11-18T04:48:12.059209918Z",
+              "createdBy": {
+                "name": "ra",
+                "tokenId": "a2463fae02fe"
+              },
+              "expires": null,
+              "scopes": [],
+              "self": false,
+              "tokenId": "64b25a9537cf"
+            },
+            "type": "tokens"
+          },
+          {
+            "host": "t1",
+            "id": "/providers/nexusd/tokens/race2",
+            "name": "race2",
+            "properties": {
+              "created": "2026-11-18T04:48:12.069052358Z",
+              "expires": null,
+              "scopes": [],
+              "self": false,
+              "tokenId": "8e364692451e"
+            },
+            "type": "tokens"
+          },
+          {
+            "host": "t1",
+            "id": "/providers/nexusd/tokens/race3",
+            "name": "race3",
+            "properties": {
+              "created": "2026-11-18T04:48:12.0790788Z",
+              "createdBy": {
+                "name": "ra",
+                "tokenId": "a2463fae02fe"
+              },
+              "expires": null,
+              "scopes": [],
+              "self": false,
+              "tokenId": "b4f48699aa5a"
+            },
+            "type": "tokens"
+          },
+          {
+            "host": "t1",
+            "id": "/providers/nexusd/tokens/race4",
+            "name": "race4",
+            "properties": {
+              "created": "2026-11-18T04:48:12.088532738Z",
+              "expires": null,
+              "scopes": [],
+              "self": false,
+              "tokenId": "f60f998e365e"
+            },
+            "type": "tokens"
+          },
+          {
+            "host": "t1",
+            "id": "/providers/nexusd/tokens/race5",
+            "name": "race5",
+            "properties": {
+              "created": "2026-11-18T04:48:12.099965689Z",
+              "expires": null,
+              "scopes": [],
+              "self": false,
+              "tokenId": "84f15291b81e"
+            },
+            "type": "tokens"
+          },
+          {
+            "host": "t1",
+            "id": "/providers/nexusd/tokens/race6",
+            "name": "race6",
+            "properties": {
+              "created": "2026-11-18T04:48:12.109906088Z",
+              "expires": null,
+              "scopes": [],
+              "self": false,
+              "tokenId": "d0ed90096e39"
+            },
+            "type": "tokens"
+          },
+          {
+            "host": "t1",
+            "id": "/providers/nexusd/tokens/race7",
+            "name": "race7",
+            "properties": {
+              "created": "2026-11-18T04:48:12.123670305Z",
+              "expires": null,
+              "scopes": [],
+              "self": false,
+              "tokenId": "f46baa73457b"
+            },
+            "type": "tokens"
+          },
+          {
+            "host": "t1",
+            "id": "/providers/nexusd/tokens/race8",
+            "name": "race8",
+            "properties": {
+              "created": "2026-11-18T04:48:12.139759578Z",
+              "expires": null,
+              "scopes": [],
+              "self": false,
+              "tokenId": "f092d675fbf7"
+            },
+            "type": "tokens"
+          },
+          {
+            "host": "t1",
+            "id": "/providers/nexusd/tokens/race9",
+            "name": "race9",
+            "properties": {
+              "created": "2026-11-18T04:48:12.155845393Z",
+              "expires": null,
+              "scopes": [],
+              "self": false,
+              "tokenId": "838a3d017838"
+            },
+            "type": "tokens"
+          }
+        ]
+        stderr: 
+--- PASS: TestTCRA101_RemoteAddAndLocalSudoCreateOfOneNameRaceOnThe (1.13s)
+=== RUN   TestTCRAE33_OnRealSystemdReloadOfAnInactiveUnitSaysNotActive
+    nexusd_remoteadmin_test.go:1658: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    nexusd_remoteadmin_test.go:1658: T1 host: install.sh default config with the nexusd provider enabled; nexusd.service MainPID 4652, NRestarts 0, certificate 3D:9E:D2:87:8F:B0:C9:1B:28:23:16:EF:07:54:49:4D:BA:4E:BD:39:77:2C:80:6F:DB:26:AA:D4:3E:A8:EF:29
+    nexusd_remoteadmin_test.go:1669: CAPTURE systemctl reload nexusd.service (stopped): exit 1, output "nexusd.service is not active, cannot reload.\n"
+--- PASS: TestTCRAE33_OnRealSystemdReloadOfAnInactiveUnitSaysNotActive (0.74s)
+=== RUN   TestTCRA102_NFR2LatenciesOnTheRealHost
+    nexusd_remoteadmin_test.go:1694: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    nexusd_remoteadmin_test.go:1694: T1 host: install.sh default config with the nexusd provider enabled; nexusd.service MainPID 4873, NRestarts 0, certificate E1:6D:D3:62:DC:B5:D3:1F:E1:0F:F1:2C:82:92:63:B2:E5:12:9C:77:9F:44:1D:33:11:A7:56:16:96:4F:A2:64
+    nexusd_remoteadmin_test.go:1698: 101 tokens stored
+    nexusd_remoteadmin_test.go:1734: NFR NFR-2 token list p95 (50): 4ms (bound 200ms)
+    nexusd_remoteadmin_test.go:1734: NFR NFR-2 config get p95 (50): 4ms (bound 200ms)
+    nexusd_remoteadmin_test.go:1734: NFR NFR-2 token add p95 (50): 8ms (bound 200ms)
+    nexusd_remoteadmin_test.go:1734: NFR NFR-2 token remove p95 (50): 6ms (bound 200ms)
+    nexusd_remoteadmin_test.go:1747: PC: sha256(disk) 91b30c763b9bff73a3bc32b1e34f203935c498a6a9c72630c5c53e5a04993dd9 == reload-status.json sha256, applied, seq 1
+    nexusd_remoteadmin_test.go:1759: NFR NFR-2 config set reload's own time: 33ms (journal Reloading 2026-11-18T04:48:16.062478Z to reload-status.json at 2026-11-18T04:48:16.095575694Z)
+    nexusd_remoteadmin_test.go:1761: NFR NFR-2 config set with a passing reload, 202 to ended: 529ms (bound 15.033097694s)
+    nexusd_remoteadmin_test.go:1764: hold armed: /run/systemd/system/nexus-op-.service.d/ra-hold.conf, nexusd.service still exact with no drop-in
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes --no-wait -o json --verbose limits.outputCapBytes=31457280: exit 0 in 31ms
+        stdout: [
+          {
+            "action": "nexusd.actions.update-config",
+            "created": "2026-11-18T04:48:16.759369232Z",
+            "ended": null,
+            "error": null,
+            "host": "t1",
+            "id": "01a1ecfb-f177-7751-8056-9ccdb9c2ac3c",
+            "outputEvicted": false,
+            "provider": "nexusd",
+            "result": null,
+            "started": null,
+            "status": "Queued",
+            "target": "",
+            "tokenName": "ra"
+          }
+        ]
+        stderr: > POST https://127.0.0.1:7443/v1/providers/nexusd/actions/update-config
+        < 202 Accepted (8ms)
+    nexusd_remoteadmin_test.go:1764: gate: 01a1ecfb-f177-7751-8056-9ccdb9c2ac3c reached; nexus-op-01a1ecfb-f177-7751-8056-9ccdb9c2ac3c.service DropInPaths=/run/systemd/system/nexus-op-.service.d/ra-hold.conf ActiveState=activating SubState=start-pre
+    nexusd_remoteadmin_test.go:1764: held: nexusd 5658 stopped (state T)
+    nexusd_remoteadmin_test.go:1764: gate open at 2026-11-18T04:48:16.917683284Z
+    nexusd_remoteadmin_test.go:1764: new digest 26a7e2ef46ff8318da16e4dcb812ad5b2f7ae5a316e39df0ced53e52eac3ac50 (was 91b30c763b9bff73a3bc32b1e34f203935c498a6a9c72630c5c53e5a04993dd9)
+    nexusd_remoteadmin_test.go:1764: chmod 0644 /etc/nexus/nexusd.yaml
+    nexusd_remoteadmin_test.go:598: held: nexusd 5658 continued
+    nexusd_remoteadmin_test.go:1764: operation 01a1ecfb-f177-7751-8056-9ccdb9c2ac3c nexusd.actions.update-config Failed, error config-apply-failed: the daemon refused the new configuration at stage load: /etc/nexus/nexusd.yaml: mode 0644 gives group or other access and the file can hold secrets; run chmod 0600 /etc/nexus/nexusd.yaml; /etc/nexus/nexusd.yaml was restored from /etc/nexus/nexusd.yaml.bak and is in force, result null; ended − tOpen = 1.136s
+    nexusd_remoteadmin_test.go:532: hold released: /run/systemd/system/nexus-op-.service.d/ra-hold.conf removed, nexusd.service exact with no drop-in
+    nexusd_remoteadmin_test.go:1765: PC: sha256(disk) 91b30c763b9bff73a3bc32b1e34f203935c498a6a9c72630c5c53e5a04993dd9 == reload-status.json sha256, applied, seq 3
+    nexusd_remoteadmin_test.go:1766: NFR NFR-2 config set refused at load and restored, tOpen to ended: 1.136s (bound 30s)
+    nexusd_remoteadmin_test.go:1767: hold armed: /run/systemd/system/nexus-op-.service.d/ra-hold.conf, nexusd.service still exact with no drop-in
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes --no-wait -o json --verbose limits.outputCapBytes=33554432: exit 0 in 31ms
+        stdout: [
+          {
+            "action": "nexusd.actions.update-config",
+            "created": "2026-11-18T04:48:18.277799285Z",
+            "ended": null,
+            "error": null,
+            "host": "t1",
+            "id": "01a1ecfb-f765-73d0-94ef-2665da90e9f3",
+            "outputEvicted": false,
+            "provider": "nexusd",
+            "result": null,
+            "started": null,
+            "status": "Queued",
+            "target": "",
+            "tokenName": "ra"
+          }
+        ]
+        stderr: > POST https://127.0.0.1:7443/v1/providers/nexusd/actions/update-config
+        < 202 Accepted (7ms)
+    nexusd_remoteadmin_test.go:1767: gate: 01a1ecfb-f765-73d0-94ef-2665da90e9f3 reached; nexus-op-01a1ecfb-f765-73d0-94ef-2665da90e9f3.service DropInPaths=/run/systemd/system/nexus-op-.service.d/ra-hold.conf ActiveState=activating SubState=start-pre
+    nexusd_remoteadmin_test.go:1767: held: nexusd 5658 stopped (state T)
+    nexusd_remoteadmin_test.go:1767: gate open at 2026-11-18T04:48:18.438805939Z
+    nexusd_remoteadmin_test.go:1767: new digest 0acdc555b5c62d4a84e02d1e1aa10a690534e8ea929cd7bb4f7da7478655b806 (was 91b30c763b9bff73a3bc32b1e34f203935c498a6a9c72630c5c53e5a04993dd9)
+    nexusd_remoteadmin_test.go:1767: original digest back after 12.136s: the first 12 s attempt expired
+    nexusd_remoteadmin_test.go:598: held: nexusd 5658 continued
+    nexusd_remoteadmin_test.go:1767: operation 01a1ecfb-f765-73d0-94ef-2665da90e9f3 nexusd.actions.update-config Failed, error config-apply-failed: the reload of the new configuration was not confirmed within 12s: no reload status answered it; /etc/nexus/nexusd.yaml was restored from /etc/nexus/nexusd.yaml.bak and is in force, result null; ended − tOpen = 12.64s
+    nexusd_remoteadmin_test.go:532: hold released: /run/systemd/system/nexus-op-.service.d/ra-hold.conf removed, nexusd.service exact with no drop-in
+    nexusd_remoteadmin_test.go:1768: PC: sha256(disk) 91b30c763b9bff73a3bc32b1e34f203935c498a6a9c72630c5c53e5a04993dd9 == reload-status.json sha256, applied, seq 5
+    nexusd_remoteadmin_test.go:1769: NFR NFR-2 config set unconfirmed and restored, tOpen to ended: 12.64s (bound 30s)
+--- PASS: TestTCRA102_NFR2LatenciesOnTheRealHost (18.25s)
+=== RUN   TestTCRAE26_OnRealSystemdAnUnconfirmedReloadIsRestoredAnd
+    nexusd_remoteadmin_test.go:1775: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    nexusd_remoteadmin_test.go:1775: T1 host: install.sh default config with the nexusd provider enabled; nexusd.service MainPID 6049, NRestarts 0, certificate DE:DE:91:3E:0E:C2:EC:42:86:29:33:D5:F1:B7:88:EA:3E:53:A6:F2:95:B4:43:6C:CE:AC:1E:4B:30:3E:91:00
+    nexusd_remoteadmin_test.go:1776: hold armed: /run/systemd/system/nexus-op-.service.d/ra-hold.conf, nexusd.service still exact with no drop-in
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes --no-wait -o json --verbose providers.host.enabled=true: exit 0 in 32ms
+        stdout: [
+          {
+            "action": "nexusd.actions.update-config",
+            "created": "2026-11-18T04:48:31.906073608Z",
+            "ended": null,
+            "error": null,
+            "host": "t1",
+            "id": "01a1ecfc-2ca2-71d9-9530-c4b4ee2d4c3a",
+            "outputEvicted": false,
+            "provider": "nexusd",
+            "result": null,
+            "started": null,
+            "status": "Queued",
+            "target": "",
+            "tokenName": "ra"
+          }
+        ]
+        stderr: > POST https://127.0.0.1:7443/v1/providers/nexusd/actions/update-config
+        < 202 Accepted (10ms)
+    nexusd_remoteadmin_test.go:1776: gate: 01a1ecfc-2ca2-71d9-9530-c4b4ee2d4c3a reached; nexus-op-01a1ecfc-2ca2-71d9-9530-c4b4ee2d4c3a.service DropInPaths=/run/systemd/system/nexus-op-.service.d/ra-hold.conf ActiveState=activating SubState=start-pre
+    nexusd_remoteadmin_test.go:1776: held: nexusd 6049 stopped (state T)
+    nexusd_remoteadmin_test.go:1776: gate open at 2026-11-18T04:48:32.063969369Z
+    nexusd_remoteadmin_test.go:1776: new digest 91b30c763b9bff73a3bc32b1e34f203935c498a6a9c72630c5c53e5a04993dd9 (was 80c389be70b3d3dbfc5af9554f85de400c2b9583ee1e40055434e28b5cf8a89d)
+    nexusd_remoteadmin_test.go:1776: original digest back after 12.139s: the first 12 s attempt expired
+    nexusd_remoteadmin_test.go:598: held: nexusd 6049 continued
+    nexusd_remoteadmin_test.go:1776: operation 01a1ecfc-2ca2-71d9-9530-c4b4ee2d4c3a nexusd.actions.update-config Failed, error config-apply-failed: the reload of the new configuration was not confirmed within 12s: no reload status answered it; /etc/nexus/nexusd.yaml was restored from /etc/nexus/nexusd.yaml.bak and is in force, result null; ended − tOpen = 12.645s
+    nexusd_remoteadmin_test.go:532: hold released: /run/systemd/system/nexus-op-.service.d/ra-hold.conf removed, nexusd.service exact with no drop-in
+    nexusd_remoteadmin_test.go:1777: PC: sha256(disk) 80c389be70b3d3dbfc5af9554f85de400c2b9583ee1e40055434e28b5cf8a89d == reload-status.json sha256, applied, seq 2
+    nexusd_remoteadmin_test.go:1779: NFR NFR-2 config set unconfirmed and restored (TC-RA-E26), tOpen to ended: 12.645s (bound 30s)
+--- PASS: TestTCRAE26_OnRealSystemdAnUnconfirmedReloadIsRestoredAnd (13.67s)
+=== RUN   TestTCRAERR32_OnRealSystemdAValidationRefusalStartsNoUnitAnd
+    nexusd_remoteadmin_test.go:1785: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    nexusd_remoteadmin_test.go:1785: T1 host: install.sh default config with the nexusd provider enabled; nexusd.service MainPID 6337, NRestarts 0, certificate C7:E9:6A:21:AE:79:FF:62:F0:DA:EE:96:56:DA:4B:D2:42:27:D4:C4:50:46:6A:D5:0A:11:AD:C7:51:D0:FB:A8
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes limits.outputCapBytes=0: exit 1 in 38ms
+        stdout: 
+        stderr: {"configPath":"/etc/nexus/nexusd.yaml","detail":"the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","errors":[{"column":19,"file":"/etc/nexus/nexusd.yaml","line":31,"message":"must be greater than zero, got 0","path":"limits.outputCapBytes"}],"exit":1,"host":"t1","level":"error","message":"host t1: config-invalid: the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","status":422,"title":"Configuration invalid","type":"urn:nexus:problem:config-invalid"}
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes providers.host.enabeld=true: exit 1 in 26ms
+        stdout: 
+        stderr: {"configPath":"/etc/nexus/nexusd.yaml","detail":"the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","errors":[{"file":"/etc/nexus/nexusd.yaml","message":"unknown key; the nearest valid parent is providers.host, whose keys are: enabled, sampleInterval, historyDuration, sourceTimeout","path":"providers.host.enabeld"}],"exit":1,"host":"t1","level":"error","message":"host t1: config-invalid: the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","status":422,"title":"Configuration invalid","type":"urn:nexus:problem:config-invalid"}
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes providers.host.enabled=yes: exit 1 in 30ms
+        stdout: 
+        stderr: {"configPath":"/etc/nexus/nexusd.yaml","detail":"the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","errors":[{"column":14,"file":"/etc/nexus/nexusd.yaml","line":183,"message":"invalid value: expected a boolean, true or false","path":"providers.host.enabled"}],"exit":1,"host":"t1","level":"error","message":"host t1: config-invalid: the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","status":422,"title":"Configuration invalid","type":"urn:nexus:problem:config-invalid"}
+    nexusd_remoteadmin_test.go:1802: after the refusals: /etc/nexus/nexusd.yaml unchanged (sha256 80c389be70b3d3dbfc5af9554f85de400c2b9583ee1e40055434e28b5cf8a89d, inode 3672550, mtime 2026-11-18T04:48:45.393337264Z), .bak present false, reload status seq 0
+--- PASS: TestTCRAERR32_OnRealSystemdAValidationRefusalStartsNoUnitAnd (1.23s)
+=== RUN   TestTCRAERR33_OnRealSystemdEachDenyListEntryIsRefusedWithIts
+    nexusd_remoteadmin_test.go:1844: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    nexusd_remoteadmin_test.go:1844: T1 host: install.sh default config with the nexusd provider enabled; nexusd.service MainPID 6556, NRestarts 0, certificate 8A:13:44:76:DC:A7:B3:3A:C4:5F:3F:A4:FC:A2:F8:30:D0:8B:0A:69:B2:09:E7:28:4C:D8:11:EF:E2:0A:10:CF
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes providers.nexusd.update.trustedKeys=x: exit 1 in 35ms
+        stdout: 
+        stderr: {"configPath":"/etc/nexus/nexusd.yaml","detail":"the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","errors":[{"message":"cannot be set remotely: release keys change only by editing the file on the host, so a stolen nexusd:admin token cannot also trust its own signing key","path":"providers.nexusd.update.trustedKeys"}],"exit":1,"host":"t1","level":"error","message":"host t1: config-invalid: the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","status":422,"title":"Configuration invalid","type":"urn:nexus:problem:config-invalid"}
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes providers.nexusd.enabled=false: exit 1 in 21ms
+        stdout: 
+        stderr: {"configPath":"/etc/nexus/nexusd.yaml","detail":"the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","errors":[{"message":"cannot be set remotely: it would disable remote administration with no remote way back","path":"providers.nexusd.enabled"}],"exit":1,"host":"t1","level":"error","message":"host t1: config-invalid: the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","status":422,"title":"Configuration invalid","type":"urn:nexus:problem:config-invalid"}
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes providers.scripts.catalog=x: exit 1 in 24ms
+        stdout: 
+        stderr: {"configPath":"/etc/nexus/nexusd.yaml","detail":"the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","errors":[{"message":"cannot be set remotely: the catalog defines commands run as root; it changes only by editing the file","path":"providers.scripts.catalog"}],"exit":1,"host":"t1","level":"error","message":"host t1: config-invalid: the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","status":422,"title":"Configuration invalid","type":"urn:nexus:problem:config-invalid"}
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes tls.certFile=/etc/nexus/x.conf: exit 1 in 25ms
+        stdout: 
+        stderr: {"configPath":"/etc/nexus/nexusd.yaml","detail":"the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","errors":[{"message":"cannot be set remotely: its value names a file, directory or service that nexus uses as root; it changes only by editing the file","path":"tls.certFile"}],"exit":1,"host":"t1","level":"error","message":"host t1: config-invalid: the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","status":422,"title":"Configuration invalid","type":"urn:nexus:problem:config-invalid"}
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes tls.keyFile=/etc/nexus/x.conf: exit 1 in 31ms
+        stdout: 
+        stderr: {"configPath":"/etc/nexus/nexusd.yaml","detail":"the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","errors":[{"message":"cannot be set remotely: its value names a file, directory or service that nexus uses as root; it changes only by editing the file","path":"tls.keyFile"}],"exit":1,"host":"t1","level":"error","message":"host t1: config-invalid: the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","status":422,"title":"Configuration invalid","type":"urn:nexus:problem:config-invalid"}
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes providers.docker.socket=/etc/nexus/x.conf: exit 1 in 25ms
+        stdout: 
+        stderr: {"configPath":"/etc/nexus/nexusd.yaml","detail":"the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","errors":[{"message":"cannot be set remotely: its value names a file, directory or service that nexus uses as root; it changes only by editing the file","path":"providers.docker.socket"}],"exit":1,"host":"t1","level":"error","message":"host t1: config-invalid: the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","status":422,"title":"Configuration invalid","type":"urn:nexus:problem:config-invalid"}
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes providers.docker.configDir=/etc/nexus/x.conf: exit 1 in 23ms
+        stdout: 
+        stderr: {"configPath":"/etc/nexus/nexusd.yaml","detail":"the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","errors":[{"message":"cannot be set remotely: its value names a file, directory or service that nexus uses as root; it changes only by editing the file","path":"providers.docker.configDir"}],"exit":1,"host":"t1","level":"error","message":"host t1: config-invalid: the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","status":422,"title":"Configuration invalid","type":"urn:nexus:problem:config-invalid"}
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes providers.nginx.includeDir=/etc/profile.d: exit 1 in 23ms
+        stdout: 
+        stderr: {"configPath":"/etc/nexus/nexusd.yaml","detail":"the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","errors":[{"message":"cannot be set remotely: its value names a file, directory or service that nexus uses as root; it changes only by editing the file","path":"providers.nginx.includeDir"}],"exit":1,"host":"t1","level":"error","message":"host t1: config-invalid: the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","status":422,"title":"Configuration invalid","type":"urn:nexus:problem:config-invalid"}
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes providers.nginx.includeSuffix=.sh: exit 1 in 41ms
+        stdout: 
+        stderr: {"configPath":"/etc/nexus/nexusd.yaml","detail":"the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","errors":[{"message":"cannot be set remotely: its value names a file, directory or service that nexus uses as root; it changes only by editing the file","path":"providers.nginx.includeSuffix"}],"exit":1,"host":"t1","level":"error","message":"host t1: config-invalid: the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","status":422,"title":"Configuration invalid","type":"urn:nexus:problem:config-invalid"}
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes providers.nginx.disabledSuffix=.sh: exit 1 in 20ms
+        stdout: 
+        stderr: {"configPath":"/etc/nexus/nexusd.yaml","detail":"the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","errors":[{"message":"cannot be set remotely: its value names a file, directory or service that nexus uses as root; it changes only by editing the file","path":"providers.nginx.disabledSuffix"}],"exit":1,"host":"t1","level":"error","message":"host t1: config-invalid: the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","status":422,"title":"Configuration invalid","type":"urn:nexus:problem:config-invalid"}
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes providers.nginx.service=ssh: exit 1 in 22ms
+        stdout: 
+        stderr: {"configPath":"/etc/nexus/nexusd.yaml","detail":"the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","errors":[{"message":"cannot be set remotely: its value names a file, directory or service that nexus uses as root; it changes only by editing the file","path":"providers.nginx.service"}],"exit":1,"host":"t1","level":"error","message":"host t1: config-invalid: the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","status":422,"title":"Configuration invalid","type":"urn:nexus:problem:config-invalid"}
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes providers.pihole.dnsFile=/etc/nexus/x.conf: exit 1 in 22ms
+        stdout: 
+        stderr: {"configPath":"/etc/nexus/nexusd.yaml","detail":"the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","errors":[{"message":"cannot be set remotely: its value names a file, directory or service that nexus uses as root; it changes only by editing the file","path":"providers.pihole.dnsFile"}],"exit":1,"host":"t1","level":"error","message":"host t1: config-invalid: the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","status":422,"title":"Configuration invalid","type":"urn:nexus:problem:config-invalid"}
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes audit.retentionDays=1: exit 1 in 33ms
+        stdout: 
+        stderr: {"configPath":"/etc/nexus/nexusd.yaml","detail":"the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","errors":[{"message":"cannot be set remotely: audit history changes only by a root edit of the file on the host, so a stolen nexusd:admin token cannot shorten the record of its own use","path":"audit.retentionDays"}],"exit":1,"host":"t1","level":"error","message":"host t1: config-invalid: the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","status":422,"title":"Configuration invalid","type":"urn:nexus:problem:config-invalid"}
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes auth.failureLimitPerMinute=1000000: exit 1 in 40ms
+        stdout: 
+        stderr: {"configPath":"/etc/nexus/nexusd.yaml","detail":"the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","errors":[{"message":"cannot be set remotely: brute-force protection changes only by a root edit of the file on the host, so a stolen nexusd:admin token cannot raise the limit on guessing tokens","path":"auth.failureLimitPerMinute"}],"exit":1,"host":"t1","level":"error","message":"host t1: config-invalid: the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","status":422,"title":"Configuration invalid","type":"urn:nexus:problem:config-invalid"}
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes providers.nginx.includeDir=/etc/profile.d providers.nginx.includeSuffix=.sh: exit 1 in 38ms
+        stdout: 
+        stderr: {"configPath":"/etc/nexus/nexusd.yaml","detail":"the change to /etc/nexus/nexusd.yaml has 2 error(s); nothing was changed","errors":[{"message":"cannot be set remotely: its value names a file, directory or service that nexus uses as root; it changes only by editing the file","path":"providers.nginx.includeDir"},{"message":"cannot be set remotely: its value names a file, directory or service that nexus uses as root; it changes only by editing the file","path":"providers.nginx.includeSuffix"}],"exit":1,"host":"t1","level":"error","message":"host t1: config-invalid: the change to /etc/nexus/nexusd.yaml has 2 error(s); nothing was changed","status":422,"title":"Configuration invalid","type":"urn:nexus:problem:config-invalid"}
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes listen=127.0.0.1:9: exit 1 in 51ms
+        stdout: 
+        stderr: {"configPath":"/etc/nexus/nexusd.yaml","detail":"the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","errors":[{"column":9,"file":"/etc/nexus/nexusd.yaml","line":14,"message":"is a list, which cannot be set: edit the file to change it","path":"listen"}],"exit":1,"host":"t1","level":"error","message":"host t1: config-invalid: the change to /etc/nexus/nexusd.yaml has 1 error(s); nothing was changed","status":422,"title":"Configuration invalid","type":"urn:nexus:problem:config-invalid"}
+    nexusd_remoteadmin_test.go:1896: after the refusals: /etc/nexus/nexusd.yaml unchanged (sha256 80c389be70b3d3dbfc5af9554f85de400c2b9583ee1e40055434e28b5cf8a89d, inode 3672550, mtime 2026-11-18T04:48:46.616345439Z), .bak present false, reload status seq 0
+--- PASS: TestTCRAERR33_OnRealSystemdEachDenyListEntryIsRefusedWithIts (1.46s)
+=== RUN   TestTCRAERR34_OnRealSystemdAReloadRefusedAtLoadRestoresThe
+    nexusd_remoteadmin_test.go:1917: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    nexusd_remoteadmin_test.go:1917: T1 host: install.sh default config with the nexusd provider enabled; nexusd.service MainPID 6859, NRestarts 0, certificate 53:C3:FD:CB:4D:99:99:4C:CC:56:17:47:02:A1:49:2A:1F:0B:87:AE:45:93:BA:24:00:C6:40:3D:97:CD:F1:4D
+    nexusd_remoteadmin_test.go:1920: hold armed: /run/systemd/system/nexus-op-.service.d/ra-hold.conf, nexusd.service still exact with no drop-in
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes --no-wait -o json --verbose providers.host.enabled=true: exit 0 in 43ms
+        stdout: [
+          {
+            "action": "nexusd.actions.update-config",
+            "created": "2026-11-18T04:48:48.520856506Z",
+            "ended": null,
+            "error": null,
+            "host": "t1",
+            "id": "01a1ecfc-6d88-72cb-a70d-3c857ea0891e",
+            "outputEvicted": false,
+            "provider": "nexusd",
+            "result": null,
+            "started": null,
+            "status": "Queued",
+            "target": "",
+            "tokenName": "ra"
+          }
+        ]
+        stderr: > POST https://127.0.0.1:7443/v1/providers/nexusd/actions/update-config
+        < 202 Accepted (14ms)
+    nexusd_remoteadmin_test.go:1920: gate: 01a1ecfc-6d88-72cb-a70d-3c857ea0891e reached; nexus-op-01a1ecfc-6d88-72cb-a70d-3c857ea0891e.service DropInPaths=/run/systemd/system/nexus-op-.service.d/ra-hold.conf ActiveState=activating SubState=start-pre
+    nexusd_remoteadmin_test.go:1920: held: nexusd 6859 stopped (state T)
+    nexusd_remoteadmin_test.go:1920: gate open at 2026-11-18T04:48:48.682169877Z
+    nexusd_remoteadmin_test.go:1920: new digest 91b30c763b9bff73a3bc32b1e34f203935c498a6a9c72630c5c53e5a04993dd9 (was 80c389be70b3d3dbfc5af9554f85de400c2b9583ee1e40055434e28b5cf8a89d)
+    nexusd_remoteadmin_test.go:1920: chmod 0644 /etc/nexus/nexusd.yaml
+    nexusd_remoteadmin_test.go:598: held: nexusd 6859 continued
+    nexusd_remoteadmin_test.go:1920: operation 01a1ecfc-6d88-72cb-a70d-3c857ea0891e nexusd.actions.update-config Failed, error config-apply-failed: the daemon refused the new configuration at stage load: /etc/nexus/nexusd.yaml: mode 0644 gives group or other access and the file can hold secrets; run chmod 0600 /etc/nexus/nexusd.yaml; /etc/nexus/nexusd.yaml was restored from /etc/nexus/nexusd.yaml.bak and is in force, result null; ended − tOpen = 1.188s
+    nexusd_remoteadmin_test.go:532: hold released: /run/systemd/system/nexus-op-.service.d/ra-hold.conf removed, nexusd.service exact with no drop-in
+    nexusd_remoteadmin_test.go:1921: PC: sha256(disk) 80c389be70b3d3dbfc5af9554f85de400c2b9583ee1e40055434e28b5cf8a89d == reload-status.json sha256, applied, seq 2
+    nexusd_remoteadmin_test.go:1937: journal: {"time":"2026-11-18T04:48:48.869739964Z","level":"ERROR","msg":"configuration reload failed; keeping the current configuration","path":"/etc/nexus/nexusd.yaml","error":"/etc/nexus/nexusd.yaml: mode 0644 gives group or other access and the file can hold secrets; run chmod 0600 /etc/nexus/nexusd.yaml"}
+    nexusd_selfmgmt_test.go:205: nexus nexusd get -o json: exit 0 in 39ms
+        stdout: [
+          {
+            "host": "t1",
+            "id": "/providers/nexusd/daemons/nexusd",
+            "name": "nexusd",
+            "properties": {
+              "configPath": "/etc/nexus/nexusd.yaml",
+              "configSet": {
+                "available": true
+              },
+              "executablePath": "/usr/local/bin/nexusd",
+              "previous": {
+                "path": "",
+                "present": false,
+                "version": ""
+              },
+              "selfManagement": {
+                "available": true
+              },
+              "startedAt": "2026-11-18T04:48:48.347707515Z",
+              "updateConfigured": false,
+              "uptimeSeconds": 1,
+              "version": "dev"
+            },
+            "type": "daemons"
+          }
+        ]
+        stderr: 
+    nexusd_selfmgmt_test.go:205: nexus hostsummary get -o json: exit 4 in 37ms
+        stdout: 
+        stderr: {"detail":"provider host is disabled","exit":4,"host":"t1","level":"error","message":"host t1: capability-unavailable: provider host is disabled","provider":"host","reason":"disabled in configuration (providers.host.enabled is false)","status":503,"title":"Capability unavailable","type":"urn:nexus:problem:capability-unavailable"}
+    nexusd_remoteadmin_test.go:1949: hostsummary get refused as disabled: map[detail:provider host is disabled exit:4 host:t1 level:error message:host t1: capability-unavailable: provider host is disabled provider:host reason:disabled in configuration (providers.host.enabled is false) status:503 title:Capability unavailable type:urn:nexus:problem:capability-unavailable]
+    nexusd_remoteadmin_test.go:1951: tOpen to ended 1.188s
+--- PASS: TestTCRAERR34_OnRealSystemdAReloadRefusedAtLoadRestoresThe (2.66s)
+=== RUN   TestTCRAERR35_OnRealSystemdAFileReplacedBeforeTheReloadEnds
+    nexusd_remoteadmin_test.go:1973: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    nexusd_remoteadmin_test.go:1973: T1 host: install.sh default config with the nexusd provider enabled; nexusd.service MainPID 7157, NRestarts 0, certificate 08:49:66:72:FE:32:6D:D4:2B:D6:F5:EB:24:9F:B5:C0:C4:6C:1B:8D:E9:BB:4D:58:C0:02:DA:5E:2C:5C:6A:1B
+    nexusd_remoteadmin_test.go:1976: hold armed: /run/systemd/system/nexus-op-.service.d/ra-hold.conf, nexusd.service still exact with no drop-in
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes --no-wait -o json --verbose providers.host.enabled=true: exit 0 in 67ms
+        stdout: [
+          {
+            "action": "nexusd.actions.update-config",
+            "created": "2026-11-18T04:48:51.081348758Z",
+            "ended": null,
+            "error": null,
+            "host": "t1",
+            "id": "01a1ecfc-7789-74cf-b5f1-c8120ed3dae4",
+            "outputEvicted": false,
+            "provider": "nexusd",
+            "result": null,
+            "started": null,
+            "status": "Queued",
+            "target": "",
+            "tokenName": "ra"
+          }
+        ]
+        stderr: > POST https://127.0.0.1:7443/v1/providers/nexusd/actions/update-config
+        < 202 Accepted (32ms)
+    nexusd_remoteadmin_test.go:1977: gate: 01a1ecfc-7789-74cf-b5f1-c8120ed3dae4 reached; nexus-op-01a1ecfc-7789-74cf-b5f1-c8120ed3dae4.service DropInPaths=/run/systemd/system/nexus-op-.service.d/ra-hold.conf ActiveState=activating SubState=start-pre
+    nexusd_remoteadmin_test.go:1978: held: nexusd 7157 stopped (state T)
+    nexusd_remoteadmin_test.go:1979: gate open at 2026-11-18T04:48:51.279980504Z
+    nexusd_remoteadmin_test.go:1980: new digest 91b30c763b9bff73a3bc32b1e34f203935c498a6a9c72630c5c53e5a04993dd9 (was 80c389be70b3d3dbfc5af9554f85de400c2b9583ee1e40055434e28b5cf8a89d)
+    nexusd_remoteadmin_test.go:598: held: nexusd 7157 continued
+    nexusd_remoteadmin_test.go:1983: operation 01a1ecfc-7789-74cf-b5f1-c8120ed3dae4 nexusd.actions.update-config Failed, error config-conflict: another change replaced /etc/nexus/nexusd.yaml before the reload; it was kept, not restored; the backup /etc/nexus/nexusd.yaml.bak holds the file before this change, result null; ended − tOpen = 690ms
+    nexusd_remoteadmin_test.go:1992: PC: sha256(disk) 66818d911b5c451715b56181555078db3cf4b4eb85b05ba103aed25220df5719 == reload-status.json sha256, applied, seq 1
+    nexusd_remoteadmin_test.go:532: hold released: /run/systemd/system/nexus-op-.service.d/ra-hold.conf removed, nexusd.service exact with no drop-in
+--- PASS: TestTCRAERR35_OnRealSystemdAFileReplacedBeforeTheReloadEnds (1.88s)
+=== RUN   TestTCRAERR36_OnRealSystemdARestoreThatCannotBeConfirmedEnds
+    nexusd_remoteadmin_test.go:1999: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    nexusd_remoteadmin_test.go:1999: T1 host: install.sh default config with the nexusd provider enabled; nexusd.service MainPID 7438, NRestarts 0, certificate E0:B8:0A:53:EE:FA:C1:C1:BD:26:7F:65:2E:21:4B:29:1F:1E:19:DF:88:1D:BF:61:2A:28:D0:37:E3:6D:93:FA
+    nexusd_remoteadmin_test.go:2001: hold armed: /run/systemd/system/nexus-op-.service.d/ra-hold.conf, nexusd.service still exact with no drop-in
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes --no-wait -o json --verbose providers.host.enabled=true: exit 0 in 28ms
+        stdout: [
+          {
+            "action": "nexusd.actions.update-config",
+            "created": "2026-11-18T04:48:52.955207506Z",
+            "ended": null,
+            "error": null,
+            "host": "t1",
+            "id": "01a1ecfc-7edb-71bc-98de-5a18c36f3b0a",
+            "outputEvicted": false,
+            "provider": "nexusd",
+            "result": null,
+            "started": null,
+            "status": "Queued",
+            "target": "",
+            "tokenName": "ra"
+          }
+        ]
+        stderr: > POST https://127.0.0.1:7443/v1/providers/nexusd/actions/update-config
+        < 202 Accepted (5ms)
+    nexusd_remoteadmin_test.go:2002: gate: 01a1ecfc-7edb-71bc-98de-5a18c36f3b0a reached; nexus-op-01a1ecfc-7edb-71bc-98de-5a18c36f3b0a.service DropInPaths=/run/systemd/system/nexus-op-.service.d/ra-hold.conf ActiveState=activating SubState=start-pre
+    nexusd_remoteadmin_test.go:2003: held: nexusd 7438 stopped (state T)
+    nexusd_remoteadmin_test.go:2004: gate open at 2026-11-18T04:48:53.140263411Z
+    nexusd_remoteadmin_test.go:2005: new digest 91b30c763b9bff73a3bc32b1e34f203935c498a6a9c72630c5c53e5a04993dd9 (was 80c389be70b3d3dbfc5af9554f85de400c2b9583ee1e40055434e28b5cf8a89d)
+    nexusd_remoteadmin_test.go:2016: exit.json 24.211s after tOpen
+    nexusd_remoteadmin_test.go:598: held: nexusd 7438 continued
+    nexusd_remoteadmin_test.go:2021: operation 01a1ecfc-7edb-71bc-98de-5a18c36f3b0a nexusd.actions.update-config Failed, error config-restore-failed: the reload of the new configuration was not confirmed within 12s: no reload status answered it; the restore was not confirmed within 12s: no reload status answered it. The configuration in force may differ from /etc/nexus/nexusd.yaml. Recover by hand as docs/install.md#recovering-from-a-failed-configuration-change describes: run `nexusd validate-config`, copy /etc/nexus/nexusd.yaml.bak to /etc/nexus/nexusd.yaml if it is not valid, then run `systemctl reload nexusd.service` and check `journalctl -u nexusd.service`, result null; ended − tOpen = 24.734s
+    nexusd_remoteadmin_test.go:2036: NFR NFR-2 config set whose restore was not confirmed (TC-RA-ERR36), tOpen to ended: 24.734s (bound 30s)
+    nexusd_remoteadmin_test.go:532: hold released: /run/systemd/system/nexus-op-.service.d/ra-hold.conf removed, nexusd.service exact with no drop-in
+--- PASS: TestTCRAERR36_OnRealSystemdARestoreThatCannotBeConfirmedEnds (26.02s)
+=== RUN   TestTCRAERR39_OnRealSystemdARefusedReloadDuringAHeldWindowIs
+    nexusd_remoteadmin_test.go:2043: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    nexusd_remoteadmin_test.go:2043: T1 host: install.sh default config with the nexusd provider enabled; nexusd.service MainPID 7723, NRestarts 0, certificate 63:B3:C1:11:F5:76:DE:F5:3D:35:C3:09:C0:E2:10:4F:79:B3:9B:2C:A9:8A:89:BB:44:06:E1:2A:BC:EA:05:D5
+    nexusd_remoteadmin_test.go:2044: hold armed: /run/systemd/system/nexus-op-.service.d/ra-hold.conf, nexusd.service still exact with no drop-in
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes --no-wait -o json --verbose providers.host.enabled=true: exit 0 in 63ms
+        stdout: [
+          {
+            "action": "nexusd.actions.update-config",
+            "created": "2026-11-18T04:49:19.10195782Z",
+            "ended": null,
+            "error": null,
+            "host": "t1",
+            "id": "01a1ecfc-e4fd-7460-a663-817ab6c74b7c",
+            "outputEvicted": false,
+            "provider": "nexusd",
+            "result": null,
+            "started": null,
+            "status": "Queued",
+            "target": "",
+            "tokenName": "ra"
+          }
+        ]
+        stderr: > POST https://127.0.0.1:7443/v1/providers/nexusd/actions/update-config
+        < 202 Accepted (30ms)
+    nexusd_remoteadmin_test.go:2044: gate: 01a1ecfc-e4fd-7460-a663-817ab6c74b7c reached; nexus-op-01a1ecfc-e4fd-7460-a663-817ab6c74b7c.service DropInPaths=/run/systemd/system/nexus-op-.service.d/ra-hold.conf ActiveState=activating SubState=start-pre
+    nexusd_remoteadmin_test.go:2044: held: nexusd 7723 stopped (state T)
+    nexusd_remoteadmin_test.go:2044: gate open at 2026-11-18T04:49:19.337467071Z
+    nexusd_remoteadmin_test.go:2044: new digest 91b30c763b9bff73a3bc32b1e34f203935c498a6a9c72630c5c53e5a04993dd9 (was 80c389be70b3d3dbfc5af9554f85de400c2b9583ee1e40055434e28b5cf8a89d)
+    nexusd_remoteadmin_test.go:2044: chmod 0644 /etc/nexus/nexusd.yaml
+    nexusd_remoteadmin_test.go:598: held: nexusd 7723 continued
+    nexusd_remoteadmin_test.go:2044: operation 01a1ecfc-e4fd-7460-a663-817ab6c74b7c nexusd.actions.update-config Failed, error config-apply-failed: the daemon refused the new configuration at stage load: /etc/nexus/nexusd.yaml: mode 0644 gives group or other access and the file can hold secrets; run chmod 0600 /etc/nexus/nexusd.yaml; /etc/nexus/nexusd.yaml was restored from /etc/nexus/nexusd.yaml.bak and is in force, result null; ended − tOpen = 1.22s
+    nexusd_remoteadmin_test.go:532: hold released: /run/systemd/system/nexus-op-.service.d/ra-hold.conf removed, nexusd.service exact with no drop-in
+    nexusd_remoteadmin_test.go:2045: PC: sha256(disk) 80c389be70b3d3dbfc5af9554f85de400c2b9583ee1e40055434e28b5cf8a89d == reload-status.json sha256, applied, seq 2
+    nexusd_remoteadmin_test.go:2046: NFR NFR-2 config set refused at load and restored (TC-RA-ERR39), tOpen to ended: 1.22s (bound 30s)
+--- PASS: TestTCRAERR39_OnRealSystemdARefusedReloadDuringAHeldWindowIs (2.66s)
+=== RUN   TestTCRAE28_TheHoldDropInAppliesToNexusOpUnitsAndNever
+    nexusd_remoteadmin_test.go:2052: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    nexusd_remoteadmin_test.go:2052: T1 host: install.sh default config with the nexusd provider enabled; nexusd.service MainPID 8008, NRestarts 0, certificate 3C:8F:D0:98:FF:AF:29:7D:8B:16:AF:25:5F:89:CE:4D:61:3E:0E:5B:1A:F6:9C:F5:D3:21:93:A4:AA:D3:97:FC
+    nexusd_remoteadmin_test.go:2053: hold armed: /run/systemd/system/nexus-op-.service.d/ra-hold.conf, nexusd.service still exact with no drop-in
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes --no-wait -o json --verbose providers.host.enabled=true: exit 0 in 73ms
+        stdout: [
+          {
+            "action": "nexusd.actions.update-config",
+            "created": "2026-11-18T04:49:21.80256994Z",
+            "ended": null,
+            "error": null,
+            "host": "t1",
+            "id": "01a1ecfc-ef8a-7303-97cc-d214b06bc9bf",
+            "outputEvicted": false,
+            "provider": "nexusd",
+            "result": null,
+            "started": null,
+            "status": "Queued",
+            "target": "",
+            "tokenName": "ra"
+          }
+        ]
+        stderr: > POST https://127.0.0.1:7443/v1/providers/nexusd/actions/update-config
+        < 202 Accepted (49ms)
+    nexusd_remoteadmin_test.go:2058: gate: 01a1ecfc-ef8a-7303-97cc-d214b06bc9bf reached; nexus-op-01a1ecfc-ef8a-7303-97cc-d214b06bc9bf.service DropInPaths=/run/systemd/system/nexus-op-.service.d/ra-hold.conf ActiveState=activating SubState=start-pre
+    nexusd_remoteadmin_test.go:2067: gate open at 2026-11-18T04:49:21.953240245Z
+    nexusd_remoteadmin_test.go:2070: PC: sha256(disk) 91b30c763b9bff73a3bc32b1e34f203935c498a6a9c72630c5c53e5a04993dd9 == reload-status.json sha256, applied, seq 1
+    nexusd_remoteadmin_test.go:532: hold released: /run/systemd/system/nexus-op-.service.d/ra-hold.conf removed, nexusd.service exact with no drop-in
+--- PASS: TestTCRAE28_TheHoldDropInAppliesToNexusOpUnitsAndNever (2.10s)
+=== RUN   TestTCRAERR44_OnRealSystemdAFileChangedBetweenAdmissionAnd
+    nexusd_remoteadmin_test.go:2085: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    nexusd_remoteadmin_test.go:2085: T1 host: install.sh default config with the nexusd provider enabled; nexusd.service MainPID 8290, NRestarts 0, certificate 47:87:70:81:C8:62:ED:1A:A5:77:09:8B:8C:8E:FC:A3:3A:0C:2E:FD:28:CF:AC:28:D6:61:EC:6D:1C:5F:6C:73
+    nexusd_remoteadmin_test.go:2088: hold armed: /run/systemd/system/nexus-op-.service.d/ra-hold.conf, nexusd.service still exact with no drop-in
+    nexusd_selfmgmt_test.go:205: nexus nexusdconfig update --yes --no-wait -o json --verbose providers.host.enabled=true: exit 0 in 60ms
+        stdout: [
+          {
+            "action": "nexusd.actions.update-config",
+            "created": "2026-11-18T04:49:23.941959334Z",
+            "ended": null,
+            "error": null,
+            "host": "t1",
+            "id": "01a1ecfc-f7e5-75d6-87a9-9233b5f6c025",
+            "outputEvicted": false,
+            "provider": "nexusd",
+            "result": null,
+            "started": null,
+            "status": "Queued",
+            "target": "",
+            "tokenName": "ra"
+          }
+        ]
+        stderr: > POST https://127.0.0.1:7443/v1/providers/nexusd/actions/update-config
+        < 202 Accepted (31ms)
+    nexusd_remoteadmin_test.go:2089: gate: 01a1ecfc-f7e5-75d6-87a9-9233b5f6c025 reached; nexus-op-01a1ecfc-f7e5-75d6-87a9-9233b5f6c025.service DropInPaths=/run/systemd/system/nexus-op-.service.d/ra-hold.conf ActiveState=activating SubState=start-pre
+    nexusd_remoteadmin_test.go:2092: gate open at 2026-11-18T04:49:24.088560528Z
+    nexusd_remoteadmin_test.go:2110: operation log of 01a1ecfc-f7e5-75d6-87a9-9233b5f6c025:
+        2026-11-18T04:49:24Z service helper: config-set
+        2026-11-18T04:49:24Z config set: /etc/nexus/nexusd.yaml, keys providers.host.enabled
+        nexusd service-helper: /etc/nexus/nexusd.yaml changed since the request was admitted; nothing was changed; run the command again
+        2026-11-18T04:49:24Z wrote result.json
+        
+        journalctl -u nexus-op-01a1ecfc-f7e5-75d6-87a9-9233b5f6c025.service:
+        Starting nexus-op-01a1ecfc-f7e5-75d6-87a9-9233b5f6c025.service - Nexus operation 01a1ecfc-f7e5-75d6-87a9-9233b5f6c025...
+        Started nexus-op-01a1ecfc-f7e5-75d6-87a9-9233b5f6c025.service - Nexus operation 01a1ecfc-f7e5-75d6-87a9-9233b5f6c025.
+        nexus-op-01a1ecfc-f7e5-75d6-87a9-9233b5f6c025.service: Deactivated successfully.
+    nexusd_remoteadmin_test.go:532: hold released: /run/systemd/system/nexus-op-.service.d/ra-hold.conf removed, nexusd.service exact with no drop-in
+--- PASS: TestTCRAERR44_OnRealSystemdAFileChangedBetweenAdmissionAnd (2.06s)
+=== RUN   TestTCRA103_NoSandboxDenialCrashOrRestartDuringTheT1Run
+    nexusd_remoteadmin_test.go:2173: window since 2026-11-18T04:47:57Z: 22 Reloaded lines; nexusd.service NRestarts 0
+--- PASS: TestTCRA103_NoSandboxDenialCrashOrRestartDuringTheT1Run (0.05s)
+=== RUN   TestTCRA104_OnOpenRCTokenAddGetAndRemoveRoundTripAndApplyOn
+    remoteadmin_openrc_test.go:156: requires openrc (detected systemd)
+--- SKIP: TestTCRA104_OnOpenRCTokenAddGetAndRemoveRoundTripAndApplyOn (0.00s)
+=== RUN   TestTCRA105_OnOpenRCConfigGetWorks
+    remoteadmin_openrc_test.go:252: requires openrc (detected systemd)
+--- SKIP: TestTCRA105_OnOpenRCConfigGetWorks (0.00s)
+=== RUN   TestTCRA106_OnOpenRCNexusNexusdGetReportsConfigSet
+    remoteadmin_openrc_test.go:301: requires openrc (detected systemd)
+--- SKIP: TestTCRA106_OnOpenRCNexusNexusdGetReportsConfigSet (0.00s)
+=== RUN   TestTCRA107_OnOpenRCTokenSecretsReachNoSink
+    remoteadmin_openrc_test.go:317: requires openrc (detected systemd)
+--- SKIP: TestTCRA107_OnOpenRCTokenSecretsReachNoSink (0.00s)
+=== RUN   TestTCRAERR37_OnOpenRCConfigSetIsRefusedWithConfigSet
+    remoteadmin_openrc_test.go:438: requires openrc (detected systemd)
+--- SKIP: TestTCRAERR37_OnOpenRCConfigSetIsRefusedWithConfigSet (0.00s)
+=== RUN   TestTCRAERR38_OnOpenRCThe429PathAndTheTokenCapBehaveAsOn
+    remoteadmin_openrc_test.go:512: requires openrc (detected systemd)
+--- SKIP: TestTCRAERR38_OnOpenRCThe429PathAndTheTokenCapBehaveAsOn (0.00s)
+PASS
+harness: WARNING: 6 test(s) SKIPPED, not verified on this run:
+    --- SKIP: TestTCRA104_OnOpenRCTokenAddGetAndRemoveRoundTripAndApplyOn (0.00s)
+    --- SKIP: TestTCRA105_OnOpenRCConfigGetWorks (0.00s)
+    --- SKIP: TestTCRA106_OnOpenRCNexusNexusdGetReportsConfigSet (0.00s)
+    --- SKIP: TestTCRA107_OnOpenRCTokenSecretsReachNoSink (0.00s)
+    --- SKIP: TestTCRAERR37_OnOpenRCConfigSetIsRefusedWithConfigSet (0.00s)
+    --- SKIP: TestTCRAERR38_OnOpenRCThe429PathAndTheTokenCapBehaveAsOn (0.00s)
+harness: tests exited 0
+harness: checking the parity logs and test.log skips (TC-46)
+=== RUN   TestParitySuitesRanAsRoot
+    platform_test.go:239: ops.log: 105 results, 18 process-backend subtests
+    platform_test.go:239: detach.log: 60 results, 1 process-backend subtests
+    platform_test.go:265: ops-nonroot.log: 105 results; skips:
+    platform_test.go:265: detach-nonroot.log: 60 results; skips:
+        TestOperationCgroupContainment: cgroup_linux_test.go:227: needs root
+        TestCancelKillsSetsidGrandchild: cgroup_linux_test.go:272: needs root
+        TestLeftoverSweepOnlyForControlGroup: cgroup_linux_test.go:304: needs root
+        TestCgroupFallbacks: cgroup_linux_test.go:387: needs root
+        TestLaunchFallsBackWhenClonedSupervisorIsKilled: cgroup_linux_test.go:441: needs root
+        TestSystemdAvailabilityRefusesSilentDowngrade: launcher_test.go:113: this host has systemd; the negative case needs a host without it
+    platform_test.go:301: test.log: 27 results; 6 gated to openrc or to apt: TestTCRA104_OnOpenRCTokenAddGetAndRemoveRoundTripAndApplyOn, TestTCRA105_OnOpenRCConfigGetWorks, TestTCRA106_OnOpenRCNexusNexusdGetReportsConfigSet, TestTCRA107_OnOpenRCTokenSecretsReachNoSink, TestTCRAERR37_OnOpenRCConfigSetIsRefusedWithConfigSet, TestTCRAERR38_OnOpenRCThe429PathAndTheTokenCapBehaveAsOn
+    platform_test.go:310: test.log: TestSetsidChildInDaemonCgroupDies did not run (RUN narrowed the run)
+    platform_test.go:310: test.log: TestOpenRCServiceLifecycle did not run (RUN narrowed the run)
+--- PASS: TestParitySuitesRanAsRoot (0.01s)
+PASS
+harness: parity check exited 0, parity suites 0
+harness: svcctl TestLiveMatrix against the container's nginx (systemd) -> svcctl-live.log
+=== RUN   TestLiveMatrix
+    svcctl_test.go:846: systemd stop: exit 0, output ""; Status {Known:true State:stopped Since:2026-11-18 04:49:25 +0000 UTC MainPID:0 Raw:ActiveState=inactive SubState=dead}
+    svcctl_test.go:847: systemd start: exit 0, output ""; Status {Known:true State:running Since:2026-11-18 04:49:25 +0000 UTC MainPID:8480 Raw:ActiveState=active SubState=running}
+    svcctl_test.go:848: systemd reload: exit 0, output ""; Status {Known:true State:running Since:2026-11-18 04:49:25 +0000 UTC MainPID:8480 Raw:ActiveState=active SubState=running}
+    svcctl_test.go:849: systemd restart: exit 0, output ""; Status {Known:true State:running Since:2026-11-18 04:49:25 +0000 UTC MainPID:8501 Raw:ActiveState=active SubState=running}
+    svcctl_test.go:850: systemd stop: exit 0, output ""; Status {Known:true State:stopped Since:2026-11-18 04:49:25 +0000 UTC MainPID:0 Raw:ActiveState=inactive SubState=dead}
+--- PASS: TestLiveMatrix (0.29s)
+PASS
+harness: collecting logs into build/harness/logs/20261118T044518Z
+harness: container nexus-harness-20261118T044518Z-14107 removed
+harness: dist/ untouched
+harness: exit 0

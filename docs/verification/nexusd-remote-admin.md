@@ -40,6 +40,7 @@ copies.
 | `20261117T120059Z` | `make test-harness RUN='^TestTCRA'` | Ubuntu 26.04.1, systemd 259 (259.9-0ubuntu0.1) | 20 PASS, 6 SKIP, 0 FAIL in `test.log`; parity check **FAIL**; `harness: exit 1` | [systemd, first run](nexusd-remote-admin/20261117T120059Z-systemd-run.log) |
 | `20261117T121435Z` | `make test-harness-alpine` (every suite) | Alpine Linux v3.24, OpenRC 0.63.2 | 99 top-level PASS, 107 SKIP, 0 FAIL in `test.log`; parity PASS; svcctl PASS; `harness: exit 0` | [OpenRC](nexusd-remote-admin/20261117T121435Z-alpine-openrc-run.log) |
 | `20261117T123827Z` | `make test-harness RUN='^TestTCRA'` (re-run) | Ubuntu 26.04.1, systemd 259 (259.9-0ubuntu0.1) | 20 PASS, 6 SKIP, 0 FAIL in `test.log`; parity PASS; svcctl PASS; `harness: exit 0` | [systemd, re-run](nexusd-remote-admin/20261117T123827Z-systemd-run.log) |
+| `20261118T044518Z` | `make test-harness RUN='^TestTCRA'` (after the SEC-2 key swap and the CR-18 wording; covers TC-RA-98, 99, 102, ERR32, ERR33, E33) | Ubuntu 26.04.1, systemd 259 (259.9-0ubuntu0.1) | 21 PASS, 6 SKIP, 0 FAIL in `test.log`; parity PASS; svcctl PASS; `harness: exit 0` | [systemd, after SEC-2](nexusd-remote-admin/20261118T044518Z-systemd-run.log) |
 
 Counting the harness's own checks (`TestParitySuitesRanAsRoot` and the
 svcctl `TestLiveMatrix`) with the suites, `run.log` holds 22 `--- PASS`

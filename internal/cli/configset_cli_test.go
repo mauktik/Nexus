@@ -271,7 +271,7 @@ const loopbackTLSOff = "listen: [\"127.0.0.1:7443\"]\ntls:\n  mode: \"off\"\npro
 
 // tlsLockoutWarning is the lock-out warning of a tls.mode change (ASM-3).
 const tlsLockoutWarning = "tls.mode takes effect when nexusd restarts; if it changes how this client connects " +
-	"(certificate, pin or auth limit), you may be locked out until a root login on the host fixes it"
+	"(certificate or pin), you may be locked out until a root login on the host fixes it"
 
 // TC-RA-88: nexusdconfig update fans out with confirmation, prints per-host results and echoes warnings. Owner WI 4.4. Requirements: FR-11, FR-7, ASM-3.
 func TestTCRA88_NexusdconfigUpdateFansOutWithConfirmationPrints(t *testing.T) {

@@ -365,7 +365,8 @@ var ConfigDenyList = []ConfigDeny{
 }
 
 // LockoutKeyPrefixes are the key prefixes whose change may lock the client
-// out once nexusd restarts; config set warns about each (ASM-3).
+// out once nexusd restarts; config set warns about each (ASM-3). "auth." is
+// a forward guard: no auth.* key is settable remotely today (SEC-2).
 var LockoutKeyPrefixes = []string{"tls.", "auth."}
 
 // configKeyPattern matches a dotted key of the config schema: 1 to 8
@@ -714,7 +715,7 @@ var UpdateConfig = def.Define[ConfigUpdateInput, ConfigUpdateResult](def.Op{
 		"OpenRC. A set that changes nothing answers 200 with changed false and creates no operation. Side " +
 		"effects: the current file is saved as <config file>.bak, returned as backupPath, the edited file " +
 		"replaces it, and nexusd reloads it. It never restarts nexusd: restartRequired lists the changed keys " +
-		"that take effect only at the next restart, and a changed tls or auth key adds a warning that it may " +
+		"that take effect only at the next restart, and a changed tls key adds a warning that it may " +
 		"lock this client out then. If the reload refuses the new file, the backup is restored and the " +
 		"operation fails with config-apply-failed and restored true; if the restore is not confirmed either, " +
 		"it fails with config-restore-failed naming backupPath. Long-running: answers 202 with an operation. " +

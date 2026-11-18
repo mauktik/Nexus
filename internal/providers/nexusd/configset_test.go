@@ -568,7 +568,7 @@ func TestTCRA83_ATlsOrAuthChangeCarriesTheLockOutWarningAnd(t *testing.T) {
 	// deny-list (SEC-2), so tls.mode is the settable key that warns.
 	res, c, starts := csResult(t, "tls.mode=off")
 	lockout := "tls.mode takes effect when nexusd restarts; if it changes how this client " +
-		"connects (certificate, pin or auth limit), you may be locked out until a root login on the host fixes it"
+		"connects (certificate or pin), you may be locked out until a root login on the host fixes it"
 	if want := []string{lockout, "run nexus nexusd restart to apply: tls"}; !slices.Equal(res.Warnings, want) {
 		t.Errorf("warnings\n got %q\nwant %q", res.Warnings, want)
 	}

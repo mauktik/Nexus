@@ -41,7 +41,7 @@ const loopbackTLSOff = "listen: [\"127.0.0.1:7443\"]\ntls:\n  mode: \"off\"\npro
 
 // tlsLockout is the lock-out warning of a tls.mode change (ASM-3).
 const tlsLockout = "tls.mode takes effect when nexusd restarts; if it changes how this client connects " +
-	"(certificate, pin or auth limit), you may be locked out until a root login on the host fixes it"
+	"(certificate or pin), you may be locked out until a root login on the host fixes it"
 
 // runOp POSTs a config set that changes something, waits for its operation
 // and returns it with the helper's output on failure.

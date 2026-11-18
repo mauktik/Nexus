@@ -330,7 +330,7 @@ func configSetWarnings(changes []spec.ConfigChange, restart []string) []string {
 		for _, prefix := range spec.LockoutKeyPrefixes {
 			if strings.HasPrefix(ch.Key, prefix) {
 				out = append(out, ch.Key+" takes effect when nexusd restarts; if it changes how this client "+
-					"connects (certificate, pin or auth limit), you may be locked out until a root login on the "+
+					"connects (certificate or pin), you may be locked out until a root login on the "+
 					"host fixes it")
 				break
 			}
