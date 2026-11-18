@@ -1238,3 +1238,42 @@ func TestTCSVERR22_QuoteStaysWithin2KiBForInvalidUTF8(t *testing.T) {
 		t.Fatalf("quote body is not valid UTF-8")
 	}
 }
+
+// SEC-4 (services-provider security review): rc-service runs the init
+// script in the foreground, so its output is whatever the script's start_pre,
+// checkconfig or daemon prints (a config test quoting the file, an echoed
+// environment). The operation's problem detail and its log are read with
+// services:read, which does not cover services:logs, where that text could
+// hold secrets. On OpenRC only OpenRC's own verdict line is quoted and
+// logged; systemctl's job message (no script output) is unchanged.
+func TestSEC4_OpenRCInitScriptOutputIsNeitherQuotedNorLogged(t *testing.T) {
+	const verdict = " * ERROR: nx-svc-fail failed to start"
+	const secret = "DB_PASSWORD=hunter2-planted"
+	w := newCtlWorld(t, ctlOpenRC, "enabled: true\ncontrol:\n  - name: nx-svc-fail\n", ctlOptions{names: []string{"nx-svc-fail"}})
+	w.post = func(argv []string, res svcctl.Result) svcctl.Result {
+		if slices.Equal(argv, openrcArgv("start", "nx-svc-fail")) {
+			res.Output = []byte(" * Starting nx-svc-fail ...\n * checking /etc/app.conf: " + secret + "\n * start_pre: token=abc\n" +
+				verdict + "\n")
+		}
+		return res
+	}
+	r := w.act(spec.Start.Op(), `{"name":"nx-svc-fail"}`, ctlPoll)
+	pe := wantProblem(t, r.err, problem.ServiceActionFailed)
+	if !strings.Contains(pe.Detail, "ERROR: nx-svc-fail failed to start") || fmt.Sprintf("%s", pe.Extensions["exitCode"]) != "1" {
+		t.Errorf("problem %q, exitCode %v; want OpenRC's own verdict and the exit code", pe.Detail, pe.Extensions["exitCode"])
+	}
+	for _, leak := range []string{secret, "token=abc", "checking /etc/app.conf", "Starting nx-svc-fail"} {
+		if strings.Contains(pe.Detail, leak) {
+			t.Errorf("detail %q quotes the init script's output %q", pe.Detail, leak)
+		}
+		if strings.Contains(r.log, leak) {
+			t.Errorf("operation log %q records the init script's output %q", r.log, leak)
+		}
+	}
+	if !strings.Contains(r.log, "ERROR: nx-svc-fail failed to start") || !strings.Contains(r.log, "exited 1") {
+		t.Errorf("operation log %q, want the exit code and the verdict line", r.log)
+	}
+	if !strings.Contains(r.log, "not recorded") {
+		t.Errorf("operation log %q does not say that the rest of the output is not recorded", r.log)
+	}
+}
