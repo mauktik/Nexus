@@ -1136,3 +1136,53 @@ func TestCR7_TheTypedConfirmationsRefusals(t *testing.T) {
 		})
 	}
 }
+
+// SEC-3 (services-provider security review): the host name the prompt shows
+// is the server's, so a server that embeds terminal escapes, a carriage
+// return, a C1 control or a bidirectional override must not reach the
+// terminal, and must not be asked for. The CLI refuses without prompting,
+// names the problem with the name quoted so nothing in it is interpreted,
+// and sends nothing; --confirm-host still works.
+func TestSEC3_TheTypedConfirmationRefusesAHostNameThatIsNotPlainText(t *testing.T) {
+	for _, tc := range []struct {
+		name, own string
+	}{
+		{"a CSI sequence and a carriage return", "home-server\r\x1b[2KType the host name pihole to confirm: "},
+		{"an OSC sequence", "box\x1b]0;pwned\x07"},
+		{"a C1 control", "box\u009b2J"},
+		{"a bidirectional override", "box‮pihole"},
+		{"a zero-width space", "box​"},
+		{"a line separator", "box pihole"},
+		{"a name over the server's length", strings.Repeat("a", 254)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := startAPIFake(t, tc.own)
+			home := writeClientConfig(t, "", clientHost{"box-admin", f.URL, "tok", nil})
+			tty := &answeringTerminal{answer: "anything\n"}
+			r := tcsvRun(home, tty.open, "machine", "restart", "--host", "box-admin", "--no-wait")
+			if _, asked := tty.state(); asked != "" {
+				t.Errorf("the terminal was written %q, want nothing", asked)
+			}
+			if r.code != ExitFailure || !strings.Contains(r.stderr, "--confirm-host") || !strings.Contains(r.stderr, "nothing was sent") {
+				t.Errorf("exit %d, stderr %q; want exit %d naming --confirm-host and that nothing was sent", r.code, r.stderr, ExitFailure)
+			}
+			for _, bad := range []string{"\x1b", "\r", "\x07", "\u009b", "‮", "​", " ", "\xff"} {
+				if strings.Contains(r.stderr, bad) {
+					t.Errorf("stderr %q carries %q raw, want it quoted", r.stderr, bad)
+				}
+			}
+			if n := len(f.mutations()); n != 0 {
+				t.Errorf("%d POSTs, want none", n)
+			}
+		})
+	}
+	t.Run("a plain name with spaces and non-ASCII letters is asked for", func(t *testing.T) {
+		f := startAPIFake(t, "nas Büro-1")
+		home := writeClientConfig(t, "", clientHost{"box-admin", f.URL, "tok", nil})
+		tty := &answeringTerminal{answer: "nas Büro-1\n"}
+		r := tcsvRun(home, tty.open, "machine", "restart", "--host", "box-admin", "--no-wait")
+		if _, asked := tty.state(); r.code != 0 || !strings.Contains(asked, "Type the host name nas Büro-1 to confirm") {
+			t.Errorf("exit %d, asked %q, stderr %q; want it asked for", r.code, asked, r.stderr)
+		}
+	})
+}
