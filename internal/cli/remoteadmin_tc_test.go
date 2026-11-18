@@ -373,13 +373,20 @@ func TestTCRA114_TheCLITreatsA200FromALongRunningOpAsTheFinal(t *testing.T) {
 			}
 			continue
 		}
-		// A table with the columns a waited operation prints, one row.
+		// A table with the result's own columns (user decision at
+		// confirm-before-merge, 2026-11-17), not a waited operation's,
+		// which would be mostly blank: one row, changed false.
 		lines := strings.Split(strings.TrimSuffix(r.stdout, "\n"), "\n")
 		if len(lines) != 2 {
 			t.Fatalf("%s: stdout %q, want a header and one row", tc.name, r.stdout)
 		}
-		if header := strings.Fields(lines[0]); !slices.Equal(header, waitedHeader) || !slices.Contains(header, "STATUS") {
-			t.Errorf("%s: header %q, want a waited operation's %q", tc.name, header, waitedHeader)
+		if header := strings.Fields(lines[0]); !slices.Equal(header, []string{"HOST", "CHANGED"}) ||
+			slices.Equal(header, waitedHeader) {
+			t.Errorf("%s: header %q, want the result's [HOST CHANGED], not a waited operation's %q", tc.name, header,
+				waitedHeader)
+		}
+		if row := strings.Fields(lines[1]); !slices.Equal(row, []string{host, "false"}) {
+			t.Errorf("%s: row %q, want [%s false]", tc.name, row, host)
 		}
 		if got := warningLines(t, r.stderr, false); !slices.Equal(got, []string{"nexus: warning: host " + host + ": w1"}) {
 			t.Errorf("%s: warning lines %q (stderr %q)", tc.name, got, r.stderr)

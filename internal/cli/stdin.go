@@ -191,7 +191,7 @@ func (a *app) invokeStdin(cmd *cobra.Command, g *opCommand, b *binding) error {
 	if err != nil {
 		return err
 	}
-	r := &stdinRun{a: a, cmd: cmd, b: b, op: op, server: server, w: w, p: &lockedPrinter{p: output.NewPrinter(a.env.Stdout, opts)},
+	r := &stdinRun{a: a, cmd: cmd, b: b, op: op, server: server, w: w, p: a.newLockedPrinter(g, op, opts),
 		clients: map[string]*stdinHost{}, token: strings.TrimSpace(a.env.Getenv(clientconfig.EnvToken))}
 	stop := flagSet(cmd, flagStopOnError)
 	var tally outcome

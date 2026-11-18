@@ -340,6 +340,81 @@ func TestTCRA88_NexusdconfigUpdateFansOutWithConfirmationPrints(t *testing.T) {
 	}
 }
 
+// tableCell is the cell under column col of row, read at the header's
+// offset: a table's blank cells make strings.Fields unusable.
+func tableCell(t *testing.T, header, row, col string) string {
+	t.Helper()
+	i := strings.Index(header, col)
+	if i < 0 {
+		t.Fatalf("header %q has no column %s", header, col)
+	}
+	if i >= len(row) {
+		return ""
+	}
+	return strings.Fields(row[i:] + " ")[0]
+}
+
+// A no-change nexusdconfig update answers 200 with its result (D-7). In a
+// table it prints the result's own columns, with changed false, instead of
+// a waited operation's mostly blank ones (user decision at
+// confirm-before-merge, 2026-11-17); JSON is unchanged. Over two hosts, one
+// changed and one not, each table holds its own host.
+func TestTCRA114_ANoChangeConfigUpdatePrintsTheResultColumnsInATable(t *testing.T) {
+	a := startConfigHost(t, "srv-a", []byte(loopbackTLSOff), availableSystemd)
+	b := startConfigHost(t, "srv-b", []byte(strings.Replace(loopbackTLSOff, `mode: "off"`, "mode: auto", 1)),
+		availableSystemd)
+	home := writeClientConfig(t, "a", clientHost{"a", a.proxy, a.token, nil}, clientHost{"b", b.proxy, b.token, nil})
+
+	// One host, no change.
+	r := runCLI(tokenEnv(home), "nexusdconfig", "update", "--yes", "-o", "table", "tls.mode=off")
+	if r.code != ExitOK {
+		t.Fatalf("exit %d: %s", r.code, r.stderr)
+	}
+	lines := strings.Split(strings.TrimSuffix(r.stdout, "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("stdout %q, want a header and one row", r.stdout)
+	}
+	if h := strings.Fields(lines[0]); !slices.Equal(h, []string{"HOST", "CHANGED", "BACKUPPATH", "RESTORED"}) {
+		t.Errorf("header %q, want the result's columns HOST CHANGED BACKUPPATH RESTORED", h)
+	}
+	if got := tableCell(t, lines[0], lines[1], "CHANGED"); got != "false" {
+		t.Errorf("CHANGED %q, want false:\n%s", got, r.stdout)
+	}
+	if got := tableCell(t, lines[0], lines[1], "HOST"); got != "a" {
+		t.Errorf("HOST %q, want a:\n%s", got, r.stdout)
+	}
+	if a.launchCount() != 0 {
+		t.Errorf("launches %d, want 0", a.launchCount())
+	}
+
+	// JSON is unchanged: the result object.
+	r = runCLI(tokenEnv(home), "nexusdconfig", "update", "--yes", "-o", "json", "tls.mode=off")
+	var printed []map[string]any
+	if err := json.Unmarshal([]byte(r.stdout), &printed); r.code != ExitOK || err != nil || len(printed) != 1 ||
+		printed[0]["changed"] != false || printed[0]["host"] != "a" || printed[0]["status"] != nil {
+		t.Errorf("json: exit %d, stdout %q (%v), want the result object alone", r.code, r.stdout, err)
+	}
+
+	// Two hosts: b changes (an operation, waited), a does not (its result).
+	r = runCLI(tokenEnv(home), "nexusdconfig", "update", "--host", "a,b", "--yes", "-o", "table", "tls.mode=off")
+	if r.code != ExitOK {
+		t.Fatalf("two hosts: exit %d: %s", r.code, r.stderr)
+	}
+	tables := strings.Split(strings.TrimSuffix(r.stdout, "\n"), "\n\n")
+	if len(tables) != 2 {
+		t.Fatalf("two hosts: stdout %q, want two tables", r.stdout)
+	}
+	op := strings.Split(tables[0], "\n")
+	res := strings.Split(tables[1], "\n")
+	if len(op) != 2 || !slices.Contains(strings.Fields(op[0]), "STATUS") ||
+		tableCell(t, op[0], op[1], "HOST") != "b" || tableCell(t, op[0], op[1], "STATUS") != "Succeeded" {
+		t.Errorf("two hosts: operation table %q, want b's succeeded operation", tables[0])
+	}
+	if len(res) != 2 || tableCell(t, res[0], res[1], "HOST") != "a" || tableCell(t, res[0], res[1], "CHANGED") != "false" {
+		t.Errorf("two hosts: result table %q, want a with changed false", tables[1])
+	}
+}
+
 func readFileBytes(t *testing.T, path string) []byte {
 	t.Helper()
 	b, err := os.ReadFile(path)

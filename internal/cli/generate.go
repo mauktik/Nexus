@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"net/url"
@@ -54,6 +55,9 @@ type opCommand struct {
 	// operationColumns are the table columns of an operation, for an op
 	// that prints its result items when waited but runs with --no-wait.
 	operationColumns []output.Path
+	// resultColumns maps a CompletesAtAdmission op's ID to the table
+	// columns of its output, which its 200 answer is.
+	resultColumns map[string][]output.Path
 	// uploads maps the ID of an op with CLI.Upload to the KindUpload op it
 	// names, which uploads its file first.
 	uploads map[string]def.Op
@@ -193,6 +197,14 @@ func (a *app) newOpCommand(g *opCommand) (*cobra.Command, error) {
 		g.columns[op.ID] = cols
 		if op.CLI.WaitedResultItems {
 			if g.operationColumns, err = a.columnsOf(operationType, nil); err != nil {
+				return nil, fmt.Errorf("op %q: %w", op.ID, err)
+			}
+		}
+		if op.CompletesAtAdmission {
+			if g.resultColumns == nil {
+				g.resultColumns = map[string][]output.Path{}
+			}
+			if g.resultColumns[op.ID], err = a.columnsOf(op.OutputType(), nil); err != nil {
 				return nil, fmt.Errorf("op %q: %w", op.ID, err)
 			}
 		}
@@ -479,7 +491,7 @@ func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string
 	}
 	a.multi = len(targets) > 1
 	opts.HostLabels = a.multi
-	p := &lockedPrinter{p: output.NewPrinter(a.env.Stdout, opts)}
+	p := a.newLockedPrinter(g, op, opts)
 	send := func(ctx context.Context, t hostTarget) ([]byte, error) {
 		c, err := a.targetClient(t)
 		if err != nil {
@@ -586,11 +598,30 @@ func (a *app) interruptedExit(err error) error {
 // followed stream prints while they do.
 type lockedPrinter struct {
 	mu sync.Mutex
+	w  io.Writer
 	p  *output.Printer
 	// final holds the hosts whose body to print next is a long-running op's
 	// final result, answered with 200 (execute). A host's body is printed
 	// after its execute returns, and before its next one starts.
 	final map[string]bool
+	// results, when set, prints those final results in a table of their
+	// own, with the output's columns: an operation's columns would leave
+	// the row mostly blank. It writes after p, on close.
+	results *output.Printer
+}
+
+// newLockedPrinter is the printer of a run of op with opts. A table without
+// --select of a CompletesAtAdmission op prints its 200 answers through a
+// second printer with the output's own columns.
+func (a *app) newLockedPrinter(g *opCommand, op def.Op, opts output.Options) *lockedPrinter {
+	l := &lockedPrinter{w: a.env.Stdout, p: output.NewPrinter(a.env.Stdout, opts)}
+	if cols, ok := g.resultColumns[op.ID]; ok && opts.Format == output.Table && len(opts.Select) == 0 &&
+		opts.Text == "" {
+		ro := opts
+		ro.Columns = cols
+		l.results = output.NewPrinter(a.env.Stdout, ro)
+	}
+	return l
 }
 
 // markFinal records that host answered a long-running op with its result.
@@ -614,13 +645,30 @@ func (l *lockedPrinter) response(a *app, t hostTarget, op def.Op, in map[string]
 	defer l.mu.Unlock()
 	final := l.final[t.Name]
 	delete(l.final, t.Name)
-	return a.printResponse(l.p, t, op, in, body, waited, final)
+	p := l.p
+	if final && l.results != nil {
+		p = l.results
+	}
+	return a.printResponse(p, t, op, in, body, waited, final)
 }
 
+// close writes the tables: the operations, then the final results after a
+// blank line. A table with no row is left out when the other has one.
 func (l *lockedPrinter) close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.p.Close()
+	if l.results == nil || l.results.Held() == 0 {
+		return l.p.Close()
+	}
+	if l.p.Held() > 0 {
+		if err := l.p.Close(); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(l.w, "\n"); err != nil {
+			return err
+		}
+	}
+	return l.results.Close()
 }
 
 // closePrinter closes p, then warns about each --select path that no
@@ -703,8 +751,9 @@ func (a *app) outputOptions(cmd *cobra.Command, g *opCommand, op def.Op) (output
 // echoes the result's warnings on stderr when op declares EchoWarnings.
 // waited means body is the last state of the operation op answered with,
 // once waited for (FR-33). final means body is a long-running op's 200
-// answer: its output, printed through the same printer, and so with the
-// same columns, as a waited operation.
+// answer: its output, which in a table without --select p prints with the
+// output's own columns (newLockedPrinter), and otherwise as an object like
+// any other.
 func (a *app) printResponse(p *output.Printer, t hostTarget, op def.Op, in map[string]any, body []byte, waited, final bool) error {
 	if err := a.printBody(p, t, op, in, body, waited && !final); err != nil {
 		return err
