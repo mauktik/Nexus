@@ -369,6 +369,7 @@ the file on the host. The list is `spec.ConfigDenyList` in
 | `providers.pihole.dnsFile` | any value | A file path: the dnsmasq file root writes |
 | `audit.retentionDays` | any value | Audit history: a stolen `nexusd:admin` token could otherwise shorten retention and, after a restart, prune the record of its own use |
 | `auth.failureLimitPerMinute` | any value | Brute-force protection: a stolen `nexusd:admin` token could otherwise raise the limit on guessing tokens |
+| `providers.services.reboot.enabled` | `true` only | The reboot is switched on only by editing the file on the host, so a stolen `nexusd:admin` token cannot also enable rebooting it; switching it off stays settable |
 
 ### Why path-valued keys are denied
 

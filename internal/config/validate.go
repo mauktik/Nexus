@@ -21,6 +21,7 @@ import (
 	hostspec "github.com/mauktik/nexus/internal/providers/host/spec"
 	nexusdspec "github.com/mauktik/nexus/internal/providers/nexusd/spec"
 	"github.com/mauktik/nexus/internal/providers/scripts/spec"
+	servicesspec "github.com/mauktik/nexus/internal/providers/services/spec"
 	"github.com/mauktik/nexus/internal/release"
 	"github.com/mauktik/nexus/internal/svcctl"
 )
@@ -107,6 +108,73 @@ func (c *Config) validate(errs *collector) {
 	v.nexusd(c.Providers.Nexusd.Settings)
 	v.piholeDNSFile("providers.pihole.dnsFile", c.Providers.Pihole.Settings.DNSFile)
 	v.host(c.Providers.Host.Settings)
+	v.services(c.Providers.Services.Settings)
+}
+
+// serviceNameRE is the services spec's copy of svcctl.ServiceNamePattern,
+// which its tests pin equal.
+var serviceNameRE = regexp.MustCompile(servicesspec.ServiceNamePattern)
+
+// services checks the services section (services-provider FR-8, FR-9,
+// FR-10). validate-config cannot see the running unit, so it refuses only
+// the static protected lists, both of them on every host (A-30, A-31); the
+// provider reports the dynamic protections in its capabilities.
+func (v validator) services(s ServicesConfig) {
+	const p = "providers.services"
+	first := map[string]int{} // name -> index of its first entry
+	for i, e := range s.Control {
+		ep := fmt.Sprintf("%s.control[%d]", p, i)
+		switch base, suffixed := strings.CutSuffix(e.Name, ".service"); {
+		case e.Name == "":
+			v.fail(ep+".name", "required: the service name, without .service")
+		case suffixed:
+			v.failf(ep+".name", "must not end in .service, got %q: use %q, the name without the suffix", e.Name, base)
+		case !serviceNameRE.MatchString(e.Name):
+			v.failf(ep+".name", "must match %s, got %q", servicesspec.ServiceNamePattern, e.Name)
+		default:
+			if list, entry, ok := protectedService(e.Name); ok {
+				v.failf(ep+".name", "%q is protected by the built-in %s list entry %q: no services operation may "+
+					"start, stop or restart it, so it cannot be allow-listed", e.Name, list, entry)
+			} else if j, dup := first[e.Name]; dup {
+				v.failf(ep+".name", "duplicate name %q: already listed at line %d", e.Name,
+					v.locs[fmt.Sprintf("%s.control[%d].name", p, j)].line)
+			}
+		}
+		if _, seen := first[e.Name]; !seen {
+			first[e.Name] = i
+		}
+		for j, a := range e.Actions {
+			if !slices.Contains(servicesspec.Actions, a) {
+				v.failf(fmt.Sprintf("%s.actions[%d]", ep, j), "must be one of start, stop or restart, got %q", a)
+			}
+		}
+		if e.Timeout <= 0 || e.Timeout > servicesspec.MaxControlTimeout {
+			v.failf(ep+".timeout", "must be greater than zero and at most %s, got %s",
+				minutes(servicesspec.MaxControlTimeout), shortDuration(e.Timeout))
+		}
+	}
+	if t := s.Reboot.Timeout; t < servicesspec.MinRebootTimeout || t > servicesspec.MaxRebootTimeout {
+		v.failf(p+".reboot.timeout", "must be between %s and %s, got %s", minutes(servicesspec.MinRebootTimeout),
+			minutes(servicesspec.MaxRebootTimeout), shortDuration(t))
+	}
+}
+
+// protectedService reports whether name is on either static protected list,
+// with the list's name and the matching entry.
+func protectedService(name string) (list, entry string, ok bool) {
+	if ok, entry := servicesspec.Protected(name, servicesspec.ProtectedSystemd); ok {
+		return "systemd", entry, true
+	}
+	if ok, entry := servicesspec.Protected(name, servicesspec.ProtectedOpenRC); ok {
+		return "OpenRC", entry, true
+	}
+	return "", "", false
+}
+
+// minutes spells a whole number of minutes as it is written in the file,
+// such as 10m, where shortDuration gives 600s.
+func minutes(d time.Duration) string {
+	return strconv.FormatInt(int64(d/time.Minute), 10) + "m"
 }
 
 // NginxSuffixPattern is what includeSuffix and disabledSuffix must match: a

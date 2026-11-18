@@ -582,6 +582,8 @@ func TestTCRA68_TheDenyListKeysExistInTheSchemaAndTheTableHolds(t *testing.T) {
 	// SEC-2, user decision of 2026-11-17: audit history and brute-force
 	// protection change only by a root edit on the host.
 	want = append(want, entry{"audit.retentionDays", "", false}, entry{"auth.failureLimitPerMinute", "", false})
+	// services-provider A-19: the reboot is switched on only on the host.
+	want = append(want, entry{"providers.services.reboot.enabled", "true", false})
 	own := func(i int) bool { return i < 3 || i >= 3+len(paths) }
 	var got []entry
 	for i, d := range spec.ConfigDenyList {

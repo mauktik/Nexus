@@ -765,6 +765,7 @@ func TestTCRAERR27_AdmissionRefusesEachDenyListEntryWithItsReason(t *testing.T) 
 		{"providers.nginx.disabledSuffix=.sh"},
 		{"audit.retentionDays=1"},
 		{"auth.failureLimitPerMinute=1000000"},
+		{"providers.services.reboot.enabled=true"},
 	}
 	covered := map[string]bool{}
 	for _, st := range steps {

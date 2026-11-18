@@ -184,3 +184,26 @@ providers:
     sampleInterval: 10s        # 2s..60s: how often the sampler reads the host
     historyDuration: 1h        # sampleInterval..24h: how far back the in-memory history goes
     sourceTimeout: 2s          # 250ms..5s: bound on one read of a file, statfs call or command
+
+  # System services: list them and read one (services:read), read a
+  # service's recent logs (services:logs), start, stop and restart the
+  # services listed under control (services:write), and reboot the host
+  # (services:reboot). nexusd itself, the unit running it and its
+  # dependencies, ssh, dbus, getty, networking and the other built-in
+  # protected services, and nexus-op-* units can never be listed or acted on.
+  # systemd and OpenRC only; never on a Proxmox VE node. See docs/services.md.
+  services:
+    enabled: false             # Off until enabled here
+    # Services start, stop and restart may act on. Only this file changes it:
+    # config set refuses lists. Each entry: name (required, without
+    # .service), actions (subset of start, stop, restart; default all),
+    # timeout (default 90s, at most 10m). An entry for a service that is not
+    # installed is accepted and reported missing. For example
+    #   control:
+    #     - name: nx-app
+    #       actions: [restart]
+    #       timeout: 30s
+    control: []
+    reboot:
+      enabled: false           # Set only on the host: config set refuses true
+      timeout: 5m              # 1m to 30m: how long after the trigger the host must go down
