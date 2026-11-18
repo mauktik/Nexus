@@ -39,6 +39,15 @@ package svcctltest
 //   - stop of a failed systemd unit exits 0 and it stays failed
 //     (testdata/systemd/stop-failed.txt).
 //
+// It is also an svcctl.Options.RunLines serving a systemd capture's journal
+// (WI 3.3): the lines of journal-NAME-n20.jsonl, or of SetJournal, with
+// journalctl's semantics for the DF-2 argv: -n N gives the last N lines,
+// --since=@s.us the lines with __REALTIME_TIMESTAMP >= s*10^6+us, -p P the
+// lines with PRIORITY <= P, and -n with --since the last N of the
+// since-filtered lines, oldest first. A unit with no journal prints
+// nothing and exits 0, as `journalctl --quiet -u` of a unit with no
+// entries does.
+//
 // It is strict about how it is called, like Fake: any argv that is not one
 // of the shapes svcctl builds fails the test through T and returns an error
 // wrapping svcctl.ErrNotStarted.
@@ -46,8 +55,10 @@ package svcctltest
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -111,6 +122,10 @@ type Host struct {
 	clock   int64
 	nextPID int
 	calls   []Call
+
+	journals     map[string][]string // SetJournal, by unit name
+	noJournal    bool
+	stoppedEarly bool
 }
 
 type answer struct {
@@ -252,7 +267,8 @@ func (p CaptureProvenance) Init() platform.InitSystem {
 func NewHost(t T, capture string) *Host {
 	t.Helper()
 	h := &Host{t: t, units: map[string]*unit{}, scripts: map[string]*script{}, answers: map[string]answer{},
-		hangs: map[string]bool{}, served: map[string]svcctl.Result{}, settle: DefaultSettle, nextPID: firstFakePID}
+		hangs: map[string]bool{}, served: map[string]svcctl.Result{}, settle: DefaultSettle, nextPID: firstFakePID,
+		journals: map[string][]string{}}
 	if err := h.load(capture); err != nil {
 		t.Errorf("svcctltest: %v", err)
 	}
@@ -926,4 +942,192 @@ func (h *Host) openrcAction(s *script, verb, name string) (svcctl.Result, error)
 	}
 	setWord("started")
 	return h.action(verb+"-nx-svc-test.txt", "nx-svc-test", name)
+}
+
+// journalctl is the journal's tool, as svcctl calls it.
+const journalctl = "/usr/bin/journalctl"
+
+// journalPriorities are journalctl's level names, by level.
+var journalPriorities = []string{"emerg", "alert", "crit", "err", "warning", "notice", "info", "debug"}
+
+// SetJournal makes lines (JSON lines of `journalctl -o json`) the whole
+// journal of the systemd unit name, in place of the capture's.
+func (h *Host) SetJournal(name string, lines []string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.journals[name] = slices.Clone(lines)
+}
+
+// NoJournal makes journalctl absent: RunLines fails as the real one does
+// when the program is not there, with ErrNotStarted and fs.ErrNotExist.
+func (h *Host) NoJournal() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.noJournal = true
+}
+
+// StoppedEarly reports whether an onLine returned false before the journal
+// was served in full.
+func (h *Host) StoppedEarly() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.stoppedEarly
+}
+
+// journalQuery is the parsed DF-2 argv.
+type journalQuery struct {
+	unit     string
+	tail     int // -1 = none
+	since    int64
+	hasSince bool
+	maxPrio  int // -1 = none
+}
+
+// parseJournalArgv parses exactly the DF-2 shape: the fixed prefix, then
+// optionally -n N, --since=@S.US and -p NAME, in that order.
+func parseJournalArgv(argv []string) (journalQuery, error) {
+	prefix := []string{journalctl, "--no-pager", "--quiet", "-o", "json", "--output-fields=MESSAGE,PRIORITY", "-u"}
+	q := journalQuery{tail: -1, maxPrio: -1}
+	if len(argv) < len(prefix)+1 || !slices.Equal(argv[:len(prefix)], prefix) {
+		return q, errors.New("not the DF-2 journalctl argv")
+	}
+	unit, ok := unitArg(argv[len(prefix)])
+	if !ok {
+		return q, errors.New("not a service unit")
+	}
+	q.unit = unit
+	rest := argv[len(prefix)+1:]
+	if len(rest) >= 2 && rest[0] == "-n" {
+		n, err := strconv.Atoi(rest[1])
+		if err != nil || n <= 0 || strconv.Itoa(n) != rest[1] {
+			return q, fmt.Errorf("bad -n %q", rest[1])
+		}
+		q.tail, rest = n, rest[2:]
+	}
+	if len(rest) >= 1 && strings.HasPrefix(rest[0], "--since=@") {
+		sec, us, ok := strings.Cut(strings.TrimPrefix(rest[0], "--since=@"), ".")
+		s, err1 := strconv.ParseInt(sec, 10, 64)
+		u, err2 := strconv.ParseInt(us, 10, 64)
+		if !ok || len(us) != 6 || err1 != nil || err2 != nil || s < 0 || u < 0 {
+			return q, fmt.Errorf("bad %q", rest[0])
+		}
+		q.since, q.hasSince, rest = s*1_000_000+u, true, rest[1:]
+	}
+	if len(rest) >= 2 && rest[0] == "-p" {
+		p := slices.Index(journalPriorities, rest[1])
+		if p < 0 {
+			return q, fmt.Errorf("bad -p %q", rest[1])
+		}
+		q.maxPrio, rest = p, rest[2:]
+	}
+	if len(rest) != 0 {
+		return q, fmt.Errorf("unexpected arguments %q", rest)
+	}
+	return q, nil
+}
+
+// journalEntry is what the fake reads of a journal line to select it.
+type journalEntry struct {
+	RT       string `json:"__REALTIME_TIMESTAMP"`
+	Priority string `json:"PRIORITY"`
+}
+
+// journal is the unit's journal lines selected by q. It is called with h.mu
+// held.
+func (h *Host) journal(q journalQuery) ([]string, error) {
+	lines, ok := h.journals[q.unit]
+	if !ok {
+		b, err := os.ReadFile(filepath.Join(h.dir, "journal-"+q.unit+"-n20.jsonl"))
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return nil, err
+		}
+		for line := range strings.Lines(string(b)) {
+			if line = strings.TrimSuffix(line, "\n"); line != "" {
+				lines = append(lines, line)
+			}
+		}
+	}
+	var out []string
+	for _, line := range lines {
+		if q.hasSince || q.maxPrio >= 0 {
+			var e journalEntry
+			if err := json.Unmarshal([]byte(line), &e); err != nil {
+				return nil, fmt.Errorf("journal line %q: %w", line, err)
+			}
+			if q.hasSince {
+				if rt, err := strconv.ParseInt(e.RT, 10, 64); err != nil || rt < q.since {
+					continue
+				}
+			}
+			if q.maxPrio >= 0 {
+				if p, err := strconv.Atoi(e.Priority); err != nil || p > q.maxPrio {
+					continue
+				}
+			}
+		}
+		out = append(out, line)
+	}
+	if q.tail >= 0 && len(out) > q.tail {
+		out = out[len(out)-q.tail:]
+	}
+	return out, nil
+}
+
+// RunLines is the svcctl.Options.RunLines. Lines longer than maxLine are
+// cut and marked as svcctl.RunLines cuts them. When onLine returns false it
+// stops, records StoppedEarly and returns as a killed process would: exit
+// -1 and no error. Answer and HangOn apply to it as to Run; an answered
+// Result's Output stands for journalctl's stderr, and no line is served.
+func (h *Host) RunLines(ctx context.Context, argv []string, maxLine int, onLine func([]byte) bool) (svcctl.Result, error) {
+	key := strings.Join(argv, " ")
+	h.mu.Lock()
+	hang := h.hangs[key]
+	ans, override := h.answers[key]
+	absent := h.noJournal
+	h.mu.Unlock()
+	if hang {
+		<-ctx.Done()
+		return h.record(argv, svcctl.Result{}, ctx.Err())
+	}
+	if err := ctx.Err(); err != nil {
+		return h.record(argv, svcctl.Result{}, err)
+	}
+	if absent && len(argv) > 0 && argv[0] == journalctl {
+		return h.record(argv, svcctl.Result{}, fmt.Errorf("%w: exec: %w", svcctl.ErrNotStarted,
+			&fs.PathError{Op: "fork/exec", Path: journalctl, Err: fs.ErrNotExist}))
+	}
+	if override {
+		return h.record(argv, cloneResult(ans.res), ans.err)
+	}
+	h.mu.Lock()
+	var lines []string
+	q, err := parseJournalArgv(argv)
+	if err == nil && h.init != platform.Systemd {
+		err = errors.New("journalctl on a host that is not systemd")
+	}
+	if err == nil {
+		lines, err = h.journal(q)
+	}
+	h.mu.Unlock()
+	if err != nil {
+		h.t.Helper()
+		h.t.Errorf("svcctltest: unexpected argv %q: %v", argv, err)
+		return h.record(argv, svcctl.Result{}, fmt.Errorf("%w: %w", svcctl.ErrNotStarted, err))
+	}
+	if maxLine <= len(svcctl.LineTruncatedMarker) {
+		maxLine = svcctl.LineCap
+	}
+	for _, line := range lines {
+		b := []byte(line)
+		if len(b) > maxLine {
+			b = append(b[:maxLine-len(svcctl.LineTruncatedMarker):maxLine-len(svcctl.LineTruncatedMarker)], svcctl.LineTruncatedMarker...)
+		}
+		if !onLine(b) {
+			h.mu.Lock()
+			h.stoppedEarly = true
+			h.mu.Unlock()
+			return h.record(argv, svcctl.Result{ExitCode: -1}, nil)
+		}
+	}
+	return h.record(argv, svcctl.Result{}, nil)
 }

@@ -104,6 +104,9 @@ type Options struct {
 	// discarded and reported as Result.Truncated. A caller-supplied Run
 	// applies its own cap.
 	OutputCap int
+	// RunLines streams argv's stdout line by line. Nil means the package's
+	// RunLines, which keeps Run's call rules. Journal is its only caller.
+	RunLines func(ctx context.Context, argv []string, maxLine int, onLine func([]byte) bool) (Result, error)
 }
 
 // ServiceNamePattern is what Status and Do accept as a service name.
