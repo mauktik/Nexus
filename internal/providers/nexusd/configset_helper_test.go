@@ -742,6 +742,31 @@ func TestTCRAERR20_AHelperReValidationFailureEndsConfigInvalidWith(t *testing.T)
 	}
 }
 
+// SEC-2 (user decision of 2026-11-17; FR-12): the helper re-checks the
+// deny-list, so audit.retentionDays and auth.failureLimitPerMinute are
+// refused there too, with nothing written and no reload.
+func TestTCRAERR27_TheHelperRefusesTheAuditAndAuthKeysToo(t *testing.T) {
+	for _, change := range []string{"audit.retentionDays=1", "auth.failureLimitPerMinute=1000000"} {
+		t.Run(change, func(t *testing.T) {
+			r := newCSRig(t, 0o600, change)
+			res := r.run(t)
+			wantSlug(t, res, problem.ConfigInvalid)
+			key, _, _ := strings.Cut(change, "=")
+			if errs := res.Error.Errors; len(errs) != 1 || errs[0].Path != key ||
+				!strings.HasPrefix(errs[0].Message, key+" cannot be set remotely: ") {
+				t.Errorf("errors %+v, want one at %s that cannot be set remotely", errs, key)
+			}
+			if !bytes.Equal(r.disk(t), r.orig) {
+				t.Error("the disk changed")
+			}
+			r.wantNoBackup(t)
+			if r.rl.reloadCalls != 0 {
+				t.Errorf("reloadCalls %d, want 0", r.rl.reloadCalls)
+			}
+		})
+	}
+}
+
 // TC-RA-ERR21: A reload refused at stage apply restores the backup and ends config-apply-failed. Owner WI 4.2. Requirements: FR-8.
 func TestTCRAERR21_AReloadRefusedAtStageApplyRestoresTheBackupAnd(t *testing.T) {
 	r := newCSRig(t, 0o600)

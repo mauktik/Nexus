@@ -245,14 +245,14 @@ func TestTCRA71_AConfigSetThatChangesNothingIsAnsweredAtAdmission(t *testing.T) 
 	}
 	sha := shaHex(data)
 	var doc struct {
-		Audit struct {
-			RetentionDays int `yaml:"retentionDays"`
-		} `yaml:"audit"`
+		Limits struct {
+			OutputCapBytes int64 `yaml:"outputCapBytes"`
+		} `yaml:"limits"`
 	}
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		t.Fatal(err)
 	}
-	days := fmt.Sprint(doc.Audit.RetentionDays)
+	capBytes := fmt.Sprint(doc.Limits.OutputCapBytes)
 
 	// Step 1.
 	res := c.noChange(t, c.set(t, c.admin, nil, "providers.nexusd.enabled=true"))
@@ -262,10 +262,10 @@ func TestTCRA71_AConfigSetThatChangesNothingIsAnsweredAtAdmission(t *testing.T) 
 	}
 
 	// Step 2.
-	res = c.noChange(t, c.set(t, c.admin, nil, "providers.nexusd.enabled=true", "audit.retentionDays="+days))
-	if len(res.Changes) != 2 || res.Changes[1].Key != "audit.retentionDays" ||
-		res.Changes[1].Old != float64(doc.Audit.RetentionDays) || res.Changes[1].Old != res.Changes[1].New {
-		t.Errorf("changes %+v, want old == new == %s for audit.retentionDays", res.Changes, days)
+	res = c.noChange(t, c.set(t, c.admin, nil, "providers.nexusd.enabled=true", "limits.outputCapBytes="+capBytes))
+	if len(res.Changes) != 2 || res.Changes[1].Key != "limits.outputCapBytes" ||
+		res.Changes[1].Old != float64(doc.Limits.OutputCapBytes) || res.Changes[1].Old != res.Changes[1].New {
+		t.Errorf("changes %+v, want old == new == %s for limits.outputCapBytes", res.Changes, capBytes)
 	}
 
 	// Step 3.
@@ -470,17 +470,17 @@ func TestTCRA81_NexusNexusdGetReportsConfigSetNextTo(t *testing.T) {
 // TC-RA-82: The requested record carries the new values in params and the old values and backup path in facts. Owner WI 4.3. Requirements: FR-13, ASM-7.
 func TestTCRA82_TheRequestedRecordCarriesTheNewValuesInParamsAnd(t *testing.T) {
 	long := strings.Repeat("n", 300)
-	body := "host:\n  name: " + long + "\nlisten: [\"127.0.0.1:7443\"]\naudit:\n  retentionDays: 90\n" +
+	body := "host:\n  name: " + long + "\nlisten: [\"127.0.0.1:7443\"]\nlimits:\n  outputCapBytes: 10485760\n" +
 		"providers:\n  nexusd:\n    enabled: true\n"
 	c := newCSStack(t, []byte(body), stackConfig{})
-	changes := []string{"audit.retentionDays=30", "providers.nginx.testTimeout=45s", "host.name=short"}
+	changes := []string{"limits.outputCapBytes=20971520", "providers.nginx.testTimeout=45s", "host.name=short"}
 
 	// Step 1.
 	id := accepted(t, c.set(t, c.admin, nil, changes...))
 	c.spy.await(t, id)
 	facts := c.factsOf(t, audit.OutcomeRequested)
 	want := map[string]string{
-		"old.audit.retentionDays":         "90",
+		"old.limits.outputCapBytes":       "10485760",
 		"old.providers.nginx.testTimeout": "<absent>",
 		"old.host.name":                   long[:audit.MaxFactValueBytes],
 		"backupPath":                      c.cfgPath + ".bak",
@@ -515,7 +515,7 @@ func TestTCRA82_TheRequestedRecordCarriesTheNewValuesInParamsAnd(t *testing.T) {
 	if err := os.WriteFile(c.cfgPath, out, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	res := helperResult{Changed: true, BackupPath: c.cfgPath + ".bak", RestartRequired: []string{"audit", "host"}}
+	res := helperResult{Changed: true, BackupPath: c.cfgPath + ".bak", RestartRequired: []string{"host", "limits"}}
 	for _, ch := range cs {
 		res.ConfigChanges = append(res.ConfigChanges, spec.ConfigChange{Key: ch.Key, Old: ch.Old, New: ch.New})
 	}
@@ -525,15 +525,15 @@ func TestTCRA82_TheRequestedRecordCarriesTheNewValuesInParamsAnd(t *testing.T) {
 	}
 	got := decodeJSON[spec.ConfigUpdateResult](t, op.Result)
 	if !got.Changed || got.BackupPath != c.cfgPath+".bak" || len(got.Changes) != 3 ||
-		!slices.Equal(got.RestartRequired, []string{"audit", "host"}) ||
-		!slices.Contains(got.Warnings, "run nexus nexusd restart to apply: audit, host") {
+		!slices.Equal(got.RestartRequired, []string{"host", "limits"}) ||
+		!slices.Contains(got.Warnings, "run nexus nexusd restart to apply: host, limits") {
 		t.Errorf("result %s", op.Result)
 	}
 
 	// Step 2.
-	c.noChange(t, c.set(t, c.admin, nil, "audit.retentionDays=30"))
+	c.noChange(t, c.set(t, c.admin, nil, "limits.outputCapBytes=20971520"))
 	facts = c.factsOf(t, audit.OutcomeCompleted)
-	if want := map[string]string{"old.audit.retentionDays": "30", "changed": "false"}; !reflect.DeepEqual(facts, want) {
+	if want := map[string]string{"old.limits.outputCapBytes": "20971520", "changed": "false"}; !reflect.DeepEqual(facts, want) {
 		t.Errorf("completed facts %v, want %v", facts, want)
 	}
 }
@@ -564,17 +564,18 @@ func csResult(t *testing.T, change string) (spec.ConfigUpdateResult, *csDirect, 
 
 // TC-RA-83: A tls.* or auth.* change carries the lock-out warning, and restart-required keys get the restart note. Owner WI 4.3. Requirements: ASM-3, ASM-4, FR-8, FR-11.
 func TestTCRA83_ATlsOrAuthChangeCarriesTheLockOutWarningAnd(t *testing.T) {
-	// Step 1.
-	res, c, starts := csResult(t, "auth.failureLimitPerMinute=20")
-	lockout := "auth.failureLimitPerMinute takes effect when nexusd restarts; if it changes how this client " +
+	// Step 1. auth.failureLimitPerMinute, the only auth.* key, is on the
+	// deny-list (SEC-2), so tls.mode is the settable key that warns.
+	res, c, starts := csResult(t, "tls.mode=off")
+	lockout := "tls.mode takes effect when nexusd restarts; if it changes how this client " +
 		"connects (certificate, pin or auth limit), you may be locked out until a root login on the host fixes it"
-	if want := []string{lockout, "run nexus nexusd restart to apply: auth"}; !slices.Equal(res.Warnings, want) {
+	if want := []string{lockout, "run nexus nexusd restart to apply: tls"}; !slices.Equal(res.Warnings, want) {
 		t.Errorf("warnings\n got %q\nwant %q", res.Warnings, want)
 	}
-	if !res.Changed || !slices.Equal(res.RestartRequired, []string{"auth"}) || res.BackupPath != c.rig.cfgPath+".bak" {
-		t.Errorf("result %+v, want changed, restartRequired [auth] and the backup", res)
+	if !res.Changed || !slices.Equal(res.RestartRequired, []string{"tls"}) || res.BackupPath != c.rig.cfgPath+".bak" {
+		t.Errorf("result %+v, want changed, restartRequired [tls] and the backup", res)
 	}
-	if len(res.Changes) != 1 || res.Changes[0].Key != "auth.failureLimitPerMinute" {
+	if len(res.Changes) != 1 || res.Changes[0].Key != "tls.mode" {
 		t.Errorf("changes %+v", res.Changes)
 	}
 	if c.rig.f.starts != starts {
@@ -587,11 +588,6 @@ func TestTCRA83_ATlsOrAuthChangeCarriesTheLockOutWarningAnd(t *testing.T) {
 		t.Errorf("result %+v, want no warnings and restartRequired []", res)
 	}
 
-	// A tls.* change warns too.
-	res, _, _ = csResult(t, "tls.mode=off")
-	if len(res.Warnings) == 0 || !strings.HasPrefix(res.Warnings[0], "tls.mode takes effect when nexusd restarts") {
-		t.Errorf("tls.mode warnings %q, want the lock-out warning", res.Warnings)
-	}
 }
 
 // TC-RA-E22: A file changed between admission and Prepare ends config-conflict with nothing written. Owner WI 4.3. Requirements: FR-7, FR-8.
@@ -704,10 +700,10 @@ func TestTCRAE30_TheNoChangeRuleComparesDecodedValuesAndAnAbsent(t *testing.T) {
 	body := "listen: [\"127.0.0.1:7443\"]\nproviders:\n  host:\n    enabled: True\n  nginx:\n    testTimeout: 90s\n" +
 		"  nexusd:\n    enabled: true\n"
 	c := newCSStack(t, []byte(body), stackConfig{})
-	if _, err := config.LookupKey("audit.retentionDays"); err != nil {
+	if _, err := config.LookupKey("limits.outputCapBytes"); err != nil {
 		t.Fatal(err)
 	}
-	def := fmt.Sprint(config.Default().Audit.RetentionDays)
+	def := fmt.Sprint(config.Default().Limits.OutputCapBytes)
 
 	// Steps 1, 2 and 4.
 	for _, changes := range [][]string{
@@ -722,7 +718,7 @@ func TestTCRAE30_TheNoChangeRuleComparesDecodedValuesAndAnAbsent(t *testing.T) {
 	}
 
 	// Step 3.
-	id := accepted(t, c.set(t, c.admin, nil, "audit.retentionDays="+def))
+	id := accepted(t, c.set(t, c.admin, nil, "limits.outputCapBytes="+def))
 	c.spy.await(t, id)
 }
 
@@ -767,6 +763,8 @@ func TestTCRAERR27_AdmissionRefusesEachDenyListEntryWithItsReason(t *testing.T) 
 		{"providers.nginx.includeDir=/etc/profile.d", "providers.nginx.includeSuffix=.sh"},
 		{"providers.nginx.service=ssh"},
 		{"providers.nginx.disabledSuffix=.sh"},
+		{"audit.retentionDays=1"},
+		{"auth.failureLimitPerMinute=1000000"},
 	}
 	covered := map[string]bool{}
 	for _, st := range steps {
@@ -862,7 +860,7 @@ func TestTCRAERR29_AdmissionRefusesAnEditThatMakesTheFileInvalid(t *testing.T) {
 
 	for _, tc := range []struct{ change, path string }{
 		{"tls.mode=off", "listen[0]"},
-		{"audit.retentionDays=0", "audit.retentionDays"},
+		{"limits.outputCapBytes=0", "limits.outputCapBytes"},
 	} {
 		r := c.set(t, c.admin, nil, tc.change)
 		errs := c.invalid(t, r)

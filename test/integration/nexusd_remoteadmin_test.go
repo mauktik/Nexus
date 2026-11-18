@@ -1228,17 +1228,18 @@ func TestTCRA97_AConfigSetThatChangesNothingTouchesNothingOnThe(t *testing.T) {
 }
 
 // TC-RA-98 (WI 5.2; FR-8, ASM-4, ASM-3): a restart-only key is written and
-// reported, never applied by a restart.
+// reported, never applied by a restart. tls.mode off is valid on the default
+// loopback listen; audit.* and auth.* are on the deny-list (SEC-2).
 func TestTCRA98_ARestartOnlyKeyIsWrittenAndReportedNeverApplied(t *testing.T) {
 	h := newRAHost(t)
 	pid0 := unitPID(t)
-	run, op := h.configSet("auth.failureLimitPerMinute=20", "audit.retentionDays=30")
+	run, op := h.configSet("tls.mode=off", "limits.outputCapBytes=20971520")
 	requireSucceeded(t, op)
 	res := decodeResult[spec.ConfigUpdateResult](t, op)
-	if !slices.Equal(res.RestartRequired, []string{"audit", "auth"}) {
-		t.Errorf("restartRequired %q, want [audit auth]", res.RestartRequired)
+	if !slices.Equal(res.RestartRequired, []string{"limits", "tls"}) {
+		t.Errorf("restartRequired %q, want [limits tls]", res.RestartRequired)
 	}
-	for _, w := range []string{"auth.failureLimitPerMinute takes effect when nexusd restarts", "run nexus nexusd restart to apply"} {
+	for _, w := range []string{"tls.mode takes effect when nexusd restarts", "run nexus nexusd restart to apply"} {
 		if !strings.Contains(run.stderr, w) {
 			t.Errorf("stderr lacks %q:\n%s", w, run.stderr)
 		}
@@ -1250,12 +1251,12 @@ func TestTCRA98_ARestartOnlyKeyIsWrittenAndReportedNeverApplied(t *testing.T) {
 		t.Errorf("NRestarts %s, want %s", n, h.nrestarts0)
 	}
 	cfg := raRead(t, nexusdConfig)
-	if a, b := raYAMLValue(t, cfg, "auth.failureLimitPerMinute"), raYAMLValue(t, cfg, "audit.retentionDays"); a != 20 || b != 30 {
-		t.Errorf("file holds auth.failureLimitPerMinute %v and audit.retentionDays %v, want 20 and 30", a, b)
+	if a, b := raYAMLValue(t, cfg, "tls.mode"), raYAMLValue(t, cfg, "limits.outputCapBytes"); a != "off" || b != 20971520 {
+		t.Errorf("file holds tls.mode %v and limits.outputCapBytes %v, want off and 20971520", a, b)
 	}
 	st, _ := raStatus(t)
-	if !slices.Equal(st.RestartRequired, []string{"audit", "auth"}) {
-		t.Errorf("reload-status.json restartRequired %q, want [audit auth]", st.RestartRequired)
+	if !slices.Equal(st.RestartRequired, []string{"limits", "tls"}) {
+		t.Errorf("reload-status.json restartRequired %q, want [limits tls]", st.RestartRequired)
 	}
 	requirePC(t, op)
 }
@@ -1271,7 +1272,7 @@ func TestTCRA99_TheNexusdLaneRefusesAReloadWhileAConfigSetRunsOn(t *testing.T) {
 	for _, args := range [][]string{
 		{"nexusd", "reload", "--yes"},
 		{"nexusd", "restart", "--yes"},
-		{"nexusdconfig", "update", "--yes", "audit.retentionDays=30"},
+		{"nexusdconfig", "update", "--yes", "limits.outputCapBytes=20971520"},
 		{"nexusdconfig", "update", "--yes", "providers.nexusd.enabled=true"},
 	} {
 		p := requireRefused(t, h.cli(args...), problem.Conflict, http.StatusConflict)
@@ -1759,10 +1760,10 @@ func TestTCRA102_NFR2LatenciesOnTheRealHost(t *testing.T) {
 	nfrLine(t, "config set with a passing reload, 202 to ended", op.Ended.Sub(t202), raSetBudget+reloadTime)
 
 	// Steps 4 and 5: the restoring paths, from tOpen.
-	r4 := h.heldRefusedRestore("audit.retentionDays=31")
+	r4 := h.heldRefusedRestore("limits.outputCapBytes=31457280")
 	requireRestored(t, r4)
 	nfrLine(t, "config set refused at load and restored, tOpen to ended", r4.took, raRestoreBudget)
-	r5 := h.heldUnconfirmedRestore("audit.retentionDays=32")
+	r5 := h.heldUnconfirmedRestore("limits.outputCapBytes=33554432")
 	requireRestored(t, r5)
 	nfrLine(t, "config set unconfirmed and restored, tOpen to ended", r5.took, raRestoreBudget)
 }
@@ -1786,7 +1787,7 @@ func TestTCRAERR32_OnRealSystemdAValidationRefusalStartsNoUnitAnd(t *testing.T) 
 	ids0 := h.opIDs()
 	since := smWindow()
 	for _, c := range []struct{ change, path string }{
-		{"audit.retentionDays=0", "audit.retentionDays"},
+		{"limits.outputCapBytes=0", "limits.outputCapBytes"},
 		{"providers.host.enabeld=true", "providers.host.enabeld"},
 		{"providers.host.enabled=yes", "providers.host.enabled"},
 	} {
@@ -1822,6 +1823,10 @@ func raDenyValue(d spec.ConfigDeny) string {
 		return ".sh"
 	case strings.HasSuffix(d.Key, ".service"):
 		return "ssh"
+	case d.Key == "audit.retentionDays":
+		return "1"
+	case d.Key == "auth.failureLimitPerMinute":
+		return "1000000"
 	}
 	return "/etc/nexus/x.conf"
 }
@@ -1836,8 +1841,8 @@ func sshState() string {
 // refused with its reason, and nothing it names is touched.
 func TestTCRAERR33_OnRealSystemdEachDenyListEntryIsRefusedWithIts(t *testing.T) {
 	h := newRAHost(t)
-	if len(spec.ConfigDenyList) != 12 {
-		t.Fatalf("spec.ConfigDenyList has %d entries, want twelve", len(spec.ConfigDenyList))
+	if len(spec.ConfigDenyList) != 14 {
+		t.Fatalf("spec.ConfigDenyList has %d entries, want fourteen", len(spec.ConfigDenyList))
 	}
 	before := fileState(t)
 	profile0 := mustSh(t, "ls", "-la", "/etc/profile.d")

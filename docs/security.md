@@ -364,6 +364,8 @@ the file on the host. The list is `spec.ConfigDenyList` in
 | `providers.nginx.disabledSuffix` | any value | A file-name suffix: what root renames a disabled site to |
 | `providers.nginx.service` | any value | A service name: the service root starts, stops and reloads |
 | `providers.pihole.dnsFile` | any value | A file path: the dnsmasq file root writes |
+| `audit.retentionDays` | any value | Audit history: a stolen `nexusd:admin` token could otherwise shorten retention and, after a restart, prune the record of its own use |
+| `auth.failureLimitPerMinute` | any value | Brute-force protection: a stolen `nexusd:admin` token could otherwise raise the limit on guessing tokens |
 
 ### Why path-valued keys are denied
 
@@ -393,10 +395,11 @@ and `providers.scripts.catalog`. There is no way to add, remove or replace a
 list element remotely. In particular, `listen` is not settable remotely:
 which addresses `nexusd` listens on changes only on the host.
 
-The settable keys that can still change how a client connects are `tls.mode`
-and `auth.failureLimitPerMinute`. Both take effect only at the next restart,
-and a set of either answers with a warning that the client may be locked
-out then; `sudo nexusd token` and an edit on the host are the way back.
+The settable key that can still change how a client connects is `tls.mode`.
+It takes effect only at the next restart, and a set of it answers with a
+warning that the client may be locked out then; `sudo nexusd token` and an
+edit on the host are the way back. `auth.failureLimitPerMinute` is on the
+deny-list, so the authentication limit changes only on the host.
 
 ### Config set on OpenRC
 

@@ -129,8 +129,8 @@ func TestTCRA90_TheDocsCarryTheDenyListTheRecoveryAnchorAndThe(t *testing.T) {
 			rows = append(rows, l)
 		}
 	}
-	if len(spec.ConfigDenyList) != 12 {
-		t.Errorf("spec.ConfigDenyList has %d entries, want the twelve of FR-12", len(spec.ConfigDenyList))
+	if len(spec.ConfigDenyList) != 14 {
+		t.Errorf("spec.ConfigDenyList has %d entries, want the fourteen of FR-12", len(spec.ConfigDenyList))
 	}
 	for _, d := range spec.ConfigDenyList {
 		key := "`" + d.Key + "`"

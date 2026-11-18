@@ -357,6 +357,11 @@ var ConfigDenyList = []ConfigDeny{
 	{Key: "providers.nginx.disabledSuffix", Reason: pathReason},
 	{Key: "providers.nginx.service", Reason: pathReason},
 	{Key: "providers.pihole.dnsFile", Reason: pathReason},
+	// SEC-2 (user decision of 2026-11-17).
+	{Key: "audit.retentionDays", Reason: "audit history changes only by a root edit of the file on the host, so " +
+		"a stolen nexusd:admin token cannot shorten the record of its own use"},
+	{Key: "auth.failureLimitPerMinute", Reason: "brute-force protection changes only by a root edit of the file " +
+		"on the host, so a stolen nexusd:admin token cannot raise the limit on guessing tokens"},
 }
 
 // LockoutKeyPrefixes are the key prefixes whose change may lock the client

@@ -137,12 +137,12 @@ func TestTCRA84_TheT0EndToEndMatrixHoldsTheFR8PostConditionFor(t *testing.T) {
 	// a second set, or a key order the daemon never produces, passes here.
 	t.Run("b2 restart-only keys persist across sets and are sorted", func(t *testing.T) {
 		c := newConfigSetStack(t, defaultConfigWithNexusd(t), stackConfig{})
-		res := wantSucceeded(t, c, c.runOp(t, "auth.failureLimitPerMinute=20", "audit.retentionDays=45"))
-		if want := []string{"audit", "auth"}; !slices.Equal(res.RestartRequired, want) {
+		res := wantSucceeded(t, c, c.runOp(t, "tls.mode=off", "limits.outputCapBytes=20971520"))
+		if want := []string{"limits", "tls"}; !slices.Equal(res.RestartRequired, want) {
 			t.Errorf("restartRequired %v, want %v, sorted", res.RestartRequired, want)
 		}
 		res = wantSucceeded(t, c, c.runOp(t, "providers.host.enabled=true"))
-		if want := []string{"audit", "auth"}; !slices.Equal(res.RestartRequired, want) {
+		if want := []string{"limits", "tls"}; !slices.Equal(res.RestartRequired, want) {
 			t.Errorf("after a second set restartRequired %v, want %v: the running daemon still has the "+
 				"startup values", res.RestartRequired, want)
 		}
@@ -151,9 +151,9 @@ func TestTCRA84_TheT0EndToEndMatrixHoldsTheFR8PostConditionFor(t *testing.T) {
 	t.Run("c validation refusal", func(t *testing.T) {
 		data := defaultConfigWithNexusd(t)
 		c := newConfigSetStack(t, data, stackConfig{})
-		errs := c.invalid(t, c.set(t, c.admin, nil, "audit.retentionDays=0"))
-		if len(errs) == 0 || errs[0].Path != "audit.retentionDays" {
-			t.Errorf("errors %+v, want errors[0] at audit.retentionDays", errs)
+		errs := c.invalid(t, c.set(t, c.admin, nil, "limits.outputCapBytes=0"))
+		if len(errs) == 0 || errs[0].Path != "limits.outputCapBytes" {
+			t.Errorf("errors %+v, want errors[0] at limits.outputCapBytes", errs)
 		}
 		c.wantNoSideEffects(t, shaHex(data))
 		if n := c.reloadCalls(); n != 0 {
@@ -446,7 +446,7 @@ func TestTCRA86_AConfigSetLeavesACompleteAuditTrail(t *testing.T) {
 	// Step 1: rows (a), (e) and (g).
 	wantSucceeded(t, c, c.runOp(t, "providers.host.enabled=true"))
 	c.withFake(func(_ *fakeSystem, rl *fakeReload) { rl.refuseApply = 1 })
-	wantFailed(t, c, c.runOp(t, "audit.retentionDays=45"), problem.ConfigApplyFailed)
+	wantFailed(t, c, c.runOp(t, "limits.outputCapBytes=20971520"), problem.ConfigApplyFailed)
 	c.noChange(t, c.set(t, c.admin, nil, "providers.host.enabled=true"))
 
 	// Step 2.
@@ -469,7 +469,7 @@ func TestTCRA86_AConfigSetLeavesACompleteAuditTrail(t *testing.T) {
 	}{
 		{"a", "providers.host.enabled=true", map[string]string{"old.providers.host.enabled": "false"},
 			[]string{audit.OutcomeRequested, queued, running, string(apitypes.StatusSucceeded)}},
-		{"e", "audit.retentionDays=45", map[string]string{"old.audit.retentionDays": "90"},
+		{"e", "limits.outputCapBytes=20971520", map[string]string{"old.limits.outputCapBytes": "10485760"},
 			[]string{audit.OutcomeRequested, queued, running,
 				string(apitypes.StatusFailed) + ":" + string(problem.ConfigApplyFailed)}},
 		{"g", "providers.host.enabled=true", map[string]string{"old.providers.host.enabled": "true"},

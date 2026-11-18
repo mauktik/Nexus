@@ -122,15 +122,15 @@ func wiringValid(t *testing.T) {
 }
 
 // wiringInvalid sends a change that config.Edit accepts and only the
-// daemon's CheckConfigData refuses (audit.retentionDays=0, as TC-RA-ERR29
+// daemon's CheckConfigData refuses (limits.outputCapBytes=0, as TC-RA-ERR29
 // does): a validator that accepts everything would let it through to the
 // backup and the reload.
 func wiringInvalid(t *testing.T) {
-	r := newWiringRig(t, "audit.retentionDays=0")
+	r := newWiringRig(t, "limits.outputCapBytes=0")
 	_, stderr := r.run(t)
 	slug, errs, _ := r.result(t)
-	if slug != "config-invalid" || len(errs) == 0 || errs[0].Path != "audit.retentionDays" {
-		t.Errorf("result slug %q, errors %+v, want config-invalid at audit.retentionDays", slug, errs)
+	if slug != "config-invalid" || len(errs) == 0 || errs[0].Path != "limits.outputCapBytes" {
+		t.Errorf("result slug %q, errors %+v, want config-invalid at limits.outputCapBytes", slug, errs)
 	}
 	if _, err := os.Stat(r.cfgPath + ".bak"); !os.IsNotExist(err) {
 		t.Errorf("a .bak exists after a refused change: %v", err)

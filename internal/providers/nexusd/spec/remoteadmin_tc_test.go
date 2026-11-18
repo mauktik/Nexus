@@ -554,9 +554,10 @@ func laneKeyDoc(t *testing.T) string {
 //     2. Walk `config.LeafKeys()` and take every key of kind `KindString`.
 //   - Expected:
 //   - Every key is found, and every entry has a non-empty `Reason`.
-//   - The table holds exactly these 12 entries, in this order:
+//   - The table holds exactly these 14 entries, in this order:
 //   - the three original FR-12 entries: `providers.nexusd.update.trustedKeys`, `providers.nexusd.enabled` (with `Value: "false"`) and `providers.scripts.catalog` (with `Subtree: true`);
-//   - the nine path-, file-name- and service-valued keys: `tls.certFile`, `tls.keyFile`, `providers.docker.socket`, `providers.docker.configDir`, `providers.nginx.includeDir`, `providers.nginx.includeSuffix`, `providers.nginx.disabledSuffix`, `providers.nginx.service` and `providers.pihole.dnsFile`, each with `Value: ""` (any value), `Subtree: false`, and the one shared path reason (each of the nine `Reason` strings is equal).
+//   - the nine path-, file-name- and service-valued keys: `tls.certFile`, `tls.keyFile`, `providers.docker.socket`, `providers.docker.configDir`, `providers.nginx.includeDir`, `providers.nginx.includeSuffix`, `providers.nginx.disabledSuffix`, `providers.nginx.service` and `providers.pihole.dnsFile`, each with `Value: ""` (any value), `Subtree: false`, and the one shared path reason (each of the nine `Reason` strings is equal);
+//   - the two SEC-2 keys (user decision of 2026-11-17): `audit.retentionDays` and `auth.failureLimitPerMinute`, each with `Value: ""`, `Subtree: false` and its own reason.
 //   - String-key classification (drift guard, A-13): every `KindString` key from step 2 is either on `spec.ConfigDenyList` or in the reviewed settable list, and the settable remainder is exactly `{host.name, tls.mode}`. A string key added to the schema later fails this test until someone classifies it. The failure message names the unclassified key.
 //   - `listen` is not in the table. It is refused as a list (OOS-3, TC-RA-ERR28), by the user decision that `listen` is not settable remotely.
 //   - `spec.LockoutKeyPrefixes` is `["tls.", "auth."]`, with no `listen` entry.
@@ -578,6 +579,10 @@ func TestTCRA68_TheDenyListKeysExistInTheSchemaAndTheTableHolds(t *testing.T) {
 	for _, k := range paths {
 		want = append(want, entry{k, "", false})
 	}
+	// SEC-2, user decision of 2026-11-17: audit history and brute-force
+	// protection change only by a root edit on the host.
+	want = append(want, entry{"audit.retentionDays", "", false}, entry{"auth.failureLimitPerMinute", "", false})
+	own := func(i int) bool { return i < 3 || i >= 3+len(paths) }
 	var got []entry
 	for i, d := range spec.ConfigDenyList {
 		got = append(got, entry{d.Key, d.Value, d.Subtree})
@@ -588,9 +593,9 @@ func TestTCRA68_TheDenyListKeysExistInTheSchemaAndTheTableHolds(t *testing.T) {
 		switch {
 		case strings.TrimSpace(d.Reason) == "":
 			t.Errorf("deny-list key %s has no reason", d.Key)
-		case i < 3 && d.Reason == pathReason:
+		case own(i) && d.Reason == pathReason:
 			t.Errorf("deny-list key %s has the path reason, want its own", d.Key)
-		case i >= 3 && d.Reason != pathReason:
+		case !own(i) && d.Reason != pathReason:
 			t.Errorf("deny-list key %s reason %q, want the shared path reason %q", d.Key, d.Reason, pathReason)
 		}
 	}

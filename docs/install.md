@@ -416,7 +416,7 @@ applies them together or not at all:
 
 ```
 nexus nexusdconfig update providers.host.enabled=true --host nas
-nexus nexusdconfig update audit.retentionDays=30 providers.host.sampleInterval=5s --host nas,web
+nexus nexusdconfig update providers.nginx.testTimeout=45s providers.host.sampleInterval=5s --host nas,web
 ```
 
 - **Keys** are dotted paths of the schema, as `nexusdconfig get` lists them.
@@ -435,8 +435,10 @@ nexus nexusdconfig update audit.retentionDays=30 providers.host.sampleInterval=5
   `providers.docker.socket`, `providers.docker.configDir`,
   `providers.nginx.includeDir`, `providers.nginx.includeSuffix`,
   `providers.nginx.disabledSuffix`, `providers.nginx.service` and
-  `providers.pihole.dnsFile`. [security.md](security.md#the-deny-list)
-  gives the reason for each.
+  `providers.pihole.dnsFile`; and `audit.retentionDays` and
+  `auth.failureLimitPerMinute`, since audit history and brute-force
+  protection change only by a root edit on the host.
+  [security.md](security.md#the-deny-list) gives the reason for each.
 
 Before anything runs, the host checks the edited file exactly as `nexusd
 validate-config` would. An unknown key (the error names the nearest valid
@@ -478,14 +480,13 @@ restart to apply: ...` on stderr. Restart when ready:
 nexus nexusd restart --host nas
 ```
 
-**Lock-out warning.** `tls.mode` and `auth.failureLimitPerMinute` change how
-clients connect once `nexusd` restarts. Switching `tls.mode` between `auto`
-and `files` changes the certificate `nexusd` serves, which then no longer
-matches the fingerprint each client pinned; `off` is accepted only when
-every listen address is loopback, which leaves only clients on the host
-itself. A lower `auth.failureLimitPerMinute` rate-limits a client with a bad
-token sooner. For each changed `tls` or `auth` key the CLI prints a warning
-on stderr that this client may be locked out after the restart. If that happens, log in to the host, fix
+**Lock-out warning.** `tls.mode` changes how clients connect once `nexusd`
+restarts. Switching `tls.mode` between `auto` and `files` changes the
+certificate `nexusd` serves, which then no longer matches the fingerprint
+each client pinned; `off` is accepted only when every listen address is
+loopback, which leaves only clients on the host itself. For a changed
+`tls` key the CLI prints a warning on stderr that this client may be locked
+out after the restart. If that happens, log in to the host, fix
 the file (`/etc/nexus/nexusd.yaml.bak` holds the previous version) and
 restart; `sudo nexusd token create` makes a new token if one is needed.
 
