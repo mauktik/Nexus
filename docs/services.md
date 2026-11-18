@@ -418,14 +418,17 @@ Its audit record carries both boot IDs. Other outcomes:
 nexus machine restart --host nas --confirm-host nas
 ```
 
-- **Typed confirmation.** Without `--confirm-host`, the CLI asks on the
-  terminal: "Type the host name nas to confirm:", naming the configured
-  host. Type the host's own name, as `nexus capability get` reports it; the
-  host compares the answer with that name, which may differ from the name
-  the client configuration uses. An explicit `--confirm-host` is the
-  confirmation, and no y/N question follows. `--yes` neither fills nor
-  skips it. Without a terminal and without the flag, the command is a usage
-  error (exit 2) and nothing is sent.
+- **Typed confirmation.** Without `--confirm-host`, the CLI fetches the
+  host's capabilities and asks on the terminal: "Type the host name nas to
+  confirm:", naming the host by its own name, as `nexus capability get`
+  reports it. That name may differ from the name the client configuration
+  uses for the host (an entry `nas-admin` for the host `nas`), and the host
+  compares the answer with its own. If the capabilities cannot be fetched,
+  the command fails without asking, and nothing is sent. An explicit
+  `--confirm-host` is the confirmation, sent as given for the host to
+  check, and no y/N question follows. `--yes` neither fills nor skips it.
+  Without a terminal and without the flag, the command is a usage error
+  (exit 2) and nothing is sent.
 - **One host.** `--host all`, a list of hosts or a `--tag` that selects
   more than one is refused before anything is sent; so is `--stdin`.
 - **It waits by default.** The CLI follows the operation, keeps reconnecting

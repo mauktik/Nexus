@@ -894,7 +894,11 @@ func TestTypedConfirmationFailsWhenCapabilitiesAreUnavailable(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	home := writeClientConfig(t, "", clientHost{"box-admin", srv.URL, "tok", nil})
-	r := tcsvRun(home, failTerminal(t), "machine", "restart", "--host", "box-admin", "--no-wait")
+	tty := &answeringTerminal{answer: "box-admin\n"}
+	r := tcsvRun(home, tty.open, "machine", "restart", "--host", "box-admin", "--no-wait")
+	if _, asked := tty.state(); asked != "" {
+		t.Errorf("the terminal was asked %q, want nothing", asked)
+	}
 	if r.code == 0 || !strings.Contains(r.stderr, "box-admin") || !strings.Contains(r.stderr, "capabilities") {
 		t.Errorf("exit %d, stderr %q; want a failure naming the host and its capabilities", r.code, r.stderr)
 	}

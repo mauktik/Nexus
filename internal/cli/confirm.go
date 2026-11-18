@@ -1,13 +1,17 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 	"unicode"
 
 	"github.com/spf13/cobra"
 
+	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/def"
 )
 
@@ -118,10 +122,18 @@ func relaxTypedConfirmation(g *opCommand, b *binding) error {
 // host's name into the field. The command targets exactly one host. A set
 // flag is the confirmation; otherwise the CLI asks on the controlling
 // terminal and puts the trimmed answer in in. The server compares the value
-// with its own name, so it is never taken from --host or --yes, and is not
-// checked here beyond being non-empty. With no terminal, it is a usage error
-// naming the flag: exit 2, nothing sent.
-func (a *app) typedConfirmation(cmd *cobra.Command, op def.Op, hosts []string, in map[string]any) error {
+// with its own name, as its capabilities report it, which need not be the
+// name of the host's entry in the client configuration. So the CLI fetches
+// the capabilities and asks for that name; if it cannot, it fails without
+// asking, since the entry name may be the wrong one to ask for. The answer
+// is never taken from --host or --yes, and is not checked here beyond being
+// non-empty. With no terminal, it is a usage error naming the flag: exit 2,
+// nothing sent.
+func (a *app) typedConfirmation(cmd *cobra.Command, op def.Op, targets []hostTarget, in map[string]any) error {
+	hosts := make([]string, len(targets))
+	for i, t := range targets {
+		hosts[i] = t.Name
+	}
 	field := op.CLI.TypedConfirmation
 	flag := kebab(field)
 	command := programName + " " + op.CLI.Noun + " " + op.CLI.Verb
@@ -142,7 +154,12 @@ func (a *app) typedConfirmation(cmd *cobra.Command, op def.Op, hosts []string, i
 			command, host, flag)
 	}
 	defer tty.Close()
-	if _, err := fmt.Fprintf(tty, "Type the host name %s to confirm: ", host); err != nil {
+	own, err := a.hostOwnName(cmd.Context(), targets[0])
+	if err != nil {
+		return fmt.Errorf("%s on %s: cannot ask for the host name to type, as its capabilities are unavailable: %w; nothing was sent",
+			command, host, err)
+	}
+	if _, err := fmt.Fprintf(tty, "Type the host name %s to confirm: ", own); err != nil {
 		return usagef("%s on %s needs the host name typed to confirm and the terminal cannot be written: pass --%s <host name>; nothing was sent",
 			command, host, flag)
 	}
@@ -157,6 +174,22 @@ func (a *app) typedConfirmation(cmd *cobra.Command, op def.Op, hosts []string, i
 	}
 	in[field] = answer
 	return nil
+}
+
+// hostOwnName is t's own name, as the capabilities of its nexusd report it.
+func (a *app) hostOwnName(ctx context.Context, t hostTarget) (string, error) {
+	c, err := a.targetClient(t)
+	if err != nil {
+		return "", err
+	}
+	var caps apitypes.Capabilities
+	if err := c.Do(ctx, http.MethodGet, "/capabilities", nil, &caps); err != nil {
+		return "", err
+	}
+	if caps.Host == "" {
+		return "", errors.New("the capabilities name no host")
+	}
+	return caps.Host, nil
 }
 
 // confirmQuestion phrases what is about to happen, such as "Update 3

@@ -495,7 +495,7 @@ func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string
 	if op.CLI.TypedConfirmation != "" {
 		// The typed host name is the confirmation: no y/N question, and
 		// --yes neither fills nor skips it.
-		if err := a.typedConfirmation(cmd, op, hosts, in); err != nil {
+		if err := a.typedConfirmation(cmd, op, targets, in); err != nil {
 			return err
 		}
 		header := req.Header
