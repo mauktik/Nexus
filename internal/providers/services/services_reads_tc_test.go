@@ -864,7 +864,12 @@ func TestTCSV85_LogsWithSinceAndNoTailPages(t *testing.T) {
 // error_log at temp files holding out and errs.
 func readsFileLogWorld(t *testing.T, out, errs []string) *readsWorld {
 	t.Helper()
-	dir := t.TempDir()
+	// TailFile refuses a symbolic link in a log file's path (SEC-2), and on
+	// macOS /var, under which t.TempDir is, is one.
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	outPath, errPath := filepath.Join(dir, "out.log"), filepath.Join(dir, "err.log")
 	writeFile(t, outPath, strings.Join(out, "\n")+"\n")
 	writeFile(t, errPath, strings.Join(errs, "\n")+"\n")

@@ -544,7 +544,7 @@ func writeLines(t *testing.T, path string, lines []string) {
 // TC-SV-65: TailFile returns the newest lines within the line and byte
 // bounds.
 func TestTCSV65_TailFileReturnsTheNewestLinesWithinThe(t *testing.T) {
-	dir := t.TempDir()
+	dir := realDir(t)
 	var l1, l2 []string
 	for i := range 5000 {
 		l1 = append(l1, fmt.Sprintf("line-%04d", i))
@@ -808,7 +808,7 @@ func TestTCSVE10_AJournalLineOver64KiBIs(t *testing.T) {
 // TC-SV-E11: TailFile handles a line spanning a block boundary, no trailing
 // newline, and an empty file.
 func TestTCSVE11_TailFileHandlesALineSpanningABlock(t *testing.T) {
-	dir := t.TempDir()
+	dir := realDir(t)
 	const block = 64 << 10
 	// The last block (64 KiB from the end) starts inside line 2 of the
 	// three lines asked for: line 3 is 1,000 bytes and line 2 is 64 KiB.
@@ -897,7 +897,7 @@ func TestTCSVERR14_ANameWithAShellMetacharacterSpace(t *testing.T) {
 // TC-SV-ERR15: TailFile refuses a symlink, a FIFO, a directory and a missing
 // file without blocking.
 func TestTCSVERR15_TailFileRefusesASymlinkAFIFOA(t *testing.T) {
-	dir := t.TempDir()
+	dir := realDir(t)
 	link := filepath.Join(dir, "link")
 	if err := os.Symlink("/etc/passwd", link); err != nil {
 		t.Fatal(err)
@@ -977,4 +977,79 @@ func TestTCSVERR33_OpenRCLogFilesFollowsASymlinkedInitScript(t *testing.T) {
 	if err == nil || got.Output != "" || got.Error != "" {
 		t.Errorf("OpenRCLogFiles(fifo): %+v, %v; want an error and no path", got, err)
 	}
+}
+
+// realDir is a temporary directory whose path has no symbolic link: TailFile
+// refuses one in any component, and on macOS /var is a link to /private/var.
+func realDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// SEC-2 (services-provider security review): nexusd reads the declared
+// OpenRC log files as root, in directories their service's user owns. A hard
+// link to another file of the same filesystem, or a directory of the path
+// swapped for a symbolic link, would stream a file the user cannot read.
+// TailFile refuses both.
+func TestSEC2_TailFileRefusesAHardLinkAndASymlinkedDirectory(t *testing.T) {
+	dir := realDir(t)
+	secret := filepath.Join(dir, "secret")
+	if err := os.WriteFile(secret, []byte("root-only\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	logs := filepath.Join(dir, "log", "app")
+	if err := os.MkdirAll(logs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Run("a file with one name is read", func(t *testing.T) {
+		own := filepath.Join(logs, "own.log")
+		writeLines(t, own, []string{"one", "two"})
+		if got, err := svcctl.TailFile(own, 10, 1<<20); err != nil || !slices.Equal(got, []string{"one", "two"}) {
+			t.Fatalf("TailFile(own) = %q, %v; want both lines", got, err)
+		}
+	})
+	t.Run("a hard link to another file", func(t *testing.T) {
+		link := filepath.Join(logs, "out.log")
+		if err := os.Link(secret, link); err != nil {
+			t.Fatal(err)
+		}
+		got, err := svcctl.TailFile(link, 10, 1<<20)
+		if err == nil || len(got) != 0 || !strings.Contains(err.Error(), "hard links") || strings.Contains(strings.Join(got, ""), "root-only") {
+			t.Errorf("TailFile(hard link) = %q, %v; want an error naming the hard links and no lines", got, err)
+		}
+		// The other name of the file is refused as well: the count is the file's.
+		if got, err := svcctl.TailFile(secret, 10, 1<<20); err == nil {
+			t.Errorf("TailFile(secret, which has a second name) = %q, nil; want an error", got)
+		}
+	})
+	t.Run("a directory of the path swapped for a symbolic link", func(t *testing.T) {
+		real := filepath.Join(dir, "elsewhere")
+		if err := os.MkdirAll(real, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeLines(t, filepath.Join(real, "app.log"), []string{"decoy"})
+		if err := os.Symlink(real, filepath.Join(dir, "log", "swapped")); err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(dir, "log", "swapped", "app.log")
+		got, err := svcctl.TailFile(p, 10, 1<<20)
+		if err == nil || len(got) != 0 || !strings.Contains(err.Error(), "symbolic link") {
+			t.Errorf("TailFile(%s) = %q, %v; want an error naming a symbolic link and no lines", p, got, err)
+		}
+	})
+	t.Run("the root of the path is a symbolic link", func(t *testing.T) {
+		alias := filepath.Join(t.TempDir(), "alias")
+		if err := os.Symlink(dir, alias); err != nil {
+			t.Fatal(err)
+		}
+		own := filepath.Join(logs, "own.log")
+		p := filepath.Join(alias, "log", "app", "own.log")
+		if got, err := svcctl.TailFile(p, 10, 1<<20); err == nil {
+			t.Errorf("TailFile(%s, same file as %s) = %q, nil; want an error", p, own, got)
+		}
+	})
 }
