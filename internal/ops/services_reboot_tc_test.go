@@ -1,269 +1,1150 @@
-// Stub-style: SKIP-only (services-provider)
-//
-// Stubs of planning/services-provider/test-cases.md TC-SV-8, TC-SV-9, TC-SV-10, TC-SV-11, TC-SV-12, TC-SV-13, TC-SV-14, TC-SV-15, TC-SV-16, TC-SV-17, TC-SV-18, TC-SV-19, TC-SV-20, TC-SV-E2, TC-SV-E3, TC-SV-E4, TC-SV-E19, TC-SV-ERR6.
-// Owner WIs: 1.3. Each stub compiles today and skips; the
-// developer of the owning work item replaces the skip and the comment with
-// the test, keeping the function name. An un-skipped passing test is the
-// GREEN signal (planning/services-provider/test-strategy.md, RED Stub Style).
+// Tests of planning/services-provider/test-cases.md TC-SV-8 to TC-SV-20,
+// TC-SV-E2, TC-SV-E3, TC-SV-E4, TC-SV-E19 and TC-SV-ERR6 (WI 1.3): the
+// operation manager's reboot rules R1 to R5 (D-3) and Manager.Active.
 
 package ops_test
 
-import "testing"
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
+	"testing"
+	"time"
 
-// TC-SV-8: R4: an interrupted unit with a record from an earlier boot completes Succeeded through AfterReboot. Owner WI 1.3. Requirements: FR-11, FR-16, CON-4, CON-5.
-//
-// - Setup:
-//   - `perBackend`. A world whose `Options.BootID` is F-BOOT `PREV`.
-//   - Planted detached provider `rb` with op `rb.actions.reboot` (TC-SV-1 shape, lane `reboot` reject, `MaxRuntime` 1 h). Its Prepare is `shJob("sleep 600")`. Its `AfterReboot` records `Rebooted` and returns `{"rebooted":true}`. Its `Finalize` records calls.
-//
-// - Steps:
-//  1. Start the op and wait for Running.
-//  2. `detach.RecordReboot(opDir, {PREV, T0})`.
-//  3. Close the world as a shutdown does: `w.close()` first, so `nexusd` stops before the unit (recovery path).
-//  4. SIGTERM the supervisor (F-UNIT-END interrupted). Then rewrite `exit.json` raw with `bootId: PREV`, as the supervisor of the earlier boot wrote it.
-//  5. Reopen the world with F-BOOT `CUR`, then `recoverNow()` and `waitTerminal`.
-//
-// - Expected:
-//   - Succeeded, with result `{"rebooted":true}`;
-//   - `AfterReboot` called exactly once with `Rebooted{PreviousBootID: PREV, BootID: CUR, RequestedAt: T0, ReadyAt: <recovery start>}`;
-//   - `Finalize` never called;
-//   - the terminal `stateChange` audit record carries the facts `previousBootId=PREV` and `bootId=CUR`;
-//   - never `outcome-unknown`.
+	"github.com/mauktik/nexus/internal/apitypes"
+	"github.com/mauktik/nexus/internal/audit"
+	"github.com/mauktik/nexus/internal/core"
+	"github.com/mauktik/nexus/internal/def"
+	"github.com/mauktik/nexus/internal/detach"
+	"github.com/mauktik/nexus/internal/detach/detachtest"
+	"github.com/mauktik/nexus/internal/ops"
+	"github.com/mauktik/nexus/internal/problem"
+	"github.com/mauktik/nexus/internal/provider"
+	"github.com/mauktik/nexus/internal/store"
+	"github.com/mauktik/nexus/internal/systemspec"
+)
+
+// F-BOOT: the boot IDs the manager's Options.BootID seam answers.
+const (
+	bootPrev = "11111111-1111-1111-1111-111111111111"
+	bootCur  = "22222222-2222-2222-2222-222222222222"
+)
+
+// rbOut is the reboot test op's result: AfterReboot sets Rebooted (and
+// UpAt when asked), Finalize sets Finalized.
+type rbOut struct {
+	apitypes.ActionResult
+	Rebooted  bool       `json:"rebooted"`
+	Finalized bool       `json:"finalized,omitempty"`
+	UpAt      *time.Time `json:"upAt,omitempty"`
+}
+
+// rbOp is TC-SV-1's shape: a long-running destructive provider action with
+// a reconnect window that declares CompletesAcrossReboot.
+var rbOp = def.Define[thingIn, rbOut](def.Op{
+	ID: "rb.actions.reboot", Provider: "rb", Kind: def.KindProviderAction, Action: "reboot",
+	Summary: "s", Description: "Reboot test operation for the operation manager tests.",
+	Scope: def.Scope{Name: "rb:reboot"}, Risk: def.RiskDestructive, Mode: def.ModeLongRunning,
+	Cancel: def.CancelRunning, CompletesAcrossReboot: true, Refine: refineThing,
+	CLI: def.CLIBinding{Noun: "machine", Verb: "restart", ReconnectWindow: 10 * time.Minute},
+})
+
+// rbProv is the planted provider of rbOp. Its lane is `reboot` with the
+// reject policy unless the input names another; Prepare is scripted per
+// thing name and by default runs until stopped.
+type rbProv struct {
+	mu        sync.Mutex
+	prepare   map[string]func(in thingIn) detach.Spec
+	afters    []provider.Rebooted
+	finals    int
+	afterErr  error
+	copyUpAt  bool   // AfterReboot copies ReadyAt into UpAt
+	duringAft func() // Runs inside AfterReboot
+}
+
+func newRBProv() *rbProv { return &rbProv{prepare: map[string]func(thingIn) detach.Spec{}} }
+
+func (p *rbProv) Spec() def.ProviderSpec {
+	return def.ProviderSpec{Name: "rb", ReadScope: "rb:read", Ops: []def.Op{rbOp.Op()}}
+}
+func (p *rbProv) Configure(func(any) error) error { return nil }
+func (p *rbProv) Preflight(context.Context) provider.Status {
+	return provider.Status{State: apitypes.ProviderEnabled}
+}
+
+func (p *rbProv) onPrepare(name string, f func(in thingIn) detach.Spec) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.prepare[name] = f
+}
+
+func (p *rbProv) calls() (afters []provider.Rebooted, finals int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return slices.Clone(p.afters), p.finals
+}
+
+// longJob prints its pid and runs until stopped.
+func longJob() detach.Spec { return shJob("echo pid=$$; while :; do sleep 0.1; done") }
+
+func (p *rbProv) Bindings() []provider.Binding {
+	return []provider.Binding{provider.Detached(rbOp, provider.DetachedSpec[thingIn, rbOut]{
+		Lane: func(_ context.Context, in thingIn) (provider.Lane, error) {
+			if in.Lane != "" {
+				return laneOf(in), nil
+			}
+			return provider.Lane{Key: "reboot", Policy: provider.LaneReject}, nil
+		},
+		Prepare: func(_ context.Context, in thingIn, _ *provider.Run) (detach.Spec, error) {
+			p.mu.Lock()
+			f := p.prepare[in.Name]
+			p.mu.Unlock()
+			if f != nil {
+				return f(in), nil
+			}
+			return longJob(), nil
+		},
+		Finalize: func(context.Context, thingIn, detach.Exit, *provider.Run) (rbOut, error) {
+			p.mu.Lock()
+			defer p.mu.Unlock()
+			p.finals++
+			return rbOut{Finalized: true}, nil
+		},
+		LostDetail: func(_ *provider.Run, in thingIn) string { return "lost detail for " + in.Name },
+		AfterReboot: func(_ context.Context, _ thingIn, rb provider.Rebooted, _ *provider.Run) (rbOut, error) {
+			p.mu.Lock()
+			p.afters = append(p.afters, rb)
+			err, during, upAt := p.afterErr, p.duringAft, p.copyUpAt
+			p.mu.Unlock()
+			if during != nil {
+				during()
+			}
+			if err != nil {
+				return rbOut{}, err
+			}
+			out := rbOut{Rebooted: true}
+			if upAt {
+				out.UpAt = &rb.ReadyAt
+			}
+			return out, nil
+		},
+	})}
+}
+
+// rbWorld is a world whose registry also serves rbProv, and whose manager
+// reads its boot ID through the F-BOOT seam: boot, or an error when empty.
+type rbWorld struct {
+	*world
+	rb   *rbProv
+	boot atomic.Pointer[string]
+}
+
+var rbWho = who("ops", "rb:reboot", "td:write", "test:write")
+
+// newRBWorld builds the stack as newWorld does, with rbProv and the F-BOOT
+// seam answering boot; tune, when given, adjusts the manager's options.
+func newRBWorld(t *testing.T, boot string, tune ...func(*ops.Options)) *rbWorld {
+	t.Helper()
+	w := &world{t: t, stateDir: t.TempDir(), auditDir: t.TempDir(), tokDir: t.TempDir(), logs: &syncBuffer{}, seq: &seq{}}
+	rw := &rbWorld{world: w, rb: newRBProv()}
+	rw.setBoot(boot)
+	w.tuneOpts = func(o *ops.Options) {
+		o.BootID = func() (string, error) {
+			if b := *rw.boot.Load(); b != "" {
+				return b, nil
+			}
+			return "", errors.New("planted")
+		}
+		for _, f := range tune {
+			f(o)
+		}
+	}
+	w.log = slog.New(slog.NewJSONHandler(w.logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	w.tp = newTestProv("tp", "test:read", tpOps)
+	w.td = newDetProv()
+	w.tq = newTestProv("tq", "other:read", tqOps)
+	alog, err := audit.Open(audit.Options{Dir: w.auditDir, Host: "testhost", Logger: w.log})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.alog = alog
+	w.aud = &faultyAudit{Log: alog, seq: w.seq}
+	rw.open()
+	t.Cleanup(w.close)
+	return rw
+}
+
+func (rw *rbWorld) setBoot(b string) { rw.boot.Store(&b) }
+
+// open is world.open with rbProv registered.
+func (rw *rbWorld) open() {
+	w, t := rw.world, rw.t
+	t.Helper()
+	st, err := store.Open(w.stateDir, store.Options{Now: w.now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.store = st
+	opts := ops.Options{Store: &spyStore{Store: st, seq: w.seq}, Audit: w.aud,
+		Dir: filepath.Join(w.stateDir, "ops"), Host: "testhost", Logger: w.log, PollInterval: 20 * time.Millisecond}
+	w.tuneOpts(&opts)
+	if w.mgr, err = ops.New(opts); err != nil {
+		t.Fatal(err)
+	}
+	w.reg, err = core.New([]provider.Provider{w.tp, w.tq, w.td, rw.rb}, core.Options{
+		Host: "testhost", Logger: w.log, Audit: w.alog, Ops: w.mgr,
+		Providers: map[string]core.ProviderConfig{"tp": {Enabled: true}, "tq": {Enabled: true}, "td": {Enabled: true}, "rb": {Enabled: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.disp = core.NewDispatcher(w.reg, core.DispatcherOptions{Logger: w.log, Audit: w.aud, NoteLimitPerMinute: 1 << 20})
+}
+
+// reboot closes the world as a host shutdown stops nexusd, runs between
+// with nexusd down, and reopens it in boot. Recovery is the caller's.
+func (rw *rbWorld) reboot(boot string, between func()) {
+	rw.closeState()
+	if between != nil {
+		between()
+	}
+	rw.setBoot(boot)
+	rw.open()
+}
+
+func (rw *rbWorld) startRB(name string) apitypes.Operation {
+	rw.t.Helper()
+	return rw.start(rbWho, rbOp.Op(), `{"name":"`+name+`"}`, "")
+}
+
+// running waits for operation id's child to print its pid, and arranges for
+// its supervisor and its child's group to be stopped after the test.
+func (rw *rbWorld) running(seams *detach.Options, id string) int {
+	rw.t.Helper()
+	pid := rw.childPID(id)
+	rw.t.Cleanup(func() {
+		stopLocal(rw.t, *seams, id)
+		_ = syscall.Kill(-pid, syscall.SIGKILL) // The group may be gone
+	})
+	return pid
+}
+
+func (rw *rbWorld) record(id, boot string, at time.Time) {
+	rw.t.Helper()
+	if err := detach.RecordReboot(rw.opDir(id), detach.RebootRecord{BootID: boot, RequestedAt: at}); err != nil {
+		rw.t.Fatal(err)
+	}
+}
+
+// corruptRecord writes a reboot record that cannot be read (TC-SV-ERR4).
+func (rw *rbWorld) corruptRecord(id string) {
+	rw.t.Helper()
+	if err := os.WriteFile(filepath.Join(rw.opDir(id), detach.RebootFile), []byte(`{"bootId":`), 0o600); err != nil {
+		rw.t.Fatal(err)
+	}
+}
+
+// rewriteExitBoot rewrites exit.json's bootId raw, as the supervisor of
+// that boot wrote it.
+func (rw *rbWorld) rewriteExitBoot(id, boot string) {
+	rw.t.Helper()
+	path := filepath.Join(rw.opDir(id), detach.ExitFile)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		rw.t.Fatal(err)
+	}
+	var x map[string]any
+	if err := json.Unmarshal(b, &x); err != nil {
+		rw.t.Fatal(err)
+	}
+	x["bootId"] = boot
+	if b, err = json.Marshal(x); err != nil {
+		rw.t.Fatal(err)
+	}
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		rw.t.Fatal(err)
+	}
+}
+
+// waitExit waits for operation id's exit.json.
+func (rw *rbWorld) waitExit(id string) detach.Exit {
+	rw.t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		x, ok, err := detach.ReadExit(rw.opDir(id))
+		if err == nil && ok {
+			return x
+		}
+		if time.Now().After(deadline) {
+			rw.t.Fatalf("operation %s wrote no exit.json: %v", id, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// waitEnd polls the store until id is terminal, at most limit.
+func (rw *rbWorld) waitEnd(id string, limit time.Duration) store.OpRecord {
+	rw.t.Helper()
+	deadline := time.Now().Add(limit)
+	for {
+		rec, err := rw.store.Get(id)
+		if err == nil && rec.Status.Terminal() {
+			return rec
+		}
+		if time.Now().After(deadline) {
+			rw.t.Fatalf("operation %s: %s (%v) after %v, want terminal", id, rec.Status, err, limit)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// terminalRecord is the terminal state-change audit record of id.
+func (rw *rbWorld) terminalRecord(id string) systemspec.AuditRecord {
+	rw.t.Helper()
+	var found []systemspec.AuditRecord
+	for _, r := range rw.records() {
+		if r.OperationID == id && apitypes.OperationStatus(r.Outcome).Terminal() {
+			found = append(found, r)
+		}
+	}
+	if len(found) != 1 {
+		rw.t.Fatalf("terminal state-change records of %s: %+v, want one", id, found)
+	}
+	return found[0]
+}
+
+// wantRebootFacts checks the R4 facts of id's terminal audit record.
+func (rw *rbWorld) wantRebootFacts(id string) systemspec.AuditRecord {
+	rw.t.Helper()
+	r := rw.terminalRecord(id)
+	if r.Facts["previousBootId"] != bootPrev || r.Facts["bootId"] != bootCur {
+		rw.t.Fatalf("terminal audit record of %s: facts %v, want previousBootId=%s bootId=%s", id, r.Facts, bootPrev, bootCur)
+	}
+	return r
+}
+
+// stillRunning checks that id is Running, with no terminal audit record.
+func (rw *rbWorld) stillRunning(id string) {
+	rw.t.Helper()
+	rec, err := rw.store.Get(id)
+	if err != nil || rec.Status != apitypes.StatusRunning || rec.Error != nil {
+		rw.t.Fatalf("operation %s: %+v (%v), want Running", id, rec, err)
+	}
+	for _, r := range rw.records() {
+		if r.OperationID == id && apitypes.OperationStatus(r.Outcome).Terminal() {
+			rw.t.Fatalf("operation %s has a terminal audit record %+v", id, r)
+		}
+	}
+}
+
+func wantNoHooks(t *testing.T, rb *rbProv) {
+	t.Helper()
+	if afters, finals := rb.calls(); len(afters) != 0 || finals != 0 {
+		t.Fatalf("AfterReboot calls %+v, Finalize calls %d; want none", afters, finals)
+	}
+}
+
+// wantAfterReboot checks rec ended Succeeded through exactly one
+// AfterReboot from bootPrev to bootCur, with no Finalize.
+func wantAfterReboot(t *testing.T, rb *rbProv, rec store.OpRecord, requested time.Time) provider.Rebooted {
+	t.Helper()
+	if rec.Status != apitypes.StatusSucceeded || rec.Error != nil {
+		t.Fatalf("operation %s: %s %+v, want Succeeded", rec.ID, rec.Status, rec.Error)
+	}
+	afters, finals := rb.calls()
+	if len(afters) != 1 || finals != 0 {
+		t.Fatalf("AfterReboot calls %+v, Finalize calls %d; want one and none", afters, finals)
+	}
+	got := afters[0]
+	if got.PreviousBootID != bootPrev || got.BootID != bootCur || !got.RequestedAt.Equal(requested) {
+		t.Fatalf("Rebooted %+v, want %s to %s requested at %v", got, bootPrev, bootCur, requested)
+	}
+	return got
+}
+
+// requestedAt is a fixed request time in the past, as the helper recorded it.
+func requestedAt() time.Time { return time.Now().UTC().Truncate(time.Second).Add(-time.Minute) }
+
+// interruptAcrossReboot runs TC-SV-8's steps 1 to 5: the op is started in
+// bootPrev, its reboot recorded, nexusd stopped, then the unit interrupted
+// (SIGTERM, or SIGKILL with lost) as a shutdown does; nexusd starts in
+// bootCur and recovers. It returns the op, the request time, and the
+// window in which recovery began.
+func interruptAcrossReboot(t *testing.T, rw *rbWorld, seams *detach.Options, lost bool) (
+	op apitypes.Operation, requested, before, after time.Time) {
+	t.Helper()
+	op = rw.startRB("r")
+	rw.running(seams, op.ID)
+	requested = requestedAt()
+	rw.record(op.ID, bootPrev, requested)
+	rw.reboot(bootCur, func() {
+		unit := detach.Unit(op.ID)
+		sig := syscall.SIGTERM
+		if lost {
+			sig = syscall.SIGKILL
+		}
+		if err := seams.Signal(context.Background(), unit, sig); err != nil {
+			t.Fatal(err)
+		}
+		waitUnitGone(t, *seams, unit)
+		if !lost {
+			rw.rewriteExitBoot(op.ID, bootPrev)
+		}
+	})
+	before = time.Now()
+	done := rw.recoverNow()
+	after = time.Now()
+	waitClosed(t, done, 15*time.Second, "classification")
+	return op, requested, before, after
+}
+
+// TC-SV-8 (FR-11, FR-16, CON-4, CON-5): an interrupted unit with a record
+// from an earlier boot completes Succeeded through AfterReboot.
 func TestTCSV8_R4AnInterruptedUnitWithARecord(t *testing.T) {
-	t.Skip("TC-SV-8: SKIP-only stub; un-skip when WI 1.3 lands")
+	perBackend(t, testTCSV8)
 }
 
-// TC-SV-9: R4: a lost unit with a record from an earlier boot completes Succeeded after the recheck. Owner WI 1.3. Requirements: FR-11, CON-4.
-//
-// - Setup: As TC-SV-8.
-// - Steps:
-//  1. Start, wait for Running, and record with `PREV`.
-//  2. Close the world, then SIGKILL the supervisor (F-UNIT-END lost: no `exit.json`).
-//  3. Reopen with `CUR`, and `recoverNow()`.
-//
-// - Expected: Succeeded through `AfterReboot` after the existing 2 s lost recheck (within 15 s), with the same audit facts as TC-SV-8. `Finalize` is never called.
+func testTCSV8(t *testing.T, backend detachtest.Backend) {
+	var seams detach.Options
+	rw := newRBWorld(t, bootPrev, withBackend(t, backend, &seams))
+	op, requested, before, after := interruptAcrossReboot(t, rw, &seams, false)
+	rec := rw.waitEnd(op.ID, 15*time.Second)
+	got := wantAfterReboot(t, rw.rb, rec, requested)
+	if string(rec.Result) != `{"changed":false,"rebooted":true}` {
+		t.Fatalf("result %s, want rebooted", rec.Result)
+	}
+	if got.ReadyAt.Before(before) || got.ReadyAt.After(after) {
+		t.Fatalf("ReadyAt %v, want when recovery began, in [%v, %v]", got.ReadyAt, before, after)
+	}
+	rw.wantRebootFacts(op.ID)
+}
+
+// TC-SV-9 (FR-11, CON-4): a lost unit with a record from an earlier boot
+// completes Succeeded through AfterReboot after the 2 s lost re-check.
 func TestTCSV9_R4ALostUnitWithARecord(t *testing.T) {
-	t.Skip("TC-SV-9: SKIP-only stub; un-skip when WI 1.3 lands")
+	perBackend(t, testTCSV9)
 }
 
-// TC-SV-10: R4: an AfterReboot error ends the operation Failed with that problem. Owner WI 1.3. Requirements: FR-11.
-//
-// - Setup: As TC-SV-8, but `AfterReboot` returns `problem.New(problem.ValidationFailed, "planted")` in one subtest, and a plain `errors.New("planted")` in another.
-// - Steps:
-//  1. The TC-SV-8 sequence.
-//
-// - Expected:
-//   - Failed with slug `validation-failed` and detail `planted` in the first subtest;
-//   - in the second, the slug `problemOf` gives for a plain error today (`internal-error`), with the same detail;
-//   - the terminal audit record carries both boot IDs.
+func testTCSV9(t *testing.T, backend detachtest.Backend) {
+	var seams detach.Options
+	rw := newRBWorld(t, bootPrev, withBackend(t, backend, &seams))
+	op, requested, before, _ := interruptAcrossReboot(t, rw, &seams, true)
+	rec := rw.waitEnd(op.ID, 15*time.Second)
+	wantAfterReboot(t, rw.rb, rec, requested)
+	if took := rec.Ended.Sub(before); took < detach.RecheckDelay-50*time.Millisecond {
+		t.Fatalf("ended %v after recovery began, before the lost re-check", took)
+	}
+	rw.wantRebootFacts(op.ID)
+}
+
+// TC-SV-10 (FR-11): an AfterReboot error ends the operation Failed with
+// that problem, or the problem problemOf gives a plain error.
 func TestTCSV10_R4AnAfterRebootErrorEndsTheOperation(t *testing.T) {
-	t.Skip("TC-SV-10: SKIP-only stub; un-skip when WI 1.3 lands")
+	for _, c := range []struct {
+		name   string
+		err    error
+		slug   problem.Slug
+		detail string
+	}{
+		{"problem", problem.New(problem.ValidationFailed, "planted"), problem.ValidationFailed, "planted"},
+		// problemOf keeps a plain error's text in the log only.
+		{"plain error", errors.New("planted"), problem.InternalError, "the operation failed with an internal error"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			perBackend(t, func(t *testing.T, backend detachtest.Backend) {
+				var seams detach.Options
+				rw := newRBWorld(t, bootPrev, withBackend(t, backend, &seams))
+				rw.rb.afterErr = c.err
+				op, _, _, _ := interruptAcrossReboot(t, rw, &seams, false)
+				rec := rw.waitEnd(op.ID, 15*time.Second)
+				if rec.Status != apitypes.StatusFailed || rec.Error == nil || rec.Error.Slug() != c.slug || rec.Error.Detail != c.detail {
+					t.Fatalf("operation: %s %+v, want Failed %s %q", rec.Status, rec.Error, c.slug, c.detail)
+				}
+				if afters, finals := rw.rb.calls(); len(afters) != 1 || finals != 0 {
+					t.Fatalf("AfterReboot calls %d, Finalize calls %d", len(afters), finals)
+				}
+				if r := rw.wantRebootFacts(op.ID); r.Problem != string(c.slug) {
+					t.Fatalf("terminal audit record problem %q, want %s", r.Problem, c.slug)
+				}
+			})
+		})
+	}
 }
 
-// TC-SV-11: R5: a normal exit with a record present goes to Finalize, never AfterReboot. Owner WI 1.3. Requirements: FR-11, CON-4.
-//
-// - Setup: As TC-SV-8, but Prepare is `shJob` writing `result.json` and exiting 0.
-// - Steps:
-//  1. Subtest live: record with `PREV`, release the job, and wait for terminal, all in the same boot.
-//  2. Subtest recovery: record with `PREV`, close the world, let the job exit 0 (normal `exit.json`, `bootId: PREV`), reopen with `CUR` and recover.
-//
-// - Expected: In both subtests, `Finalize` is called exactly once, `AfterReboot` zero times, and the outcome is whatever `Finalize` returned.
+// TC-SV-11 (FR-11, CON-4): a normal exit with a record present goes to
+// Finalize, never AfterReboot, live and after a restart in a new boot.
 func TestTCSV11_R5ANormalExitWithARecord(t *testing.T) {
-	t.Skip("TC-SV-11: SKIP-only stub; un-skip when WI 1.3 lands")
+	for _, recovery := range []bool{false, true} {
+		name := "live"
+		if recovery {
+			name = "recovery"
+		}
+		t.Run(name, func(t *testing.T) {
+			perBackend(t, func(t *testing.T, backend detachtest.Backend) {
+				var seams detach.Options
+				rw := newRBWorld(t, bootPrev, withBackend(t, backend, &seams))
+				goOn := filepath.Join(t.TempDir(), "go-on")
+				rw.rb.onPrepare("fin", func(thingIn) detach.Spec {
+					return shJob("echo pid=$$; while [ ! -e " + goOn + " ]; do sleep 0.05; done; exit 0")
+				})
+				op := rw.startRB("fin")
+				rw.running(&seams, op.ID)
+				rw.record(op.ID, bootPrev, requestedAt())
+				release := func() {
+					if err := os.WriteFile(goOn, nil, 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if recovery {
+					rw.reboot(bootCur, func() {
+						release()
+						waitUnitGone(t, seams, detach.Unit(op.ID))
+						rw.rewriteExitBoot(op.ID, bootPrev)
+					})
+					waitClosed(t, rw.recoverNow(), 15*time.Second, "classification")
+				} else {
+					release()
+				}
+				rec := rw.waitEnd(op.ID, 15*time.Second)
+				afters, finals := rw.rb.calls()
+				if len(afters) != 0 || finals != 1 {
+					t.Fatalf("AfterReboot calls %d, Finalize calls %d; want none and one", len(afters), finals)
+				}
+				if rec.Status != apitypes.StatusSucceeded || string(rec.Result) != `{"changed":false,"rebooted":false,"finalized":true}` {
+					t.Fatalf("operation: %s %s %+v, want Finalize's result", rec.Status, rec.Result, rec.Error)
+				}
+			})
+		})
+	}
 }
 
-// TC-SV-12: R3: an interrupted exit with a record from this boot is held Running and the lane stays held. Owner WI 1.3. Requirements: FR-11, CON-4.
-//
-// - Setup: As TC-SV-8, all in boot `PREV`, with the world left open (the watcher is alive, as in A-7).
-// - Steps:
-//  1. Start, wait for Running, and record with `PREV`.
-//  2. SIGTERM the supervisor, so the watcher sees `exit.json` `interrupted`.
-//  3. Wait 3 × `PollInterval` plus 1 s.
-//  4. Start a second `rb.actions.reboot`.
-//
-// - Expected:
-//   - the first op's record is still `Running`, with no terminal commit and no `outcome-unknown`;
-//   - `AfterReboot` and `Finalize` are not called;
-//   - step 4 answers 409 `conflict` with `blockingOperationId` = the first op (the lane slot is held).
+// heldInThisBoot runs TC-SV-12's steps 1 to 3 in bootPrev with the world
+// open: the op is started, its reboot recorded, and its supervisor
+// SIGTERMed, so the watcher sees exit.json interrupted.
+func heldInThisBoot(t *testing.T, rw *rbWorld, seams *detach.Options, name string) (apitypes.Operation, time.Time) {
+	t.Helper()
+	op := rw.startRB(name)
+	rw.running(seams, op.ID)
+	requested := requestedAt()
+	rw.record(op.ID, bootPrev, requested)
+	if err := seams.Signal(context.Background(), detach.Unit(op.ID), syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	if x := rw.waitExit(op.ID); !x.Interrupted {
+		t.Fatalf("exit.json %+v, want interrupted", x)
+	}
+	time.Sleep(3*detach.PollInterval + time.Second)
+	return op, requested
+}
+
+// TC-SV-12 (FR-11, CON-4): an interrupted exit with a record from this boot
+// is held Running, and the lane stays held.
 func TestTCSV12_R3AnInterruptedExitWithARecord(t *testing.T) {
-	t.Skip("TC-SV-12: SKIP-only stub; un-skip when WI 1.3 lands")
+	perBackend(t, func(t *testing.T, backend detachtest.Backend) {
+		var seams detach.Options
+		rw := newRBWorld(t, bootPrev, withBackend(t, backend, &seams))
+		op, _ := heldInThisBoot(t, rw, &seams, "r")
+		rw.stillRunning(op.ID)
+		wantNoHooks(t, rw.rb)
+		_, err := rw.call(rbWho, rbOp.Op(), `{"name":"second"}`, "")
+		if pe := wantProblem(t, err, problem.Conflict); pe.Extensions["blockingOperationId"] != op.ID {
+			t.Fatalf("409 %+v, want blockingOperationId %s", pe, op.ID)
+		}
+	})
 }
 
-// TC-SV-13: R3: the hold ends at shutdown with the record still Running, and the next boot completes it. Owner WI 1.3. Requirements: FR-11, CON-4.
-//
-// - Setup: TC-SV-12 after step 3.
-// - Steps:
-//  1. `w.close()` (manager `Shutdown`).
-//  2. Read the store record.
-//  3. Reopen with F-BOOT `CUR` and recover.
-//
-// - Expected: After step 1, the record is `Running` and `Shutdown` returned within its deadline (the hold goroutine exits on `m.halt`, so no goroutine is leaked: `watcherGoroutines()` is back to its baseline). After step 3, Succeeded through `AfterReboot`, with both boot IDs (TC-SV-8's expected).
+// TC-SV-13 (FR-11, CON-4): the hold ends at shutdown with the record still
+// Running, and the next boot completes it.
 func TestTCSV13_R3TheHoldEndsAtShutdownWith(t *testing.T) {
-	t.Skip("TC-SV-13: SKIP-only stub; un-skip when WI 1.3 lands")
+	perBackend(t, func(t *testing.T, backend detachtest.Backend) {
+		baseline := watcherGoroutines()
+		var seams detach.Options
+		rw := newRBWorld(t, bootPrev, withBackend(t, backend, &seams))
+		op, requested := heldInThisBoot(t, rw, &seams, "r")
+		begin := time.Now()
+		rw.closeState() // Fails the test when Shutdown passes its deadline
+		if took := time.Since(begin); took > 5*time.Second {
+			t.Fatalf("Shutdown took %v with an operation held", took)
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for watcherGoroutines() > baseline {
+			if time.Now().After(deadline) {
+				t.Fatalf("%d watcher goroutines remain after Shutdown, baseline %d", watcherGoroutines(), baseline)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		rw.setBoot(bootCur)
+		rw.open()
+		if rec, err := rw.store.Get(op.ID); err != nil || rec.Status != apitypes.StatusRunning {
+			t.Fatalf("after Shutdown: %+v (%v), want Running", rec, err)
+		}
+		waitClosed(t, rw.recoverNow(), 15*time.Second, "classification")
+		wantAfterReboot(t, rw.rb, rw.waitEnd(op.ID, 15*time.Second), requested)
+		rw.wantRebootFacts(op.ID)
+	})
 }
 
-// TC-SV-14: R3: the hold ends outcome-unknown at MaxRuntime when the boot never changes. Owner WI 1.3. Requirements: FR-11, A-14.
-//
-// - Setup: As TC-SV-12, with the op spec's `MaxRuntime` 2 s.
-// - Steps:
-//  1. Start, record with `PREV` at requested time `T0`, and SIGTERM the supervisor.
-//  2. `waitTerminal` within 2 s + 3 s.
-//
-// - Expected:
-//   - Failed `outcome-unknown`, committed at or after `started + 2s`;
-//   - its detail names the request time `T0` (RFC 3339) and the boot ID `PREV`, and says the host did not restart;
-//   - `AfterReboot` is not called;
-//   - a new `rb.actions.reboot` is then admitted (the lane is released).
+// heldUntilMaxRuntime starts the op with a MaxRuntime of 2 s, records its
+// reboot in bootPrev, and SIGTERMs its supervisor (TC-SV-14 step 1).
+func heldUntilMaxRuntime(t *testing.T, rw *rbWorld, seams *detach.Options) (apitypes.Operation, time.Time) {
+	t.Helper()
+	rw.rb.onPrepare("short", func(thingIn) detach.Spec {
+		s := longJob()
+		s.MaxRuntime = 2 * time.Second
+		return s
+	})
+	rw.rb.onPrepare("next", func(thingIn) detach.Spec { return shJob("true") })
+	op := rw.startRB("short")
+	rw.running(seams, op.ID)
+	requested := requestedAt()
+	rw.record(op.ID, bootPrev, requested)
+	if err := seams.Signal(context.Background(), detach.Unit(op.ID), syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	return op, requested
+}
+
+// TC-SV-14 (FR-11, A-14): the hold ends outcome-unknown at MaxRuntime when
+// the boot never changes, and the lane is then released.
 func TestTCSV14_R3TheHoldEndsOutcomeUnknownAt(t *testing.T) {
-	t.Skip("TC-SV-14: SKIP-only stub; un-skip when WI 1.3 lands")
+	perBackend(t, func(t *testing.T, backend detachtest.Backend) {
+		var seams detach.Options
+		rw := newRBWorld(t, bootPrev, withBackend(t, backend, &seams))
+		op, requested := heldUntilMaxRuntime(t, rw, &seams)
+		rec := rw.waitEnd(op.ID, 5*time.Second)
+		wantOutcomeUnknown(t, rec, requested.Format(time.RFC3339))
+		for _, want := range []string{bootPrev, "did not restart"} {
+			if !strings.Contains(rec.Error.Detail, want) {
+				t.Fatalf("detail %q lacks %q", rec.Error.Detail, want)
+			}
+		}
+		if rec.Ended.Before(rec.Started.Add(2 * time.Second)) {
+			t.Fatalf("committed at %v, before started %v + 2s", rec.Ended, rec.Started)
+		}
+		if afters, _ := rw.rb.calls(); len(afters) != 0 {
+			t.Fatalf("AfterReboot called %d times", len(afters))
+		}
+		next := rw.startWhenFree(rbWho, rbOp.Op(), `{"name":"next"}`)
+		rw.waitEnd(next.ID, 15*time.Second)
+	})
 }
 
-// TC-SV-15: R3: a canceled exit after the record is held, not Canceled. Owner WI 1.3. Requirements: FR-10, FR-11.
-//
-// - Setup: As TC-SV-12.
-// - Steps:
-//  1. Start and wait for Running. Write the cancel-request file in the op directory, as the manager's cancel path does when R2 accepted the cancel before the record existed (the DF-5 race in which the cancel lands only after the helper has started the trigger, A-28).
-//  2. Record with `PREV`.
-//  3. Stop the unit through the backend's cancel path (the cancel-request file plus SIGTERM), so the supervisor writes `exit.json` with `canceled: true`.
-//
-// - Expected: The record stays `Running` (held), not `Canceled`. After TC-SV-13's step 3 (new boot `CUR`), it ends Succeeded through `AfterReboot` (A-28).
+// TC-SV-15 (FR-10, FR-11): a canceled exit after the record is held, not
+// Canceled, and the next boot completes it (A-28).
 func TestTCSV15_R3ACanceledExitAfterTheRecord(t *testing.T) {
-	t.Skip("TC-SV-15: SKIP-only stub; un-skip when WI 1.3 lands")
+	perBackend(t, func(t *testing.T, backend detachtest.Backend) {
+		var seams detach.Options
+		rw := newRBWorld(t, bootPrev, withBackend(t, backend, &seams))
+		op := rw.startRB("r")
+		rw.running(&seams, op.ID)
+		// The cancel R2 accepted before the record existed.
+		if err := detach.RequestCancel(rw.opDir(op.ID)); err != nil {
+			t.Fatal(err)
+		}
+		requested := requestedAt()
+		rw.record(op.ID, bootPrev, requested)
+		if err := seams.Signal(context.Background(), detach.Unit(op.ID), syscall.SIGTERM); err != nil {
+			t.Fatal(err)
+		}
+		if x := rw.waitExit(op.ID); !x.Canceled {
+			t.Fatalf("exit.json %+v, want canceled", x)
+		}
+		time.Sleep(3*detach.PollInterval + time.Second)
+		rw.stillRunning(op.ID)
+		wantNoHooks(t, rw.rb)
+		rw.reboot(bootCur, nil)
+		waitClosed(t, rw.recoverNow(), 15*time.Second, "classification")
+		wantAfterReboot(t, rw.rb, rw.waitEnd(op.ID, 15*time.Second), requested)
+		rw.wantRebootFacts(op.ID)
+	})
 }
 
-// TC-SV-16: Recovery in the same boot holds a recorded operation outside the classification deadline. Owner WI 1.3. Requirements: FR-11, CON-4.
-//
-// - Setup:
-//   - Boot `PREV` throughout.
-//   - Two Running ops: `rb` with a record (`PREV`) whose supervisor was SIGKILLed (lost), and a plain `td` op whose supervisor was also SIGKILLed.
-//   - `MaxRuntime` of `rb` is 4 s from its start.
-//
-// - Steps:
-//  1. Close and reopen the world (a `nexusd` restart, same boot), then `recoverNow()`.
-//  2. Wait for the recovery channel to close.
-//
-// - Expected:
-//   - the recovery channel closes within 15 s, while `rb` is still Running (the hold runs in its own goroutine);
-//   - the `td` op ends `outcome-unknown` as today;
-//   - `rb` ends `outcome-unknown` at `start + 4s` (the remaining time, not a fresh 4 s), with the TC-SV-14 detail.
+// TC-SV-16 (FR-11, CON-4): recovery in the same boot holds a recorded
+// operation in its own goroutine, outside the classification deadline, for
+// what is left of its MaxRuntime.
 func TestTCSV16_RecoveryInTheSameBootHoldsA(t *testing.T) {
-	t.Skip("TC-SV-16: SKIP-only stub; un-skip when WI 1.3 lands")
+	perBackend(t, func(t *testing.T, backend detachtest.Backend) {
+		var seams detach.Options
+		rw := newRBWorld(t, bootPrev, withBackend(t, backend, &seams))
+		rw.rb.onPrepare("r", func(thingIn) detach.Spec {
+			s := longJob()
+			s.MaxRuntime = 4 * time.Second
+			return s
+		})
+		rw.td.onPrepare("t", func(context.Context, thingIn) (detach.Spec, error) { return longJob(), nil })
+		rb := rw.startRB("r")
+		td := rw.start(rbWho, tdOps.job.Op(), `{"name":"t"}`, "")
+		rw.running(&seams, rb.ID)
+		rw.running(&seams, td.ID)
+		requested := requestedAt()
+		rw.record(rb.ID, bootPrev, requested)
+		rw.reboot(bootPrev, func() {
+			for _, id := range []string{rb.ID, td.ID} {
+				if err := seams.Signal(context.Background(), detach.Unit(id), syscall.SIGKILL); err != nil {
+					t.Fatal(err)
+				}
+				waitUnitGone(t, seams, detach.Unit(id))
+			}
+		})
+		waitClosed(t, rw.recoverNow(), 15*time.Second, "classification")
+		if rec, err := rw.store.Get(rb.ID); err != nil || rec.Status != apitypes.StatusRunning {
+			t.Fatalf("rb once classification is over: %+v (%v), want Running (held)", rec, err)
+		}
+		wantOutcomeUnknown(t, rw.waitEnd(td.ID, 15*time.Second), "lost detail for t")
+		rec := rw.waitEnd(rb.ID, 15*time.Second)
+		wantOutcomeUnknown(t, rec, "did not restart")
+		if !strings.Contains(rec.Error.Detail, requested.Format(time.RFC3339)) || !strings.Contains(rec.Error.Detail, bootPrev) {
+			t.Fatalf("detail %q does not name the request time and boot", rec.Error.Detail)
+		}
+		if end := rec.Started.Add(4 * time.Second); rec.Ended.Before(end) || rec.Ended.After(end.Add(1500*time.Millisecond)) {
+			t.Fatalf("rb ended at %v, want at its start %v + 4s, not 4s after recovery", rec.Ended, rec.Started)
+		}
+		wantNoHooks(t, rw.rb)
+	})
 }
 
-// TC-SV-17: Without a record, a declaring operation's interrupted and lost ends stay outcome-unknown. Owner WI 1.3. Requirements: FR-11, CON-4.
-//
-// - Setup: `rb` as TC-SV-8, never recording.
-// - Steps:
-//  1. Run four subtests: {interrupted, lost} × {same boot live, next boot recovery}.
-//
-// - Expected: Each subtest ends Failed `outcome-unknown`, with today's detail text (compared with the same scenario run on the `td` op), and calls neither `AfterReboot` nor `Finalize`.
+// endScenario is one {interrupted, lost} × {live, recovery} case of
+// TC-SV-17 and TC-SV-18.
+type endScenario struct {
+	lost, recovery bool
+}
+
+func (s endScenario) String() string {
+	how, when := "interrupted", "same boot live"
+	if s.lost {
+		how = "lost"
+	}
+	if s.recovery {
+		when = "next boot recovery"
+	}
+	return how + ", " + when
+}
+
+var endScenarios = []endScenario{{false, false}, {true, false}, {false, true}, {true, true}}
+
+// endWithoutResult ends each op's unit as s says: SIGTERM (interrupted) or
+// SIGKILL (lost), with the world open, or with nexusd stopped and restarted
+// in bootCur.
+func endWithoutResult(t *testing.T, rw *rbWorld, seams *detach.Options, s endScenario, ids ...string) {
+	t.Helper()
+	end := func() {
+		sig := syscall.SIGTERM
+		if s.lost {
+			sig = syscall.SIGKILL
+		}
+		for _, id := range ids {
+			if err := seams.Signal(context.Background(), detach.Unit(id), sig); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, id := range ids {
+			waitUnitGone(t, *seams, detach.Unit(id))
+		}
+	}
+	if !s.recovery {
+		end()
+		return
+	}
+	rw.reboot(bootCur, end)
+	waitClosed(t, rw.recoverNow(), 15*time.Second, "classification")
+}
+
+// normalized is an outcome-unknown detail with the operation's ID replaced,
+// so two operations' details compare.
+func normalized(rec store.OpRecord) string {
+	if rec.Error == nil {
+		return ""
+	}
+	return strings.ReplaceAll(rec.Error.Detail, rec.ID, "<id>")
+}
+
+// TC-SV-17 (FR-11, CON-4): without a record, a declaring operation's
+// interrupted and lost ends stay outcome-unknown with today's detail,
+// compared with the td op in the same scenario. TC-SV-18 (CON-4): a td op,
+// which does not declare the flag, with a stray record ends the same.
 func TestTCSV17_WithoutARecordADeclaringOperationsInterrupted(t *testing.T) {
-	t.Skip("TC-SV-17: SKIP-only stub; un-skip when WI 1.3 lands")
+	for _, s := range endScenarios {
+		t.Run(s.String(), func(t *testing.T) {
+			perBackend(t, func(t *testing.T, backend detachtest.Backend) {
+				var seams detach.Options
+				rw := newRBWorld(t, bootPrev, withBackend(t, backend, &seams))
+				rw.td.onPrepare("x", func(context.Context, thingIn) (detach.Spec, error) { return longJob(), nil })
+				rb := rw.startRB("x")
+				td := rw.start(rbWho, tdOps.job.Op(), `{"name":"x"}`, "")
+				rw.running(&seams, rb.ID)
+				rw.running(&seams, td.ID)
+				endWithoutResult(t, rw, &seams, s, rb.ID, td.ID)
+				rbRec, tdRec := rw.waitEnd(rb.ID, 30*time.Second), rw.waitEnd(td.ID, 30*time.Second)
+				wantOutcomeUnknown(t, rbRec, "lost detail for x")
+				if normalized(rbRec) != normalized(tdRec) {
+					t.Fatalf("rb detail %q, td detail %q: want today's detail", normalized(rbRec), normalized(tdRec))
+				}
+				wantNoHooks(t, rw.rb)
+			})
+		})
+	}
 }
 
-// TC-SV-18: An operation that does not declare the flag ignores a stray record file. Owner WI 1.3. Requirements: CON-4.
-//
-// - Setup: The existing `td` op (no flag), with `detach.RecordReboot(opDir, {PREV,…})` written while it runs.
-// - Steps:
-//  1. Run the TC-SV-17 subtests on `td`, and a cancel of `td` after the record.
-//
-// - Expected: The outcomes and details are byte-identical to the same scenarios without the file: `outcome-unknown`, or `Canceled` for the cancel. Cancel is not refused `not-cancelable`.
+// TC-SV-18 (CON-4): an operation that does not declare the flag ignores a
+// stray record file: its ends are byte-identical to those of the same op
+// without the file, and its cancel is not refused.
 func TestTCSV18_AnOperationThatDoesNotDeclareThe(t *testing.T) {
-	t.Skip("TC-SV-18: SKIP-only stub; un-skip when WI 1.3 lands")
+	for _, s := range endScenarios {
+		t.Run(s.String(), func(t *testing.T) {
+			perBackend(t, func(t *testing.T, backend detachtest.Backend) {
+				var seams detach.Options
+				rw := newRBWorld(t, bootPrev, withBackend(t, backend, &seams))
+				rw.td.onPrepare("x", func(context.Context, thingIn) (detach.Spec, error) { return longJob(), nil })
+				stray := rw.start(rbWho, tdOps.job.Op(), `{"name":"x"}`, "")
+				plain := rw.start(rbWho, tdOps.job.Op(), `{"name":"x"}`, "")
+				rw.running(&seams, stray.ID)
+				rw.running(&seams, plain.ID)
+				rw.record(stray.ID, bootPrev, requestedAt())
+				endWithoutResult(t, rw, &seams, s, stray.ID, plain.ID)
+				strayRec, plainRec := rw.waitEnd(stray.ID, 30*time.Second), rw.waitEnd(plain.ID, 30*time.Second)
+				wantOutcomeUnknown(t, strayRec, "lost detail for x")
+				if normalized(strayRec) != normalized(plainRec) {
+					t.Fatalf("with the stray record %q, without %q", normalized(strayRec), normalized(plainRec))
+				}
+			})
+		})
+	}
+	t.Run("cancel", func(t *testing.T) {
+		perBackend(t, func(t *testing.T, backend detachtest.Backend) {
+			var seams detach.Options
+			rw := newRBWorld(t, bootPrev, withBackend(t, backend, &seams))
+			rw.td.onPrepare("x", func(context.Context, thingIn) (detach.Spec, error) { return longJob(), nil })
+			op := rw.start(rbWho, tdOps.job.Op(), `{"name":"x"}`, "")
+			rw.running(&seams, op.ID)
+			rw.record(op.ID, bootPrev, requestedAt())
+			if got := rw.mustCancel(rbWho, op.ID, ""); got.Status != apitypes.StatusRunning {
+				t.Fatalf("cancel answered %s, want Running", got.Status)
+			}
+			if rec := rw.waitEnd(op.ID, 15*time.Second); rec.Status != apitypes.StatusCanceled || rec.Error != nil {
+				t.Fatalf("after the cancel: %s %+v, want Canceled", rec.Status, rec.Error)
+			}
+		})
+	})
 }
 
-// TC-SV-19: R2: cancel answers 409 not-cancelable once the record exists, and cancels normally before. Owner WI 1.3. Requirements: FR-10, FR-11.
-//
-// - Setup: `rb` as TC-SV-8. A principal holding the op's scope.
-// - Steps:
-//  1. Op A: Running, no record; `w.cancel`.
-//  2. Op B: Running, record at `T0`; `w.cancel`.
-//  3. Op C: Running, with a `reboot-requested` file that cannot be read (`{"bootId":`, truncated, as TC-SV-ERR4); `w.cancel`.
-//
-// - Expected:
-//   - A ends `Canceled`;
-//   - B's cancel answers 409 `not-cancelable`, with extension `operationId` = B and a detail containing `the reboot was already requested at` followed by `T0` in RFC 3339;
-//   - B stays `Running`, and its unit is not signaled (`unitSpy.signaled(B)` is empty);
-//   - C's cancel also answers 409 `not-cancelable` (R2 fails closed on a read error, review Finding 10), with `operationId` = C and a detail containing `the reboot record cannot be read; the reboot may have been requested`; C stays `Running`, `unitSpy.signaled(C)` is empty, and no cancel-request file exists in C's directory;
-//   - each refusal is audited `refused` with slug `not-cancelable`.
+// rbSpyWorld is an rbWorld whose launcher is spy, whose launches never
+// finish on their own.
+func rbSpyWorld(t *testing.T, spy *unitSpy, boot string) *rbWorld {
+	var opsDir atomic.Value
+	spy.onLaunch = func(detach.Invocation) error { return nil }
+	return newRBWorld(t, boot, func(o *ops.Options) {
+		opsDir.Store(o.Dir)
+		withDetach(t, spy.options(func() string { return opsDir.Load().(string) }))(o)
+	})
+}
+
+// launchedRB starts rbOp with input and waits for its launch.
+func (rw *rbWorld) launchedRB(spy *unitSpy, input string) apitypes.Operation {
+	rw.t.Helper()
+	op := rw.startWhenFree(rbWho, rbOp.Op(), input)
+	deadline := time.Now().Add(10 * time.Second)
+	for spy.launched(op.ID) == 0 {
+		if time.Now().After(deadline) {
+			rw.t.Fatalf("operation %s was never launched", op.ID)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	rw.waitStatus(op.ID, apitypes.StatusRunning)
+	return op
+}
+
+// TC-SV-19 (FR-10, FR-11): R2: a cancel is accepted before the record, and
+// answers 409 not-cancelable once it exists or when it cannot be read,
+// sending neither a cancel request nor a signal.
 func TestTCSV19_R2CancelAnswers409NotCancelableOnce(t *testing.T) {
-	t.Skip("TC-SV-19: SKIP-only stub; un-skip when WI 1.3 lands")
+	spy := newUnitSpy()
+	rw := rbSpyWorld(t, spy, bootPrev)
+
+	a := rw.launchedRB(spy, `{"name":"a"}`)
+	if got := rw.mustCancel(rbWho, a.ID, ""); got.Status != apitypes.StatusRunning {
+		t.Fatalf("A: cancel answered %s, want Running", got.Status)
+	}
+	if rec := rw.waitEnd(a.ID, 15*time.Second); rec.Status != apitypes.StatusCanceled {
+		t.Fatalf("A: %s %+v, want Canceled", rec.Status, rec.Error)
+	}
+
+	b := rw.launchedRB(spy, `{"name":"b"}`)
+	requested := requestedAt()
+	rw.record(b.ID, bootPrev, requested)
+	c := rw.launchedRB(spy, `{"name":"c","lane":"other","policy":"reject"}`)
+	rw.corruptRecord(c.ID)
+
+	for _, x := range []struct {
+		id, detail string
+	}{
+		{b.ID, "the reboot was already requested at " + requested.Format(time.RFC3339)},
+		{c.ID, "the reboot record cannot be read; the reboot may have been requested"},
+	} {
+		_, err := rw.cancel(rbWho, x.id, "")
+		pe := wantProblem(t, err, problem.NotCancelable)
+		if pe.Status != http.StatusConflict || pe.Extensions["operationId"] != x.id || !strings.Contains(pe.Detail, x.detail) {
+			t.Fatalf("cancel of %s: %+v, want 409 not-cancelable naming it with %q", x.id, pe, x.detail)
+		}
+		rw.stillRunning(x.id)
+		if sigs := spy.signaled(x.id); len(sigs) != 0 {
+			t.Fatalf("operation %s was signaled %v", x.id, sigs)
+		}
+		if ok, err := detach.CancelRequested(rw.opDir(x.id)); err != nil || ok {
+			t.Fatalf("operation %s has a cancel request (%v, %v)", x.id, ok, err)
+		}
+	}
+	refused := filterRecs(rw.records(), func(r systemspec.AuditRecord) bool {
+		return r.Action == cancelOp && r.Outcome == audit.OutcomeRefused && r.Problem == string(problem.NotCancelable)
+	})
+	var ids []string
+	for _, r := range refused {
+		ids = append(ids, r.OperationID)
+	}
+	if !slices.Equal(ids, []string{b.ID, c.ID}) {
+		t.Fatalf("refused not-cancelable records for %q, want B then C", ids)
+	}
 }
 
-// TC-SV-20: Manager.Active lists exactly the Queued and Running operations. Owner WI 1.3. Requirements: FR-10.
-//
-// - Setup: Seeded records: two Running, one Queued (blocked in a lane behind a gated op), one each of Succeeded, Failed and Canceled.
-// - Steps:
-//  1. `mgr.Active()`.
-//
-// - Expected: Exactly the three non-terminal operations, each with its `ID`, `Op` and `Status` (`Queued` or `Running`). The error is nil. The terminal ones are absent.
+// TC-SV-20 (FR-10): Manager.Active lists exactly the Queued and Running
+// operations.
 func TestTCSV20_ManagerActiveListsExactlyTheQueuedAnd(t *testing.T) {
-	t.Skip("TC-SV-20: SKIP-only stub; un-skip when WI 1.3 lands")
+	w := newWorld(t)
+	p := who("ops", "test:write")
+	g := w.tp.gated("first")
+	defer g.open()
+	first := w.start(p, tpOps.run.Op(), `{"name":"first","lane":"q"}`, "")
+	g.waitStarted(t)
+	queued := w.start(p, tpOps.run.Op(), `{"name":"second","lane":"q"}`, "")
+	seeded := w.seed(tdRec("seeded", store.Lane{}), apitypes.StatusRunning)
+	done := w.start(p, tpOps.run.Op(), `{"name":"done"}`, "")
+	w.waitStatus(done.ID, apitypes.StatusSucceeded)
+	failed := w.seed(tpRec("failed", store.Lane{}), apitypes.StatusRunning)
+	if _, err := w.store.CommitTerminal(failed, apitypes.StatusRunning, apitypes.StatusFailed, nil,
+		problem.New(problem.InternalError, "seeded")); err != nil {
+		t.Fatal(err)
+	}
+	canceled := w.seed(tpRec("canceled", store.Lane{}), apitypes.StatusQueued)
+	if _, err := w.store.CompareAndSetStatus(canceled, apitypes.StatusQueued, apitypes.StatusCanceled); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := w.mgr.Active()
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.SortFunc(got, func(a, b provider.ActiveOperation) int { return strings.Compare(a.ID, b.ID) })
+	want := []provider.ActiveOperation{
+		{ID: first.ID, Op: tpOps.run.Op().ID, Status: apitypes.StatusRunning},
+		{ID: queued.ID, Op: tpOps.run.Op().ID, Status: apitypes.StatusQueued},
+		{ID: seeded, Op: tdOps.job.Op().ID, Status: apitypes.StatusRunning},
+	}
+	slices.SortFunc(want, func(a, b provider.ActiveOperation) int { return strings.Compare(a.ID, b.ID) })
+	if !slices.Equal(got, want) {
+		t.Fatalf("Active() = %+v, want %+v", got, want)
+	}
 }
 
-// TC-SV-E2: readyAt is the time recovery began, not the commit time. Owner WI 1.3. Requirements: FR-11.
-//
-// - Setup: TC-SV-8, with the world's clock set to `T1` before `recoverNow`, and the clock advanced to `T1+10s` from inside `AfterReboot`.
-// - Steps:
-//  1. Recover.
-//
-// - Expected: `Rebooted.ReadyAt == T1`, and the result's `upAt` (when the hook copies it) is `T1`, not `T1+10s`.
+// TC-SV-E2 (FR-11): ReadyAt is the time recovery began, not the commit
+// time.
 func TestTCSVE2_ReadyAtIsTheTimeRecoveryBeganNot(t *testing.T) {
-	t.Skip("TC-SV-E2: SKIP-only stub; un-skip when WI 1.3 lands")
+	perBackend(t, func(t *testing.T, backend detachtest.Backend) {
+		var seams detach.Options
+		var rw *rbWorld // Set before the manager reads the clock
+		rw = newRBWorld(t, bootPrev, withBackend(t, backend, &seams), func(o *ops.Options) {
+			o.Now = func() time.Time { return rw.now() }
+		})
+		t1 := time.Now().UTC().Truncate(time.Second).Add(time.Hour)
+		rw.rb.copyUpAt = true
+		rw.rb.duringAft = func() { rw.setClock(t1.Add(10 * time.Second)) }
+		op := rw.startRB("r")
+		rw.running(&seams, op.ID)
+		requested := requestedAt()
+		rw.record(op.ID, bootPrev, requested)
+		rw.reboot(bootCur, func() {
+			if err := seams.Signal(context.Background(), detach.Unit(op.ID), syscall.SIGTERM); err != nil {
+				t.Fatal(err)
+			}
+			waitUnitGone(t, seams, detach.Unit(op.ID))
+		})
+		rw.setClock(t1)
+		waitClosed(t, rw.recoverNow(), 15*time.Second, "classification")
+		got := wantAfterReboot(t, rw.rb, rw.waitEnd(op.ID, 15*time.Second), requested)
+		if !got.ReadyAt.Equal(t1) {
+			t.Fatalf("ReadyAt %v, want %v", got.ReadyAt, t1)
+		}
+		rec, _ := rw.store.Get(op.ID)
+		var out rbOut
+		if err := json.Unmarshal(rec.Result, &out); err != nil || out.UpAt == nil || !out.UpAt.Equal(t1) {
+			t.Fatalf("result %s (%v): upAt want %v", rec.Result, err, t1)
+		}
+	})
 }
 
-// TC-SV-E3: A cancel accepted after the record ends Succeeded after the reboot. Owner WI 1.3. Requirements: FR-11, A-28.
-//
-// - Setup: `rb` as TC-SV-8.
-// - Steps:
-//  1. Start and wait for Running. A cancel is accepted (no record yet), so the manager writes the cancel request.
-//  2. The record is written immediately after (the helper had passed its second check).
-//  3. Interrupt the unit, close, and reopen with `CUR`.
-//
-// - Expected: Step 1 answered the cancel as accepted, and the op is Succeeded via `AfterReboot` with both boot IDs. The result or audit records that a cancel was requested (the cancel record exists), so the outcome is explainable.
+// TC-SV-E3 (FR-11, A-28): a cancel accepted just before the record ends
+// Succeeded after the reboot, and the audit record says a cancel was
+// requested.
 func TestTCSVE3_ACancelAcceptedAfterTheRecordEnds(t *testing.T) {
-	t.Skip("TC-SV-E3: SKIP-only stub; un-skip when WI 1.3 lands")
+	perBackend(t, func(t *testing.T, backend detachtest.Backend) {
+		var seams detach.Options
+		rw := newRBWorld(t, bootPrev, withBackend(t, backend, &seams))
+		// The helper handles the stop itself and goes on to the trigger;
+		// the supervisor kills it after the spec's Grace.
+		rw.rb.onPrepare("r", func(thingIn) detach.Spec {
+			return shJob(`trap "" TERM; echo pid=$$; while :; do sleep 0.1; done`)
+		})
+		op := rw.startRB("r")
+		rw.running(&seams, op.ID)
+		if got := rw.mustCancel(rbWho, op.ID, ""); got.Status != apitypes.StatusRunning {
+			t.Fatalf("cancel answered %s, want accepted (Running)", got.Status)
+		}
+		requested := requestedAt()
+		rw.record(op.ID, bootPrev, requested)
+		if x := rw.waitExit(op.ID); !x.Canceled {
+			t.Fatalf("exit.json %+v, want canceled", x)
+		}
+		time.Sleep(3 * detach.PollInterval)
+		rw.stillRunning(op.ID)
+		rw.reboot(bootCur, nil)
+		waitClosed(t, rw.recoverNow(), 15*time.Second, "classification")
+		wantAfterReboot(t, rw.rb, rw.waitEnd(op.ID, 15*time.Second), requested)
+		if r := rw.wantRebootFacts(op.ID); r.Facts["cancelRequested"] != "true" {
+			t.Fatalf("terminal audit facts %v, want cancelRequested=true", r.Facts)
+		}
+	})
 }
 
-// TC-SV-E4: The lane is released only when the held operation commits. Owner WI 1.3. Requirements: FR-10, FR-11.
-//
-// - Setup: TC-SV-14 (`MaxRuntime` 2 s).
-// - Steps:
-//  1. Start a second `rb` op every 200 ms until one is admitted.
-//
-// - Expected: Every attempt before the first op's terminal commit answers 409 `conflict`, and the first attempt after it is admitted. There is no window in which both are non-terminal.
+// TC-SV-E4 (FR-10, FR-11): the lane is released only when the held
+// operation commits: every earlier attempt is 409, and the first admitted
+// attempt comes after the commit.
 func TestTCSVE4_TheLaneIsReleasedOnlyWhenThe(t *testing.T) {
-	t.Skip("TC-SV-E4: SKIP-only stub; un-skip when WI 1.3 lands")
+	perBackend(t, func(t *testing.T, backend detachtest.Backend) {
+		var seams detach.Options
+		rw := newRBWorld(t, bootPrev, withBackend(t, backend, &seams))
+		op, _ := heldUntilMaxRuntime(t, rw, &seams)
+		deadline := time.Now().Add(10 * time.Second)
+		refused := 0
+		for {
+			res, err := rw.call(rbWho, rbOp.Op(), `{"name":"next"}`, "")
+			if err == nil {
+				if res.Status != http.StatusAccepted {
+					t.Fatalf("admitted with %d", res.Status)
+				}
+				rec, gerr := rw.store.Get(op.ID)
+				if gerr != nil || !rec.Status.Terminal() {
+					t.Fatalf("a second op was admitted while the first reads %s (%v)", rec.Status, gerr)
+				}
+				rw.waitEnd(res.OperationID, 15*time.Second)
+				break
+			}
+			if pe := wantProblem(t, err, problem.Conflict); pe.Extensions["blockingOperationId"] != op.ID {
+				t.Fatalf("409 %+v, want blockingOperationId %s", pe, op.ID)
+			}
+			refused++
+			if time.Now().After(deadline) {
+				t.Fatal("never admitted")
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		if refused == 0 {
+			t.Fatal("admitted at once: the lane was not held")
+		}
+		wantOutcomeUnknown(t, rw.waitEnd(op.ID, time.Second), "did not restart")
+	})
 }
 
-// TC-SV-E19: A record whose boot ID cannot be read ends outcome-unknown with the read error, never Succeeded. Owner WI 1.3. Requirements: FR-11.
-//
-// - Setup: TC-SV-8, but the `reboot-requested` file contains `{"bootId":` (truncated). Two subtests:
-//   - (R4) the unit ended interrupted in boot `PREV`; recover in boot `CUR`;
-//   - (R3) the live watcher sees the unit end interrupted in the same boot (TC-SV-12's setup with the corrupt file), with `MaxRuntime` 2 s.
-//
-// - Steps:
-//  1. Recover (R4), or let the watcher observe the exit (R3).
-//
-// - Expected: In both subtests:
-//   - Failed `outcome-unknown` at once, with a detail naming `reboot-requested` and the read error (review Finding 10);
-//   - in R3, the operation is terminal within 500 ms of the exit, well before `MaxRuntime` (no hold), and the lane is released;
-//   - `AfterReboot` is not called;
-//   - never Succeeded.
+// TC-SV-E19 (FR-11): a record that cannot be read ends the op
+// outcome-unknown at once with the read error, never held, never
+// Succeeded, in a new boot (R4) and in the same one (R3).
 func TestTCSVE19_ARecordWhoseBootIDCannotBe(t *testing.T) {
-	t.Skip("TC-SV-E19: SKIP-only stub; un-skip when WI 1.3 lands")
+	wantUnreadable := func(t *testing.T, rec store.OpRecord) {
+		t.Helper()
+		wantOutcomeUnknown(t, rec, detach.RebootFile)
+		if !strings.Contains(rec.Error.Detail, "unexpected end of JSON input") {
+			t.Fatalf("detail %q does not name the read error", rec.Error.Detail)
+		}
+	}
+	t.Run("R4", func(t *testing.T) {
+		perBackend(t, func(t *testing.T, backend detachtest.Backend) {
+			var seams detach.Options
+			rw := newRBWorld(t, bootPrev, withBackend(t, backend, &seams))
+			op := rw.startRB("r")
+			rw.running(&seams, op.ID)
+			rw.corruptRecord(op.ID)
+			rw.reboot(bootCur, func() {
+				if err := seams.Signal(context.Background(), detach.Unit(op.ID), syscall.SIGTERM); err != nil {
+					t.Fatal(err)
+				}
+				waitUnitGone(t, seams, detach.Unit(op.ID))
+			})
+			waitClosed(t, rw.recoverNow(), 15*time.Second, "classification")
+			wantUnreadable(t, rw.waitEnd(op.ID, 15*time.Second))
+			wantNoHooks(t, rw.rb)
+		})
+	})
+	t.Run("R3", func(t *testing.T) {
+		perBackend(t, func(t *testing.T, backend detachtest.Backend) {
+			var seams detach.Options
+			rw := newRBWorld(t, bootPrev, withBackend(t, backend, &seams))
+			rw.rb.onPrepare("short", func(thingIn) detach.Spec {
+				s := longJob()
+				s.MaxRuntime = 2 * time.Second
+				return s
+			})
+			rw.rb.onPrepare("next", func(thingIn) detach.Spec { return shJob("true") })
+			op := rw.startRB("short")
+			rw.running(&seams, op.ID)
+			rw.corruptRecord(op.ID)
+			if err := seams.Signal(context.Background(), detach.Unit(op.ID), syscall.SIGTERM); err != nil {
+				t.Fatal(err)
+			}
+			x := rw.waitExit(op.ID)
+			rec := rw.waitEnd(op.ID, 5*time.Second)
+			wantUnreadable(t, rec)
+			// The watcher reads exit.json every PollInterval; past that the
+			// commit takes milliseconds, and a hold would last until
+			// MaxRuntime.
+			if lag := rec.Ended.Sub(x.Ended); lag > detach.PollInterval+500*time.Millisecond {
+				t.Fatalf("terminal %v after the exit, want at once", lag)
+			}
+			if !rec.Ended.Before(rec.Started.Add(2 * time.Second)) {
+				t.Fatalf("terminal at %v, not before MaxRuntime from %v", rec.Ended, rec.Started)
+			}
+			wantNoHooks(t, rw.rb)
+			next := rw.startWhenFree(rbWho, rbOp.Op(), `{"name":"next"}`)
+			rw.waitEnd(next.ID, 15*time.Second)
+		})
+	})
 }
 
-// TC-SV-ERR6: R1: a declaring op is not launched when the boot ID is unknown. Owner WI 1.3. Requirements: FR-11.
-//
-// - Setup: `spyWorld` with F-BOOT returning `("", errors.New("planted"))`.
-// - Steps:
-//  1. Start `rb.actions.reboot`.
-//  2. Start the plain `td` op.
-//
-// - Expected:
-//   - (1) Failed `internal-error`, with the detail `the boot ID cannot be read, so a reboot could not be confirmed`, and `unitSpy.launched(id) == 0`;
-//   - (2) launches and runs normally.
+// TC-SV-ERR6 (FR-11): R1: a declaring op is not launched when this boot's
+// ID cannot be read; an op without the flag runs normally.
 func TestTCSVERR6_R1ADeclaringOpIsNotLaunched(t *testing.T) {
-	t.Skip("TC-SV-ERR6: SKIP-only stub; un-skip when WI 1.3 lands")
+	spy := newUnitSpy()
+	var opsDir atomic.Value
+	rw := newRBWorld(t, "", func(o *ops.Options) {
+		opsDir.Store(o.Dir)
+		withDetach(t, spy.options(func() string { return opsDir.Load().(string) }))(o)
+	})
+	op := rw.startRB("r")
+	rec := rw.waitEnd(op.ID, 15*time.Second)
+	const detail = "the boot ID cannot be read, so a reboot could not be confirmed"
+	if rec.Status != apitypes.StatusFailed || rec.Error == nil || rec.Error.Slug() != problem.InternalError || rec.Error.Detail != detail {
+		t.Fatalf("operation: %s %+v, want Failed internal-error %q", rec.Status, rec.Error, detail)
+	}
+	if n := spy.launched(op.ID); n != 0 {
+		t.Fatalf("%d launches of the declaring op", n)
+	}
+	plain := rw.start(rbWho, tdOps.job.Op(), `{"name":"plain"}`, "")
+	if rec := rw.waitEnd(plain.ID, 15*time.Second); rec.Status != apitypes.StatusSucceeded || spy.launched(plain.ID) != 1 {
+		t.Fatalf("plain op: %s %+v, %d launches; want Succeeded after one", rec.Status, rec.Error, spy.launched(plain.ID))
+	}
 }

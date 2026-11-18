@@ -76,6 +76,8 @@ type Options struct {
 	// RecoveryDeadline bounds restart classification. Zero means
 	// RecoveryDeadline.
 	RecoveryDeadline time.Duration
+	// BootID reads this boot's ID once, in New. Nil means detach.BootID.
+	BootID func() (string, error)
 }
 
 // Manager runs long-running operations. It is safe for concurrent use and
@@ -91,7 +93,8 @@ type Manager struct {
 	log      *slog.Logger
 	now      func() time.Time
 	detach   *detach.Launcher
-	boot     string // This boot's ID; empty when unknown
+	boot     string    // This boot's ID; empty when unknown
+	readyAt  time.Time // When Recover began, under mu; Rebooted.ReadyAt
 
 	// base is the context of in-process operations. Shutdown cancels it
 	// only when its grace period ends.
@@ -135,7 +138,11 @@ func New(opts Options) (*Manager, error) {
 	if m.log == nil {
 		m.log = slog.Default()
 	}
-	if boot, err := detach.BootID(); err == nil {
+	bootID := opts.BootID
+	if bootID == nil {
+		bootID = detach.BootID
+	}
+	if boot, err := bootID(); err == nil {
 		// Without it, exit.json from an earlier boot is taken at its word.
 		m.boot = boot
 	}
@@ -198,6 +205,10 @@ type entry struct {
 
 	userCanceled bool // Set under Manager.mu by a cancel of the running operation
 	launched     bool // Set under Manager.mu once a detached operation's unit exists
+
+	// facts go on the terminal state-change record. Set only by the
+	// goroutine that commits the end, before it does (afterReboot).
+	facts map[string]string
 }
 
 func (e *entry) markDone() { e.doneOnce.Do(func() { close(e.done) }) }
@@ -308,6 +319,9 @@ func (m *Manager) stateChange(e *entry, to apitypes.OperationStatus, perr *probl
 	if perr != nil {
 		rec.Problem = string(perr.Slug())
 	}
+	if to.Terminal() {
+		rec.Facts = e.facts
+	}
 	if m.audit == nil {
 		m.log.Error("audit write failed", "operationId", e.id, "outcome", rec.Outcome, "error", "no audit log")
 		return
@@ -379,6 +393,14 @@ func (m *Manager) runDetached(e *entry) {
 		m.failQueued(e, problem.New(problem.InternalError, genericDetail))
 		return
 	}
+	if e.work.Op.CompletesAcrossReboot && m.boot == "" {
+		// R1: without this boot's ID, a later boot could not be told
+		// from this one, so a reboot could never be confirmed.
+		m.log.Error("the boot ID cannot be read; an operation that completes across a reboot is not launched",
+			"operationId", e.id, "op", e.rec.Action)
+		m.failQueued(e, problem.New(problem.InternalError, "the boot ID cannot be read, so a reboot could not be confirmed"))
+		return
+	}
 	spec, perr := m.prepare(e, d, r)
 	if perr != nil {
 		if m.halt.Err() != nil {
@@ -442,7 +464,12 @@ func (m *Manager) runDetached(e *entry) {
 	}
 	select {
 	case o := <-m.detach.Watch(m.halt, e.id, started, maxRuntime):
-		to, result, perr := m.detachedEnd(e, d, r, o)
+		dec := m.acrossReboot(e, o)
+		if dec.verdict == rebootHold {
+			m.holdForReboot(e, dec.rec, started, maxRuntime)
+			return
+		}
+		to, result, perr := m.detachedEnd(e, d, r, o, dec)
 		m.commitEnd(e, to, result, perr)
 	case <-m.halt.Done():
 	}
@@ -531,14 +558,23 @@ func (m *Manager) interruption(id string, x detach.Exit) string {
 	return ""
 }
 
-// detachedEnd maps the watcher's outcome to the terminal status: exit.json
-// with canceled set is Canceled; an interrupted one (interruption), a lost
-// unit or a passed MaxRuntime is outcome-unknown naming the unit, or on the
-// process backend the supervisor process; any other exit.json goes through
+// detachedEnd maps the watcher's outcome to the terminal status. First the
+// reboot rules, decided by acrossReboot (the caller has already held a
+// rebootHold): an unreadable record is outcome-unknown, and a record from an
+// earlier boot goes to AfterReboot (R4). Otherwise exit.json with canceled
+// set is Canceled; an interrupted one (interruption), a lost unit or a
+// passed MaxRuntime is outcome-unknown naming the unit, or on the process
+// backend the supervisor process; any other exit.json goes through
 // Finalize.
-func (m *Manager) detachedEnd(e *entry, d *DetachedWork, r *provider.Run, o detach.Outcome) (
+func (m *Manager) detachedEnd(e *entry, d *DetachedWork, r *provider.Run, o detach.Outcome, dec rebootDecision) (
 	to apitypes.OperationStatus, result json.RawMessage, perr *problem.Error) {
 	m.dropSpec(e.id)
+	switch dec.verdict {
+	case rebootUnknown:
+		return apitypes.StatusFailed, nil, dec.perr
+	case rebootComplete:
+		return m.afterReboot(e, d, r, dec.rec)
+	}
 	subject := m.detach.Subject(e.id)
 	switch {
 	case o.Exit != nil && o.Exit.Canceled:
@@ -599,6 +635,11 @@ const signalTimeout = 10 * time.Second
 // the worker once the unit exists. A record this process does not run,
 // such as one reattached after a restart, is signaled directly.
 func (m *Manager) cancelDetached(rec store.OpRecord) error {
+	// R2 comes first: a refused cancel neither marks the entry canceled nor
+	// signals the unit.
+	if perr := m.refuseCancelAfterReboot(rec); perr != nil {
+		return perr
+	}
 	m.mu.Lock()
 	if e, ok := m.live[rec.ID]; ok {
 		e.userCanceled = true

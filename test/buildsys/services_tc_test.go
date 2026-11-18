@@ -8,7 +8,10 @@
 
 package buildsys
 
-import "testing"
+import (
+	"os/exec"
+	"testing"
+)
 
 // TC-SV-22: The existing recovery and detached suites are unchanged by the reboot rules. Owner WI 1.3. Requirements: CON-4.
 //
@@ -19,7 +22,22 @@ import "testing"
 //
 // - Expected: Step 1 shows no diff, and step 2 passes. Ops without the flag behave as before, proven by an unchanged suite.
 func TestTCSV22_TheExistingRecoveryAndDetachedSuitesAre(t *testing.T) {
-	t.Skip("TC-SV-22: SKIP-only stub; un-skip when WI 1.3 lands")
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	const base = "43e5792"
+	root := repoRoot(t)
+	if out, code := run(t, root, nil, "git", "cat-file", "-e", base+"^{commit}"); code != 0 {
+		t.Skipf("base commit %s not reachable (shallow clone?): %s", base, out)
+	}
+	if out, code := run(t, root, nil, "git", "diff", "--exit-code", base, "--",
+		"internal/ops/recovery_test.go", "internal/ops/detached_test.go", "internal/ops/cancel_test.go"); code != 0 {
+		t.Errorf("the recovery, detached or cancel suite differs from %s (CON-4): exit %d\n%s", base, code, out)
+	}
+	skipUnderMake(t)
+	if out, code := run(t, root, nil, "go", "test", "-race", "-count=1", "-run", "Recovery|Detached|Cancel", "./internal/ops"); code != 0 {
+		t.Errorf("the unchanged recovery, detached and cancel suites fail (CON-4): exit %d\n%s", code, out)
+	}
 }
 
 // TC-SV-41: capture.sh is POSIX sh and read-only. Owner WI 3.1. Requirements: NFR-3, CON-1.

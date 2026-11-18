@@ -184,10 +184,14 @@ func (m *Manager) restoredLane(sl store.Lane) *lane {
 // Every outcome commits through CommitTerminal; ErrStatusConflict means the
 // record was already finalized. Operation units with no record are logged
 // and left alone. The returned channel is closed once classification is
-// over: reattached operations are then the watcher's.
+// over: reattached operations are then the watcher's, and operations held
+// for a reboot requested in this boot (R3) their own goroutine's. The time
+// Recover began is the ReadyAt of every AfterReboot (R4).
 func (m *Manager) Recover() <-chan struct{} {
 	done := make(chan struct{})
+	ready := m.now()
 	m.mu.Lock()
+	m.readyAt = ready
 	pending := m.recovering
 	m.recovering = nil
 	if m.closed {
@@ -358,18 +362,26 @@ func (m *Manager) liveness(ctx context.Context, id string) (detach.Liveness, err
 	}
 }
 
-// endRecovered commits a recovered operation's end and frees its slot.
+// endRecovered commits a recovered operation's end and frees its slot. An
+// end that R3 holds is handed to its own goroutine, which frees the slot
+// when the hold ends.
 func (m *Manager) endRecovered(e *entry, o detach.Outcome) {
+	dec := m.acrossReboot(e, o)
+	if dec.verdict == rebootHold {
+		m.holdRecovered(e, dec.rec)
+		return
+	}
 	defer m.finish(e)
-	m.commitRecovered(e, o)
+	m.commitRecovered(e, o, dec)
 }
 
 // commitRecovered commits a recovered detached operation's end through
-// Finalize or LostDetail, as for one this process launched. An op that is
-// no longer bound has neither, so its end is outcome-unknown.
-func (m *Manager) commitRecovered(e *entry, o detach.Outcome) {
+// Finalize or LostDetail, as for one this process launched, after the
+// reboot rules of dec. An op that is no longer bound has neither, so its end
+// is outcome-unknown.
+func (m *Manager) commitRecovered(e *entry, o detach.Outcome, dec rebootDecision) {
 	if d := e.work.Detached; d != nil {
-		to, result, perr := m.detachedEnd(e, d, provider.NewRun(e.id, nil), o)
+		to, result, perr := m.detachedEnd(e, d, provider.NewRun(e.id, nil), o, dec)
 		m.commitEnd(e, to, result, perr)
 		return
 	}
@@ -404,7 +416,12 @@ func (m *Manager) reattach(e *entry) {
 		defer m.finish(e)
 		select {
 		case o := <-m.detach.Watch(m.halt, e.id, started, maxRuntime):
-			m.commitRecovered(e, o)
+			dec := m.acrossReboot(e, o)
+			if dec.verdict == rebootHold {
+				m.holdForReboot(e, dec.rec, started, maxRuntime)
+				return
+			}
+			m.commitRecovered(e, o, dec)
 		case <-m.halt.Done():
 		}
 	}()
