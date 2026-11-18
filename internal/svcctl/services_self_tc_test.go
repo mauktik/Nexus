@@ -626,15 +626,13 @@ func TestTCSVE13_AnUnreadableDeptreeReturnsTheNeededNames(t *testing.T) {
 				if err := os.Remove(filepath.Join(root, "run", "openrc", "deptree")); err != nil {
 					t.Fatal(err)
 				}
-				script := filepath.Join(root, "etc", "init.d", "nexusd")
-				if c.script == "" {
-					if err := os.Remove(script); err != nil {
-						t.Fatal(err)
-					}
-				} else {
-					selfWriteFile(t, script, c.script)
+				// An EtcRoot that is not beside the RunRoot: the script is read
+				// from <EtcRoot>/init.d, not from a path derived from RunRoot.
+				etc := filepath.Join(root, "alt-etc")
+				if c.script != "" {
+					selfWriteFile(t, filepath.Join(etc, "init.d", "nexusd"), c.script)
 				}
-				got, err := Dependencies(context.Background(), platform.OpenRC, "nexusd", Options{RunRoot: filepath.Join(root, "run")})
+				got, err := Dependencies(context.Background(), platform.OpenRC, "nexusd", Options{RunRoot: filepath.Join(root, "run"), EtcRoot: etc})
 				if err != nil || !got.Partial || got.Reason == "" || !slices.Equal(got.Names, c.want) {
 					t.Errorf("Dependencies = (%+v, %v), want Names %q, partial with a reason, no error", got, err, c.want)
 				}
@@ -644,8 +642,8 @@ func TestTCSVE13_AnUnreadableDeptreeReturnsTheNeededNames(t *testing.T) {
 	t.Run("deptree without a self entry", func(t *testing.T) {
 		root := t.TempDir()
 		selfWriteFile(t, filepath.Join(root, "run", "openrc", "deptree"), "depinfo_0_service='net'\ndepinfo_0_providedby_0='networking'\n")
-		selfWriteFile(t, filepath.Join(root, "etc", "init.d", "nexusd"), "depend() { need net }\n")
-		got, err := Dependencies(context.Background(), platform.OpenRC, "nexusd", Options{RunRoot: filepath.Join(root, "run")})
+		selfWriteFile(t, filepath.Join(root, "alt-etc", "init.d", "nexusd"), "depend() { need net }\n")
+		got, err := Dependencies(context.Background(), platform.OpenRC, "nexusd", Options{RunRoot: filepath.Join(root, "run"), EtcRoot: filepath.Join(root, "alt-etc")})
 		if err != nil || !got.Partial || !slices.Equal(got.Names, []string{"net"}) {
 			t.Errorf("Dependencies = (%+v, %v), want [net], partial", got, err)
 		}

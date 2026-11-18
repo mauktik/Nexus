@@ -80,7 +80,7 @@ func Dependencies(ctx context.Context, init platform.InitSystem, self string, op
 		}
 		return Deps{Names: systemdDependencyNames(string(res.Output))}, nil
 	case platform.OpenRC:
-		return openrcDependencies(b.runRoot, self), nil
+		return openrcDependencies(b.runRoot, b.etcRoot, self), nil
 	}
 	return Deps{}, fmt.Errorf("%w: no dependency lookup for init system %q", ErrNotStarted, string(init))
 }
@@ -227,7 +227,7 @@ func resolveDeptree(d deptree, self string) Deps {
 }
 
 // openrcDependencies is Dependencies on OpenRC.
-func openrcDependencies(runRoot, self string) Deps {
+func openrcDependencies(runRoot, etcRoot, self string) Deps {
 	path := filepath.Join(runRoot, "openrc", "deptree")
 	d, err := readDeptree(path)
 	if err == nil {
@@ -236,7 +236,7 @@ func openrcDependencies(runRoot, self string) Deps {
 		}
 		err = fmt.Errorf("%s has no entry for %s", path, self)
 	}
-	script := filepath.Join(filepath.Dir(runRoot), "etc", "init.d", self)
+	script := filepath.Join(etcRoot, "init.d", self)
 	needs, serr := readInitScriptNeeds(script)
 	reason := fmt.Sprintf("the deptree is unusable (%v); the needed names of %s are not resolved", err, script)
 	if serr != nil {
