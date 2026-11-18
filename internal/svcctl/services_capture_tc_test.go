@@ -19,7 +19,7 @@ import "testing"
 //
 // - Expected:
 //   - keys `host`, `source` (`container` or `host`), `date` (RFC 3339), `os-release`, `init-version`, `kernel`, `captured-as: root`, `commands` and `redaction` are present;
-//   - systemd captures have `list-units.txt`, `list-unit-files.txt`, `show-nexusd.txt`, `is-enabled-nexusd.txt`, `deps-nexusd.txt`, `journal-nexusd-n20.jsonl`, `journal-nexusd-since.jsonl`, `journal-nexusd-perr.jsonl`, `proc/self/cgroup`, `proc/self/mountinfo`, `proc/sys/kernel/random/boot_id`, `oracle/is-active.tsv`, `oracle/is-enabled.tsv` and `oracle/failed.txt`;
+//   - systemd captures have `list-units.txt`, `list-unit-files.txt`, `show-nexusd.txt`, `is-enabled-nexusd.txt`, `deps-nexusd.txt`, `stop-propagated-from-nexusd.txt`, `journal-nexusd-n20.jsonl`, `journal-nexusd-since.jsonl`, `journal-nexusd-perr.jsonl`, `proc/self/cgroup`, `proc/self/mountinfo`, `proc/sys/kernel/random/boot_id`, `oracle/is-active.tsv`, `oracle/is-enabled.tsv` and `oracle/failed.txt`;
 //   - OpenRC captures have `rc-status.txt`, `rc-update.txt`, `rc-service-nexusd-status.txt`, `run/openrc/deptree`, `run/openrc/options/nexusd/child_pid` and `oracle/rc-service-status.tsv`;
 //   - every file named in `commands` exists;
 //   - `testdata/README.md` has a services section naming each directory.
@@ -41,7 +41,7 @@ func TestTCSV43_NoCaptureCarriesEnvironmentCommandLinesOr(t *testing.T) {
 	t.Skip("TC-SV-43: SKIP-only stub; un-skip when WI 3.1 lands")
 }
 
-// TC-SV-44: The five T1-container captures exist. Owner WI 3.1. Requirements: NFR-3, CON-3.
+// TC-SV-44: The five T1-container captures exist. Owner WI 3.1. Requirements: NFR-3, CON-3, A-39.
 //
 // - Setup: None. The captures were made by WI 3.1's `capture.sh` inside the T1 images (`make test-harness` with `BASE` unset, `debian:stable` and `debian:12`; `make test-harness-alpine` with `BASE` unset and `alpine:3.22`).
 // - Steps:
@@ -51,12 +51,13 @@ func TestTCSV43_NoCaptureCarriesEnvironmentCommandLinesOr(t *testing.T) {
 //   - all five exist with `source: container`;
 //   - `init-version` shows systemd 259 (`t1-ubuntu-systemd`), systemd 257 (`t1-debian-systemd`), systemd 252 (`t1-debian12-systemd`, pihole's version), and OpenRC for both Alpine captures;
 //   - `os-release` of `t1-debian12-systemd` names Debian 12, `os-release` of `t1-alpine322-openrc` names Alpine 3.22 (Public-Nginx's release), and its `init-version` differs from `t1-alpine-openrc`'s;
-//   - each systemd capture's `actions/` holds `start-nx-svc-test.txt`, `stop-nx-svc-test.txt`, `restart-nx-svc-test.txt` and `start-nx-svc-fail.txt` with an `Exit` line, and each Alpine capture holds `start-already-nx-svc-test.txt`.
+//   - each systemd capture's `actions/` holds `start-nx-svc-test.txt`, `stop-nx-svc-test.txt`, `restart-nx-svc-test.txt` and `start-nx-svc-fail.txt` with an `Exit` line, and each Alpine capture holds `start-already-nx-svc-test.txt`;
+//   - each systemd capture's `deps-nexusd.txt` holds only the keys `Requires`, `BindsTo`, `Requisite` and `PartOf` (the exact `Dependencies` argv, WI 3.4), and its separate `stop-propagated-from-nexusd.txt` (`show -p StopPropagatedFrom -- nexusd.service`) holds one `StopPropagatedFrom=` line, empty in every T1 image, with `Exit 0` (A-39's container evidence; the host evidence is TC-SV-45).
 func TestTCSV44_TheFiveT1ContainerCapturesExist(t *testing.T) {
 	t.Skip("TC-SV-44: SKIP-only stub; un-skip when WI 3.1 lands")
 }
 
-// TC-SV-45: The three real-host captures exist and carry the A-3, A-5, A-8, A-11 and A-22 evidence. Owner WI 6.0 (operator host captures; un-skipped by TC-SV-L0). Requirements: NFR-3, NFR-4, CON-3, A-3, A-5, A-8, A-11, A-22.
+// TC-SV-45: The three real-host captures exist and carry the A-3, A-5, A-8, A-9, A-11, A-22 and A-39 evidence. Owner WI 6.0 (operator host captures; un-skipped by TC-SV-L0). Requirements: NFR-3, NFR-4, CON-3, A-3, A-5, A-8, A-9, A-11, A-22, A-39.
 //
 // - Setup: The operator has run `capture.sh` on home-server, pihole and Public-Nginx and committed `home-server/`, `pihole/` and `public-nginx/`.
 // - Steps:
@@ -68,9 +69,11 @@ func TestTCSV44_TheFiveT1ContainerCapturesExist(t *testing.T) {
 //   - pihole's and public-nginx's `boot_id` differ from each other, and each has a `mountinfo` line with mount point `/proc/sys/kernel/random/boot_id` (A-3);
 //   - public-nginx's `readlink-sbin-reboot.txt` is `/bin/busybox`, and its `inittab-shutdown.txt` contains `/sbin/openrc shutdown` (A-5);
 //   - public-nginx's `run/openrc/options/nexusd/child_pid` holds a decimal PID (A-8);
+//   - public-nginx's `run/openrc/deptree` has the `net` virtual entry with at least one `_providedby_M` value, and that value names a script present in the capture's `etc/init.d/` (`networking` expected; any other name is recorded, and the WI 3.4 resolver test over this capture still resolves it) (A-9);
 //   - home-server's `proc/self/cgroup` has a `0::` line ending `/nexusd.service` (A-11);
 //   - pihole's `journal-nexusd-since.txt` records `Exit 0` (A-22: systemd 252 accepts `--since=@s.us`; first checked locally by TC-SV-148 on `t1-debian12-systemd`, confirmed here on the real host);
-//   - pihole's `init-version` is systemd 252, the same version as `t1-debian12-systemd` (so TC-SV-148's local evidence applied to the right version).
+//   - pihole's `init-version` is systemd 252, the same version as `t1-debian12-systemd` (so TC-SV-148's local evidence applied to the right version);
+//   - home-server's and pihole's `stop-propagated-from-nexusd.txt` (the separate `show -p StopPropagatedFrom -- nexusd.service` line of WI 3.1's `capture.sh`) holds exactly `StopPropagatedFrom=` with an empty value and records `Exit 0` (A-39). A non-empty value fails this case with the unit named: A-39 is falsified, and WI 3.4's `Dependencies` argv must gain `-p StopPropagatedFrom` before WI 6.1 starts.
 func TestTCSV45_TheThreeRealHostCapturesExistAnd(t *testing.T) {
 	t.Skip("TC-SV-45: SKIP-only stub; un-skip when WI 6.0 lands")
 }

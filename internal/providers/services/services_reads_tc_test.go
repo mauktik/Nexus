@@ -93,7 +93,7 @@ func TestTCSV85_LogsWithSinceAndNoTailPages(t *testing.T) {
 	t.Skip("TC-SV-85: SKIP-only stub; un-skip when WI 4.2 lands")
 }
 
-// TC-SV-86: OpenRC file logs keep the newest lines within 64 KiB with stdout and stderr labelled. Owner WI 4.2. Requirements: FR-6, ASM-5.
+// TC-SV-86: OpenRC file logs keep the newest lines within 64 KiB with stdout and stderr labelled. Owner WI 4.2. Requirements: FR-6, ASM-5, A-38.
 //
 // - Setup: F-ROOTS from `t1-alpine-openrc`. `output_log` and `error_log` point at temp files: 3,000 lines `out-%04d` (200 bytes each), and 10 lines `err-%02d`.
 // - Steps:
@@ -102,7 +102,7 @@ func TestTCSV85_LogsWithSinceAndNoTailPages(t *testing.T) {
 // - Expected:
 //   - the default call gives the newest 200 `out-*` frames with `s: stdout` and the 10 `err-*` with `s: stderr`;
 //   - `tail=1000` keeps the newest lines within 64 KiB of text in total, and the oldest kept line is the one the bound forces;
-//   - every frame's `t` is what DF-2 defines for a file frame (file lines carry no time of their own; review Finding 5), identical across the frames of one page, and never a time read from the line text.
+//   - every frame's `T` is the zero `time.Time` (DF-2 step 4, A-38: file lines carry no time of their own, and none is read from the line text), and each frame's JSON encoding has no `t` key (`apitypes.Frame.T` is `omitzero`).
 func TestTCSV86_OpenRCFileLogsKeepTheNewestLines(t *testing.T) {
 	t.Skip("TC-SV-86: SKIP-only stub; un-skip when WI 4.2 lands")
 }

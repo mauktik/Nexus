@@ -148,13 +148,21 @@ func TestTCSV96_ControlWithAnActionTakesTheSame(t *testing.T) {
 	t.Skip("TC-SV-96: SKIP-only stub; un-skip when WI 4.3 lands")
 }
 
-// TC-SV-97: The helper re-checks the static protected list before any action. Owner WI 4.3. Requirements: FR-9.
+// TC-SV-97: The helper re-checks the name and its canonical Id against the snapshotted resolved protected set before any action. Owner WI 4.3. Requirements: FR-9.
 //
-// - Setup: An `input.json` written by hand in the helper's `input.json` type (helperio), naming `ssh`, as tampering after admission would.
+// - Setup: Each subtest writes `input.json` by hand in the helper's `input.json` type (`helperio.go`: the resolved protected set `[{name, reason}]` and the canonical `Id`), as tampering or a race after admission would. The F-HOSTS fake records every argv (`Sent()`). Three subtests:
+//   - (a) static: the request names `ssh`, the snapshotted set holds the static list with its reasons;
+//   - (b) dynamic only: the snapshotted set holds `{name: nexusd-db, reason: "Requires= of the self unit"}` and the request names `nexusd-db`; `nexusd-db` is in no static list, so a helper that checks only `spec.Protected` would act;
+//   - (c) alias: the request names `nx-netalias`, the snapshot's canonical `Id` is `systemd-networkd`, and the snapshotted set holds `systemd-networkd` with its static reason; `nx-netalias` itself is in no list.
+//
 // - Steps:
-//  1. Run the helper.
+//  1. Run the helper, once per subtest.
 //
-// - Expected: `result.json` holds the problem `protected-service` (`service: ssh`), and `len(Sent()) == 0`.
+// - Expected:
+//   - (a) `result.json` holds the problem `protected-service` (`service: ssh`) with the snapshot's reason for `ssh`;
+//   - (b) `result.json` holds `protected-service` (`service: nexusd-db`) whose reason is exactly `Requires= of the self unit`, taken from the snapshot;
+//   - (c) `result.json` holds `protected-service` naming the canonical `systemd-networkd` with the snapshot's reason;
+//   - in every subtest `len(Sent()) == 0`: no `systemctl` or `rc-service` argv was run, not even a status read.
 func TestTCSV97_TheHelperReChecksTheStaticProtected(t *testing.T) {
 	t.Skip("TC-SV-97: SKIP-only stub; un-skip when WI 4.3 lands")
 }

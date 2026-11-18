@@ -35,16 +35,16 @@ func TestTCSV68_SelfServiceOnOpenRCFindsTheScriptWhose(t *testing.T) {
 	t.Skip("TC-SV-68: SKIP-only stub; un-skip when WI 3.4 lands")
 }
 
-// TC-SV-69: Dependencies on systemd keeps the .service units of Requires, BindsTo and Requisite. Owner WI 3.4. Requirements: FR-9.
+// TC-SV-69: Dependencies on systemd keeps the .service units of Requires, BindsTo, Requisite and PartOf. Owner WI 3.4. Requirements: FR-9, A-39.
 //
-// - Setup: Each systemd capture's `deps-nexusd.txt`, plus a variant `Requires=sysinit.target nexusd-db.service -.mount` / `BindsTo=nx-bound.service` / `Requisite=`.
+// - Setup: Each systemd capture's `deps-nexusd.txt` (captured with `show -p Requires,BindsTo,Requisite,PartOf`, WI 3.1), plus a variant `Requires=sysinit.target nexusd-db.service -.mount` / `BindsTo=nx-bound.service` / `Requisite=` / `PartOf=nx-part.service`, in the order and `Key=value` form systemd prints for that argv.
 // - Steps:
 //  1. `Dependencies(ctx, platform.Systemd, "nexusd", …)`.
 //
 // - Expected:
 //   - for each capture: exactly its `.service` names without the suffix;
-//   - for the variant: `[nexusd-db nx-bound]`;
-//   - the argv is exactly `/usr/bin/systemctl show -p Requires -p BindsTo -p Requisite -- nexusd.service`.
+//   - for the variant: `[nexusd-db nx-bound nx-part]` (a `PartOf=` unit is kept exactly like a `Requires=` or `BindsTo=` unit; `sysinit.target` and `-.mount` are dropped as non-`.service`);
+//   - the argv is exactly `/usr/bin/systemctl show -p Requires -p BindsTo -p Requisite -p PartOf -- nexusd.service` (no `StopPropagatedFrom`, A-39).
 func TestTCSV69_DependenciesOnSystemdKeepsTheServiceUnits(t *testing.T) {
 	t.Skip("TC-SV-69: SKIP-only stub; un-skip when WI 3.4 lands")
 }

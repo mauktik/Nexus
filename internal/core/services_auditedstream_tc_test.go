@@ -54,14 +54,19 @@ func TestTCSV25_AnUnauditedStreamStillWritesNoAudit(t *testing.T) {
 	t.Skip("TC-SV-25: SKIP-only stub; un-skip when WI 1.4 lands")
 }
 
-// TC-SV-E5: An Audited stream ended by a client disconnect has exactly one terminal record. Owner WI 1.4. Requirements: FR-16.
+// TC-SV-E5: An Audited stream ended by a client disconnect records completed after a frame and refused before one, both with clientDisconnected. Owner WI 1.4. Requirements: FR-16, A-40.
 //
-// - Setup: TC-SV-23's op, with a handler that emits frames until `ctx` is done. The real server runs over `httptest`.
+// - Setup: TC-SV-23's op. The real server runs over `httptest`, with a real HTTP client. Two subtests:
+//   - (a) after a frame: the handler emits frames until `ctx` is done or `emit` returns an error;
+//   - (b) before any frame: the handler emits nothing, blocks until `ctx` is done, and returns `ctx.Err()`.
+//
 // - Steps:
-//  1. Start the request, read one frame, and close the client connection.
-//  2. Wait 2 s.
+//  1. (a) Start the request, read one frame, and close the client connection. (b) Start the request, wait until the handler has been entered (a channel it closes), and close the client connection before reading anything.
+//  2. Wait up to 2 s for the terminal record.
 //
-// - Expected: The audit log holds `requested` and exactly one of `completed` or `refused` naming it, never zero and never two (test-strategy Open Item 5).
+// - Expected: In each subtest the audit log holds `requested` and exactly one terminal record naming it, never zero and never two:
+//   - (a) `completed` with the fact `clientDisconnected=true` (D-7, A-40);
+//   - (b) `refused` with the fact `clientDisconnected=true`.
 func TestTCSVE5_AnAuditedStreamEndedByAClient(t *testing.T) {
 	t.Skip("TC-SV-E5: SKIP-only stub; un-skip when WI 1.4 lands")
 }

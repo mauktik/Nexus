@@ -74,20 +74,20 @@ func TestTCSV76_PreflightRunsAtMostTwoExecsAnd(t *testing.T) {
 	t.Skip("TC-SV-76: SKIP-only stub; un-skip when WI 4.1 lands")
 }
 
-// TC-SV-77: The protected set resolves the self unit, its dependencies and the OpenRC net provider. Owner WI 4.1. Requirements: FR-9.
+// TC-SV-77: The protected set resolves the self unit, its dependencies and the OpenRC net provider. Owner WI 4.1. Requirements: FR-9, A-39.
 //
 // - Setup:
-//   - systemd: F-ROOTS with the renamed cgroup `nexus-agent.service` and F-HOSTS `deps-nexus-agent.txt` (`Requires=nexusd-db.service`);
+//   - systemd: F-ROOTS with the renamed cgroup `nexus-agent.service` and F-HOSTS `deps-nexus-agent.txt` (`Requires=nexusd-db.service`, `PartOf=nx-part.service`), answered for the argv `show -p Requires -p BindsTo -p Requisite -p PartOf -- nexus-agent.service`;
 //   - OpenRC: `t1-alpine-openrc` (nexusd needs `net`);
-//   - the allow-list contains `nexusd-db` and the OpenRC `net` provider.
+//   - the allow-list contains `nexusd-db`, `nx-part` and the OpenRC `net` provider.
 //
 // - Steps:
 //  1. `Preflight`, then `p.protected(name, canonical)` for each name.
 //
 // - Expected:
-//   - systemd: `nexus-agent`, `nexusd` and `nexusd-db` are protected, each with a reason (self unit, literal, `Requires=` of the self unit);
+//   - systemd: `nexus-agent`, `nexusd`, `nexusd-db` and `nx-part` are protected, each with a reason (self unit, literal, `Requires=` of the self unit, `PartOf=` of the self unit);
 //   - OpenRC: the `net` provider is protected with reason `nexusd needs net`;
-//   - capabilities `controlAllowList` shows `nexusd-db` (and the OpenRC provider) with `status: protected` and the reason;
+//   - capabilities `controlAllowList` shows `nexusd-db`, `nx-part` (and the OpenRC provider) with `status: protected` and the reason;
 //   - `nx-svc-test` is not protected.
 func TestTCSV77_TheProtectedSetResolvesTheSelfUnit(t *testing.T) {
 	t.Skip("TC-SV-77: SKIP-only stub; un-skip when WI 4.1 lands")
