@@ -245,7 +245,9 @@ func TestTCSV114_EndToEndThroughTheRealManager(t *testing.T) {
 // - Steps:
 //  1. POST a second reboot with `force: true`.
 //
-// - Expected: 409 `conflict` with `blockingOperationId` = the first op. `force` skips the operations guard, so the lane is what refuses. No second operation exists in the store.
+// - Expected:
+//   - 409 `conflict` with `blockingOperationId` = the first op. `force` skips the operations guard, so the lane is what refuses. No second operation exists in the store;
+//   - the binding declares the lane and `LaneReject` (the lane check TC-SV-32 dropped, Revision 1): the reboot binding's `DetachedFuncs.Lane` on a decoded reboot input returns `provider.Lane{Key: "reboot", Policy: provider.LaneReject}`.
 func TestTCSV116_TheRebootLaneRefusesASecondReboot(t *testing.T) {
 	t.Skip("TC-SV-116: SKIP-only stub; un-skip when WI 4.4 lands")
 }

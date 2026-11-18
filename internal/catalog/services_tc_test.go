@@ -1,7 +1,8 @@
 // Stub-style: SKIP-only (services-provider)
 //
 // Stubs of planning/services-provider/test-cases.md TC-SV-4, TC-SV-32, TC-SV-33.
-// Owner WIs: 1.1, 2.2. Each stub compiles today and skips; the
+// Owner WIs: 1.1, 5.1 (TC-SV-32 and TC-SV-33 moved from WI 2.2 in
+// architecture Revision 1, with the catalog line). Each stub compiles today and skips; the
 // developer of the owning work item replaces the skip and the comment with
 // the test, keeping the function name. An un-skipped passing test is the
 // GREEN signal (planning/services-provider/test-strategy.md, RED Stub Style).
@@ -24,7 +25,7 @@ import (
 //  1. Validate every op of `catalog.All()` (it panics at init if not).
 //  2. Diff the golden rows at the head against base.
 //
-// - Expected: No panic. Every base row is present byte-for-byte. Rows added since base all have op IDs starting `services.`, and there are exactly eight after WI 2.2 (zero before it).
+// - Expected: No panic. Every base row is present byte-for-byte. Rows added since base all have op IDs starting `services.`, and there are exactly eight after WI 5.1 adds the catalog line (zero before it; Revision 1 moved the line from WI 2.2).
 func TestTCSV4_EveryExistingCatalogOpStillValidatesAnd(t *testing.T) {
 	const base = "43e5792"
 	const servicesRows = 8
@@ -91,7 +92,7 @@ func TestTCSV4_EveryExistingCatalogOpStillValidatesAnd(t *testing.T) {
 		}
 	}
 
-	// Zero services ops before WI 2.2 declares them, exactly eight after.
+	// Zero services ops before WI 5.1 adds the catalog line, exactly eight after.
 	if nServices != 0 && nServices != servicesRows {
 		t.Errorf("catalog has %d services ops, want 0 or %d", nServices, servicesRows)
 	}
@@ -124,15 +125,15 @@ func goldenRows(t *testing.T, src string) []string {
 	return rows
 }
 
-// TC-SV-32: The eight services ops are in the catalog with their golden rows. Owner WI 2.2. Requirements: FR-1, FR-2, FR-4, FR-5, FR-6, FR-7, FR-10, FR-14, FR-15.
+// TC-SV-32: The eight services ops are in the catalog with their golden rows. Owner WI 5.1. Requirements: FR-1, FR-2, FR-4, FR-5, FR-6, FR-7, FR-10, FR-14, FR-15.
 //
-// - Setup: `catalog.All()`.
+// - Setup: `catalog.All()` with WI 5.1's `servicesspec.Spec()` line, and the eight golden rows in `golden_test.go` (95 rows; `hostprov_tc_test.go` pins 95).
 // - Steps:
 //  1. Collect the ops whose IDs start `services.`.
 //
 // - Expected: Exactly the eight op IDs of the architecture's Operation catalog, each with:
 //
-//   - its kind and route, mode, risk, scope, lane, CLI binding and MCP name as in the table;
+//   - its kind and route, mode, risk, scope, CLI binding and MCP name as in the table (not its lane: `def.Op` has no lane field, so the lanes are asserted on the bindings by TC-SV-94 and TC-SV-96, WI 4.3, and TC-SV-116, WI 4.4);
 //
 //   - `Untrusted: true` on all eight;
 //
@@ -144,10 +145,10 @@ func goldenRows(t *testing.T, src string) []string {
 //
 //     The provider spec declares exactly the scopes `services:read`, `services:logs`, `services:write` and `services:reboot`.
 func TestTCSV32_TheEightServicesOpsAreInThe(t *testing.T) {
-	t.Skip("TC-SV-32: SKIP-only stub; un-skip when WI 2.2 lands")
+	t.Skip("TC-SV-32: SKIP-only stub; un-skip when WI 5.1 lands")
 }
 
-// TC-SV-33: The CLI grammar uses only approved verbs on the nouns service, servicelog and machine. Owner WI 2.2. Requirements: FR-15.
+// TC-SV-33: The CLI grammar uses only approved verbs on the nouns service, servicelog and machine. Owner WI 5.1. Requirements: FR-15.
 //
 // - Setup: The services ops.
 // - Steps:
@@ -160,5 +161,5 @@ func TestTCSV32_TheEightServicesOpsAreInThe(t *testing.T) {
 //   - `verbs.go` is unchanged from base (no new verb);
 //   - the control op's `--action` flag is an enum of `start`, `stop` and `restart`.
 func TestTCSV33_TheCLIGrammarUsesOnlyApprovedVerbs(t *testing.T) {
-	t.Skip("TC-SV-33: SKIP-only stub; un-skip when WI 2.2 lands")
+	t.Skip("TC-SV-33: SKIP-only stub; un-skip when WI 5.1 lands")
 }

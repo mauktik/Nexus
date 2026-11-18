@@ -1,7 +1,8 @@
 // Stub-style: SKIP-only (services-provider)
 //
 // Stubs of planning/services-provider/test-cases.md TC-SV-128, TC-SV-129, TC-SV-130, TC-SV-131, TC-SV-133.
-// Owner WIs: 5.2. Each stub compiles today and skips; the
+// Owner WIs: 5.2 (TC-SV-128 to TC-SV-131), 5.1 (TC-SV-133, moved from
+// WI 5.2 in architecture Revision 1). Each stub compiles today and skips; the
 // developer of the owning work item replaces the skip and the comment with
 // the test, keeping the function name. An un-skipped passing test is the
 // GREEN signal (planning/services-provider/test-strategy.md, RED Stub Style).
@@ -40,7 +41,7 @@ func TestTCSV129_DocsSecurityMdHasTheFourScopes(t *testing.T) {
 	t.Skip("TC-SV-129: SKIP-only stub; un-skip when WI 5.2 lands")
 }
 
-// TC-SV-130: docs/mcp.md lists the tools, the untrusted list and the measured budget, and says the reboot is not a tool. Owner WI 5.2. Requirements: FR-14, NFR-6.
+// TC-SV-130: docs/mcp.md lists the tools, the untrusted list and the measured budget, and says the reboot is not a tool. Owner WI 5.2. Requirements: FR-14, NFR-6, FR-6, ASM-5, A-38.
 //
 // - Setup: `repoRoot`, and the token total computed as `TestToolBudget` does.
 // - Steps:
@@ -49,7 +50,8 @@ func TestTCSV129_DocsSecurityMdHasTheFourScopes(t *testing.T) {
 // - Expected:
 //   - the four tool names appear, and the untrusted list contains them;
 //   - the recorded budget figure equals the computed token total and tool count (72);
-//   - a sentence states that the reboot is not an MCP tool.
+//   - a sentence states that the reboot is not an MCP tool;
+//   - `docs/mcp.md`'s `get_service_logs` row states that OpenRC logs come back as one page with no `nextOffset`, and that a `truncated` page is narrowed with a smaller `tail` (string match against WI 5.4's rule, A-38; moved from TC-SV-149 in Revision 1).
 func TestTCSV130_DocsMcpMdListsTheToolsThe(t *testing.T) {
 	t.Skip("TC-SV-130: SKIP-only stub; un-skip when WI 5.2 lands")
 }
@@ -65,7 +67,7 @@ func TestTCSV131_DocsAddingAProviderMd8Documents(t *testing.T) {
 	t.Skip("TC-SV-131: SKIP-only stub; un-skip when WI 5.2 lands")
 }
 
-// TC-SV-133: Generated docs are current and include the services commands. Owner WI 5.2. Requirements: NFR-8, FR-15.
+// TC-SV-133: Generated docs are current and include the services commands. Owner WI 5.1. Requirements: NFR-8, FR-15.
 //
 // - Setup: The existing `TestGeneratedDocsAreCurrent` mechanism.
 // - Steps:
@@ -76,5 +78,5 @@ func TestTCSV131_DocsAddingAProviderMd8Documents(t *testing.T) {
 //   - `docs/cli/` has pages for `nexus service`, `nexus servicelog` and `nexus machine`;
 //   - `docs/api.md` has the eight operation IDs.
 func TestTCSV133_GeneratedDocsAreCurrentAndIncludeThe(t *testing.T) {
-	t.Skip("TC-SV-133: SKIP-only stub; un-skip when WI 5.2 lands")
+	t.Skip("TC-SV-133: SKIP-only stub; un-skip when WI 5.1 lands")
 }

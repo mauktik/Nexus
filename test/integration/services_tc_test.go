@@ -134,12 +134,12 @@ func TestTCSV142_T1TheRebootIsUnavailableWithoutA(t *testing.T) {
 	t.Skip("TC-SV-142: SKIP-only stub; un-skip when WI 5.3 lands")
 }
 
-// TC-SV-143: T1 every reboot guard refuses on the real host state. Owner WI 5.3. Requirements: FR-10, FR-16.
+// TC-SV-143: T1 every reboot guard refuses on the real host state. Owner WI 5.3. Requirements: FR-10, FR-16, A-42.
 //
 // - Setup: TC-SV-142 step 2 state (bind mount up, unmounted in cleanup), with `bootIdSource: container-mount` asserted before any POST. The host name is read from `system.capabilities.get`.
 // - Steps:
 //  1. `reboot.enabled: false` (file edit and SIGHUP), then POST.
-//  2. Re-enable it and POST `confirmHost` = the host name uppercased.
+//  2. Re-enable it and POST `confirmHost` = the host name uppercased; then POST `confirmHost` = `h1; reboot`, and `confirmHost` = `$(reboot)` (A-42: shell metacharacters pass the schema and are only compared).
 //  3. `systemctl disable nexusd` (or `rc-update del nexusd default`), POST, and restore.
 //  4. Start `nx-svc-slow` (Running about 20 s) and POST.
 //  5. POST `{force: true, whatIf: true}` while `nx-svc-slow` runs.
@@ -147,7 +147,7 @@ func TestTCSV142_T1TheRebootIsUnavailableWithoutA(t *testing.T) {
 //
 // - Expected:
 //   - (1) 409 `reboot-unavailable`;
-//   - (2) 400 `validation-failed`;
+//   - (2) 400 `validation-failed` for each of the three values, with nothing sent and the container still up, which proves WI 5.1's `inertAllowed` entry for `confirmHost` (A-42);
 //   - (3) 409 `nexusd-not-enabled-at-boot`, with `state` equal to `systemctl is-enabled nexusd`'s output;
 //   - (4) 409 `operations-running` listing the slow op's ID;
 //   - (5) Succeeded whatIf with the operations guard passed by `force`;

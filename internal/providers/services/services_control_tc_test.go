@@ -111,7 +111,8 @@ func TestTCSV93_AStopOfAFailedUnitThat(t *testing.T) {
 //
 // - Expected:
 //   - (2) 409 `conflict` with `blockingOperationId` = (1)'s ID, and no new operation;
-//   - (3) 202, Running at the same time as (1).
+//   - (3) 202, Running at the same time as (1);
+//   - the binding declares the lane and `LaneReject` (the lane check TC-SV-32 dropped, Revision 1): for each of start, stop and restart, the binding's `DetachedFuncs.Lane` on the decoded input `{name: nx-svc-test}` returns `provider.Lane{Key: "service:nx-svc-test", Policy: provider.LaneReject}`.
 func TestTCSV94_ASecondActionOnTheSameService(t *testing.T) {
 	t.Skip("TC-SV-94: SKIP-only stub; un-skip when WI 4.3 lands")
 }
@@ -143,7 +144,8 @@ func TestTCSV95_AReloadDuringAnOperationKeepsThe(t *testing.T) {
 // - Expected:
 //   - (1) the same `input.json` mode and fields, and the same result shape and values, as TC-SV-90;
 //   - (2) 409 `conflict` (same lane);
-//   - (3) 409 `protected-service`.
+//   - (3) 409 `protected-service`;
+//   - the binding declares the lane and `LaneReject` (Revision 1): control's `DetachedFuncs.Lane` on `{name: nx-svc-test, action: stop}` returns `provider.Lane{Key: "service:nx-svc-test", Policy: provider.LaneReject}`, equal to the per-verb ops' lane for the same name.
 func TestTCSV96_ControlWithAnActionTakesTheSame(t *testing.T) {
 	t.Skip("TC-SV-96: SKIP-only stub; un-skip when WI 4.3 lands")
 }

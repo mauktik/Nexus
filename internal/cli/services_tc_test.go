@@ -1,6 +1,6 @@
 // Stub-style: SKIP-only (services-provider)
 //
-// Tests and stubs of planning/services-provider/test-cases.md TC-SV-26, TC-SV-27, TC-SV-28, TC-SV-29, TC-SV-125, TC-SV-126, TC-SV-E6, TC-SV-ERR8, TC-SV-ERR9, TC-SV-ERR10, TC-SV-ERR28.
+// Tests and stubs of planning/services-provider/test-cases.md TC-SV-26, TC-SV-27, TC-SV-28, TC-SV-29, TC-SV-125, TC-SV-126, TC-SV-153, TC-SV-E6, TC-SV-ERR8, TC-SV-ERR9, TC-SV-ERR10, TC-SV-ERR28.
 // Owner WIs: 1.5, 5.1. The WI 1.5 cases (typed confirmation) are tests;
 // each remaining stub compiles today and skips; the developer of the owning
 // work item replaces the skip and the comment with the test, keeping the
@@ -230,19 +230,40 @@ func TestTCSV125_CLICommandsColumnsAndTheHostAll(t *testing.T) {
 	t.Skip("TC-SV-125: SKIP-only stub; un-skip when WI 5.1 lands")
 }
 
-// TC-SV-126: machine restart waits across the outage and prints the final result. Owner WI 5.1. Requirements: FR-13, NFR-7, A-16, A-35.
+// TC-SV-126: machine restart waits across the outage and prints the final result. Owner WI 5.1. Requirements: FR-13, NFR-7, A-16, A-35, A-43.
 //
 // - Setup: F-RECONNECT. The server returns the op Running, closes for 3 min of fake time (connection refused, then 503s), and reopens with the same certificate and the op Succeeded with a `RebootResult` holding `previousBootId: PREV` and `bootId: CUR`.
-// - Steps:
+// - Steps: Each step runs against its own F-RECONNECT cycle.
 //  1. `nexus machine restart --host h1 --confirm-host h1` (waits by default).
+//  2. The same with `--select result.bootId,result.previousBootId`.
+//  3. The same with `-o json`.
 //
 // - Expected:
-//   - exit 0;
-//   - stdout shows the columns `BOOTID PREVIOUSBOOTID UPAT REBOOTREQUIRED.STATE` with `CUR` and `PREV`;
+//   - exit 0 in every step;
+//   - (1) stdout prints the operation row with status `succeeded` (the derived operation columns, as `nexus nexusd restart` prints them), not the columns `BOOTID PREVIOUSBOOTID UPAT REBOOTREQUIRED.STATE`: the long-running ops declare no `Columns` (A-43);
+//   - (2) the row shows `CUR` and `PREV`;
+//   - (3) the decoded `apitypes.Operation` has `result.bootId == CUR` and `result.previousBootId == PREV`;
 //   - the fake clock advanced about 3 min in 1 s sleeps, with no real waiting;
 //   - `--no-wait` instead prints the operation and returns after one POST.
 func TestTCSV126_MachineRestartWaitsAcrossTheOutageAnd(t *testing.T) {
 	t.Skip("TC-SV-126: SKIP-only stub; un-skip when WI 5.1 lands")
+}
+
+// TC-SV-153: The --yes help text of a typed-confirmation command says it neither fills nor skips the flag; every other command keeps today's text. Owner WI 5.1. Requirements: FR-13, FR-15.
+//
+// - Setup: The real catalog (`runWithSpecs(args, env, catalog.All())`) with `homeEnv(t.TempDir())`. `--help` needs no server.
+// - Steps:
+//  1. `nexus machine restart --help`.
+//  2. `nexus service stop --help`.
+//  3. `nexus container restart --help` (a mutating command outside this provider).
+//  4. Read `docs/cli/nexus_machine_restart.md` and `docs/cli/nexus_container_restart.md`.
+//
+// - Expected:
+//   - (1) exit 0; the `--yes` line reads "no y/N question is asked here; --yes neither fills nor skips --confirm-host, which is required without a terminal", and the help does not contain "do not ask for confirmation";
+//   - (2) and (3) exit 0; the `--yes` line reads "do not ask for confirmation; required to mutate without a terminal", unchanged from base;
+//   - (4) the generated `nexus_machine_restart.md` carries the new text, and the `--yes` line of `nexus_container_restart.md` equals that line at base `43e5792` (`git show`; skip with a reason if git is unavailable).
+func TestTCSV153_TheYesHelpTextOfATyped(t *testing.T) {
+	t.Skip("TC-SV-153: SKIP-only stub; un-skip when WI 5.1 lands")
 }
 
 // TC-SV-E6: The typed answer is trimmed and sent as typed, case included. Owner WI 1.5. Requirements: FR-10.
