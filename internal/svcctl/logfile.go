@@ -296,16 +296,18 @@ const tailBlock = 64 << 10
 
 // TailFile returns the newest lines of the file at path, oldest first:
 // at most lines of them, and at most maxBytes bytes counting each line's
-// newline. The file is opened with O_NOFOLLOW|O_NONBLOCK and must be a
-// regular file, so a symlink (ELOOP), a FIFO or a directory is an error
-// and nothing blocks. Lines are made valid UTF-8 and carry no time. When
+// newline. The file is opened without following a symbolic link in any
+// component of path (openat2 RESOLVE_NO_SYMLINKS, or a walk of O_NOFOLLOW
+// opens) and without blocking, and must be a regular file with one hard
+// link, so a symlink (ELOOP), a hard-linked file, a FIFO or a directory is
+// an error and nothing blocks. path is absolute and clean. Lines are made valid UTF-8 and carry no time. When
 // the newest line alone exceeds maxBytes, its newest part is returned,
 // starting with LineTruncatedMarker.
 func TailFile(path string, lines int, maxBytes int) ([]string, error) {
 	if lines <= 0 || maxBytes <= len(LineTruncatedMarker)+1 {
 		return nil, fmt.Errorf("svcctl: invalid tail bounds: %d lines, %d bytes", lines, maxBytes)
 	}
-	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
+	fd, err := openNoLinks(path)
 	if err != nil {
 		return nil, fmt.Errorf("svcctl: open %s: %w", path, err)
 	}
@@ -317,6 +319,12 @@ func TailFile(path string, lines int, maxBytes int) ([]string, error) {
 	}
 	if !st.Mode().IsRegular() {
 		return nil, fmt.Errorf("svcctl: %s is not a regular file (%s)", path, st.Mode().Type())
+	}
+	// A hard link to a file the service's user could not read is still that
+	// file, and the link is the user's to make in a directory it owns
+	// (CWE-62): a log file has one name.
+	if sys, ok := st.Sys().(*syscall.Stat_t); ok && uint64(sys.Nlink) > 1 {
+		return nil, fmt.Errorf("svcctl: %s has %d hard links; a log file is read only when it has one", path, uint64(sys.Nlink))
 	}
 	out := []string{}
 	total := 0

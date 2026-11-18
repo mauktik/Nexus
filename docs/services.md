@@ -242,8 +242,13 @@ The path never comes from the request.
   from another variable (Docker's `$DOCKER_OUTFILE`, for example), an empty
   `output_log=`, or a `*_logger` line declares no file the provider can
   read.
-- Each file must be a regular file; it is opened without following a
-  symbolic link.
+- Each file must be a regular file with one hard link, and no component of
+  its path, a directory or the file, may be a symbolic link: `nexusd` reads
+  it as root, in a directory the service's user often owns, and a hard link
+  to another file or a directory swapped for a link would otherwise stream a
+  file the user cannot read. A declared path through a link, such as
+  `/var/run/app.log` on Alpine, where `/var/run` is a link to `/run`, reports
+  its logs unavailable; declare the real path.
 - The newest `tail` lines of each file are returned, at most 64 KiB of text
   from the two together, output lines first, then error lines.
 - File lines carry no time. Their frames carry the zero time,

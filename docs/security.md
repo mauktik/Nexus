@@ -254,7 +254,9 @@ services it may act on.
   lists. Start, stop, restart and the reboot run as detached operations
   outside the sandbox, as nginx's and Pi-hole's changes do. OpenRC log files
   are read only from the `output_log` and `error_log` paths the service's
-  own configuration declares, never from a request. Environment values,
+  own configuration declares, never from a request, and only when the file
+  has one hard link and no component of its path is a symbolic link (read as
+  root, in directories the service's user owns). Environment values,
   command lines and other `conf.d` values are never returned. The hardened
   unit is unchanged.
 - **Never the hypervisor.** The provider is unavailable on a Proxmox VE
