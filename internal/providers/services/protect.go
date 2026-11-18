@@ -142,7 +142,9 @@ func (s *protectedSet) names() []string {
 // running service is unknown nothing else is resolved. A dependency lookup
 // that fails leaves the resolution partial, with the error as its reason;
 // the static list and nexusd stay protected, and control is refused
-// (resolution.lookupErr) because what nexusd depends on is not known.
+// (resolution.lookupErr) because what nexusd depends on is not known. So
+// is an OpenRC resolution that is partial, since a need it could not
+// resolve may be a virtual name whose provider is not protected.
 func (p *Provider) resolve(ctx context.Context) *resolution {
 	init := p.plat.Init
 	self, err := svcctl.SelfService(init, p.procRoot, p.runRoot, os.Getpid())
@@ -187,6 +189,14 @@ func (p *Provider) resolve(ctx context.Context) *resolution {
 	}
 	if deps.Partial {
 		res.status, res.reason = ResolutionPartial, deps.Reason
+		if init == platform.OpenRC {
+			// The same fail-closed rule as a failed systemd lookup (CR-2): a
+			// need that is not resolved to its provider, because the deptree
+			// is unusable or has no entry for it, may be virtual (net), and
+			// stopping its provider stops nexusd. Names the script lists
+			// stay protected either way.
+			res.lookupErr = deps.Reason
+		}
 	}
 	return res
 }
