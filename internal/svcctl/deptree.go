@@ -58,8 +58,8 @@ func systemdDependenciesArgv(self string) []string {
 // <RunRoot>/openrc/deptree, each resolved through the providedby names of
 // the entry of that name (a virtual service such as net) or kept when the
 // entry is a real script. An unusable deptree is not an error: the result
-// is the needed names of /etc/init.d/<self>'s depend(), unresolved, with
-// Partial set. The /etc tree is the sibling of RunRoot (/etc for /run).
+// is the needed names of <EtcRoot>/init.d/<self>'s depend(), unresolved,
+// with Partial set. EtcRoot defaults to /etc.
 // An invalid self or another init system is an error wrapping
 // ErrNotStarted, and nothing is run.
 func Dependencies(ctx context.Context, init platform.InitSystem, self string, opts Options) (Deps, error) {
