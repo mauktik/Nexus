@@ -23,6 +23,9 @@ Read [security.md](security.md) first: Nexus is for the home LAN only.
   (`/usr/sbin/nginx`), its init service, and an `include` line for the
   include directory in `nginx.conf` (see [nginx](nginx.md)). Disabled by
   default.
+- **For the `services` provider:** systemd or OpenRC, on a host that is not
+  a Proxmox VE node. Nothing to install. Disabled by default (see
+  [Enable the services provider](#enable-the-services-provider)).
 - **Client:** macOS on Apple silicon (darwin/arm64) or Linux on amd64.
 
 ## Install nexusd on a host
@@ -289,6 +292,64 @@ client can also set scalar keys of the file, as
 describes; lists, the script catalog, release keys and every key whose
 value is a path or a service still change only by editing the file on the
 host.
+
+## Enable the services provider
+
+The `services` provider ([services.md](services.md)) lists the host's system
+services, reads their logs, starts, stops and restarts the services you
+allow-list, and can reboot the host. It is off by default, and so is each of
+its powers: a freshly enabled provider reads services and controls none.
+
+1. Edit `/etc/nexus/nexusd.yaml` on the host:
+
+   ```yaml
+   providers:
+     services:
+       enabled: true
+       control:                 # The only services start, stop and restart may act on
+         - name: nx-app         # Without .service; any action, 90s each
+         - name: mediasvc
+           actions: [restart]
+           timeout: 30s
+       reboot:
+         enabled: false         # true lets services:reboot reboot this host
+         timeout: 5m
+   ```
+
+   The allow-list and `reboot.enabled: true` change only here: remote config
+   set refuses lists and refuses to switch the reboot on. Protected services,
+   such as `nexusd`, `ssh`, `dbus` and networking, cannot be listed
+   ([services.md](services.md#protected-services)). Before allow-listing
+   `docker`, `containerd` or `pihole-FTL`, read
+   [services.md](services.md#warnings-services-that-take-others-down).
+2. Check and apply it:
+
+   ```
+   sudo nexusd validate-config
+   sudo systemctl reload nexusd        # rc-service nexusd reload on Alpine
+   ```
+
+3. Check what the host reports: `nexus capability get --host nas` shows the
+   provider's details, including each allow-list entry's status (`ok`,
+   `missing`, `protected` or `unknown`), whether the reboot is available
+   here and why not, and the protected services it resolved.
+4. Give tokens only the scopes they need: `services:read` for the list and
+   one service, `services:logs` for logs (they can hold secrets),
+   `services:write` for the allow-listed actions, and `services:reboot` for
+   the reboot. For example:
+
+   ```
+   sudo nexusd token create --name agent --scope services:read --scope services:logs
+   ```
+
+   [security.md](security.md#services-and-reboot) explains what each one
+   can do.
+
+Before enabling the reboot, make sure `nexusd` starts at boot (`sudo
+systemctl enable nexusd`, or `rc-update add nexusd default` on Alpine): the
+reboot is refused otherwise. Then reboot with `nexus machine restart --host
+nas`, which asks you to type the host's name and waits for it to come back
+([services.md](services.md#cli-wait-and-output)).
 
 ## Manage tokens remotely
 

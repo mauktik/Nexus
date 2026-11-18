@@ -155,6 +155,10 @@ Keep `nexusd` LAN only.
 | `pihole:dns` | DNS zone and record changes, single or batched: can redirect any name for every LAN client |
 | `pihole:write` | Pi-hole blocking, allow and deny entries, adlists, gravity, DNS restart and cache flush |
 | `host:read` | The `host` provider's read-only overview of the host: host identity (hostname, OS, kernel, DMI vendor and model), network addresses and gateway, DNS resolvers, mount points, and process names and owners of the top processes, plus usage and metrics |
+| `services:read` | The `services` provider's list of system services and each service's state, enabled state, description, unit file or script path, main PID and whether Nexus may act on it |
+| `services:logs` | A service's recent log lines, from the journal or its declared OpenRC log files; logs can hold secrets, and every read is audited |
+| `services:write` | Starting, stopping and restarting the services the allow-list in `/etc/nexus/nexusd.yaml` names, never a protected one: can take every allow-listed service down |
+| `services:reboot` | Rebooting the host, behind its guards and only when the file on the host enables it: takes the host and every service on it down for the length of a boot |
 | `audit:read` | Querying the audit log |
 | `nexusd:read` | The running `nexusd`: version, uptime, rollback binary, whether updates are configured, and checking its configuration file |
 | `nexusd:admin` | Reloading, restarting, updating and rolling back `nexusd`, and uploading a release; creating, listing and revoking tokens; reading the configuration file and setting its keys; **root-equivalent** |
@@ -194,7 +198,9 @@ root-equivalent:
 
 `nginx:write` is not in this list: it starts, stops, reloads and renames
 root-owned files that already exist, so it decides whether sites are served,
-not what they say. It can still take every site offline.
+not what they say. It can still take every site offline. Nor are
+`services:write` and `services:reboot`; see
+[Services and reboot](#services-and-reboot).
 
 Nexus narrows what callers can ask for: no operation accepts a command,
 shell string, executable path or container specification, every parameter
@@ -203,6 +209,57 @@ file. That limits what a token can request, not what the requested work can
 do once it runs. For nginx, the service and the include directory come
 only from the configuration file and the binary is fixed at
 `/usr/sbin/nginx`; a request names a site and its content, never a path.
+
+## Services and reboot
+
+The `services` provider ([services.md](services.md)) has four scopes, and
+none of them is potentially root-equivalent: no services operation runs code
+that the caller supplies, takes a path or a command, or changes which
+services it may act on.
+
+- **`services:write` is not root-equivalent**, for the same reason
+  `nginx:write` is not: it starts, stops and restarts services that already
+  exist, through the init system, and only those the root-owned allow-list
+  `providers.services.control` names. Only an edit of the file on the host
+  changes that list; remote config set refuses lists. But it can take every
+  allow-listed service down, and a stop of `docker`, `containerd` or
+  `pihole-FTL` takes down everything that depends on it
+  ([services.md](services.md#warnings-services-that-take-others-down)).
+  Allow-list only what a holder of this scope should be able to stop.
+- **`services:reboot` takes the host down,** with every service on it,
+  `nexusd` included, for the length of a boot. It is a scope of its own,
+  which no other scope implies. The reboot is off until
+  `providers.services.reboot.enabled: true` is set in the file on the host,
+  and remote config set refuses to set it to `true`, so a stolen
+  `nexusd:admin` token cannot switch it on ([the deny-list](#the-deny-list)).
+  The caller must type the host's own name (`confirmHost`), and the reboot
+  is refused while `nexusd` would not start at boot, while other operations
+  are queued or running (unless `force`, which is audited), or while the
+  configuration is invalid. It is not an MCP tool, so an agent that reaches
+  Nexus only through MCP cannot reboot a host; keep `services:reboot` off
+  agents' tokens all the same.
+- **No lock-out.** `nexusd`, the unit running it and its dependencies, and
+  the services a caller needs to reach or recover the host (`ssh`, `dbus`,
+  networking, the gettys and the others [services.md](services.md#protected-services)
+  lists) are protected: no services operation acts on them, the list is
+  fixed in code, and nothing can override it. `nexus-op-*` operation units
+  are protected too.
+- **`services:logs` is kept apart from `services:read`,** because service
+  logs can hold tokens, passwords and personal data. Every log read is
+  audited with the service's name, so the audit log shows who read which
+  service's logs. Log text, service names, descriptions and init output are
+  host data and are marked untrusted for agents.
+- **What runs where.** List, get and logs run inside `nexusd`, under the
+  sandbox on systemd, with fixed `systemctl` and `journalctl` argument
+  lists. Start, stop, restart and the reboot run as detached operations
+  outside the sandbox, as nginx's and Pi-hole's changes do. OpenRC log files
+  are read only from the `output_log` and `error_log` paths the service's
+  own configuration declares, never from a request. Environment values,
+  command lines and other `conf.d` values are never returned. The hardened
+  unit is unchanged.
+- **Never the hypervisor.** The provider is unavailable on a Proxmox VE
+  node, and a guest's reboot is the guest's own: no Proxmox API, `pct`,
+  `qm` or `pvesh`, and no hypervisor credential.
 
 ## nexusd:admin is root-equivalent
 
@@ -747,6 +804,21 @@ operation ends `Failed` with `outcome-unknown`, as an operation running at a
 shutdown or reboot does: its work was cut short, and Nexus cannot know what
 it had done. Neither systemd nor BusyBox init nor OpenRC sends `SIGINT` at
 shutdown, so a `SIGINT` is always an operator's cancel.
+
+**The documented exception: `CompletesAcrossReboot`.** An operation that
+declares `CompletesAcrossReboot` is decided in the boot after the one it
+started in, not ended `outcome-unknown`. The `services` provider's reboot
+is the only such operation. Just before it triggers the reboot, its helper
+durably records the boot ID in `/var/lib/nexus/ops/<id>/reboot-requested`.
+When the operation's process is ended by the shutdown, `nexusd` holds the
+operation `Running` instead of failing it; in the next boot, recovery finds
+the record with a different boot ID and ends the operation `Succeeded`
+with both boot IDs. Without a record, such an operation ends as any other
+does. A record that cannot be read ends it `outcome-unknown` at once, and an
+operation held without a reboot ends `outcome-unknown` at its maximum run
+time ([services.md](services.md#recovery-after-the-reboot)). A cancel is
+refused with `not-cancelable` once the record exists, because the reboot has
+been requested.
 
 ## The nexusd systemd unit
 

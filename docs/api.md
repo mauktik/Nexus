@@ -14989,7 +14989,7 @@ Response `202` (`application/json`):
 
 ```json
 {
-  "description": "One line of output. Container log frames have no byte offset o.",
+  "description": "One line of output. Container and service log frames have no byte offset o. A data frame always carries t; the zero time, 0001-01-01T00:00:00Z, means the line has no time (an OpenRC service log file line) and is never a real line time.",
   "oneOf": [
     {
       "type": "object",

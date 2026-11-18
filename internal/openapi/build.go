@@ -773,7 +773,9 @@ func componentSchemas() (map[string]*jsonschema.Schema, error) {
 	}
 
 	m[frameName] = &jsonschema.Schema{
-		Description: "One line of output. Container log frames have no byte offset o.",
+		Description: "One line of output. Container and service log frames have no byte offset o. A data frame " +
+			"always carries t; the zero time, 0001-01-01T00:00:00Z, means the line has no time (an OpenRC service " +
+			"log file line) and is never a real line time.",
 		OneOf: []*jsonschema.Schema{
 			{
 				Type: "object",

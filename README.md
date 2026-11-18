@@ -20,6 +20,7 @@ Module path: `github.com/mauktik/nexus`. Go 1.26 is required.
 | [docs/nginx.md](docs/nginx.md) | The nginx provider: configuration, the include line, sites and the rename model, writes with backup and rollback, reload verification, the CLI's `--content` limit |
 | [docs/pihole.md](docs/pihole.md) | The Pi-hole provider: DNS zones and records, blocking, domains, blocklists, safe writes and rollback |
 | [docs/host.md](docs/host.md) | The host overview provider and its `host:read` scope: fields and units, unavailable fields and their reasons, the sampler and in-memory metrics history, configuration |
+| [docs/services.md](docs/services.md) | The services provider and its four scopes (`services:read`, `services:logs`, `services:write`, `services:reboot`): the control allow-list, protected services, log sources, the guarded reboot, its recovery and the CLI wait, LXC guests |
 | [docs/cli/nexus.md](docs/cli/nexus.md) | The CLI reference, generated from the command definitions |
 | [docs/api.md](docs/api.md) | The REST API reference, generated from the OpenAPI document |
 | [docs/adding-a-provider.md](docs/adding-a-provider.md) | Adding a provider: spec, binding, the two composition lines |

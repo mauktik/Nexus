@@ -130,7 +130,47 @@ var tcsv41Redirect = regexp.MustCompile(`[0-9]*>>? *(&[0-9-]|"[^"]*"|[^ ;&|)]+)`
 //
 // - Expected: The base text of OOS-7 is still present verbatim, the head adds text naming `services-provider`, and the other sections are unchanged.
 func TestTCSV132_BaseOOS7IsAmendedInPlace(t *testing.T) {
-	t.Skip("TC-SV-132: SKIP-only stub; un-skip when WI 5.2 lands")
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	const base = "43e5792"
+	const rel = "planning/nexus-server-manager/requirements.md"
+	root := repoRoot(t)
+	// copyRepo leaves planning/ out, so `make check`'s run in a repository
+	// copy has none; a checkout always has it.
+	if _, err := os.Stat(filepath.Join(root, "planning")); os.IsNotExist(err) {
+		t.Skip("no planning/ directory (a repository copy): the NSM requirements are not checked")
+	}
+	if out, code := run(t, root, nil, "git", "cat-file", "-e", base+"^{commit}"); code != 0 {
+		t.Skipf("base commit %s not reachable (shallow clone?): %s", base, out)
+	}
+	old, stderr, code := runSplit(t, root, nil, "git", "show", base+":"+rel)
+	if code != 0 {
+		t.Fatalf("git show %s:%s: exit %d\n%s", base, rel, code, stderr)
+	}
+	head := readFile(t, filepath.Join(root, filepath.FromSlash(rel)))
+
+	const heading = "### OOS-7: Wider host administration"
+	oldOOS7, newOOS7 := mdSection(old, heading), mdSection(head, heading)
+	if oldOOS7 == "" || newOOS7 == "" {
+		t.Fatalf("%q missing at %s (%t) or at head (%t)", heading, base, oldOOS7 != "", newOOS7 != "")
+	}
+	// The base text, minus its heading, is still there word for word.
+	body := strings.TrimSpace(strings.TrimPrefix(oldOOS7, heading))
+	if !strings.Contains(newOOS7, body) {
+		t.Errorf("OOS-7 no longer holds its base text verbatim:\n%s", body)
+	}
+	if !strings.Contains(newOOS7, "services-provider") {
+		t.Errorf("OOS-7 does not name services-provider:\n%s", newOOS7)
+	}
+	if strings.TrimSpace(newOOS7) == strings.TrimSpace(oldOOS7) {
+		t.Error("OOS-7 is unchanged since the base")
+	}
+	// Every other section is unchanged: the files are equal once OOS-7 is
+	// replaced by its base text.
+	if got := strings.Replace(head, newOOS7, oldOOS7, 1); got != old {
+		t.Errorf("%s changed outside OOS-7 since %s", rel, base)
+	}
 }
 
 // TC-SV-134: The hardened unit and the OpenRC script are unchanged, and go.mod gains no module. Owner WI 5.2. Requirements: CON-1, CON-3, OOS-9.
@@ -142,5 +182,67 @@ func TestTCSV132_BaseOOS7IsAmendedInPlace(t *testing.T) {
 //
 // - Expected: No diff, and the same module set (versions may differ only by a security bump that the WI records).
 func TestTCSV134_TheHardenedUnitAndTheOpenRCScript(t *testing.T) {
-	t.Skip("TC-SV-134: SKIP-only stub; un-skip when WI 5.2 lands")
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	const base = "43e5792"
+	root := repoRoot(t)
+	if out, code := run(t, root, nil, "git", "cat-file", "-e", base+"^{commit}"); code != 0 {
+		t.Skipf("base commit %s not reachable (shallow clone?): %s", base, out)
+	}
+	if out, code := run(t, root, nil, "git", "diff", "--exit-code", base, "--",
+		"deploy/nexusd.service", "deploy/nexusd.openrc"); code != 0 {
+		t.Errorf("deploy/nexusd.service or deploy/nexusd.openrc differs from %s (CON-1): exit %d\n%s", base, code, out)
+	}
+
+	old, stderr, code := runSplit(t, root, nil, "git", "show", base+":go.mod")
+	if code != 0 {
+		t.Fatalf("git show %s:go.mod: exit %d\n%s", base, code, stderr)
+	}
+	before, after := tcsv134Requires(old), tcsv134Requires(readFile(t, filepath.Join(root, "go.mod")))
+	if len(before) == 0 {
+		t.Fatalf("go.mod at %s has no require entries", base)
+	}
+	for mod, v := range after {
+		was, ok := before[mod]
+		switch {
+		case !ok:
+			t.Errorf("go.mod gains the module %s %s since %s (CON-3)", mod, v, base)
+		case was != v && tcsv134RecordedBumps[mod] != v:
+			t.Errorf("go.mod changes %s from %s to %s since %s, which no work item records as a security bump",
+				mod, was, v, base)
+		}
+	}
+	for mod := range before {
+		if _, ok := after[mod]; !ok {
+			t.Errorf("go.mod drops the module %s since %s", mod, base)
+		}
+	}
+}
+
+// tcsv134RecordedBumps are the security bumps a work item has recorded, as
+// module path to the version it moved to. There are none.
+var tcsv134RecordedBumps = map[string]string{}
+
+// tcsv134Requires returns the module path and version of every require
+// entry of a go.mod, from require blocks and single-line requires alike.
+func tcsv134Requires(gomod string) map[string]string {
+	mods := map[string]string{}
+	inBlock := false
+	for _, line := range strings.Split(gomod, "\n") {
+		line, _, _ = strings.Cut(line, "//")
+		f := strings.Fields(line)
+		switch {
+		case len(f) == 0:
+		case inBlock && f[0] == ")":
+			inBlock = false
+		case inBlock && len(f) >= 2:
+			mods[f[0]] = f[1]
+		case f[0] == "require" && len(f) == 2 && f[1] == "(":
+			inBlock = true
+		case f[0] == "require" && len(f) >= 3:
+			mods[f[1]] = f[2]
+		}
+	}
+	return mods
 }
