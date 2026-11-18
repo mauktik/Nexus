@@ -416,3 +416,78 @@ func TestTCSVERR7_AFailedRequestedRecordWriteRefusesThe(t *testing.T) {
 		t.Fatalf("records = %+v, want none", recs)
 	}
 }
+
+// CR-8 (services-provider code review): a handler that swallows the
+// client's going away and returns nil is still a client disconnect, as
+// TC-SV-E5 records it: completed after a frame and refused before one, both
+// with clientDisconnected, whatever the handler returned.
+func TestCR8_AHandlerThatSwallowsTheDisconnectIsStillRecordedAsOne(t *testing.T) {
+	t.Run("after a frame", func(t *testing.T) {
+		f := newStreamFixture(t, nil)
+		f.set(func(ctx context.Context, emit func(apitypes.Frame) error) error {
+			for i := 0; ; i++ {
+				if err := emit(apitypes.Frame{D: fmt.Sprintf("line %d", i)}); err != nil {
+					return nil
+				}
+				select {
+				case <-ctx.Done():
+					return nil
+				case <-time.After(5 * time.Millisecond):
+				}
+			}
+		})
+		srv := serveStreams(t, f, paLogs.Op())
+		client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}, Timeout: 5 * time.Second}
+		resp, err := client.Get(srv.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := bufio.NewReader(resp.Body).ReadString('\n'); err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		recs := terminal(t, f.lg)
+		if len(recs) != 2 || recs[1].Outcome != audit.OutcomeCompleted || recs[1].Facts["clientDisconnected"] != "true" {
+			t.Fatalf("records = %+v, want requested then completed with clientDisconnected=true", recs)
+		}
+	})
+	t.Run("before any frame", func(t *testing.T) {
+		f := newStreamFixture(t, nil)
+		entered := make(chan struct{})
+		f.set(func(ctx context.Context, _ func(apitypes.Frame) error) error {
+			close(entered)
+			<-ctx.Done()
+			return nil
+		})
+		srv := serveStreams(t, f, paLogs.Op())
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+		done := make(chan error, 1)
+		go func() {
+			resp, err := client.Do(req)
+			if err == nil {
+				_ = resp.Body.Close()
+			}
+			done <- err
+		}()
+		select {
+		case <-entered:
+		case <-time.After(2 * time.Second):
+			t.Fatal("the handler was not entered")
+		}
+		cancel()
+		if err := <-done; err == nil {
+			t.Fatal("the request succeeded")
+		}
+		recs := terminal(t, f.lg)
+		if len(recs) != 2 || recs[1].Outcome != audit.OutcomeRefused || recs[1].Problem == "" ||
+			recs[1].Facts["clientDisconnected"] != "true" {
+			t.Fatalf("records = %+v, want requested then refused with clientDisconnected=true", recs)
+		}
+	})
+}

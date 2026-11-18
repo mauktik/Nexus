@@ -835,7 +835,25 @@ func (d *Dispatcher) stream(callCtx, sctx context.Context, op def.Op, req Invoke
 	auditedCall := audited(op, req)
 	// The consumer's own stop also cancels sctx, so it is checked before the
 	// client-gone branch below.
-	if err == nil || consumerStopped.Load() {
+	if consumerStopped.Load() {
+		if auditedCall {
+			d.completed(callCtx, op, req, requestID)
+		}
+		return nil
+	}
+	if err == nil && auditedCall && (sctx.Err() != nil || emitFailed.Load()) {
+		// The handler swallowed the client's going away and returned nil.
+		// It is still a disconnect: recorded as one, and refused when no
+		// frame was delivered. Nil is what the caller gets either way.
+		audit.AddFact(callCtx, "clientDisconnected", "true")
+		if delivered.Load() > 0 {
+			d.completed(callCtx, op, req, requestID)
+			return nil
+		}
+		_ = d.refuseAfter(callCtx, op, req, d.sanitize(sctx, op, errClientGone), requestID)
+		return nil
+	}
+	if err == nil {
 		if auditedCall {
 			d.completed(callCtx, op, req, requestID)
 		}
@@ -851,6 +869,10 @@ func (d *Dispatcher) stream(callCtx, sctx context.Context, op def.Op, req Invoke
 	}
 	return d.refuseAfter(callCtx, op, req, perr, requestID)
 }
+
+// errClientGone is the cause recorded for an Audited stream whose client
+// went away before its first frame while its handler returned nil.
+var errClientGone = errors.New("core: the client went away before the stream's first frame")
 
 // valuesFrom is a stream's context: the transport's cancellation, deadline
 // and values, falling back to the values of the call's context, so provider
