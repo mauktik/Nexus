@@ -8,7 +8,14 @@
 
 package catalog_test
 
-import "testing"
+import (
+	"os"
+	"os/exec"
+	"strings"
+	"testing"
+
+	"github.com/mauktik/nexus/internal/catalog"
+)
 
 // TC-SV-4: Every existing catalog op still validates and the golden table changes only by the services rows. Owner WI 1.1. Requirements: CON-4.
 //
@@ -19,7 +26,102 @@ import "testing"
 //
 // - Expected: No panic. Every base row is present byte-for-byte. Rows added since base all have op IDs starting `services.`, and there are exactly eight after WI 2.2 (zero before it).
 func TestTCSV4_EveryExistingCatalogOpStillValidatesAnd(t *testing.T) {
-	t.Skip("TC-SV-4: SKIP-only stub; un-skip when WI 1.1 lands")
+	const base = "43e5792"
+	const servicesRows = 8
+
+	// catalog.All() builds every spec, each op by def.Define, which panics on
+	// a declaration that fails validate.
+	var nServices int
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("catalog.All() panicked: %v", r)
+			}
+		}()
+		for _, spec := range catalog.All() {
+			for _, op := range spec.Ops {
+				if op.InputType() == nil {
+					t.Errorf("%s: not built by def.Define", op.ID)
+				}
+				if strings.HasPrefix(op.ID, "services.") {
+					nServices++
+				}
+			}
+		}
+	}()
+
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found: cannot read the golden table at base " + base)
+	}
+	if err := exec.Command("git", "cat-file", "-e", base+"^{commit}").Run(); err != nil {
+		t.Skipf("base commit %s not available: %v", base, err)
+	}
+	baseSrc, err := exec.Command("git", "show", base+":internal/catalog/golden_test.go").Output()
+	if err != nil {
+		t.Fatalf("git show %s:internal/catalog/golden_test.go: %v", base, err)
+	}
+	headSrc, err := os.ReadFile("golden_test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseRows, headRows := goldenRows(t, string(baseSrc)), goldenRows(t, string(headSrc))
+
+	inHead := map[string]bool{}
+	for _, r := range headRows {
+		inHead[r] = true
+	}
+	for _, r := range baseRows {
+		if !inHead[r] {
+			t.Errorf("base row missing or changed at head:\n%s", r)
+		}
+	}
+
+	inBase := map[string]bool{}
+	for _, r := range baseRows {
+		inBase[r] = true
+	}
+	var added int
+	for _, r := range headRows {
+		if inBase[r] {
+			continue
+		}
+		added++
+		if id, _, _ := strings.Cut(strings.TrimPrefix(r, `{"`), `"`); !strings.HasPrefix(id, "services.") {
+			t.Errorf("row added since base is not a services row:\n%s", r)
+		}
+	}
+
+	// Zero services ops before WI 2.2 declares them, exactly eight after.
+	if nServices != 0 && nServices != servicesRows {
+		t.Errorf("catalog has %d services ops, want 0 or %d", nServices, servicesRows)
+	}
+	if added != nServices {
+		t.Errorf("golden table gained %d rows since %s, want %d (one per services op)", added, base, nServices)
+	}
+}
+
+// goldenRows returns the rows of the golden table in the source of
+// golden_test.go, each line trimmed of its indentation.
+func goldenRows(t *testing.T, src string) []string {
+	t.Helper()
+	_, body, ok := strings.Cut(src, "var golden = []row{\n")
+	if !ok {
+		t.Fatal("golden_test.go has no golden table")
+	}
+	body, _, ok = strings.Cut(body, "\n}\n")
+	if !ok {
+		t.Fatal("golden_test.go: golden table is not closed")
+	}
+	var rows []string
+	for _, line := range strings.Split(body, "\n") {
+		if line = strings.TrimSpace(line); strings.HasPrefix(line, `{"`) {
+			rows = append(rows, line)
+		}
+	}
+	if len(rows) == 0 {
+		t.Fatal("golden_test.go: golden table has no rows")
+	}
+	return rows
 }
 
 // TC-SV-32: The eight services ops are in the catalog with their golden rows. Owner WI 2.2. Requirements: FR-1, FR-2, FR-4, FR-5, FR-6, FR-7, FR-10, FR-14, FR-15.

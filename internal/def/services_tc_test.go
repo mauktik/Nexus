@@ -1,91 +1,167 @@
-// Stub-style: SKIP-only (services-provider)
-//
-// Stubs of planning/services-provider/test-cases.md TC-SV-1, TC-SV-2, TC-SV-3, TC-SV-ERR1, TC-SV-ERR2, TC-SV-ERR3.
-// Owner WIs: 1.1. Each stub compiles today and skips; the
-// developer of the owning work item replaces the skip and the comment with
-// the test, keeping the function name. An un-skipped passing test is the
-// GREEN signal (planning/services-provider/test-strategy.md, RED Stub Style).
+// Tests of planning/services-provider/test-cases.md TC-SV-1, TC-SV-2,
+// TC-SV-3, TC-SV-ERR1, TC-SV-ERR2 and TC-SV-ERR3 (WI 1.1): the
+// CompletesAcrossReboot and CLI.TypedConfirmation declarations, Audited
+// widened to streams, and their validate rules.
 
 package def
 
-import "testing"
+import (
+	"slices"
+	"testing"
+	"time"
 
-// TC-SV-1: CompletesAcrossReboot is accepted on a long-running destructive provider action with a reconnect window. Owner WI 1.1. Requirements: FR-11, CON-4.
-//
-// - Setup: A planted op `pl.actions.reboot`: `ModeLongRunning`, `RiskDestructive`, `KindProviderAction`, `CLI.ReconnectWindow: 10*time.Minute`, `CompletesAcrossReboot: true`. A second one is the same with `RiskMutating` and `KindResourceAction`.
-// - Steps:
-//  1. `def.Define` each op inside a `recover`.
-//
-// - Expected: Neither panics. `op.CompletesAcrossReboot` is true on the returned value. `CLI.ReconnectWindow` of exactly `10m` (the maximum) is accepted.
+	"github.com/mauktik/nexus/internal/apitypes"
+)
+
+type tcsvRebootIn struct {
+	ConfirmHost string `json:"confirmHost"`
+	Force       bool   `json:"force,omitempty"`
+	Note        string `json:"note,omitempty"`
+	Label       string `json:"label,omitzero"`
+}
+
+// rebootOp is TC-SV-1's planted pl.actions.reboot: a long-running
+// destructive provider action with a 10-minute reconnect window that
+// completes across a reboot.
+func rebootOp(id string) Op {
+	return Op{
+		ID:                    id,
+		Provider:              "pl",
+		Kind:                  KindProviderAction,
+		Action:                "reboot",
+		Summary:               "Reboot the host",
+		Description:           "Reboots the host. Long-running: the operation completes after the reboot.",
+		Scope:                 Scope{Name: "pl:reboot"},
+		Risk:                  RiskDestructive,
+		Mode:                  ModeLongRunning,
+		Cancel:                CancelRunning,
+		CompletesAcrossReboot: true,
+		CLI:                   CLIBinding{Noun: "machine", Verb: "restart", ReconnectWindow: 10 * time.Minute},
+	}
+}
+
+// confirmOp is TC-SV-2's planted op: destructive and long-running, with the
+// operator typing confirmHost.
+func confirmOp(id string) Op {
+	op := rebootOp(id)
+	op.CompletesAcrossReboot = false
+	op.CLI = CLIBinding{Noun: "machine", Verb: "restart", TypedConfirmation: "confirmHost"}
+	return op
+}
+
+// TC-SV-1 (FR-11, CON-4): CompletesAcrossReboot is accepted on a
+// long-running destructive provider action and a mutating resource action,
+// each with the maximum reconnect window.
 func TestTCSV1_CompletesAcrossRebootIsAcceptedOnALongRunning(t *testing.T) {
-	t.Skip("TC-SV-1: SKIP-only stub; un-skip when WI 1.1 lands")
+	a := mustDefine[struct{}, struct{}](t, rebootOp(uniqueID("pl.actions.reboot")))
+
+	b := rebootOp(uniqueID("pl.units.reboot"))
+	b.Kind, b.ResourceType, b.Risk = KindResourceAction, "units", RiskMutating
+	b.CLI.Positional = "name"
+	bGot := mustDefine[struct{}, struct{}](t, b)
+
+	for _, got := range []Op{a, bGot} {
+		if !got.CompletesAcrossReboot {
+			t.Errorf("op %q: CompletesAcrossReboot = false, want true", got.ID)
+		}
+		if got.CLI.ReconnectWindow != 10*time.Minute {
+			t.Errorf("op %q: CLI.ReconnectWindow = %v, want 10m", got.ID, got.CLI.ReconnectWindow)
+		}
+	}
 }
 
-// TC-SV-2: TypedConfirmation is accepted on a required, non-positional string field of a mutating op. Owner WI 1.1. Requirements: FR-10, FR-13, FR-15, CON-4.
-//
-// - Setup: A planted destructive long-running op whose input has a string field with JSON tag `confirmHost` (no `omitempty`) and a bool field with tag `force,omitempty`, declared with `CLI.TypedConfirmation: "confirmHost"`.
-// - Steps:
-//  1. `def.Define` inside a `recover`.
-//
-// - Expected: No panic. The generated JSON schema lists `confirmHost` as required.
+// TC-SV-2 (FR-10, FR-13, FR-15, CON-4): TypedConfirmation naming a required,
+// non-positional string field of a mutating op is accepted, and the input
+// schema lists that field as required.
 func TestTCSV2_TypedConfirmationIsAcceptedOnARequiredNon(t *testing.T) {
-	t.Skip("TC-SV-2: SKIP-only stub; un-skip when WI 1.1 lands")
+	got := mustDefine[tcsvRebootIn, struct{}](t, confirmOp(uniqueID("pl.actions.reboot")))
+	if got.CLI.TypedConfirmation != "confirmHost" {
+		t.Errorf("CLI.TypedConfirmation = %q, want %q", got.CLI.TypedConfirmation, "confirmHost")
+	}
+	r, err := got.InputSchema()
+	if err != nil {
+		t.Fatalf("InputSchema: %v", err)
+	}
+	if req := r.Schema().Required; !slices.Contains(req, "confirmHost") {
+		t.Errorf("input schema required = %v, want it to list confirmHost", req)
+	}
 }
 
-// TC-SV-3: Audited is accepted on a read-only stream and still on a read-only sync op. Owner WI 1.1. Requirements: FR-6, FR-16, CON-4.
-//
-// - Setup: Planted ops: `RiskReadOnly` + `ModeStream` + `Audited`; `RiskReadOnly` + `ModeSync` + `Audited` (the nexusd-remote-admin precedent).
-// - Steps:
-//  1. `def.Define` each inside a `recover`.
-//
-// - Expected: Neither panics.
+// TC-SV-3 (FR-6, FR-16, CON-4): Audited is accepted on a read-only stream
+// and still on a read-only sync op.
 func TestTCSV3_AuditedIsAcceptedOnAReadOnly(t *testing.T) {
-	t.Skip("TC-SV-3: SKIP-only stub; un-skip when WI 1.1 lands")
+	stream := readOp(uniqueID("pl.units.logs"))
+	stream.Mode, stream.Audited = ModeStream, true
+	if got := mustDefine[struct{}, apitypes.Frame](t, stream); !got.Audited || got.Mode != ModeStream {
+		t.Errorf("stream: Audited=%v Mode=%q, want true %q", got.Audited, got.Mode, ModeStream)
+	}
+
+	sync := readOp(uniqueID("pl.config.get"))
+	sync.Audited = true
+	if got := mustDefine[struct{}, struct{}](t, sync); !got.Audited || got.Mode != ModeSync {
+		t.Errorf("sync: Audited=%v Mode=%q, want true %q", got.Audited, got.Mode, ModeSync)
+	}
 }
 
-// TC-SV-ERR1: CompletesAcrossReboot refusals name their rule. Owner WI 1.1. Requirements: FR-11, CON-4.
-//
-// - Setup: The TC-SV-1 op, varied one field at a time.
-// - Steps:
-//  1. `def.Define` each inside `recover`.
-//
-// - Expected: Each of these panics, with text naming `CompletesAcrossReboot` and the rule:
-//   - `ModeSync`;
-//   - `ModeStream`;
-//   - `RiskReadOnly`;
-//   - `KindList`, `KindGet` and the subresource kind;
-//   - `CLI.ReconnectWindow: 0`;
-//   - `SyncMutation: true`;
-//   - `CompletesAtAdmission: true`.
+// TC-SV-ERR1 (FR-11, CON-4): each CompletesAcrossReboot rule refuses the
+// TC-SV-1 op varied one field at a time, naming the declaration and the rule.
 func TestTCSVERR1_CompletesAcrossRebootRefusalsNameTheirRule(t *testing.T) {
-	t.Skip("TC-SV-ERR1: SKIP-only stub; un-skip when WI 1.1 lands")
+	cases := []struct {
+		name string
+		vary func(*Op)
+		rule string
+	}{
+		{"ModeSync", func(op *Op) { op.Mode = ModeSync }, "requires ModeLongRunning"},
+		{"ModeStream", func(op *Op) { op.Mode = ModeStream }, "requires ModeLongRunning"},
+		{"RiskReadOnly", func(op *Op) { op.Risk = RiskReadOnly }, "requires a mutating op"},
+		{"KindList", func(op *Op) { op.Kind = KindList }, "requires KindResourceAction or KindProviderAction"},
+		{"KindGet", func(op *Op) { op.Kind = KindGet }, "requires KindResourceAction or KindProviderAction"},
+		{"KindSubresource", func(op *Op) { op.Kind = KindSubresource }, "requires KindResourceAction or KindProviderAction"},
+		{"ReconnectWindow 0", func(op *Op) { op.CLI.ReconnectWindow = 0 }, "requires CLI.ReconnectWindow > 0"},
+		{"SyncMutation", func(op *Op) { op.SyncMutation = true }, "cannot be set with SyncMutation"},
+		{"CompletesAtAdmission", func(op *Op) { op.CompletesAtAdmission = true }, "cannot be set with CompletesAtAdmission"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			op := rebootOp(uniqueID("pl.actions.reboot"))
+			c.vary(&op)
+			mustRefuse[struct{}, apitypes.Frame](t, op, "CompletesAcrossReboot", c.rule)
+		})
+	}
 }
 
-// TC-SV-ERR2: TypedConfirmation refusals name their rule. Owner WI 1.1. Requirements: FR-10, CON-4.
-//
-// - Setup: The TC-SV-2 op, varied.
-// - Steps:
-//  1. Define with each of:
-//     - `TypedConfirmation: "nope"`;
-//     - naming the bool field `force`;
-//     - naming a string field with `omitempty`;
-//     - naming a field that is `Positional`;
-//     - on a `RiskReadOnly` op.
-//
-// - Expected: Each panics, naming `TypedConfirmation` and the rule (unknown field, not a string, not required, positional, not mutating).
+// TC-SV-ERR2 (FR-10, CON-4): each TypedConfirmation rule refuses the TC-SV-2
+// op varied, naming the declaration and the rule.
 func TestTCSVERR2_TypedConfirmationRefusalsNameTheirRule(t *testing.T) {
-	t.Skip("TC-SV-ERR2: SKIP-only stub; un-skip when WI 1.1 lands")
+	cases := []struct {
+		name string
+		vary func(*Op)
+		rule string
+	}{
+		{"unknown field", func(op *Op) { op.CLI.TypedConfirmation = "nope" }, "unknown field"},
+		{"bool field", func(op *Op) { op.CLI.TypedConfirmation = "force" }, "not a string field"},
+		{"omitempty field", func(op *Op) { op.CLI.TypedConfirmation = "note" }, "not required"},
+		{"omitzero field", func(op *Op) { op.CLI.TypedConfirmation = "label" }, "not required"},
+		{"positional field", func(op *Op) { op.CLI.Positional = "confirmHost" }, "CLI.Positional"},
+		{"read-only op", func(op *Op) { op.Risk = RiskReadOnly }, "requires a mutating op"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			op := confirmOp(uniqueID("pl.actions.reboot"))
+			c.vary(&op)
+			mustRefuse[tcsvRebootIn, struct{}](t, op, "TypedConfirmation", c.rule)
+		})
+	}
 }
 
-// TC-SV-ERR3: Audited on a mutating stream or a long-running op is refused. Owner WI 1.1. Requirements: FR-16, CON-4.
-//
-// - Setup: `Audited` on (a) `ModeStream` + `RiskMutating` and (b) `ModeLongRunning` + `RiskReadOnly`.
-// - Steps:
-//  1. Define each.
-//
-// - Expected:
-//   - (a) panics with `Audited requires RiskReadOnly`;
-//   - (b) panics with `Audited requires ModeSync or ModeStream`.
+// TC-SV-ERR3 (FR-16, CON-4): Audited is refused on a mutating stream and on a
+// long-running read.
 func TestTCSVERR3_AuditedOnAMutatingStreamOrA(t *testing.T) {
-	t.Skip("TC-SV-ERR3: SKIP-only stub; un-skip when WI 1.1 lands")
+	mutating := readOp(uniqueID("pl.units.follow"))
+	mutating.Mode, mutating.Risk, mutating.Audited = ModeStream, RiskMutating, true
+	mustRefuse[struct{}, apitypes.Frame](t, mutating, "Audited requires RiskReadOnly")
+
+	longRunning := readOp(uniqueID("pl.actions.scan"))
+	longRunning.Mode, longRunning.Audited = ModeLongRunning, true
+	mustRefuse[struct{}, struct{}](t, longRunning, "Audited requires ModeSync or ModeStream")
 }
