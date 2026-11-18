@@ -45,6 +45,12 @@ var (
 	reasonAlpineContainer   = prefixNotSupported + "reboot-required in an Alpine container, whose kernel is the container host's"
 )
 
+// RebootRequiredNow is the host provider's reboot-required rule (A-18)
+// over opts, for the services provider's reboot (WI 4.4). It reads only
+// through opts.FS and opts.Platform (A-41), and execs nothing. The host
+// provider itself does not call it.
+func RebootRequiredNow(opts Options) spec.RebootRequired { return New(opts).rebootRequired() }
+
 // rebootRequired is A-18, in precedence order:
 //  1. Debian family, in a container or not: the apt provider's marker rule;
 //  2. Alpine in a container: unknown, the kernel is the container host's;

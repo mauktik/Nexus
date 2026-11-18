@@ -23,6 +23,7 @@ const HelperCommand = "services-helper"
 // real host.
 type helperEnv struct {
 	control controlHelperEnv
+	reboot  rebootHelperEnv
 }
 
 // helperMode runs one mode of input.json, raw, in the operation's directory
@@ -33,6 +34,7 @@ type helperMode func(ctx context.Context, dir string, raw []byte, stdout, stderr
 // helperModes are the helper's modes by input.json's mode.
 var helperModes = map[string]helperMode{
 	helperModeControl: runControlMode,
+	helperModeReboot:  runRebootMode,
 }
 
 // Helper is `nexusd services-helper`. `run --dir D` reads D/input.json and
