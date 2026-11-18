@@ -398,7 +398,7 @@ func TestTCSV44_TheFiveT1ContainerCapturesExist(t *testing.T) {
 //
 // - Expected:
 //   - all three are `source: host`;
-//   - pihole's and public-nginx's `boot_id` differ from each other, and each has a `mountinfo` line with mount point `/proc/sys/kernel/random/boot_id` (A-3);
+//   - pihole's and public-nginx's `boot_id` differ from each other, and each has a line with mount point `/proc/sys/kernel/random/boot_id` in `proc/self/mountinfo` (nexusd's table) or `proc/1/mountinfo` (PID 1's); on pihole (systemd 252) PID 1's line is expected (LXC's `/dev/.lxc-boot-id` bind) and nexusd's own line may be absent by design (D-11, A-46) (A-3);
 //   - public-nginx's `readlink-sbin-reboot.txt` is `/bin/busybox`, and its `inittab-shutdown.txt` contains `/sbin/openrc shutdown` (A-5);
 //   - public-nginx's `run/openrc/options/nexusd/child_pid` holds a decimal PID (A-8);
 //   - public-nginx's `run/openrc/deptree` has the `net` virtual entry with at least one `_providedby_M` value, and that value names a script present in the capture's `etc/init.d/` (`networking` expected; any other name is recorded, and the WI 3.4 resolver test over this capture still resolves it) (A-9);

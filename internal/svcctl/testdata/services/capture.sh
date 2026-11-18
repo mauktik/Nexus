@@ -203,6 +203,9 @@ capture_proc() {
 		copy proc/uptime "$CAT" /proc/"$PID"/root/proc/uptime
 		;;
 	esac
+	# PID 1's view: on systemd 252 nexusd's sandbox drops the boot-ID mount
+	# from its own table (architecture D-11), so record the init's as well.
+	copy proc/1/mountinfo "$(tool grep)" -F boot_id /proc/1/mountinfo
 	copy proc/sys/kernel/random/boot_id "$(tool cat)" /proc/sys/kernel/random/boot_id
 }
 
