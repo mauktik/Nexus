@@ -24,10 +24,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
 	"go.yaml.in/yaml/v3"
+	"golang.org/x/sys/unix"
 
 	"github.com/mauktik/nexus/internal/apitypes"
 	"github.com/mauktik/nexus/internal/config"
@@ -385,9 +387,16 @@ func TestTCSV74_PreflightIsAvailableOnEverySystemdAnd(t *testing.T) {
 // boot-ID captures hold none (their grep for boot_id is empty), so the
 // line is the host provider's captured Docker bind mount of /etc/hostname
 // (internal/providers/host/testdata/ubuntu-systemd) with its mount point
-// changed.
-func bootIDMountLine(t *testing.T) string {
+// changed, and its device the one the root's boot_id file is on: ReadBoot
+// accepts a boot-ID mount only for the file it read (CR-3).
+func bootIDMountLine(t *testing.T, root string) string {
 	t.Helper()
+	var st syscall.Stat_t
+	if err := syscall.Stat(filepath.Join(root, "proc", procBootID), &st); err != nil {
+		t.Fatal(err)
+	}
+	d := uint64(st.Dev) // int32 on darwin, uint64 on Linux
+	dev := fmt.Sprintf("%d:%d", unix.Major(d), unix.Minor(d))
 	b, err := os.ReadFile(filepath.Join("..", "host", "testdata", "ubuntu-systemd", "fs", "proc", "self", "mountinfo"))
 	if err != nil {
 		t.Fatal(err)
@@ -395,7 +404,7 @@ func bootIDMountLine(t *testing.T) string {
 	for line := range strings.Lines(string(b)) {
 		f := strings.Split(strings.TrimRight(line, "\n"), " ")
 		if len(f) > 4 && f[4] == "/etc/hostname" {
-			f[4] = "/proc/sys/kernel/random/boot_id"
+			f[2], f[4] = dev, "/proc/sys/kernel/random/boot_id"
 			return strings.Join(f, " ") + "\n"
 		}
 	}
@@ -415,7 +424,7 @@ func TestTCSV75_AContainersRebootIsAvailableOnlyWith(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				writeFile(t, mi, string(b)+bootIDMountLine(t))
+				writeFile(t, mi, string(b)+bootIDMountLine(t, root))
 			}
 			fh := svcctltest.NewHost(t, capture)
 			p := newOn(t, root, fh)

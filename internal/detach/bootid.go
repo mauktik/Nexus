@@ -65,7 +65,7 @@ func ReadBoot(procRoot string, path func(abs string) string) (Boot, error) {
 	if procRoot == "" {
 		procRoot = "/proc"
 	}
-	own, err := readOwnBootID(procRoot)
+	own, ownDev, err := readOwnBootID(procRoot)
 	if err != nil {
 		return Boot{}, err
 	}
@@ -73,9 +73,14 @@ func ReadBoot(procRoot string, path func(abs string) string) (Boot, error) {
 	if err != nil {
 		return Boot{ID: own}, nil
 	}
-	if _, ok := lastMountOn(self, BootIDPath); ok {
+	if m, ok := lastMountOn(self, BootIDPath); ok &&
+		unix.Major(ownDev) == m.major && unix.Minor(ownDev) == m.minor {
 		return Boot{ID: own, Mounted: true}, nil
 	}
+	// Either no boot-ID mount, or the table lists one that the file read is
+	// not on: mountinfo also lists mounts that a later mount over /proc/sys
+	// shadows, and the path then reads procfs, the host kernel's ID. Neither
+	// is a boot ID mounted for this process, so PID 1's table decides.
 	pid1, err := readMountinfo(filepath.Join(procRoot, "1", "mountinfo"))
 	if err != nil {
 		return Boot{ID: own}, nil
@@ -92,17 +97,18 @@ func ReadBoot(procRoot string, path func(abs string) string) (Boot, error) {
 	return Boot{ID: id, Mounted: true, Via: via}, nil
 }
 
-// readOwnBootID is BootIDPath under procRoot, trimmed.
-func readOwnBootID(procRoot string) (string, error) {
-	b, err := readBootFile(filepath.Join(procRoot, "sys", "kernel", "random", "boot_id"), nil)
+// readOwnBootID is BootIDPath under procRoot, trimmed, and the device of
+// the file it was read from.
+func readOwnBootID(procRoot string) (string, uint64, error) {
+	b, dev, err := readBootFileDev(filepath.Join(procRoot, "sys", "kernel", "random", "boot_id"), nil)
 	if err != nil {
-		return "", fmt.Errorf("detach: read boot id: %w", err)
+		return "", 0, fmt.Errorf("detach: read boot id: %w", err)
 	}
 	id := string(bytes.TrimSpace(b))
 	if id == "" {
-		return "", errors.New("detach: empty boot id")
+		return "", 0, errors.New("detach: empty boot id")
 	}
-	return id, nil
+	return id, dev, nil
 }
 
 // readHiddenBootID reads the source of PID 1's boot-ID mount m through the
@@ -158,36 +164,40 @@ func underRoot(file, root string) (string, bool) {
 // without following a final symlink and without blocking (a FIFO never
 // hangs the read), and checked on the descriptor.
 func readBootFile(path string, on *bootMount) ([]byte, error) {
+	b, _, err := readBootFileDev(path, on)
+	return b, err
+}
+
+// readBootFileDev is readBootFile and the device of the file read.
+func readBootFileDev(path string, on *bootMount) ([]byte, uint64, error) {
 	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer f.Close()
 	fi, err := f.Stat()
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if !fi.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s is not a regular file", path)
+		return nil, 0, fmt.Errorf("%s is not a regular file", path)
 	}
-	if on != nil {
-		st, ok := fi.Sys().(*syscall.Stat_t)
-		if !ok {
-			return nil, fmt.Errorf("%s: no device number", path)
-		}
-		dev := uint64(st.Dev) // int32 on darwin, uint64 on Linux
-		if unix.Major(dev) != on.major || unix.Minor(dev) != on.minor {
-			return nil, fmt.Errorf("%s is on device %d:%d, not %d:%d", path, unix.Major(dev), unix.Minor(dev), on.major, on.minor)
-		}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return nil, 0, fmt.Errorf("%s: no device number", path)
+	}
+	dev := uint64(st.Dev) // int32 on darwin, uint64 on Linux
+	if on != nil && (unix.Major(dev) != on.major || unix.Minor(dev) != on.minor) {
+		return nil, 0, fmt.Errorf("%s is on device %d:%d, not %d:%d", path, unix.Major(dev), unix.Minor(dev), on.major, on.minor)
 	}
 	b, err := io.ReadAll(io.LimitReader(f, maxBootIDBytes+1))
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if len(b) > maxBootIDBytes {
-		return nil, fmt.Errorf("%s is over %d bytes", path, maxBootIDBytes)
+		return nil, 0, fmt.Errorf("%s is over %d bytes", path, maxBootIDBytes)
 	}
-	return b, nil
+	return b, dev, nil
 }
 
 // bootMount is the part of a mountinfo line ReadBoot uses

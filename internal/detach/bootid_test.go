@@ -59,6 +59,7 @@ func newBootFixture(t *testing.T) bootFixture {
 // its /run mount point the run directory, escaped as the kernel does.
 func (f bootFixture) line(captured string) string {
 	captured = strings.Replace(captured, " 0:60 ", " "+f.dev+" ", 1)
+	captured = strings.Replace(captured, " 0:72 ", " "+f.dev+" ", 1)
 	return strings.Replace(captured, " / /run ", " / "+strings.ReplaceAll(f.run, " ", `\040`)+" ", 1)
 }
 
@@ -98,6 +99,38 @@ func TestBootIDIsPID1sWhenTheSandboxHidesTheMount(t *testing.T) {
 	}
 }
 
+// CR-3 (services-provider code review): mountinfo also lists a mount that a
+// later mount over /proc/sys shadows. The path then reads procfs, the host
+// kernel's boot ID, and the table's boot-ID line says nothing about the
+// file that was read: it is not "a boot ID mounted here". ReadBoot goes on
+// to PID 1's table, and never reports Mounted with the kernel's ID.
+func TestReadBootIgnoresAShadowedBootIDMount(t *testing.T) {
+	shadowed := func(f bootFixture) string {
+		// The boot-ID mount of device 0:99, then /proc/sys mounted over it
+		// again (procfs, 0:74): the own boot_id file is on neither.
+		return strings.Replace(f.line(sandbox259BootIDLine), f.dev, "0:99", 1) + sandboxSysLine
+	}
+	t.Run("PID 1 has the mount: its source is read", func(t *testing.T) {
+		f := newBootFixture(t)
+		f.mountinfo(t, "1", f.line(pid1RunLine)+f.line(pid1BootIDLine))
+		f.mountinfo(t, "self", shadowed(f)+f.line(sandboxRunLine))
+		b, err := ReadBoot(f.proc, nil)
+		want := Boot{ID: containerBootID, Mounted: true, Via: filepath.Join(f.run, "nx-boot-id")}
+		if err != nil || b != want {
+			t.Fatalf("ReadBoot = %+v, %v; want %+v", b, err, want)
+		}
+	})
+	t.Run("PID 1 has none: the kernel's ID, not mounted", func(t *testing.T) {
+		f := newBootFixture(t)
+		f.mountinfo(t, "1", f.line(pid1RunLine))
+		f.mountinfo(t, "self", shadowed(f)+f.line(sandboxRunLine))
+		b, err := ReadBoot(f.proc, nil)
+		if err != nil || b != (Boot{ID: hostBootID}) {
+			t.Fatalf("ReadBoot = %+v, %v; want the kernel's %s with Mounted false", b, err, hostBootID)
+		}
+	})
+}
+
 func TestReadBoot(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -109,7 +142,7 @@ func TestReadBoot(t *testing.T) {
 		setup: func(t *testing.T, f bootFixture) {
 			bootWrite(t, filepath.Join(f.proc, "sys", "kernel", "random", "boot_id"), containerBootID+"\n")
 			f.mountinfo(t, "1", f.line(pid1RunLine)+f.line(pid1BootIDLine))
-			f.mountinfo(t, "self", sandboxSysLine+sandbox259BootIDLine+f.line(sandboxRunLine))
+			f.mountinfo(t, "self", sandboxSysLine+f.line(sandbox259BootIDLine)+f.line(sandboxRunLine))
 		},
 		want: Boot{ID: containerBootID, Mounted: true},
 	}, {
