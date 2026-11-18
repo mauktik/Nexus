@@ -257,9 +257,9 @@ func (p *Provider) otherOperations(exclude string) ([]string, error) {
 func (p *Provider) admitReboot(ctx context.Context, in spec.RebootInput) error {
 	audit.AddFact(ctx, "confirmHost", in.ConfirmHost)
 	audit.AddFact(ctx, "force", strconv.FormatBool(in.Force))
-	boot, err := p.readProc(procBootID)
-	if err != nil {
-		boot = "unknown"
+	boot := "unknown"
+	if b, err := p.boot(); err == nil {
+		boot = b.ID
 	}
 	audit.AddFact(ctx, "bootId", boot)
 	if _, err := rebootDelay(in); err != nil {
@@ -323,7 +323,7 @@ func (p *Provider) prepareReboot(ctx context.Context, in spec.RebootInput, r *pr
 			return detach.Spec{}, err
 		}
 	}
-	boot, err := p.readProc(procBootID)
+	boot, err := p.boot()
 	if err != nil {
 		return detach.Spec{}, problem.New(problem.DependencyUnavailable, fmt.Sprintf("the boot ID cannot be read "+
 			"from %s: %v, so a reboot could not be confirmed; nothing was sent", bootIDPath, err)).
@@ -334,7 +334,7 @@ func (p *Provider) prepareReboot(ctx context.Context, in spec.RebootInput, r *pr
 		helperSay(r.Output(), "the kernel release cannot be read: %v", err)
 	}
 	hin := rebootHelperInput{Mode: helperModeReboot, OperationID: r.ID(), Init: string(p.plat.Init),
-		DelaySeconds: int(delay / time.Second), TimeoutSeconds: int(timeout / time.Second), BootID: boot,
+		DelaySeconds: int(delay / time.Second), TimeoutSeconds: int(timeout / time.Second), BootID: boot.ID,
 		KernelRelease: release, RebootRequired: p.rebootRequiredNow(), WhatIf: in.WhatIf}
 	if in.WhatIf {
 		hin.Report = p.whatIfReport(report, hin)

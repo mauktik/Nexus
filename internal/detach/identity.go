@@ -76,24 +76,19 @@ func ReadIdentity(dir string) (Identity, error) {
 	return id, nil
 }
 
-// BootID is the current boot's ID, read from /proc. It fails off Linux.
+// BootID is the current boot's ID, read from /proc as PID 1 sees it
+// (ReadBoot). It fails off Linux.
 func BootID() (string, error) { return bootID("/proc") }
 
 // processSubject is how outcome-unknown details name the runner of
 // operation id on the process backend, which has no unit.
 func processSubject(id string) string { return "the supervisor process of operation " + id }
 
-// bootID is the current boot's ID, which changes on every boot.
+// bootID is the current boot's ID, which changes on every boot, as PID 1
+// sees it (ReadBoot).
 func bootID(procRoot string) (string, error) {
-	b, err := os.ReadFile(filepath.Join(procRoot, "sys", "kernel", "random", "boot_id"))
-	if err != nil {
-		return "", fmt.Errorf("detach: read boot id: %w", err)
-	}
-	id := string(bytes.TrimSpace(b))
-	if id == "" {
-		return "", errors.New("detach: empty boot id")
-	}
-	return id, nil
+	b, err := ReadBoot(procRoot, nil)
+	return b.ID, err
 }
 
 // statFields are the fields of /proc/<pid>/stat the process backend uses

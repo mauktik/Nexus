@@ -182,7 +182,10 @@ func runReboot(stop context.Context, dir string, env rebootHelperEnv) int {
 	}
 	hook(stageAfterCheck1)
 	// Step 3.
-	boot, err := readProcFile(env.ProcRoot, procBootID)
+	// The helper runs outside nexusd's sandbox and reads the boot ID PID 1
+	// sees, as nexusd and the ops manager do (detach.ReadBoot).
+	b, err := detach.ReadBoot(env.ProcRoot, nil)
+	boot := b.ID
 	if err != nil {
 		return writeHelperOutcome(dir, nil, helperFailure(problem.DependencyUnavailable,
 			"the boot ID cannot be read: %v, so the reboot could not be confirmed; nothing was sent", err),

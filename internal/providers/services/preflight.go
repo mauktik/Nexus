@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mauktik/nexus/internal/apitypes"
+	"github.com/mauktik/nexus/internal/detach"
 	"github.com/mauktik/nexus/internal/platform"
 	"github.com/mauktik/nexus/internal/provider"
 	"github.com/mauktik/nexus/internal/providers/host/hostparse"
@@ -82,8 +83,9 @@ var tools = map[platform.InitSystem][]string{
 }
 
 const (
-	bootIDPath    = "/proc/sys/kernel/random/boot_id"
-	mountinfoPath = "/proc/self/mountinfo"
+	bootIDPath        = detach.BootIDPath
+	mountinfoPath     = "/proc/self/mountinfo"
+	pid1MountinfoPath = "/proc/1/mountinfo"
 	// maxMountinfoBytes bounds the read of mountinfo, which grows with
 	// every mount (a container host has hundreds).
 	maxMountinfoBytes = 4 << 20
@@ -318,9 +320,11 @@ type rebootInfo struct {
 }
 
 // rebootAvailability decides whether a reboot here could be confirmed. The
-// boot ID must be readable; in a container it changes on the container's
-// restart only when a per-container boot ID is mounted over it, which
-// /proc/self/mountinfo shows. Otherwise the container would keep the host
+// boot ID must be readable as PID 1 sees it (p.boot); in a container it
+// changes on the container's restart only when a per-container boot ID is
+// mounted over it, which /proc/self/mountinfo shows, or /proc/1/mountinfo
+// when nexusd's sandbox hides the mount (systemd 252's
+// ProtectKernelTunables=yes). Otherwise the container would keep the host
 // kernel's boot ID across its restart (ASM-7).
 func (p *Provider) rebootAvailability(init platform.InitSystem) rebootInfo {
 	var info rebootInfo
@@ -330,7 +334,8 @@ func (p *Provider) rebootAvailability(init platform.InitSystem) rebootInfo {
 		return info
 	}
 	info.command = strings.Join(argv, " ")
-	if _, err := p.read(bootIDPath, maxSmallFileBytes); err != nil {
+	boot, err := p.boot()
+	if err != nil {
 		info.reason = fmt.Sprintf("the boot ID cannot be read from %s (%v), so a reboot could not be confirmed", bootIDPath, err)
 		return info
 	}
@@ -343,15 +348,26 @@ func (p *Provider) rebootAvailability(init platform.InitSystem) rebootInfo {
 		info.available, info.source = true, BootIDKernel
 		return info
 	}
-	for _, m := range mounts {
-		if m.MountPoint == bootIDPath {
-			info.available, info.source = true, BootIDContainerMount
-			return info
-		}
+	if boot.Mounted {
+		info.available, info.source = true, BootIDContainerMount
+		return info
 	}
 	info.reason = fmt.Sprintf("this host is a %s container (%s) whose boot ID is the host kernel's, not per-container: "+
-		"nothing is mounted over %s in %s, so a reboot could not be confirmed", v.Type, v.Evidence, bootIDPath, mountinfoPath)
+		"nothing is mounted over %s in %s or %s, so a reboot could not be confirmed",
+		v.Type, v.Evidence, bootIDPath, mountinfoPath, pid1MountinfoPath)
 	return info
+}
+
+// boot is this boot's ID as PID 1 sees it (detach.ReadBoot) under ProcRoot.
+// The source of a boot-ID mount nexusd's sandbox hides is read under
+// RunRoot or EtcRoot when it is under /run or /etc.
+func (p *Provider) boot() (detach.Boot, error) {
+	return detach.ReadBoot(p.procRoot, func(abs string) string {
+		if path, ok := p.rooted(abs); ok {
+			return path
+		}
+		return abs
+	})
 }
 
 // virtualization classifies the host from its container markers only, as
