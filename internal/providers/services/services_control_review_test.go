@@ -8,10 +8,14 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/mauktik/nexus/internal/problem"
 	"github.com/mauktik/nexus/internal/providers/services/spec"
@@ -204,4 +208,70 @@ func TestCR11_ANullActionsKeyGrantsNone(t *testing.T) {
 			}
 		})
 	}
+}
+
+// CR-12: the helper's input.json and result.json are read bounded and only
+// when regular: a FIFO never blocks nexusd, and an oversized file is an
+// error, not a read of all of it.
+func TestCR12_TheHelperFilesAreReadBoundedAndRegular(t *testing.T) {
+	read := func(t *testing.T, dir string) (ok bool, err error) {
+		t.Helper()
+		type answer struct {
+			ok  bool
+			err error
+		}
+		c := make(chan answer, 1)
+		go func() {
+			_, ok, err := readHelperFile(dir, helperResultFile)
+			c <- answer{ok, err}
+		}()
+		select {
+		case a := <-c:
+			return a.ok, a.err
+		case <-time.After(3 * time.Second):
+			// The reader is stuck in open(2) on the FIFO; unblock it so the
+			// goroutine ends.
+			if f, err := os.OpenFile(filepath.Join(dir, helperResultFile), os.O_WRONLY, 0); err == nil {
+				f.Close()
+			}
+			t.Fatal("readHelperFile blocked")
+			return false, nil
+		}
+	}
+	t.Run("a FIFO", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := syscall.Mkfifo(filepath.Join(dir, helperResultFile), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if ok, err := read(t, dir); ok || err == nil || !strings.Contains(err.Error(), "not a regular file") {
+			t.Errorf("read = %v, %v; want an error: not a regular file", ok, err)
+		}
+	})
+	t.Run("over the bound", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, helperResultFile), strings.Repeat("x", maxHelperFileBytes+1))
+		if ok, err := read(t, dir); ok || err == nil || !strings.Contains(err.Error(), "is over") {
+			t.Errorf("read = %v, %v; want an error: over the bound", ok, err)
+		}
+	})
+	t.Run("a symlink", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, "real"), "{}")
+		if err := os.Symlink("real", filepath.Join(dir, helperResultFile)); err != nil {
+			t.Fatal(err)
+		}
+		if ok, err := read(t, dir); ok || err == nil {
+			t.Errorf("read = %v, %v; want an error", ok, err)
+		}
+	})
+	t.Run("absent and regular", func(t *testing.T) {
+		dir := t.TempDir()
+		if ok, err := read(t, dir); ok || err != nil {
+			t.Errorf("absent: %v, %v; want not found, no error", ok, err)
+		}
+		writeFile(t, filepath.Join(dir, helperResultFile), "{}")
+		if ok, err := read(t, dir); !ok || err != nil {
+			t.Errorf("regular: %v, %v; want found", ok, err)
+		}
+	})
 }

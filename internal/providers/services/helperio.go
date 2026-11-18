@@ -143,23 +143,24 @@ func finalizeHelper[Out any](dir, what string, x detach.Exit) (Out, error) {
 	return out, nil
 }
 
+// maxHelperFileBytes bounds a read of the helper's input.json or
+// result.json: far above what either holds, and a limit on what a damaged
+// or replaced file can make nexusd read.
+const maxHelperFileBytes = 1 << 20
+
 // readHelperFile is the content of dir/name. ok is false when the file does
 // not exist; any other failure is an error. The file is opened without
-// following a final symlink.
+// following a final symlink and without blocking, and must be a regular
+// file of at most maxHelperFileBytes (readRegular).
 func readHelperFile(dir, name string) (b []byte, ok bool, err error) {
-	f, err := os.OpenFile(filepath.Join(dir, name), os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	b, err = readRegular(filepath.Join(dir, name), maxHelperFileBytes)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, false, nil
 	}
 	if err != nil {
 		return nil, false, fmt.Errorf("services: read %s: %w", name, err)
 	}
-	defer f.Close()
-	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(f); err != nil {
-		return nil, false, fmt.Errorf("services: read %s: %w", name, err)
-	}
-	return buf.Bytes(), true, nil
+	return b, true, nil
 }
 
 // readHelperJSON decodes dir/name into v. ok is false when the file does
