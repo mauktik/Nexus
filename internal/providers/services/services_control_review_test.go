@@ -315,3 +315,43 @@ func TestCR16_OpenRCControlFailsClosedWhileTheDeptreeIsUnusable(t *testing.T) {
 		t.Errorf("after a preflight that read the deptree: %v, want admitted", err)
 	}
 }
+
+// CR-19: restartNotDone fails a restart as "the instance that ran before is
+// still running", so it needs an instance that ran before. A restart of a
+// stopped service has none: it is a start, and ends Succeeded on state as a
+// start does, whatever the tool's exit status was.
+func TestCR19_ARestartOfAStoppedServiceIsAStart(t *testing.T) {
+	for _, capture := range []string{ctlOpenRC, ctlSystemd} {
+		t.Run(capture, func(t *testing.T) {
+			w := newCtlWorld(t, capture, "enabled: true\ncontrol:\n  - name: nx-svc-test\n", ctlOptions{names: []string{"nx-svc-test"}})
+			w.do(svcctl.Stop, "nx-svc-test")
+			argv := openrcArgv("restart", "nx-svc-test")
+			if capture == ctlSystemd {
+				argv = systemdArgv("restart", "nx-svc-test")
+			}
+			// The tool exits 1 although the model started the service.
+			w.post = func(a []string, res svcctl.Result) svcctl.Result {
+				if slices.Equal(a, argv) {
+					res.ExitCode = 1
+				}
+				return res
+			}
+			r := w.act(spec.Restart.Op(), `{"name":"nx-svc-test"}`, ctlPoll)
+			if r.err != nil || r.res.State != "running" || !r.res.Changed {
+				t.Errorf("restart of a stopped service: %+v, %v; want running and changed\n%s", r.res, r.err, r.log)
+			}
+		})
+	}
+	t.Run("a running service that did not restart still fails", func(t *testing.T) {
+		before := svcctl.Details{Entry: svcctl.Entry{State: string(svcctl.Running)}, MainPID: 7}
+		now := before
+		res := svcctl.Result{ExitCode: 1}
+		if !restartNotDone(spec.ActionRestart, before, now, res) {
+			t.Error("restartNotDone = false for the same running instance after a failed restart")
+		}
+		before.Entry.State = string(svcctl.Stopped)
+		if restartNotDone(spec.ActionRestart, before, now, res) {
+			t.Error("restartNotDone = true with no instance that ran before")
+		}
+	})
+}
