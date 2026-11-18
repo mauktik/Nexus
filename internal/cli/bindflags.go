@@ -24,14 +24,15 @@ const (
 
 // --version is the root's own flag, not inherited, so an input may take it.
 var reservedFlags = []string{"help", "host", "verbose", flagIdempotencyKey, flagOutput, flagSelect, flagFilter,
-	flagTag, flagYes, flagStdin, flagStopOnError, flagNoWait, flagTimeout}
+	flagTag, flagYes, flagStdin, flagStopOnError, flagNoWait, flagTimeout, flagSaveAsHost}
 
 // filterField is the input that carries server-side filters. The output
 // layer's --filter fills it with the keys the op declares (9.3).
 const filterField = "filter"
 
 // variadicField is the input field trailing arguments bind to, when an op
-// has no positional binding: `nexus package install curl jq`.
+// has no positional binding and declares no CLI.Variadic:
+// `nexus package install curl jq`.
 const variadicField = "names"
 
 type fieldKind int
@@ -60,10 +61,14 @@ type binding struct {
 	fields     []*inputField              // Flag-bound fields, in flag order
 	opFields   map[string]map[string]bool // Op ID -> its flag-bound JSON names
 	positional string                     // The positional input field, if any op has one
-	variadic   bool                       // Trailing arguments bind to variadicField
-	required   bool                       // variadicField is required
-	mutating   bool                       // --idempotency-key is offered
-	upload     *def.CLIUpload             // The command uploads a file first (FR-13)
+	variadic   bool                       // Trailing arguments bind to trailing
+	trailing   string                     // CLI.Variadic, else variadicField, when variadic
+	required   bool                       // trailing is required
+	mutating   bool                       // Some op mutates: --yes is offered
+	// keyed means --idempotency-key is offered: some op mutates and is not
+	// a SyncMutation, which has no idempotency replay.
+	keyed  bool
+	upload *def.CLIUpload // The command uploads a file first (FR-13)
 	// schemas are the input schemas of ops with CLI.Upload, without their
 	// upload Field required: it is set from the upload result, after the
 	// flags are checked. Other ops use their own input schema.
@@ -83,6 +88,7 @@ func newBinding(g *opCommand) (*binding, error) {
 		own := map[string]bool{}
 		b.opFields[op.ID] = own
 		b.mutating = b.mutating || op.Mutating()
+		b.keyed = b.keyed || (op.Mutating() && !op.SyncMutation)
 		var uploadField string
 		if u := op.CLI.Upload; u != nil {
 			b.upload, uploadField = u, u.Field
@@ -125,9 +131,13 @@ func newBinding(g *opCommand) (*binding, error) {
 			}
 		}
 		if op.CLI.Positional == "" && len(g.ops) == 1 {
-			if f := byFlag[variadicField]; f != nil && f.kind == kindStrings {
-				b.variadic = true
-				b.required = slices.Contains(s.Required, variadicField)
+			name := op.CLI.Variadic
+			if name == "" {
+				name = variadicField
+			}
+			if f := byFlag[kebab(name)]; f != nil && f.name == name && f.kind == kindStrings {
+				b.variadic, b.trailing = true, name
+				b.required = slices.Contains(s.Required, name)
 			}
 		}
 	}
@@ -249,7 +259,7 @@ func (b *binding) register(cmd *cobra.Command) {
 			fs.String(s.Flag, "", s.Usage)
 		}
 	}
-	if b.mutating {
+	if b.keyed {
 		fs.String(flagIdempotencyKey, "", fmt.Sprintf("Idempotency-Key header: a retry with the same key and input returns the original operation (at most %d visible ASCII characters)", openapi.IdempotencyKeyMaxLength))
 	}
 }
@@ -299,8 +309,8 @@ func (b *binding) input(fs *pflag.FlagSet, op def.Op, args []string, filters []s
 		in[p] = args[0]
 	}
 	if b.variadic && len(args) > 0 {
-		prev, _ := in[variadicField].([]string)
-		in[variadicField] = append(prev, args...)
+		prev, _ := in[b.trailing].([]string)
+		in[b.trailing] = append(prev, args...)
 	}
 	if len(filters) > 0 {
 		in[filterField] = filters
@@ -345,15 +355,43 @@ func validateInput(resolved *jsonschema.Resolved, op def.Op, in map[string]any) 
 		return fmt.Errorf("decode input: %w", err)
 	}
 	if err := resolved.Validate(inst); err != nil {
+		if field, msg := notRefusal(resolved, inst); field != "" {
+			return usagef("invalid input for %s %s: %s: %s", op.CLI.Noun, op.CLI.Verb, field, msg)
+		}
 		return usagef("invalid input for %s %s: %v", op.CLI.Noun, op.CLI.Verb, err)
 	}
 	return nil
 }
 
+// notRefusal names the first property, in name order, whose value matches a
+// described `not` schema, with that description. The description is written
+// for the refusal and never quotes the value, unlike the validator's own
+// "not: validated against <anonymous schema>". It returns "" when no such
+// property fails.
+func notRefusal(resolved *jsonschema.Resolved, inst any) (field, msg string) {
+	obj, ok := inst.(map[string]any)
+	if !ok {
+		return "", ""
+	}
+	props := resolved.Schema().Properties
+	for _, name := range slices.Sorted(maps.Keys(props)) {
+		ps := props[name]
+		val, present := obj[name]
+		if !present || ps.Not == nil || ps.Not.Description == "" {
+			continue
+		}
+		nr, err := ps.Not.CloneSchemas().Resolve(nil)
+		if err == nil && nr.Validate(val) == nil {
+			return name, ps.Not.Description
+		}
+	}
+	return "", ""
+}
+
 // idempotencyKey reads --idempotency-key: empty when unset, otherwise
 // 1 to IdempotencyKeyMaxLength visible ASCII characters.
 func (b *binding) idempotencyKey(fs *pflag.FlagSet) (string, error) {
-	if !b.mutating {
+	if !b.keyed {
 		return "", nil
 	}
 	fl := fs.Lookup(flagIdempotencyKey)

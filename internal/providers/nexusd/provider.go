@@ -134,7 +134,8 @@ type Provider struct {
 
 	updateHooks atomic.Pointer[updateHooks] // Test-only; nil in production
 
-	prev prevCache
+	prev   prevCache
+	tokens tokenGuard // Remote token adds and removes (FR-5)
 }
 
 // New returns the provider with the default settings until Configure.
@@ -251,8 +252,8 @@ func (p *Provider) requireSelfManagement() error {
 		With("provider", spec.Name).With("reason", a.Reason)
 }
 
-// Bindings binds get, validate-config, reload, restart, update, rollback
-// and the upload.
+// Bindings binds get, validate-config, reload, restart, update, rollback,
+// the upload, the token ops, the config reads and config set.
 func (p *Provider) Bindings() []provider.Binding {
 	return []provider.Binding{
 		provider.Sync(spec.List, p.get),
@@ -266,12 +267,18 @@ func (p *Provider) Bindings() []provider.Binding {
 		p.updateBinding(),
 		p.rollbackBinding(),
 		p.uploadBinding(),
+		provider.Sync(spec.TokensList, p.tokensList),
+		provider.Sync(spec.TokensAdd, p.tokensAdd),
+		provider.Sync(spec.TokensRemove, p.tokensRemove),
+		provider.Sync(spec.ConfigList, p.configList),
+		provider.Sync(spec.ConfigGet, p.configGet),
+		p.configSetBinding(),
 	}
 }
 
-// nexusdLane is the lane reload, restart, update and rollback share: one
-// of them queued or running at a time, and a second request answers 409
-// naming it (FR-11).
+// nexusdLane is the lane reload, restart, update, rollback and config set
+// share: one of them queued or running at a time, and a second request
+// answers 409 naming it (FR-11).
 var nexusdLane = provider.Lane{Key: spec.LaneKey, Policy: provider.LaneReject}
 
 func laneOf[In any](context.Context, In) (provider.Lane, error) { return nexusdLane, nil }

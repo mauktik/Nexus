@@ -737,7 +737,7 @@ func TestRollbackInputWireFormat(t *testing.T) {
 		Paths: DefaultPaths(),
 	}
 	want.Paths.Prev = prev
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("input.json decodes to %+v, want %+v", got, want)
 	}
 	var back helperInput
@@ -745,7 +745,7 @@ func TestRollbackInputWireFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 	want.Paths.Prev = DefaultPaths().Prev
-	if back != want {
+	if !reflect.DeepEqual(back, want) {
 		t.Errorf("the golden input.json decodes to %+v, want %+v", back, want)
 	}
 }

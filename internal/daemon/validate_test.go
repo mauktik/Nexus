@@ -3,12 +3,17 @@ package daemon
 import (
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/mauktik/nexus/internal/config"
+	"github.com/mauktik/nexus/internal/detach/detachtest"
+	"github.com/mauktik/nexus/internal/provider"
 )
 
 // sentinel is the catalog env value planted in the secret-sentinel fixtures.
@@ -161,4 +166,50 @@ func dump(l config.ErrorList) string {
 		fmt.Fprintf(&b, "%+v\n", *e)
 	}
 	return b.String()
+}
+
+// CheckConfigData checks bytes, never a file: file only names the source in
+// the errors, and the daemon's CheckConfigData names its ConfigPath.
+func TestCheckConfigDataNamesTheGivenFileAndNeverReadsIt(t *testing.T) {
+	data, err := os.ReadFile(checkconfigFixture("provider-error.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const file = "/nonexistent/nexusd.yaml"
+	cfg, errs := CheckConfigData(data, file)
+	if cfg == nil {
+		t.Fatal("no configuration for bytes config.Parse accepts")
+	}
+	if len(errs) != 1 || errs[0].File != file || errs[0].Path != "providers.docker" {
+		t.Fatalf("errors:\n%s\nwant one at providers.docker naming %s", dump(errs), file)
+	}
+
+	cfgPath := filepath.Join(t.TempDir(), "nexusd.yaml")
+	writeAptConfig(t, cfgPath, "127.0.0.1:1", "100s", "")
+	loaded, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := New(loaded, Options{Providers: []provider.Provider{&reloadProvider{}}, ConfigPath: cfgPath,
+		Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), StateDir: t.TempDir(), AuditDir: t.TempDir(),
+		Detach: detachtest.Local()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := d.store.Close(); err != nil {
+			t.Error(err)
+		}
+		if err := d.audit.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	var pd provider.Daemon = d
+	check := pd.CheckConfigData(data)
+	if check.Config == nil || len(check.Errors) != 1 || check.Errors[0].File != cfgPath {
+		t.Fatalf("Daemon.CheckConfigData: config %v, errors:\n%s\nwant one naming %s", check.Config != nil, dump(check.Errors), cfgPath)
+	}
+	if bad := pd.CheckConfigData([]byte("listen: [nope]\n")); bad.Config != nil || len(bad.Errors) == 0 {
+		t.Fatalf("Daemon.CheckConfigData on invalid bytes: config %v, errors %d", bad.Config != nil, len(bad.Errors))
+	}
 }

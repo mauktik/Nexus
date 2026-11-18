@@ -18,6 +18,10 @@ for the `nexusd` provider: `def.KindUpload` with `CLI.Upload`,
 [section 5](#5-generic-mechanisms-added-for-nexusd). The `host` provider
 added one more, `provider.Background`, for work that runs between requests;
 see [section 6](#6-generic-mechanism-added-for-the-host-provider-providerbackground).
+Remote token and configuration management added the declarations
+`SyncMutation`, `SecretOutput`, `Audited` and `CompletesAtAdmission`, two CLI
+declarations and a few smaller pieces; see
+[section 7](#7-generic-mechanisms-added-for-remote-administration).
 A provider that needs
 a new kind of mechanism changes core, and that change must be generic, not
 keyed on the provider's name, and documented here.
@@ -305,3 +309,86 @@ enablement, not on the provider's name, so any provider can use it.
   providers), or when `nexusd` cannot open its listeners. Preflight does not
   gate it: an enabled provider whose preflight failed still has its run, so
   `RunBackground` checks its own prerequisites.
+
+## 7. Generic mechanisms added for remote administration
+
+Managing `nexusd`'s tokens and configuration file remotely
+(`nexus nexusdtoken`, `nexus nexusdconfig`) needed operations that fit none
+of the existing shapes. Each was added as a declared, generic mechanism on
+`def.Op`, `def.CLIBinding` or a provider interface, checked by
+`def.validate` and keyed on the declaration rather than on the provider's
+name (CON-3). Any provider may use them; a `SyncMutation` or
+`CompletesAtAdmission` op may not be an MCP tool.
+
+- **`def.Op.SyncMutation`: a mutation that answers at once.** A mutating op
+  is normally long-running and answers 202 with an operation. A
+  `SyncMutation` op answers 200 with its output, with no operation record,
+  no lane and no idempotency replay, and its output is never persisted: it
+  reaches only the response body. It is the third exception to the
+  long-running rule, after `OperationControl` and `def.KindUpload`. It must
+  be `ModeSync`, mutating or destructive, a resource or provider action with
+  a scope, and must not set `MCP`, `WhatIf`, `Idempotent`, `CLI.Upload`,
+  `CLI.ReconnectWindow` or `CLI.WaitedResultItems`; the `system` provider
+  may not declare one. It is audited like any mutation, `requested` before
+  the handler (fail-closed) and then `completed` or `refused`, and an
+  `Idempotency-Key` is refused with `validation-failed`. `nexusd.tokens.add`
+  and `nexusd.tokens.remove` use it.
+- **`def.Op.SecretOutput`: a credential returned once.** The JSON name of a
+  string field of the output that carries a secret, such as `"token"`.
+  It requires `SyncMutation`, so the secret is never stored in an operation
+  record or the idempotency store. The REST handler sets
+  `Cache-Control: no-store` on every answer of such an op, and the CLI gains
+  `--save-as-host NAME`, which stores the field in the client configuration
+  instead of printing it.
+- **`def.Op.Audited`: an audited read.** Reads are not audited. A read-only
+  `ModeSync` op that declares `Audited` is audited as a mutation is:
+  `requested` before the handler, fail-closed, then `completed` or
+  `refused`. The token list and the config reads use it, because who looked
+  at the token list or the configuration file matters.
+- **`def.Op.CompletesAtAdmission` with `provider.DetachedSpec.Admission`:
+  ending a long-running call at admission.** A long-running op that declares
+  it may answer a call with 200 and its output before any operation exists:
+  no record, lane hold, Prepare or unit. It must be mutating,
+  `ModeLongRunning`, a resource or provider action, and not `SyncMutation`,
+  `MCP`, `WhatIf` or `CLI.Upload`. Its detached binding provides
+  `DetachedSpec.Admission` in place of `Admit` (setting both panics); the
+  hook returns a `provider.Admitted` that is either `Done` with the output
+  or the input `In` that Prepare runs on. A `Done` answer still passes the
+  lane step, so it answers 409 while the lane is busy, and is audited
+  `requested` then `completed`. The hook may also carry what admission
+  derived into Prepare: a field of `In` tagged `json:"-"` is never part of
+  the request schema or the stored operation record, so it reaches Prepare
+  only on this call and is empty when recovery re-runs a queued operation.
+  Config set uses this: a set that changes nothing answers `changed: false`
+  at admission, and a change carries the SHA-256 of the file admission
+  validated (`BaseSHA256`) to Prepare as its conflict baseline.
+- **`def.CLIBinding.Variadic`: trailing arguments.** Names the `[]string`
+  input field that trailing command-line arguments bind to, as in `nexus
+  nexusdconfig update KEY=VALUE...`. It cannot be set with `Positional`.
+  Empty keeps the `names` convention.
+- **`def.CLIBinding.EchoWarnings`: warnings on stderr.** After printing the
+  result, the CLI also prints its `warnings` (`apitypes.ActionResult`) on
+  stderr, so a warning is seen even when stdout goes to a pipe or a file.
+  The output must have a `[]string` field `warnings`. Token remove uses it
+  for the self-revocation warning, and config set for the lock-out and
+  restart warnings.
+- **`problem.Error.RetryAfter`: a `Retry-After` header.** A
+  `time.Duration` that is never marshaled into the problem body;
+  `problem.Write` sends it as the `Retry-After` header, in whole seconds,
+  on a 429. The token rate limit sets it.
+- **`provider.Daemon.CheckConfigData`: validating bytes.** The daemon's
+  configuration check, the same as `nexusd validate-config`
+  (`CheckConfig`), run on bytes that are not on disk yet: `config.Parse`
+  plus each built-in provider's `Configure`. Config set's admission uses it
+  on the edited file inside the sandbox. The helper outside the sandbox
+  cannot import `internal/daemon`, so `cmd/nexusd` passes
+  `daemon.CheckConfigData` to it, and both check with the same code.
+- **Reload status: `<stateDir>/reload-status.json`.** The daemon writes the
+  outcome of every reload, SIGHUP or API, atomically, from the one reload
+  function: a per-start `boot` value, a `seq`, the SHA-256 of the bytes it
+  read, `applied`, the failing `stage` and `error`, and `restartRequired`.
+  Package `internal/reloadstatus` reads and writes it and imports nothing of
+  `nexusd`'s, so a helper outside the daemon can learn whether a
+  `systemctl reload` it triggered applied the file it wrote, without an API
+  call or a credential. Config set's helper polls it for a status newer
+  than the one it read before the reload.

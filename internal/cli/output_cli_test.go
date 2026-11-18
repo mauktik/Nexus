@@ -158,9 +158,11 @@ func jsonLines(t *testing.T, what, s string) []map[string]any {
 
 // patternSamples hold, for the ops whose inputs carry schema patterns, a
 // value each pattern admits and the flags the op requires. The default "web"
-// positional and an empty flag set do not pass their validation.
+// positional, "curl" trailing argument and an empty flag set do not pass
+// their validation.
 var patternSamples = map[string]struct {
 	positional string
+	variadic   string
 	flags      []string
 }{
 	"pihole.domains.get":               {positional: "1"},
@@ -175,6 +177,7 @@ var patternSamples = map[string]struct {
 	"pihole.actions.add-zone":          {flags: []string{"--zone", "home.local"}},
 	"pihole.actions.add-record":        {flags: []string{"--fqdn", "nas.home.local", "--ipv4", "192.168.7.9"}},
 	"pihole.actions.apply-dns-changes": {flags: []string{"--changes", "add-record:nas.home.local=192.168.7.9"}},
+	"nexusd.actions.update-config":     {variadic: "host.name=web"},
 }
 
 // argsFor is a valid invocation of each op of a generated command.
@@ -195,7 +198,11 @@ func argsFor(c *opCommand, op def.Op) []string {
 	args = append(args, sample.flags...)
 	b, _ := newBinding(c)
 	if b != nil && b.variadic && b.required {
-		args = append(args, "curl")
+		if sample.variadic != "" {
+			args = append(args, sample.variadic)
+		} else {
+			args = append(args, "curl")
+		}
 	}
 	// A required string input bound to a flag gets a value, unless the
 	// sample already gives that flag a valid one.
@@ -224,6 +231,12 @@ var noID = map[string]string{
 	// errors} (nexusd-self-management F2): a check of a file, not a
 	// resource.
 	"nexusd.actions.validate-config": "a sync validation result, not a resource",
+	// The architecture fixes their results as action results naming the
+	// token by tokenId and name (nexusd-remote-admin Interfaces,
+	// TokenAddResult and TokenRemoveResult): a SyncMutation answer, not a
+	// resource.
+	"nexusd.tokens.add":    "a sync token mutation result, not a resource",
+	"nexusd.tokens.remove": "a sync token mutation result, not a resource",
 }
 
 // TC-166: every object every data command prints has a host and an id, log

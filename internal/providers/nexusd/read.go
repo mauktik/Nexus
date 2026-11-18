@@ -62,6 +62,7 @@ func (p *Provider) get(ctx context.Context, _ spec.ListInput) (apitypes.List[spe
 		Previous:         p.previous(ctx),
 		UpdateConfigured: len(p.current().keys) > 0,
 		SelfManagement:   p.selfManagementReady(),
+		ConfigSet:        p.configSetReady(),
 	}
 	r := apitypes.NewResource(p.host, spec.Name, spec.DaemonsType, DaemonName, props)
 	return apitypes.List[spec.Daemon]{Items: []spec.Daemon{r}}, nil

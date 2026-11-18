@@ -1,0 +1,39 @@
+# A hand-commented nexusd configuration: the second NFR-3 fixture for
+# config.Edit. Every comment below must stay attached to its key.
+
+# The name this host reports.
+host:
+  name: "true" # Quoted: a string, not a boolean
+
+listen: ["127.0.0.1:7443"] # Loopback only
+
+tls:
+  # Head comment on mode.
+  mode: auto # auto | files | off
+  certFile: ''
+  keyFile: ""
+  extraSANs: []
+
+limits:
+  maxBodyBytes: 1048576 # One MiB
+  storageBudgetBytes: 1073741824
+  outputCapBytes: 10485760
+
+audit:
+  retentionDays: 90 # Days
+  # Foot comment closing audit.
+
+providers:
+  # Pi-hole stays off, written as a flow mapping.
+  pihole: {enabled: false} # Flow mapping
+  scripts:
+    enabled: false
+    catalog: []
+  host:
+    # Ünïcode ✓
+    enabled: false # Off until enabled here
+    sampleInterval: 10s # How often the sampler reads the host
+    historyDuration: 1h
+    sourceTimeout: 2s # Last key in host
+
+# The end of the file.

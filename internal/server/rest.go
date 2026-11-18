@@ -181,6 +181,11 @@ func handle(mux *http.ServeMux, pattern string, h http.Handler) (err error) {
 func (s *Server) opHandler(disp *core.Dispatcher, op def.Op, names []string, fields map[string]reflect.Type,
 	upload func() int64) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if op.SecretOutput != "" {
+			// Set before any write, so a problem answer carries it too: the
+			// 200 returns a credential once, and no cache may keep it (NFR-1).
+			w.Header().Set("Cache-Control", "no-store")
+		}
 		// A request without a principal cannot pass the authentication
 		// middleware; if one ever did, the Dispatcher refuses the zero value.
 		caller, _ := auth.PrincipalFrom(r.Context())

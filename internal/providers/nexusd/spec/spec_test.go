@@ -5,20 +5,23 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
 
+	"github.com/mauktik/nexus/internal/config"
 	"github.com/mauktik/nexus/internal/def"
 	"github.com/mauktik/nexus/internal/providers/nexusd/spec"
 )
 
 // TC-SM-19: Spec lists exactly the seven ops of the Operation catalog table,
 // with their kind, route segments, scope, risk, mode, CLI command and MCP
-// tool.
-func TestSpecListsTheSevenOps(t *testing.T) {
+// tool, followed by the three token ops, the two config reads and config set
+// of nexusd-remote-admin's table (TC-RA-26, TC-RA-60, TC-RA-67).
+func TestSpecListsTheOps(t *testing.T) {
 	type row struct {
 		id, resourceType, action string
 		kind                     def.Kind
@@ -35,6 +38,12 @@ func TestSpecListsTheSevenOps(t *testing.T) {
 		{"nexusd.actions.update", "", "update", def.KindProviderAction, "nexusd:admin", def.RiskMutating, def.ModeLongRunning, "nexusd", "update", ""},
 		{"nexusd.actions.rollback", "", "rollback", def.KindProviderAction, "nexusd:admin", def.RiskDestructive, def.ModeLongRunning, "nexusd", "rollback", ""},
 		{"nexusd.uploads.add", "uploads", "", def.KindUpload, "nexusd:admin", def.RiskMutating, def.ModeSync, "", "", ""},
+		{"nexusd.tokens.list", "tokens", "", def.KindList, "nexusd:admin", def.RiskReadOnly, def.ModeSync, "nexusdtoken", "get", ""},
+		{"nexusd.tokens.add", "tokens", "add", def.KindResourceAction, "nexusd:admin", def.RiskMutating, def.ModeSync, "nexusdtoken", "add", ""},
+		{"nexusd.tokens.remove", "tokens", "remove", def.KindResourceAction, "nexusd:admin", def.RiskDestructive, def.ModeSync, "nexusdtoken", "remove", ""},
+		{"nexusd.config.list", "config", "", def.KindList, "nexusd:admin", def.RiskReadOnly, def.ModeSync, "nexusdconfig", "get", ""},
+		{"nexusd.config.get", "config", "", def.KindGet, "nexusd:admin", def.RiskReadOnly, def.ModeSync, "nexusdconfig", "get", ""},
+		{"nexusd.actions.update-config", "", "update-config", def.KindProviderAction, "nexusd:admin", def.RiskMutating, def.ModeLongRunning, "nexusdconfig", "update", ""},
 	}
 
 	s := spec.Spec()
@@ -74,6 +83,12 @@ func TestSpecListsTheSevenOps(t *testing.T) {
 		{"AdminScope", spec.AdminScope, "nexusd:admin"},
 		{"DaemonsType", spec.DaemonsType, "daemons"},
 		{"UploadsType", spec.UploadsType, "uploads"},
+		{"TokensType", spec.TokensType, "tokens"},
+		{"ConfigType", spec.ConfigType, "config"},
+		{"MaxRemoteTokens", spec.MaxRemoteTokens, 256},
+		{"TokenMutationsPerMinute", spec.TokenMutationsPerMinute, 10},
+		{"MaxConfigChanges", spec.MaxConfigChanges, 32},
+		{"MaxConfigValueBytes", spec.MaxConfigValueBytes, 4096},
 		{"LaneKey", spec.LaneKey, "nexusd"},
 		{"DefaultMaxUploadBytes", spec.DefaultMaxUploadBytes, 64 << 20},
 		{"MaxUploadBytesCeiling", spec.MaxUploadBytesCeiling, 256 << 20},
@@ -87,7 +102,8 @@ func TestSpecListsTheSevenOps(t *testing.T) {
 	}
 
 	// The reads are idempotent; a read op's output columns match the table.
-	for _, op := range []def.Op{spec.List.Op(), spec.ValidateConfig.Op()} {
+	for _, op := range []def.Op{spec.List.Op(), spec.ValidateConfig.Op(), spec.TokensList.Op(), spec.ConfigList.Op(),
+		spec.ConfigGet.Op()} {
 		if !op.Idempotent {
 			t.Errorf("%s: not idempotent", op.ID)
 		}
@@ -153,13 +169,16 @@ func visit(s *jsonschema.Schema, path string, f func(path string, s *jsonschema.
 var forbiddenFieldParts = []string{"path", "command", "shell", "exec", "url"}
 
 // forbiddenWords mirrors internal/conformance's op ID and route words outside
-// v1; the conformance suite applies it to the wired catalog (6.1).
+// v1; the conformance suite applies it to the wired catalog (6.1). As there,
+// allowedTokenOps alone may carry "token" and "tokens".
 var forbiddenWords = []string{
 	"create", "exec", "execute", "run", "shell", "reboot", "shutdown", "poweroff", "halt",
 	"repository", "repositories", "repo", "repos", "sources", "key", "keys",
 	"reconcile", "drift", "deploy", "deployment", "deployments", "template", "templates",
 	"schedule", "schedules", "cron", "metrics", "self", "selfupdate", "token", "tokens",
 }
+
+var allowedTokenOps = []string{"nexusd.tokens.list", "nexusd.tokens.add", "nexusd.tokens.remove"}
 
 func words(s string) []string {
 	return strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
@@ -205,13 +224,17 @@ func TestInputsAreConstrained(t *testing.T) {
 			}
 		})
 		for _, w := range slices.Concat(words(op.ID), words(route(op))) {
+			if (w == "token" || w == "tokens") && slices.Contains(allowedTokenOps, op.ID) {
+				continue
+			}
 			if slices.Contains(forbiddenWords, w) {
 				t.Errorf("%s: forbidden word %q in op ID or route %s", op.ID, w, route(op))
 			}
 		}
 	}
-	if strs != 2 {
-		t.Errorf("found %d string inputs, want 2 (uploadId and signature)", strs)
+	if strs != 8 {
+		t.Errorf("found %d string inputs, want 8 (uploadId, signature, token add's name, scopes[] and expires, "+
+			"token remove's name, config get's name and config set's changes[])", strs)
 	}
 
 	update := schemaOf(t, spec.Update.Op())
@@ -300,7 +323,8 @@ func schemaOf(t *testing.T, op def.Op) *jsonschema.Resolved {
 
 // TC-SM-21: restart, update and rollback declare a 60 s reconnect window and
 // the others none; only update carries the CLI.Upload binding, which names
-// the upload op; the lane ops are cancelable only while queued.
+// the upload op; the lane ops, config set included, are cancelable only
+// while queued.
 func TestReconnectWindowsAndUploadBinding(t *testing.T) {
 	windows := map[string]time.Duration{
 		"nexusd.actions.restart":  60 * time.Second,
@@ -358,7 +382,8 @@ func TestReconnectWindowsAndUploadBinding(t *testing.T) {
 		t.Errorf("upload op has CLI %+v MCP %+v, want neither", up.CLI, up.MCP)
 	}
 
-	for _, op := range []def.Op{spec.Reload.Op(), spec.Restart.Op(), spec.Update.Op(), spec.Rollback.Op()} {
+	for _, op := range []def.Op{spec.Reload.Op(), spec.Restart.Op(), spec.Update.Op(), spec.Rollback.Op(),
+		spec.UpdateConfig.Op()} {
 		if op.Cancel != def.CancelQueuedOnly {
 			t.Errorf("%s: cancel %q, want %q", op.ID, op.Cancel, def.CancelQueuedOnly)
 		}
@@ -406,6 +431,26 @@ func TestDescriptions(t *testing.T) {
 			if op.Risk != def.RiskReadOnly || op.Mutating() {
 				t.Errorf("%s: risk %s, want read-only", op.ID, op.Risk)
 			}
+		}
+	}
+}
+
+// The value bound the API declares (MaxConfigValueBytes, NFR-5) is the one
+// config.Edit enforces: a string of exactly that many bytes is written, one
+// byte more is refused.
+func TestConfigEditValueBoundIsMaxConfigValueBytes(t *testing.T) {
+	data := []byte("host:\n  name: a\n")
+	for _, c := range []struct {
+		n  int
+		ok bool
+	}{{spec.MaxConfigValueBytes, true}, {spec.MaxConfigValueBytes + 1, false}} {
+		v := strings.Repeat("a", c.n)
+		out, _, err := config.Edit(data, "nexusd.yaml", []config.Assignment{{Key: "host.name", Value: v}})
+		switch {
+		case c.ok && (err != nil || !strings.Contains(string(out), v)):
+			t.Errorf("a %d-byte host.name: %v, want written", c.n, err)
+		case !c.ok && (err == nil || !strings.Contains(err.Error(), strconv.Itoa(spec.MaxConfigValueBytes))):
+			t.Errorf("a %d-byte host.name: %v, want refused naming %d bytes", c.n, err, spec.MaxConfigValueBytes)
 		}
 	}
 }

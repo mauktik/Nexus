@@ -585,14 +585,14 @@ func TestRestartInputWireFormat(t *testing.T) {
 			Timeout: 30 * time.Second, Stability: 5 * time.Second, Poll: time.Second},
 		Paths: DefaultPaths(),
 	}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("input.json decodes to %+v, want %+v", got, want)
 	}
 	var golden helperInput
 	if err := json.Unmarshal([]byte(restartInputGolden), &golden); err != nil {
 		t.Fatal(err)
 	}
-	if golden != want {
+	if !reflect.DeepEqual(golden, want) {
 		t.Errorf("the golden input.json decodes to %+v, want %+v", golden, want)
 	}
 }

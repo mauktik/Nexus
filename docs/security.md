@@ -58,9 +58,10 @@ Keep `nexusd` LAN only.
 
 ## Tokens
 
-- Tokens are created, listed and revoked only on the host, as root, with
-  `nexusd token create`, `nexusd token list` and `nexusd token revoke`. No
-  API or MCP call creates one, so a stolen token cannot mint another.
+- **On the host, as root.** `nexusd token create`, `nexusd token list` and
+  `nexusd token revoke` work on the token store directly, with no running
+  `nexusd` and no existing token. They are how the first token is made and
+  how a host is recovered when no remote token works any more.
 
   ```
   sudo nexusd token create --name laptop --scope containers:read --scope packages:read
@@ -69,20 +70,68 @@ Keep `nexusd` LAN only.
   sudo nexusd token revoke agent
   ```
 
-- A token is 256 random bits, printed once by `nexusd token create` and
-  never shown again. `/var/lib/nexus/tokens.json` holds only its SHA-256
-  hash, its name, scopes, creation time and optional expiry. Tokens are
+- **Remotely, with `nexusd:admin`.** With the `nexusd` provider enabled, a
+  token holding `nexusd:admin` can also create, list and revoke tokens over
+  REST or the CLI: `nexus nexusdtoken add`, `nexus nexusdtoken get` and
+  `nexus nexusdtoken remove` ([install.md](install.md#manage-tokens-remotely)
+  has the commands). These are the same records as the local command's,
+  in the same `/var/lib/nexus/tokens.json`, and both serialize on its lock.
+  Remote token management works on systemd and OpenRC hosts. It is not an
+  MCP tool.
+- **The one-login bootstrap.** The first `nexusd:admin` token is always
+  minted on the host, as root: there is no enrollment, pairing or first-boot
+  secret. One login is enough: set `providers.nexusd.enabled: true` in
+  `/etc/nexus/nexusd.yaml`, reload, and run `sudo nexusd token create
+  --scope nexusd:admin`. Every later token can be made remotely.
+- **`sudo nexusd token` is the recovery path.** If every `nexusd:admin`
+  token is lost, revoked or expired, or a configuration change locks the
+  client out, log in to the host and mint a new one with `sudo nexusd token
+  create`. Remote calls cannot lock root out of this path.
+- **The secret is returned once.** A token is 256 random bits, printed once
+  by `nexusd token create` and returned once by a remote add, in its
+  response body only. It is never stored, logged, written to an operation
+  record or the idempotency store, or shown again: a remote add creates no
+  operation and refuses an `Idempotency-Key`, so nothing can replay it.
+  `/var/lib/nexus/tokens.json` holds only its SHA-256 hash, its name,
+  scopes, creation time, optional expiry and, for a remote add,
+  `createdBy`: the ID and name of the token that added it. Tokens are
   compared in constant time.
-- A new token has no scopes unless `--scope` gives them. Revocation takes
-  effect on the next request, without a restart.
+- **Limits on remote changes.** Successful remote adds and removes together
+  are limited to 10 per rolling minute per `nexusd`; the 11th answers 429
+  `rate-limited` with `Retry-After` and changes nothing. Listing is not
+  counted. A host holds at most 256 tokens, local ones included; a remote
+  add past that answers 409 `token-limit-reached` with `maxTokens`. The
+  local command has neither limit.
+- **What a stolen `nexusd:admin` token can do.** A remote add may grant any
+  scope, `nexusd:admin` included, so an admin token can be rotated without a
+  login. It also means a stolen `nexusd:admin` token can mint another that
+  outlives its own revocation or expiry. `createdBy` in `nexus nexusdtoken
+  get` and the audit log show which token made which; after revoking a
+  stolen token, revoke every token it created.
+- **Names are not secrets.** A name shaped like, or containing, a token
+  string (`nxs_<id>_` in any case, or a run of 43 base64url characters, the
+  length of a secret) is refused without being quoted: by a remote add or
+  remove and by the local `sudo nexusd token create`, with the same message.
+  A remote not-found or conflict answer never repeats the name, so a secret
+  pasted by mistake never reaches an error body or the audit log. A token
+  already stored under such a name keeps working; list it and revoke it by
+  its ID.
+- A new token has no scopes unless `--scope` (local) or `--scopes`
+  (remote) gives them. Revocation takes effect on the next request,
+  without a restart. A remote remove of the token the request itself used
+  is allowed; the answer says `revokedSelf: true` and the CLI warns that
+  this client can no longer authenticate with it.
 - More than `auth.failureLimitPerMinute` (default 10) authentication
   failures per minute from one source (an IPv6 /64 counts as one) answer
   `429` before any token is evaluated.
 - Tokens never appear in logs, audit records, error bodies or operation
-  records. The `nexus` CLI keeps its tokens in
-  `~/.config/nexus/config.yaml` with mode 0600 and refuses a file that a
-  group or others can read; it never takes a token as a command-line
-  argument.
+  records. The audit log records a remote add's new token ID, name, scopes
+  and expiry, a remove's token ID and name and whether it was the caller's
+  own, and each list, never a secret or a hash. The `nexus` CLI keeps its
+  tokens in `~/.config/nexus/config.yaml` with mode 0600 and refuses a file
+  that a group or others can read; it never takes a token as a
+  command-line argument, and `--save-as-host` stores a new token there
+  without printing it.
 - Give each person and each agent its own token, with the fewest scopes,
   and an expiry for anything temporary. For an agent, prefer read scopes
   plus `scripts:run:<id>` for the specific scripts it may run.
@@ -108,7 +157,7 @@ Keep `nexusd` LAN only.
 | `host:read` | The `host` provider's read-only overview of the host: host identity (hostname, OS, kernel, DMI vendor and model), network addresses and gateway, DNS resolvers, mount points, and process names and owners of the top processes, plus usage and metrics |
 | `audit:read` | Querying the audit log |
 | `nexusd:read` | The running `nexusd`: version, uptime, rollback binary, whether updates are configured, and checking its configuration file |
-| `nexusd:admin` | Reloading, restarting, updating and rolling back `nexusd`, and uploading a release; **root-equivalent** |
+| `nexusd:admin` | Reloading, restarting, updating and rolling back `nexusd`, and uploading a release; creating, listing and revoking tokens; reading the configuration file and setting its keys; **root-equivalent** |
 
 The generated [API reference](api.md) lists the scope of every operation.
 
@@ -161,14 +210,15 @@ only from the configuration file and the binary is fixed at
 replaces the `nexusd` binary, which runs as root, and runs the release's
 `install.sh` as root; a rollback puts the previous binary back, which may be
 older and have known flaws; a restart takes the API down while it runs.
-Give `nexusd:admin` only to whoever you would give a root shell on the
-host, keep it off agents, and give it an expiry. Reading `nexusd` needs only
-`nexusd:read`.
+A remote config set rewrites the root-owned `/etc/nexus/nexusd.yaml`, and a
+remote token add can mint another `nexusd:admin` token. Give `nexusd:admin`
+only to whoever you would give a root shell on the host, keep it off agents,
+and give it an expiry. Reading `nexusd` needs only `nexusd:read`.
 
 No `nexusd:admin` operation is an MCP tool. Only `get_nexusd` and
 `validate_nexusd_config`, both read-only, are exposed over MCP; reload,
-restart, update, rollback and the upload are reachable only through REST and
-the `nexus` CLI.
+restart, update, rollback, the upload, token add, list and remove, and
+config get and set are reachable only through REST and the `nexus` CLI.
 
 An update runs code a caller sent, which FR-25 otherwise rules out. It is
 allowed because the caller does not decide what runs. The update takes only
@@ -197,7 +247,8 @@ token decides only when.
 - **Pinned keys.** A host trusts the base64 public keys listed in
   `providers.nexusd.update.trustedKeys` in `/etc/nexus/nexusd.yaml`, and no
   others. The list changes only by editing that root-owned file: no API, MCP
-  or CLI call can add or remove a key. With no key listed, update is refused
+  or CLI call can add or remove a key, and a remote config set refuses
+  `trustedKeys` (see [the deny-list](#the-deny-list)). With no key listed, update is refused
   with `update-not-configured`.
 - **`SHA256SUMS` is integrity, not authentication.** It detects a corrupted
   download, but anyone who can change a tarball can change `SHA256SUMS` with
@@ -247,6 +298,121 @@ token decides only when.
   before it runs, with the upload ID, the tarball's SHA-256, the package
   version, `allowDowngrade` and the signature verdict where they apply,
   never key material. Refusals are audited with their problem type.
+
+## Remote configuration changes: the config-set helper
+
+`nexus nexusdconfig update KEY=VALUE...` (`nexusd.actions.update-config`,
+`nexusd:admin`) writes `/etc/nexus/nexusd.yaml`, a file only root could
+change before. [install.md](install.md#change-the-configuration-remotely)
+describes using it; this section is its threat model.
+
+- **Admission, inside the sandbox.** `nexusd` reads the file, applies the
+  assignments in memory and runs the same checks as `nexusd
+  validate-config` on the result, before any operation exists. A key that
+  is unknown, on the deny-list below, a list or a mapping, a value of the
+  wrong type, or an invalid result is refused with 422 `config-invalid` and
+  changes nothing. At most 32 assignments are accepted per call, each value
+  at most 4096 bytes. A key is a dotted path in the configuration schema,
+  never a file path.
+- **The helper, outside the sandbox.** The sandbox forbids writing
+  `/etc/nexus`, and it is not widened: the write runs as a `nexus-op-<id>`
+  unit, as root, outside the sandbox and outside `nexusd.service`, like
+  update and rollback. The unit runs the installed `nexusd` binary's hidden
+  `service-helper` command, whose input `nexusd` writes: the assignments
+  admission validated and the SHA-256 of the file it read. The helper
+  refuses with `config-conflict` if the file changed since, checks the
+  edited file again with the daemon's own validation, saves the current
+  file as `/etc/nexus/nexusd.yaml.bak`, replaces the file atomically
+  (`root:root`, mode 0600 or the original mode if stricter), and runs
+  `systemctl reload nexusd.service`. It writes nothing but the
+  configuration file, its backup and their temporary files.
+- **The reload is the judge.** The daemon records each reload's outcome in
+  `/var/lib/nexus/reload-status.json`, and the helper waits for it to
+  report the new file's digest applied. If the reload refuses the file, or
+  does not answer within 12 seconds, the helper restores the backup and
+  reloads again: the operation fails with `config-apply-failed` and
+  `restored: true`. If that is not confirmed either, it fails with
+  `config-restore-failed`, and the file on disk may not be the
+  configuration in force; [install.md](install.md#recovering-from-a-failed-configuration-change)
+  has the manual recovery.
+- **It never restarts `nexusd`.** Keys fixed at start-up (`listen`, `tls`,
+  `host`, `limits`, `auth`, `audit`, `mcp`) are written, listed in
+  `restartRequired`, and applied only by a separate `nexus nexusd restart`.
+- **The hardened unit is unchanged.** `deploy/nexusd.service` gained no
+  writable path and lost no directive: `/etc/nexus` stays read-only to
+  `nexusd` itself.
+- **Audit.** Each set is audited before it runs, with every key's old and
+  new value (redacted as config get redacts them), the backup path and the
+  outcome. A set that changes nothing is audited too, though it creates no
+  operation.
+
+### The deny-list
+
+Config set refuses these keys at admission, before the type rules, with
+`config-invalid` naming the key and the reason. They change only by editing
+the file on the host. The list is `spec.ConfigDenyList` in
+`internal/providers/nexusd/spec/spec.go`.
+
+| Key | Refused | Reason |
+| --- | --- | --- |
+| `providers.nexusd.update.trustedKeys` | any value | Release keys change only by editing the file, so a stolen `nexusd:admin` token cannot also trust its own signing key: an update keeps needing both a token and a trusted key |
+| `providers.nexusd.enabled` | `false` only | It would disable remote administration with no remote way back |
+| `providers.scripts.catalog` | the key and every key under it | The catalog defines commands run as root |
+| `tls.certFile` | any value | A file path: the certificate `nexusd` serves |
+| `tls.keyFile` | any value | A file path: the certificate's private key |
+| `providers.docker.socket` | any value | A file path: the socket root talks to as the Docker Engine |
+| `providers.docker.configDir` | any value | A directory: where root reads registry credentials |
+| `providers.nginx.includeDir` | any value | A directory: where root writes nginx site files |
+| `providers.nginx.includeSuffix` | any value | A file-name suffix: with `includeDir`, it decides which file root writes |
+| `providers.nginx.disabledSuffix` | any value | A file-name suffix: what root renames a disabled site to |
+| `providers.nginx.service` | any value | A service name: the service root starts, stops and reloads |
+| `providers.pihole.dnsFile` | any value | A file path: the dnsmasq file root writes |
+| `audit.retentionDays` | any value | Audit history: a stolen `nexusd:admin` token could otherwise shorten retention and, after a restart, prune the record of its own use |
+| `auth.failureLimitPerMinute` | any value | Brute-force protection: a stolen `nexusd:admin` token could otherwise raise the limit on guessing tokens |
+
+### Why path-valued keys are denied
+
+Every key whose value names a file, a directory, a file name suffix or a
+service is on the deny-list. NFR-5 and NSM FR-25 say no input carries a file
+system path, command or URL; a config value that names a path would carry
+one into a root-owned file, one step removed. The concrete hole it closes is
+a root file write: set `providers.nginx.includeDir` to any directory, such as
+`/etc/cron.d` or `/root/.ssh`, and `providers.nginx.includeSuffix` to any
+suffix, then `nexus nginxsite add` writes caller-chosen text as root to a
+caller-chosen file there. `providers.nginx.service` would likewise point
+nginx's start, stop and reload at any other service, and
+`providers.pihole.dnsFile` and `tls.keyFile` at any other file.
+
+The only string keys that stay settable are `host.name` and `tls.mode`. A
+test fails when a new string key is added to the schema without being
+classified as denied or settable, so a later path-valued key is never
+settable by default.
+
+### Lists and mappings are not settable
+
+A key is set only when its value is a scalar: a boolean, an integer, a
+duration or a string. Every list-valued key is refused, and so is every
+mapping (OOS-3): `listen`, `tls.extraSANs`, `mcp.allowedOrigins`,
+`providers.docker.compose.trustedOwners`, `providers.nexusd.update.trustedKeys`
+and `providers.scripts.catalog`. There is no way to add, remove or replace a
+list element remotely. In particular, `listen` is not settable remotely:
+which addresses `nexusd` listens on changes only on the host.
+
+The settable key that can still change how a client connects is `tls.mode`.
+It takes effect only at the next restart, and a set of it answers with a
+warning that the client may be locked out then; `sudo nexusd token` and an
+edit on the host are the way back. `auth.failureLimitPerMinute` is on the
+deny-list, so the authentication limit changes only on the host.
+
+### Config set on OpenRC
+
+Config set needs systemd: the helper runs in a transient unit, and the
+reload is confirmed through `systemctl reload nexusd.service`. On an OpenRC
+host, such as Alpine, it is refused before any operation exists with 503
+`config-set-unavailable`, and `nexus nexusd get` reports `configSet`
+unavailable with the reason. Config get and remote token management work on
+OpenRC: they run inside `nexusd`, which is unconfined there (see
+[OpenRC hosts](#openrc-hosts-alpine)).
 
 ## nexusd runs as root; the sandbox is not a security boundary
 

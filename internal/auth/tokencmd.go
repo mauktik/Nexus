@@ -12,10 +12,12 @@ import (
 )
 
 // TokenCommand runs `<prog> token <create|list|revoke> ...` and returns the
-// exit code: 0 on success, 1 on failure, 2 on a usage error. It is the only
-// way to create, list or revoke tokens; no network path does (FR-21). A
-// created token is printed once, alone on stdout, and nothing else ever
-// prints a secret or a hash.
+// exit code: 0 on success, 1 on failure, 2 on a usage error. It is the
+// bootstrap and recovery path: it works on the state directory directly, with
+// no running daemon and no existing token. The nexusd provider's token ops,
+// gated by nexusd:admin, also create, list and revoke tokens. A created token
+// is printed once, alone on stdout, and nothing else ever prints a secret or
+// a hash.
 func TokenCommand(prog string, args []string, stdout, stderr io.Writer) int {
 	usage := func() {
 		fmt.Fprintf(stderr, "Usage:\n"+
@@ -96,7 +98,7 @@ func tokenCreate(prog string, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "%s: --name is required\n", fs.Name())
 		return 2
 	}
-	ttl, err := parseLifetime(*expires)
+	ttl, err := ParseLifetime(*expires)
 	if err != nil {
 		fmt.Fprintf(stderr, "%s: --expires: %v\n", fs.Name(), err)
 		return 2
@@ -115,8 +117,9 @@ func tokenCreate(prog string, args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// parseLifetime accepts a Go duration or a whole number of days ("30d").
-func parseLifetime(s string) (time.Duration, error) {
+// ParseLifetime accepts a Go duration or a whole number of days ("30d"), up to
+// 36500 days. Empty means no expiry and gives 0.
+func ParseLifetime(s string) (time.Duration, error) {
 	if s == "" {
 		return 0, nil
 	}

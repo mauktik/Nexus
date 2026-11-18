@@ -10,7 +10,8 @@ import (
 
 // Daemon is what a provider may know of the nexusd process serving it: where
 // its configuration and state live, when it started, the FR-3 check of its
-// configuration file and a reload through the daemon's own loop.
+// configuration file or of candidate bytes, and a reload through the
+// daemon's own loop.
 type Daemon interface {
 	ConfigPath() string
 	StateDir() string
@@ -18,6 +19,10 @@ type Daemon interface {
 	// CheckConfig is daemon.CheckConfig(ConfigPath()): the same check as
 	// `nexusd validate-config`.
 	CheckConfig() ConfigCheck
+	// CheckConfigData is daemon.CheckConfigData(data, ConfigPath()): the
+	// same check on bytes that are not on disk yet. ConfigPath only names
+	// the source in the errors.
+	CheckConfigData(data []byte) ConfigCheck
 	// Reload re-reads the configuration file and applies it through the
 	// daemon's run loop, serialized with SIGHUP. A reload the loop has
 	// taken runs to completion even if ctx ends first; Reload then returns
@@ -25,8 +30,8 @@ type Daemon interface {
 	Reload(ctx context.Context) (ReloadResult, error)
 }
 
-// ConfigCheck is the outcome of Daemon.CheckConfig. Config is nil when the
-// file cannot be loaded; Errors is empty only for a file nexusd would start
+// ConfigCheck is the outcome of Daemon.CheckConfig and CheckConfigData.
+// Config is nil when the file or bytes cannot be loaded; Errors is empty only for a file nexusd would start
 // with.
 type ConfigCheck struct {
 	Config *config.Config

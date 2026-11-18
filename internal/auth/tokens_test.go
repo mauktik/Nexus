@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -230,5 +231,31 @@ func TestMissingTokenFileRefusesEverything(t *testing.T) {
 	a := New(filepath.Join(t.TempDir(), "absent"), Options{Logger: quietLog()})
 	if _, err := a.Authenticate("nxs_000000000000_" + strings.Repeat("A", 43)); !errors.Is(err, ErrInvalidToken) {
 		t.Fatalf("err = %v, want ErrInvalidToken", err)
+	}
+}
+
+// The store's typed errors stay matchable with errors.As when a caller wraps
+// them, which is how the nexusd provider maps them to problem types.
+func TestTypedErrorsMatchThroughWrapping(t *testing.T) {
+	dir := t.TempDir()
+	_, a := mustCreate(t, dir, CreateRequest{Name: "a"})
+
+	_, _, err := Create(dir, CreateRequest{Name: "a"})
+	var ne *NameExistsError
+	if !errors.As(fmt.Errorf("add: %w", err), &ne) || ne.Name != "a" || ne.ID != a.ID {
+		t.Errorf("duplicate name: err = %v, want a wrapped *NameExistsError", err)
+	}
+	_, err = Revoke(dir, "absent")
+	var nf *NotFoundError
+	if !errors.As(fmt.Errorf("remove: %w", err), &nf) || nf.Ref != "absent" {
+		t.Errorf("unknown ref: err = %v, want a wrapped *NotFoundError", err)
+	}
+	_, _, err = Create(dir, CreateRequest{Name: "b", MaxTokens: 1})
+	var le *LimitError
+	if !errors.As(fmt.Errorf("add: %w", err), &le) || le.Max != 1 {
+		t.Errorf("cap: err = %v, want a wrapped *LimitError", err)
+	}
+	if want := "the token store already holds 1 tokens, the most allowed; revoke one first"; err == nil || err.Error() != want {
+		t.Errorf("LimitError text = %v, want %q", err, want)
 	}
 }

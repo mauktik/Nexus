@@ -51,6 +51,11 @@ const (
 	NginxConfigInvalid   Slug = "nginx-config-invalid"
 	NginxConfigUnmanaged Slug = "nginx-config-unmanaged"
 	NginxNotRunning      Slug = "nginx-not-running"
+
+	// nexusd-remote-admin (nexusd-remote-admin architecture.md, Problem
+	// types).
+	ConfigSetUnavailable Slug = "config-set-unavailable"
+	TokenLimitReached    Slug = "token-limit-reached"
 )
 
 // Operation-level problem types: they appear only inside operation.error.
@@ -78,6 +83,10 @@ const (
 	PiholeCommandFailed   Slug = "pihole-command-failed"
 	PiholeBusy            Slug = "pihole-busy"
 	NginxReloadFailed     Slug = "nginx-reload-failed"
+
+	// nexusd-remote-admin: the outcomes of a config set operation.
+	ConfigConflict      Slug = "config-conflict"
+	ConfigRestoreFailed Slug = "config-restore-failed"
 )
 
 // Type is one registered problem type. Problem types are part of the
@@ -146,6 +155,10 @@ var registry = []Type{
 	{Slug: DNSFileConflict, Title: "DNS file conflict", Status: 409, Exit: 1, Extensions: []string{"expectedEtag", "currentEtag"}},
 	{Slug: DNSNameUnzoned, Title: "DNS name not in a zone", Status: 422, Exit: 1, Extensions: []string{"name"}},
 	{Slug: DNSBatchRejected, Title: "DNS batch rejected", Status: 422, Exit: 1, Extensions: []string{"changeIndex", "cause"}},
+	// nexusd-remote-admin. config set needs systemd; the token cap is
+	// MaxRemoteTokens.
+	{Slug: ConfigSetUnavailable, Title: "Configuration set unavailable", Status: 503, Exit: 4, Extensions: []string{"provider", "reason"}},
+	{Slug: TokenLimitReached, Title: "Token limit reached", Status: 409, Exit: 1, Extensions: []string{"maxTokens"}},
 
 	// An operation that fails makes the CLI exit 1.
 	{Slug: OutcomeUnknown, Title: "Outcome unknown", Exit: 1, OperationLevel: true},
@@ -167,7 +180,10 @@ var registry = []Type{
 		Extensions: []string{"observed", "rolledBack", "rollbackReload", "testOutput"}},
 	// nexusd self-management: the outcomes of reload, restart, update and
 	// rollback operations.
-	{Slug: ConfigApplyFailed, Title: "Configuration apply failed", Exit: 1, OperationLevel: true},
+	// restored and backupPath come from a config set whose reload was refused
+	// (nexusd-remote-admin).
+	{Slug: ConfigApplyFailed, Title: "Configuration apply failed", Exit: 1, OperationLevel: true,
+		Extensions: []string{"restored", "backupPath"}},
 	{Slug: RestartUnhealthy, Title: "Restart unhealthy", Exit: 1, OperationLevel: true, Extensions: []string{"condition", "version"}},
 	{Slug: UpdateFailed, Title: "Update failed", Exit: 1, OperationLevel: true,
 		Extensions: []string{"rolledBack", "step", "previousVersion", "newVersion"}},
@@ -186,6 +202,12 @@ var registry = []Type{
 	{Slug: PiholeCommandFailed, Title: "Pi-hole command failed", Exit: 1, OperationLevel: true,
 		Extensions: []string{"command", "exitCode", "rolledBack"}},
 	{Slug: PiholeBusy, Title: "Pi-hole busy", Exit: 1, OperationLevel: true, Extensions: []string{"waitedSeconds"}},
+	// nexusd-remote-admin: the outcomes of a config set operation.
+	// config-conflict means the file changed after admission, so nothing was
+	// applied; config-restore-failed means the backup at backupPath could not
+	// be confirmed back in place.
+	{Slug: ConfigConflict, Title: "Configuration conflict", Exit: 1, OperationLevel: true},
+	{Slug: ConfigRestoreFailed, Title: "Configuration restore failed", Exit: 1, OperationLevel: true, Extensions: []string{"backupPath"}},
 }
 
 var bySlug = func() map[Slug]Type {

@@ -250,13 +250,20 @@ type inProcess struct {
 
 func startInProcess(t *testing.T, cfgPath string, providers ...provider.Provider) *inProcess {
 	t.Helper()
+	return startInProcessIn(t, cfgPath, t.TempDir(), providers...)
+}
+
+// startInProcessIn is startInProcess over the given state directory, so two
+// runs in turn can share it.
+func startInProcessIn(t *testing.T, cfgPath, stateDir string, providers ...provider.Provider) *inProcess {
+	t.Helper()
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	r := &inProcess{sigs: make(chan os.Signal), runErr: make(chan error, 1), logs: &syncBuffer{}}
 	r.d, err = New(cfg, Options{Providers: providers, ConfigPath: cfgPath,
-		Logger: slog.New(slog.NewJSONHandler(r.logs, nil)), StateDir: t.TempDir(), AuditDir: t.TempDir(),
+		Logger: slog.New(slog.NewJSONHandler(r.logs, nil)), StateDir: stateDir, AuditDir: t.TempDir(),
 		Detach: detachtest.Local(), Signals: r.sigs})
 	if err != nil {
 		t.Fatal(err)

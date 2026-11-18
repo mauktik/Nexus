@@ -36,6 +36,8 @@ var tabledExits = map[problem.Slug]int{
 	"config-invalid": 1, "upload-too-large": 2, "upload-not-found": 1, "update-not-configured": 1,
 	"update-signature-invalid": 1, "update-package-invalid": 1, "version-downgrade": 1,
 	"rollback-unavailable": 1,
+	// nexusd-remote-admin Problem types table (HTTP-level rows).
+	"config-set-unavailable": 4, "token-limit-reached": 1,
 }
 
 // nginxExits are the nginx provider's non-operation-level problem types.
@@ -107,6 +109,8 @@ type planTable struct {
 var planTables = []planTable{
 	{"nexus-server-manager", "| Slug | HTTP | CLI exit |", 20},
 	{"nexusd-self-management", "| Slug | Status | Exit |", 8},
+	// Its rows with a status and an exit: the two new slugs and config-invalid.
+	{"nexusd-remote-admin", "| Slug | Status | Exit | Extensions | OperationLevel |", 3},
 }
 
 // architectureExits parses the same column out of one architecture.md table,
@@ -125,7 +129,8 @@ func architectureExits(t *testing.T, tb planTable) map[problem.Slug]int {
 		t.Fatalf("open %s: %v", path, err)
 	}
 	defer f.Close()
-	row := regexp.MustCompile("^\\| `([a-z-]+)` \\| (\\d{3}) \\| (\\d) \\|")
+	// A slug may carry a note after it, such as "(new)".
+	row := regexp.MustCompile("^\\| `([a-z-]+)`(?: \\([a-z]+\\))? \\| (\\d{3}) \\| (\\d) \\|")
 	out := map[problem.Slug]int{}
 	in := false
 	sc := bufio.NewScanner(f)

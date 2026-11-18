@@ -197,12 +197,18 @@ func TestTCSM99_NexusCommandGetListsSixNexusd(t *testing.T) {
 	}
 	slices.Sort(routes)
 	want := []string{
+		"GET /v1/providers/nexusd/config",
+		"GET /v1/providers/nexusd/config/{name}",
 		"GET /v1/providers/nexusd/daemons",
+		"GET /v1/providers/nexusd/tokens",
 		"POST /v1/providers/nexusd/actions/reload",
 		"POST /v1/providers/nexusd/actions/restart",
 		"POST /v1/providers/nexusd/actions/rollback",
 		"POST /v1/providers/nexusd/actions/update",
+		"POST /v1/providers/nexusd/actions/update-config",
 		"POST /v1/providers/nexusd/actions/validate-config",
+		"POST /v1/providers/nexusd/tokens/{name}/add",
+		"POST /v1/providers/nexusd/tokens/{name}/remove",
 		"POST /v1/providers/nexusd/uploads",
 	}
 	if !slices.Equal(routes, want) {

@@ -4,7 +4,7 @@
 
 Reload the nexusd configuration
 
-Re-reads and applies nexusd's configuration file, as SIGHUP does, serialized with SIGHUP. An invalid file is refused with 422 config-invalid and its errors, and no operation is created. Side effects: the new configuration is applied, all or nothing: if a provider refuses its section the operation fails with config-apply-failed and the configuration in force is unchanged. The result lists restartRequired, the top-level keys that take effect only after a restart. Long-running: answers 202 with an operation. Reload, restart, update and rollback share one lane: a second request while one is queued or running answers 409 naming the blocking operation. It can be canceled only while queued. Requires nexusd:admin, which is root-equivalent.
+Re-reads and applies nexusd's configuration file, as SIGHUP does, serialized with SIGHUP. An invalid file is refused with 422 config-invalid and its errors, and no operation is created. Side effects: the new configuration is applied, all or nothing: if a provider refuses its section the operation fails with config-apply-failed and the configuration in force is unchanged. The result lists restartRequired, the top-level keys that take effect only after a restart. Long-running: answers 202 with an operation. Reload, restart, update, rollback and config set share one lane: a second request while one is queued or running answers 409 naming the blocking operation. It can be canceled only while queued. Requires nexusd:admin, which is root-equivalent.
 
 ## Usage
 

@@ -258,6 +258,9 @@ func TestErasedDetachedCallsReachTypedHandlers(t *testing.T) {
 	if d := df.LostDetail(r, in); d != "deploy of w4 may be partial" {
 		t.Errorf("LostDetail = %q", d)
 	}
+	if df.Admission != nil {
+		t.Error("Admission is set for a spec without an Admission hook")
+	}
 	if _, err := df.Prepare(ctx, widgetGetIn{Name: "w4"}, r); err == nil {
 		t.Error("Prepare accepted an input of the wrong type")
 	}

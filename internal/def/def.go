@@ -59,6 +59,15 @@ const (
 const SystemProvider = "system"
 
 // Op is a single operation declaration. Build it with Define.
+//
+// A mutating op is ModeLongRunning: it answers 202 with an operation. There
+// are three exceptions, which answer synchronously:
+//   - OperationControl (provider "system" only) acts on an existing operation;
+//   - KindUpload stages bytes for a later long-running op;
+//   - SyncMutation answers 200 with no operation record, lane or replay.
+//
+// CompletesAtAdmission is not an exception: such an op stays long-running and
+// may only end a call at admission with 200 and its output.
 type Op struct {
 	ID               string // Stable OpenAPI operationId, e.g. "docker.containers.restart"
 	Provider         string
@@ -88,6 +97,22 @@ type Op struct {
 	// (one item of a list), in order; the host column always comes first.
 	// Empty means those of another op with the same output, else derived.
 	Columns []string
+
+	// SyncMutation lets a mutating op answer 200 synchronously, with no
+	// operation record, lane or idempotency replay (CON-3, the third
+	// exception after OperationControl and KindUpload). Its output is never
+	// persisted: it reaches only the response body.
+	SyncMutation bool
+	// SecretOutput is the JSON name of a string field of the output that
+	// carries a credential returned once. Requires SyncMutation.
+	SecretOutput string
+	// Audited makes a read-only sync op's calls audited like a mutation's:
+	// requested before the handler (fail-closed), then completed or refused.
+	Audited bool
+	// CompletesAtAdmission lets a long-running op end a call at admission
+	// with 200 and its output: no operation record, lane hold, Prepare or
+	// unit. Its binding must provide DetachedSpec.Admission (D-7).
+	CompletesAtAdmission bool
 
 	inputType  reflect.Type // Set by Define
 	outputType reflect.Type // Set by Define
@@ -130,6 +155,12 @@ type CLIBinding struct {
 	// connection to the daemon while it waits, e.g. across a daemon restart.
 	// Zero means no retrying. At most 10 minutes; long-running ops only.
 	ReconnectWindow time.Duration
+	// Variadic is the []string input field that trailing arguments bind to.
+	// Empty keeps the "names" convention.
+	Variadic string
+	// EchoWarnings also prints the result's warnings ([]string "warnings",
+	// apitypes.ActionResult) on stderr, after printing the result.
+	EchoWarnings bool
 }
 
 // CLIUpload binds a long-running command to a KindUpload op of the same
@@ -267,6 +298,10 @@ func validate(op Op) error {
 		return fmt.Errorf("unknown Mode %q", op.Mode)
 	}
 
+	if err := validateDeclarations(op); err != nil {
+		return err
+	}
+
 	system := op.Provider == SystemProvider
 	if op.OperationControl && !system {
 		return fmt.Errorf("OperationControl is allowed only for provider %q", SystemProvider)
@@ -304,6 +339,18 @@ func validate(op Op) error {
 		}
 	}
 
+	if v := op.CLI.Variadic; v != "" {
+		if !isStringSliceField(op.inputType, v) {
+			return fmt.Errorf("CLI.Variadic %q is not a []string field of input %v", v, op.inputType)
+		}
+		if op.CLI.Positional != "" {
+			return fmt.Errorf("CLI.Variadic %q cannot be set with CLI.Positional %q", v, op.CLI.Positional)
+		}
+	}
+	if op.CLI.EchoWarnings && !hasWarnings(op.outputType) {
+		return fmt.Errorf("CLI.EchoWarnings requires an output with a []string field warnings, got %v", op.outputType)
+	}
+
 	if op.CLI.WaitedResultItems {
 		if op.Mode != ModeLongRunning {
 			return fmt.Errorf("CLI.WaitedResultItems requires ModeLongRunning, got %q", op.Mode)
@@ -320,15 +367,87 @@ func validate(op Op) error {
 			if op.Scope.Name == "" && !op.Scope.FromTarget {
 				return fmt.Errorf("OperationControl op with empty Scope.Name must set Scope.FromTarget")
 			}
-		} else if op.Kind != KindUpload {
+		} else if op.Kind != KindUpload && !op.SyncMutation {
 			// KindUpload is the second exception: it stages bytes for a later
-			// long-running op and is checked by validateUpload.
+			// long-running op and is checked by validateUpload. SyncMutation
+			// is the third, checked by validateDeclarations.
 			if op.Mode != ModeLongRunning {
 				return fmt.Errorf("mutating op must be ModeLongRunning, got %q", op.Mode)
 			}
 			if op.Scope.Name == "" {
 				return fmt.Errorf("mutating op has empty Scope.Name")
 			}
+		}
+	}
+	return nil
+}
+
+// validateDeclarations checks CompletesAtAdmission, SyncMutation,
+// SecretOutput and Audited. It runs before the other rules so that a refusal names
+// the declaration whose rule failed.
+func validateDeclarations(op Op) error {
+	action := op.Kind == KindResourceAction || op.Kind == KindProviderAction
+	if op.CompletesAtAdmission {
+		switch {
+		case !op.Mutating():
+			return fmt.Errorf("CompletesAtAdmission requires a mutating op, got Risk %q", op.Risk)
+		case op.Mode != ModeLongRunning:
+			return fmt.Errorf("CompletesAtAdmission requires ModeLongRunning, got %q", op.Mode)
+		case !action:
+			return fmt.Errorf("CompletesAtAdmission requires KindResourceAction or KindProviderAction, got Kind %q", op.Kind)
+		case op.MCP != nil:
+			// The MCP adapter maps long-running ops to operations only.
+			return fmt.Errorf("CompletesAtAdmission must not set MCP")
+		case op.SyncMutation:
+			return fmt.Errorf("CompletesAtAdmission cannot be set with SyncMutation")
+		case op.WhatIf:
+			return fmt.Errorf("CompletesAtAdmission must not set WhatIf")
+		case op.CLI.Upload != nil:
+			return fmt.Errorf("CompletesAtAdmission must not set CLI.Upload")
+		}
+	}
+	if op.SyncMutation {
+		switch {
+		case !op.Mutating():
+			return fmt.Errorf("SyncMutation requires a mutating op, got Risk %q", op.Risk)
+		case op.Mode != ModeSync:
+			return fmt.Errorf("SyncMutation requires ModeSync, got %q", op.Mode)
+		case !action:
+			return fmt.Errorf("SyncMutation requires KindResourceAction or KindProviderAction, got Kind %q", op.Kind)
+		case op.Provider == SystemProvider:
+			return fmt.Errorf("SyncMutation is not allowed for provider %q", SystemProvider)
+		case op.Scope.Name == "":
+			return fmt.Errorf("SyncMutation requires Scope.Name")
+		case op.MCP != nil:
+			return fmt.Errorf("SyncMutation must not set MCP")
+		case op.WhatIf:
+			return fmt.Errorf("SyncMutation must not set WhatIf")
+		case op.Idempotent:
+			return fmt.Errorf("SyncMutation must not set Idempotent")
+		case op.OperationControl:
+			return fmt.Errorf("SyncMutation must not set OperationControl")
+		case op.CLI.Upload != nil:
+			return fmt.Errorf("SyncMutation must not set CLI.Upload")
+		case op.CLI.ReconnectWindow != 0:
+			return fmt.Errorf("SyncMutation must not set CLI.ReconnectWindow")
+		case op.CLI.WaitedResultItems:
+			return fmt.Errorf("SyncMutation must not set CLI.WaitedResultItems")
+		}
+	}
+	if s := op.SecretOutput; s != "" {
+		if !op.SyncMutation {
+			return fmt.Errorf("SecretOutput %q requires SyncMutation", s)
+		}
+		if !isStringField(op.outputType, s) {
+			return fmt.Errorf("SecretOutput %q is not a string field of output %v", s, op.outputType)
+		}
+	}
+	if op.Audited {
+		if op.Risk != RiskReadOnly {
+			return fmt.Errorf("Audited requires RiskReadOnly, got %q", op.Risk)
+		}
+		if op.Mode != ModeSync {
+			return fmt.Errorf("Audited requires ModeSync, got %q", op.Mode)
 		}
 	}
 	return nil
@@ -407,25 +526,92 @@ func validateCLIUpload(op Op) error {
 // isStringField reports whether struct type t has a string field whose JSON
 // name is name.
 func isStringField(t reflect.Type, name string) bool {
+	f, ok := jsonField(t, name)
+	return ok && f.Kind() == reflect.String
+}
+
+// isStringSliceField reports whether struct type t has a []string field whose
+// JSON name is name.
+func isStringSliceField(t reflect.Type, name string) bool {
+	f, ok := jsonField(t, name)
+	return ok && f.Kind() == reflect.Slice && f.Elem().Kind() == reflect.String
+}
+
+// hasWarnings reports whether struct type t has a []string field warnings,
+// its own or promoted from an embedded apitypes.ActionResult.
+func hasWarnings(t reflect.Type) bool {
+	return isStringSliceField(t, "warnings")
+}
+
+// jsonField returns the type of the field that encoding/json encodes under
+// name in struct type t. It follows encoding/json: an embedded struct without
+// a JSON name is flattened, "-" hides a field (and so all of an embedded
+// struct's fields), the shallowest field wins and, at equal depth, the only
+// tagged one; any other tie hides the name.
+func jsonField(t reflect.Type, name string) (reflect.Type, bool) {
 	if t == nil || t.Kind() != reflect.Struct || name == "" {
-		return false
+		return nil, false
 	}
-	for _, f := range reflect.VisibleFields(t) {
-		if !f.IsExported() || f.Anonymous {
-			continue
-		}
-		json := jsonName(f)
-		if json == "-" {
-			continue
-		}
-		if json == "" {
-			json = f.Name
-		}
-		if json == name {
-			return f.Type.Kind() == reflect.String
-		}
+	type match struct {
+		typ    reflect.Type
+		tagged bool
 	}
-	return false
+	seen := map[reflect.Type]bool{}
+	for level := []reflect.Type{t}; len(level) > 0; {
+		var next []reflect.Type
+		var matches []match
+		for _, st := range level {
+			if seen[st] {
+				continue
+			}
+			seen[st] = true
+			for i := range st.NumField() {
+				f := st.Field(i)
+				tag := jsonName(f)
+				if tag == "-" {
+					continue
+				}
+				if f.Anonymous {
+					ft := f.Type
+					if ft.Kind() == reflect.Pointer {
+						ft = ft.Elem()
+					}
+					if tag == "" && ft.Kind() == reflect.Struct {
+						next = append(next, ft)
+						continue
+					}
+				}
+				if !f.IsExported() {
+					continue
+				}
+				json := tag
+				if json == "" {
+					json = f.Name
+				}
+				if json == name {
+					matches = append(matches, match{f.Type, tag != ""})
+				}
+			}
+		}
+		switch len(matches) {
+		case 0:
+			level = next
+			continue
+		case 1:
+			return matches[0].typ, true
+		}
+		var dominant []match
+		for _, m := range matches {
+			if m.tagged {
+				dominant = append(dominant, m)
+			}
+		}
+		if len(dominant) == 1 {
+			return dominant[0].typ, true
+		}
+		return nil, false
+	}
+	return nil, false
 }
 
 // isKebab reports whether s is a kebab-case flag name: lowercase words of

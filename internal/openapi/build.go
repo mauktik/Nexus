@@ -455,7 +455,8 @@ func applicableProblems(op def.Op, hasTarget bool) []problem.Slug {
 		// down while its preflight last passed (NFR-3).
 		slugs = append(slugs, problem.CapabilityUnavailable, problem.DependencyUnavailable)
 	}
-	if op.Mutating() {
+	if op.Mutating() || op.Audited {
+		// An Audited read also fails closed when its record cannot be written.
 		slugs = append(slugs, problem.AuditUnavailable)
 	}
 	if op.OperationControl {
@@ -464,6 +465,10 @@ func applicableProblems(op def.Op, hasTarget bool) []problem.Slug {
 	if op.Kind == def.KindUpload {
 		// Over the ceiling, a staged upload limit, and the storage budget.
 		slugs = append(slugs, problem.UploadTooLarge, problem.Conflict, problem.StorageLimitReached)
+	}
+	if op.SyncMutation {
+		// A handler's own conflict, such as a name already taken.
+		slugs = append(slugs, problem.Conflict)
 	}
 	if op.Mode == def.ModeLongRunning {
 		slugs = append(slugs, problem.Conflict)
@@ -515,6 +520,13 @@ func responses(op def.Op, hasTarget bool) (map[string]response, error) {
 			},
 			Content: map[string]mediaType{mediaJSON: {Schema: accepted}},
 		}
+		if op.CompletesAtAdmission {
+			out["200"] = response{
+				Description: "Completed at admission: nothing needed an operation, so none was created. " +
+					"The body is the result.",
+				Content: map[string]mediaType{mediaJSON: {Schema: result}},
+			}
+		}
 	default:
 		s, err := outputSchema(op.OutputType())
 		if err != nil {
@@ -524,7 +536,14 @@ func responses(op def.Op, hasTarget bool) (map[string]response, error) {
 			out["201"] = response{Description: "Created: the upload is stored.",
 				Content: map[string]mediaType{mediaJSON: {Schema: s}}}
 		} else {
-			out["200"] = response{Description: "The result.", Content: map[string]mediaType{mediaJSON: {Schema: s}}}
+			ok := response{Description: "The result.", Content: map[string]mediaType{mediaJSON: {Schema: s}}}
+			if op.SecretOutput != "" {
+				ok.Headers = map[string]header{"Cache-Control": {
+					Description: "The result carries a credential returned once (" + op.SecretOutput + "); " +
+						"it must not be stored.",
+					Schema: &jsonschema.Schema{Type: "string", Const: constant("no-store")}}}
+			}
+			out["200"] = ok
 		}
 	}
 

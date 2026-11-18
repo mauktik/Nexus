@@ -126,6 +126,10 @@ func (p *Printer) Print(obj map[string]any) error {
 	return nil
 }
 
+// Held is the number of objects the printer holds to write on Close: in
+// every format but jsonl, those printed that passed the filters.
+func (p *Printer) Held() int { return len(p.objs) }
+
 // Unmatched lists the Select paths, other than host and id, that no
 // printed object has, each once. It is empty when nothing was printed.
 func (p *Printer) Unmatched() []Path {
