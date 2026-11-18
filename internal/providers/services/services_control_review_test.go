@@ -175,3 +175,33 @@ func TestCR2_ControlFailsClosedWhileTheDependencyLookupFailed(t *testing.T) {
 		t.Error("nexusd-db, a dependency, was admitted")
 	}
 }
+
+// CR-11: `actions:` with no value (null) grants none, as `actions: []` does;
+// only an absent key grants all three.
+func TestCR11_ANullActionsKeyGrantsNone(t *testing.T) {
+	for _, c := range []struct {
+		name, actions string
+		want          bool // start is allowed
+	}{
+		{"absent", "", true},
+		{"null", "    actions:\n", false},
+		{"tilde", "    actions: ~\n", false},
+		{"empty list", "    actions: []\n", false},
+		{"start only", "    actions: [start]\n", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			w := newCtlWorld(t, ctlSystemd, "enabled: true\ncontrol:\n  - name: nx-svc-test\n"+c.actions,
+				ctlOptions{names: []string{"nx-svc-test"}})
+			err := w.p.admitControl(context.Background(), "nx-svc-test", spec.Start.Op().Action)
+			if c.want && err != nil {
+				t.Errorf("start: %v, want admitted", err)
+			}
+			if !c.want {
+				wantProblem(t, err, problem.NotAllowed)
+			}
+			if got := allowEntry(t, w.p.Preflight(context.Background()), "nx-svc-test").Actions; c.want == (len(got) == 0) {
+				t.Errorf("capabilities actions %v, want start allowed = %v", got, c.want)
+			}
+		})
+	}
+}

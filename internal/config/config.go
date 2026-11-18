@@ -230,6 +230,11 @@ func (c *ServicesConfig) applyDefaults(locs locations, path string) {
 		p := fmt.Sprintf("%s.control[%d]", path, i)
 		if _, ok := locs[p+".actions"]; !ok {
 			c.Control[i].Actions = append([]string(nil), servicesspec.Actions...)
+		} else if c.Control[i].Actions == nil {
+			// `actions:` or `actions: ~`: the key is there with no list, which
+			// grants none, as `actions: []` does. Only an absent key means all
+			// three.
+			c.Control[i].Actions = []string{}
 		}
 		if _, ok := locs[p+".timeout"]; !ok {
 			c.Control[i].Timeout = servicesspec.DefaultControlTimeout

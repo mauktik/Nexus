@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"os"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -193,7 +194,9 @@ func newSnapshot(c config.ServicesConfig, res *resolution, init platform.InitSys
 		if e.Actions == nil {
 			e.Actions = spec.Actions
 		}
-		e.Actions = append([]string(nil), e.Actions...)
+		// Clone, not append to nil: an empty list must stay non-nil, or the
+		// next snapshot (Preflight rebuilds it) would default it to all three.
+		e.Actions = slices.Clone(e.Actions)
 		if e.Timeout == 0 {
 			e.Timeout = spec.DefaultControlTimeout
 		}
