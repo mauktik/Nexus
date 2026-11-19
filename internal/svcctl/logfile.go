@@ -326,6 +326,16 @@ func TailFile(path string, lines int, maxBytes int) ([]string, error) {
 	if sys, ok := st.Sys().(*syscall.Stat_t); ok && uint64(sys.Nlink) > 1 {
 		return nil, fmt.Errorf("svcctl: %s has %d hard links; a log file is read only when it has one", path, uint64(sys.Nlink))
 	}
+	// The count above was read from the descriptor, after the open. A service
+	// user that links a root-only file into its directory and removes the
+	// link between the open and that read leaves the count at 1 for a file
+	// that is not the log (CWE-367). The name is looked at again, in its
+	// parent directory and without following a link: it must still be the
+	// descriptor's file, and that file's only name. In the window the name
+	// is either gone, or still a second link to the file, or another file.
+	if err := soleName(fd, path); err != nil {
+		return nil, fmt.Errorf("svcctl: %s: %w", path, err)
+	}
 	out := []string{}
 	total := 0
 	// keep adds line (newest first) and reports whether there is room for
