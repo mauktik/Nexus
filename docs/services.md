@@ -217,7 +217,10 @@ one, and change nothing.
 `state` is one of `running`, `stopped`, `failed`, `starting`, `stopping` and
 `unknown`; a word the init system uses that Nexus does not know is
 `unknown`, never a guess. `rawState` is the init system's own words, such as
-`active (running)` or `crashed`. It is empty for a systemd alias seen only
+`active (running)` or `crashed`; on OpenRC it is one of OpenRC's state words
+(`started`, `stopped`, `crashed`, `starting`, `stopping`, `inactive`, `failed`,
+`hotplugged`, `scheduled`) or `unknown`, because an init script can print
+what it likes after `status:` and none of that is passed on. It is empty for a systemd alias seen only
 among the unit files, whose state is `unknown`, because systemd reports the
 state of the alias's target, not of the alias. `enabledRaw` is empty, and
 `enabled` is `unknown`, for a loaded unit that has no unit file.
@@ -265,9 +268,29 @@ The path never comes from the request.
   file the user cannot read. The name is looked at again after the file is
   opened, and must still be that file with a single link, so a link removed
   between the open and the check does not pass. That look can itself fall
-  inside the unlink, so a file only root can read (owned by root, not
-  world-readable) is also refused in a directory that another user owns or
-  that its group or anyone can write: a user cannot have made it there. A declared path through a link, such as
+  inside the unlink, so a file that is not world-readable is also refused in
+  a directory that a user other than the file's owner and root can write:
+  the directory's owner when that is neither of them, or its group or anyone
+  by its mode (an ACL grant shows in the group bits). Only that user could
+  have put a link there, so a file that is the owner's own, or root's, in a
+  directory only the owner and root can write, is read. supervise-daemon
+  makes a `command_user` service's log as that user, mode `0600`, so it is
+  read in a root-owned `0755` `/var/log` or in the user's own `0755`
+  directory. These are refused, and the logs are `unavailable` until the
+  file is made world-readable, moved, or given the directory's owner:
+  - a root-run service (no `command_user`) that logs into a directory its
+    daemon owns, such as `output_log=/var/log/nginx/master.out` with
+    `/var/log/nginx` owned by `nginx`;
+  - a root-run service that logs to `/tmp` or `/var/tmp`, which anyone can
+    write;
+  - a log under a `/var/log` that is group- or world-writable;
+  - a log in a service-owned directory that was made by root before
+    `command_user` was set, or that logrotate recreates there with
+    `create 0640 root adm`;
+  - any file of one user in a directory of another, or in a group-writable
+    directory of its own.
+
+  A declared path through a link, such as
   `/var/run/app.log` on Alpine, where `/var/run` is a link to `/run`, reports
   its logs unavailable; declare the real path.
 - The newest `tail` lines of each file are returned, at most 64 KiB of text

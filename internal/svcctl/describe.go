@@ -237,7 +237,7 @@ func (b base) describeOpenRC(ctx context.Context, name string) (Details, error) 
 	runlevels, _ := runlevelsOf(parseRCUpdate(update), name)
 	d.Known = true
 	d.CanonicalName = name
-	d.State, d.RawState = string(mapRCWord(word)), word
+	d.State, d.RawState = string(mapRCWord(word)), rcRawState(word)
 	d.Runlevels, d.Enabled, d.EnabledRaw = runlevels, openrcEnabled(runlevels), strings.Join(runlevels, " ")
 	d.ScriptPath = "/etc/init.d/" + name
 	d.Description, d.DescriptionKnown = staticDescription(b.etcRoot, name)

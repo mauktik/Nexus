@@ -149,11 +149,11 @@ func TestSEC5_RootOnlyInUserDir(t *testing.T) {
 		{"root-only file in a root directory only root can write", 0, 0o600, 0, 0o755, false},
 		{"world-readable root file in the service user's directory", 0, 0o644, 1000, 0o755, false},
 		{"the user's own file in its directory", 1000, 0o600, 1000, 0o755, false},
-		{"the user's file in a root directory its group can write", 1000, 0o600, 0, 0o775, false},
+		{"the user's file in a root directory its group can write", 1000, 0o600, 0, 0o775, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := rootOnlyInUserDir(tc.fileUID, tc.fileMode, tc.parentUID, tc.parentMode); got != tc.want {
-				t.Fatalf("rootOnlyInUserDir = %v, want %v", got, tc.want)
+			if got := unreadableInForeignDir(tc.fileUID, tc.fileMode, tc.parentUID, tc.parentMode); got != tc.want {
+				t.Fatalf("unreadableInForeignDir = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -188,8 +188,8 @@ func TestSEC7_UnreadableFileInForeignWritableDir(t *testing.T) {
 		{"a world-readable file in a directory anyone can write", 1000, 0o644, 0, 0o777, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := rootOnlyInUserDir(tc.fileUID, tc.fileMode, tc.parentUID, tc.parentMode); got != tc.want {
-				t.Fatalf("rootOnlyInUserDir(file %d %o, dir %d %o) = %v, want %v", tc.fileUID, tc.fileMode, tc.parentUID, tc.parentMode, got, tc.want)
+			if got := unreadableInForeignDir(tc.fileUID, tc.fileMode, tc.parentUID, tc.parentMode); got != tc.want {
+				t.Fatalf("unreadableInForeignDir(file %d %o, dir %d %o) = %v, want %v", tc.fileUID, tc.fileMode, tc.parentUID, tc.parentMode, got, tc.want)
 			}
 		})
 	}

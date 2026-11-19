@@ -91,8 +91,8 @@ func soleName(fd int, path string) error {
 	if err := unix.Fstat(dfd, &parent); err != nil {
 		return err
 	}
-	if rootOnlyInUserDir(self.Uid, uint32(self.Mode), parent.Uid, uint32(parent.Mode)) {
-		return errors.New("the log file is root's and not world-readable, in a directory that another user can write")
+	if unreadableInForeignDir(self.Uid, uint32(self.Mode), parent.Uid, uint32(parent.Mode)) {
+		return errors.New("the log file is not world-readable, in a directory that a user other than its owner and root can write")
 	}
 	if uint64(named.Nlink) != 1 || uint64(self.Nlink) != 1 {
 		return fmt.Errorf("the log file has %d hard links; it is read only when it has one", max(uint64(named.Nlink), uint64(self.Nlink)))
@@ -100,13 +100,19 @@ func soleName(fd int, path string) error {
 	return nil
 }
 
-// rootOnlyInUserDir reports whether a file with this owner and mode is one that only root can read, in a
-// directory that a user other than root can write: owned by another user, or
-// writable by its group or by anyone. Such a file cannot have been made there
-// by that user; it is a hard link to a root-only file (CWE-62). It is the
-// check that does not depend on a link count, which a user can lower in the
-// instant between the open and the check by removing its own link (SEC-5).
-func rootOnlyInUserDir(fileUID, fileMode, parentUID, parentMode uint32) bool {
-	userWritable := parentUID != 0 || parentMode&0o022 != 0
-	return userWritable && fileUID == 0 && fileMode&0o004 == 0
+// unreadableInForeignDir reports whether a file with this owner and mode is
+// one that is not world-readable, in a directory that a user other than the
+// file's owner and root can write: the directory's owner when that is neither,
+// or its group or anyone, by the mode (an ACL grant raises the group bits).
+// Such a file need not have been made there by its owner: another user could
+// have hard-linked a file it was not meant to read into the directory
+// (CWE-62). It is the check that does not depend on a link count, which that
+// user can lower in the instant between the open and the check by removing its
+// own link (SEC-5, SEC-7). It leaves a log that supervise-daemon makes for its
+// command_user (the user's own, 0600) in a directory only root or that user
+// can write, such as a root-owned 0755 /var/log, and a root file in a
+// root-only directory.
+func unreadableInForeignDir(fileUID, fileMode, parentUID, parentMode uint32) bool {
+	foreignWriter := parentMode&0o022 != 0 || (parentUID != 0 && parentUID != fileUID)
+	return foreignWriter && fileMode&0o004 == 0
 }

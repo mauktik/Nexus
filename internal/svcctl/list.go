@@ -79,6 +79,20 @@ func mapActiveState(word string) State {
 	return Unknown
 }
 
+// rcRawState is the word as RawState: one of OpenRC's own state words, or
+// "unknown". A custom status() prints what it likes after "status:", and
+// that token reaches callers holding services:read, so it is never passed on
+// (SEC-8). The words are those of _status in openrc-run.sh (stopping,
+// starting, inactive, crashed, started, stopped) and rc-status (hotplugged,
+// scheduled, failed).
+func rcRawState(word string) string {
+	switch word {
+	case "started", "stopped", "crashed", "starting", "stopping", "inactive", "failed", "hotplugged", "scheduled":
+		return word
+	}
+	return string(Unknown)
+}
+
 // mapRCWord maps an OpenRC status word exactly, as Status does.
 func mapRCWord(word string) State {
 	switch word {
@@ -369,7 +383,7 @@ func mergeOpenRC(status []rcStatusLine, update []rcUpdateLine, etcRoot string) [
 		}
 		seen[name] = true
 		runlevels, _ := runlevelsOf(update, name)
-		e := Entry{Name: name, State: string(mapRCWord(word)), RawState: word, Runlevels: runlevels,
+		e := Entry{Name: name, State: string(mapRCWord(word)), RawState: rcRawState(word), Runlevels: runlevels,
 			Enabled: openrcEnabled(runlevels), EnabledRaw: strings.Join(runlevels, " "), UnitFileOnly: !fromStatus}
 		e.Description, e.DescriptionKnown = staticDescription(etcRoot, name)
 		entries = append(entries, e)
