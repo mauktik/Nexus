@@ -158,3 +158,95 @@ func TestSEC5_RootOnlyInUserDir(t *testing.T) {
 		})
 	}
 }
+
+// SEC-7 (CWE-367, CWE-62): a log file that is not world-readable is refused
+// when a user other than its owner and root can write the directory it is
+// in, whoever owns it. Only the owner, root, or a directory only they can
+// write leaves no one who could have planted a link to it.
+func TestSEC7_UnreadableFileInForeignWritableDir(t *testing.T) {
+	for _, tc := range []struct {
+		name                                     string
+		fileUID, fileMode, parentUID, parentMode uint32
+		want                                     bool
+	}{
+		{"a file of uid 1000 in a directory of uid 2000", 1000, 0o600, 2000, 0o755, true},
+		{"a file of uid 1000 in a directory of uid 2000 that is 0700", 1000, 0o600, 2000, 0o700, true},
+		{"a file of uid 1000 in a directory its group can write", 1000, 0o600, 1000, 0o775, true},
+		{"a file of uid 1000 in a directory anyone can write", 1000, 0o600, 1000, 0o777, true},
+		{"a file of uid 1000 in a sticky world-writable root directory", 1000, 0o600, 0, 0o1777, true},
+		{"a file of uid 1000 in a root directory its group can write", 1000, 0o600, 0, 0o775, true},
+		{"a root file in a directory of uid 2000", 0, 0o600, 2000, 0o755, true},
+		{"a root file in a root directory its group can write", 0, 0o600, 0, 0o775, true},
+		{"a root file in a root directory anyone can write", 0, 0o600, 0, 0o777, true},
+		// What supervise-daemon makes and what stays readable.
+		{"a user's 0600 file in the user's own directory", 1000, 0o600, 1000, 0o755, false},
+		{"a user's 0600 file in the user's own 0700 directory", 1000, 0o600, 1000, 0o700, false},
+		{"a user's 0600 file in /var/log, which only root can write", 1000, 0o600, 0, 0o755, false},
+		{"a root 0600 file in /var/log, which only root can write", 0, 0o600, 0, 0o755, false},
+		{"a root 0600 file in a root 0700 directory", 0, 0o600, 0, 0o700, false},
+		{"a world-readable file of uid 1000 in a directory of uid 2000", 1000, 0o644, 2000, 0o755, false},
+		{"a world-readable file in a directory anyone can write", 1000, 0o644, 0, 0o777, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := rootOnlyInUserDir(tc.fileUID, tc.fileMode, tc.parentUID, tc.parentMode); got != tc.want {
+				t.Fatalf("rootOnlyInUserDir(file %d %o, dir %d %o) = %v, want %v", tc.fileUID, tc.fileMode, tc.parentUID, tc.parentMode, got, tc.want)
+			}
+		})
+	}
+}
+
+// SEC-7 through soleName: a file of one user in another user's directory is
+// refused even with a link count of 1. Needs root to give the file and the
+// directory their owners.
+func TestSEC7_SoleNameRefusesAnotherUsersFileInAUsersDirectory(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("needs root to give a file and its directory different owners")
+	}
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for d := root; d != "/"; d = filepath.Dir(d) {
+		if err := os.Chmod(d, 0o755); err != nil && !os.IsPermission(err) {
+			t.Fatal(err)
+		}
+	}
+	dir := filepath.Join(root, "svc")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "out.log")
+	if err := os.WriteFile(path, []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const fileUID, dirUID = 65533, 65534
+	if err := os.Chown(dir, dirUID, dirUID); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name     string
+		fileUID  int
+		wantFail bool
+	}{
+		{"a file of another user", fileUID, true},
+		{"the directory owner's own file", dirUID, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := os.Chown(path, tc.fileUID, tc.fileUID); err != nil {
+				t.Fatal(err)
+			}
+			fd, err := walkNoLinks(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer unix.Close(fd)
+			err = soleName(fd, path)
+			switch {
+			case tc.wantFail && err == nil:
+				t.Fatal("soleName accepted another user's unreadable file in a user's directory")
+			case !tc.wantFail && err != nil:
+				t.Fatalf("soleName refused the directory owner's own file: %v", err)
+			}
+		})
+	}
+}
