@@ -262,7 +262,8 @@ services it may act on.
   are read only from the `output_log` and `error_log` paths the service's
   own configuration declares, never from a request, and only when the file
   has one hard link (checked again by name after the open, so a link
-  removed in between does not pass) and no component of its path is a symbolic link (read as
+  removed in between does not pass; a root-only file is refused outright in a
+  directory another user can write) and no component of its path is a symbolic link (read as
   root, in directories the service's user owns). Environment values,
   command lines and other `conf.d` values are never returned. The hardened
   unit is unchanged.

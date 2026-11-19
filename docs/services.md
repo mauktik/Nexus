@@ -264,7 +264,10 @@ The path never comes from the request.
   to another file or a directory swapped for a link would otherwise stream a
   file the user cannot read. The name is looked at again after the file is
   opened, and must still be that file with a single link, so a link removed
-  between the open and the check does not pass. A declared path through a link, such as
+  between the open and the check does not pass. That look can itself fall
+  inside the unlink, so a file only root can read (owned by root, not
+  world-readable) is also refused in a directory that another user owns or
+  that its group or anyone can write: a user cannot have made it there. A declared path through a link, such as
   `/var/run/app.log` on Alpine, where `/var/run` is a link to `/run`, reports
   its logs unavailable; declare the real path.
 - The newest `tail` lines of each file are returned, at most 64 KiB of text

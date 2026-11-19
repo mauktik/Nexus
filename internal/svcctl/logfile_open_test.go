@@ -134,3 +134,27 @@ func TestSEC5_SoleName(t *testing.T) {
 		t.Fatalf("soleName with the name replaced = %v, want a name error", err)
 	}
 }
+
+// SEC-5: a root-only file is not read from a directory that another user can
+// write, whatever its link count says.
+func TestSEC5_RootOnlyInUserDir(t *testing.T) {
+	for _, tc := range []struct {
+		name                                     string
+		fileUID, fileMode, parentUID, parentMode uint32
+		want                                     bool
+	}{
+		{"root-only file in the service user's directory", 0, 0o600, 1000, 0o755, true},
+		{"root-only file in a root directory its group can write", 0, 0o600, 0, 0o775, true},
+		{"root-only file in a root directory anyone can write", 0, 0o600, 0, 0o777, true},
+		{"root-only file in a root directory only root can write", 0, 0o600, 0, 0o755, false},
+		{"world-readable root file in the service user's directory", 0, 0o644, 1000, 0o755, false},
+		{"the user's own file in its directory", 1000, 0o600, 1000, 0o755, false},
+		{"the user's file in a root directory its group can write", 1000, 0o600, 0, 0o775, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := rootOnlyInUserDir(tc.fileUID, tc.fileMode, tc.parentUID, tc.parentMode); got != tc.want {
+				t.Fatalf("rootOnlyInUserDir = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

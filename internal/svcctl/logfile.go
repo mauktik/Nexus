@@ -329,10 +329,15 @@ func TailFile(path string, lines int, maxBytes int) ([]string, error) {
 	// The count above was read from the descriptor, after the open. A service
 	// user that links a root-only file into its directory and removes the
 	// link between the open and that read leaves the count at 1 for a file
-	// that is not the log (CWE-367). The name is looked at again, in its
+	// that is not the log (CWE-367). So the name is looked at again, in its
 	// parent directory and without following a link: it must still be the
-	// descriptor's file, and that file's only name. In the window the name
-	// is either gone, or still a second link to the file, or another file.
+	// descriptor's file, and that file's only name. That narrows the window
+	// and does not close it, because unlink(2) drops the count before it
+	// drops the name, and a look that lands inside an unlink sees the name
+	// with a count of 1 (observed, on overlayfs, about once in a thousand
+	// reads against a process that does nothing else). What closes it is
+	// the owner check in soleName: a root-only file is refused in a
+	// directory that anyone else can write, whatever its link count.
 	if err := soleName(fd, path); err != nil {
 		return nil, fmt.Errorf("svcctl: %s: %w", path, err)
 	}

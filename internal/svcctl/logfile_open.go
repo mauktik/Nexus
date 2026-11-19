@@ -87,8 +87,26 @@ func soleName(fd int, path string) error {
 	if uint64(named.Dev) != uint64(self.Dev) || uint64(named.Ino) != uint64(self.Ino) {
 		return errors.New("the log file's name no longer refers to the file that was opened")
 	}
+	var parent unix.Stat_t
+	if err := unix.Fstat(dfd, &parent); err != nil {
+		return err
+	}
+	if rootOnlyInUserDir(self.Uid, uint32(self.Mode), parent.Uid, uint32(parent.Mode)) {
+		return errors.New("the log file is root's and not world-readable, in a directory that another user can write")
+	}
 	if uint64(named.Nlink) != 1 || uint64(self.Nlink) != 1 {
 		return fmt.Errorf("the log file has %d hard links; it is read only when it has one", max(uint64(named.Nlink), uint64(self.Nlink)))
 	}
 	return nil
+}
+
+// rootOnlyInUserDir reports whether a file with this owner and mode is one that only root can read, in a
+// directory that a user other than root can write: owned by another user, or
+// writable by its group or by anyone. Such a file cannot have been made there
+// by that user; it is a hard link to a root-only file (CWE-62). It is the
+// check that does not depend on a link count, which a user can lower in the
+// instant between the open and the check by removing its own link (SEC-5).
+func rootOnlyInUserDir(fileUID, fileMode, parentUID, parentMode uint32) bool {
+	userWritable := parentUID != 0 || parentMode&0o022 != 0
+	return userWritable && fileUID == 0 && fileMode&0o004 == 0
 }
