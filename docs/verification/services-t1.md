@@ -19,6 +19,8 @@ PARITY=0 make test-harness-alpine     [BASE=alpine:3.22]                    RUN=
 | alpine:latest (3.24) | OpenRC 0.63.2 | 20261118T190949Z | exit 0; 11 pass, TC-SV-135/146 skipped (systemd only) | `services-t1/alpine/` |
 | alpine:3.22 | OpenRC 0.62.6 | 20261118T191330Z | exit 0; 11 pass, TC-SV-135/146 skipped | `services-t1/alpine322/` |
 
+Rerun after the security-review fixes (SEC-1 changed the boot-ID read), all five images at 4c90ed2: exit 0, same pass/skip counts as above.
+
 debian:12 and alpine:3.22 match pihole (Debian 12 LXC) and Public-Nginx (Alpine 3.22 LXC). These are container results, not live-host results; the live gates are WI 6.0–6.3.
 
 ## Product bugs found by the first matrix and fixed
