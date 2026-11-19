@@ -223,7 +223,11 @@ func (b base) describeOpenRC(ctx context.Context, name string) (Details, error) 
 			return d, nil
 		}
 		if res.ExitCode != 0 {
-			return Details{}, fmt.Errorf("svcctl: rc-service -C %s status exited %d: %s", name, res.ExitCode, firstLine(res.Output))
+			// An init script may define its own status() and print what it
+			// likes, and this error reaches callers holding services:read
+			// only, so none of that text is quoted (SEC-6, as SEC-4 does for
+			// an action's output).
+			return Details{}, fmt.Errorf("svcctl: rc-service -C %s status exited %d without a status word (its output is not quoted: an init script can print what services:logs protects)", name, res.ExitCode)
 		}
 	}
 	update, err := b.listing(ctx, rcUpdateArgv)

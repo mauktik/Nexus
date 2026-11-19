@@ -262,7 +262,9 @@ The path never comes from the request.
   its path, a directory or the file, may be a symbolic link: `nexusd` reads
   it as root, in a directory the service's user often owns, and a hard link
   to another file or a directory swapped for a link would otherwise stream a
-  file the user cannot read. A declared path through a link, such as
+  file the user cannot read. The name is looked at again after the file is
+  opened, and must still be that file with a single link, so a link removed
+  between the open and the check does not pass. A declared path through a link, such as
   `/var/run/app.log` on Alpine, where `/var/run` is a link to `/run`, reports
   its logs unavailable; declare the real path.
 - The newest `tail` lines of each file are returned, at most 64 KiB of text
@@ -331,7 +333,10 @@ entry's `timeout`:
   what `services:logs` protects, while the detail and the operation log are
   read with `services:read`: only OpenRC's own line ` * ERROR: NAME failed to
   start` (or `stop`) is quoted and logged, and the log says that the rest was
-  not recorded. systemctl's output is its job message and is kept whole;
+  not recorded. The same holds for the state read after the action: when
+  `rc-service NAME status` exits non-zero without a status word, the error
+  names the exit code and never the script's text. systemctl's output is its
+  job message and is kept whole;
 - a service still changing at the timeout fails `outcome-unknown`;
 - an init tool that cannot be started fails `dependency-unavailable` and
   changes nothing.

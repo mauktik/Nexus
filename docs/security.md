@@ -252,14 +252,17 @@ services it may act on.
   detail and log are read with `services:read`, so on OpenRC, where
   `rc-service` runs the init script in the foreground, a failed action
   records only OpenRC's own `ERROR: NAME failed to start` line, never the
-  script's output; systemctl's job message is kept whole.
+  script's output; systemctl's job message is kept whole. The state read
+  that follows an action, and `get`, report a failed `rc-service status` by
+  its exit code, never by the script's text.
 - **What runs where.** List, get and logs run inside `nexusd`, under the
   sandbox on systemd, with fixed `systemctl` and `journalctl` argument
   lists. Start, stop, restart and the reboot run as detached operations
   outside the sandbox, as nginx's and Pi-hole's changes do. OpenRC log files
   are read only from the `output_log` and `error_log` paths the service's
   own configuration declares, never from a request, and only when the file
-  has one hard link and no component of its path is a symbolic link (read as
+  has one hard link (checked again by name after the open, so a link
+  removed in between does not pass) and no component of its path is a symbolic link (read as
   root, in directories the service's user owns). Environment values,
   command lines and other `conf.d` values are never returned. The hardened
   unit is unchanged.
