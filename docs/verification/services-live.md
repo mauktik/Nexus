@@ -303,3 +303,16 @@ journal in the dry run shows one `http: TLS handshake error … bad
 certificate` warning at the start of each run, when the script's `nexus
 host add --fingerprint` connects; it is not a sandbox denial and does not
 trip `L6-journal`.
+
+## Remote readbacks from the dev machine (2026-11-19, v0.1.0-rc6 at 2e28645)
+
+Not the operator check: these are reads through the `nexus` CLI with a `services:read`+`services:logs` token (`claude-services`, 90 d), after `nexus nexusd update` (pihole then home-server, both `Succeeded`, `rolledBack false`) and `nexus nexusdconfig update providers.services.enabled=true` (both `Succeeded`, no restart required). Public-Nginx (OpenRC) is still on rc5: it cannot self-update, and config set is unavailable there.
+
+| Host | Services listed | States | `bootIdSource` | `rebootAvailable` / `rebootEnabled` | `dependencyResolution` | Logs |
+|---|---|---|---|---|---|---|
+| pihole | 148 | 30 running, 108 stopped, 10 unknown | `container-mount` | true / false | complete | journal; `pihole-FTL` tail 3 read |
+| home-server | 372 | 82 running, 267 stopped, 23 unknown | `kernel` | true / false | complete | journal; `nexusd` tail 3 read |
+
+- pihole's `container-mount` is the live confirmation of the systemd 252 boot-ID fix (D-11, `detach.ReadBoot`): rc5-era code would have read the host kernel's ID there. WI 6.1 (f)'s root-shell comparison (`/proc/1/mountinfo`, `cat boot_id`) is still the operator's.
+- `nexusd`, `ssh` and `systemd-journald` are `protected: true` on both; with an empty allow-list nothing is controllable.
+- The last 1000 lines of nexusd's own log on each host hold no `SECCOMP`, `Operation not permitted`, `Permission denied` or `ERROR` line (a partial look at A-1/A-2; the operator's journalctl check (e) is authoritative).
