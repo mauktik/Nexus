@@ -428,7 +428,11 @@ func TestTCSV149_GetServiceLogsOnOpenRCFileLogs(t *testing.T) {
 	session := func(t *testing.T, pageBytes int) *mcp.ClientSession {
 		t.Helper()
 		root := servicesRoot(t, capture)
-		dir := t.TempDir()
+		// A log path has no symlink component (SEC-2); macOS's /var is one.
+		dir, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
 		outPath, errPath := filepath.Join(dir, "out.log"), filepath.Join(dir, "err.log")
 		for path, lines := range map[string][]string{outPath: out, errPath: errs} {
 			if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
