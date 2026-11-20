@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package spec declares the pihole provider's operations, wire types and
 // input patterns. It holds only data and types, so the CLI can import it
 // through internal/catalog without linking the provider (CON-4, CON-5).

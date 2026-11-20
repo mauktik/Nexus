@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Stub-style: SKIP-only (storage-provider)
 //
 // Stubs of planning/storage-provider/test-cases.md TC-STG-1, TC-STG-2, TC-STG-42, TC-STG-211, TC-STG-212, TC-STG-213.

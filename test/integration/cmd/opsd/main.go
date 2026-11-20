@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Command opsd is the T1 survival harness daemon (WI 3.5): the production
 // daemon wiring (daemon.New, so the production ops.Manager and detach
 // launcher with nil seams) with one test provider whose detached operation

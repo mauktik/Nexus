@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package v5test holds the T0 fakes of a Pi-hole v5 host. FakeHost
 // implements v5.Runner over a temp root and encodes the verified v5.18.4
 // behavior the provider depends on (NFR-7; architecture V-9, V-12, V-13,

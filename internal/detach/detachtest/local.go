@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package detachtest runs detached operations on a development machine
 // without systemd, for T0 tests. The real systemd-run path is proven in the
 // systemd harness (3.5).

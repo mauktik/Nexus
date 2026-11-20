@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 package host
 
 // Usage is one stat-plus-statfs of a mount point (D-3, review Finding 2).

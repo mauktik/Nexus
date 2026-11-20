@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package tlsutil creates and reads the certificate nexusd serves.
 //
 // In tls.mode auto, nexusd generates one self-signed certificate on first

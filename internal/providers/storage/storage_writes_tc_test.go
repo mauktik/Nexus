@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/storage-provider/test-cases.md TC-STG-175 to
 // TC-STG-183, TC-STG-185, TC-STG-E2, E6 to E9 and TC-STG-ERR4 to ERR11,
 // ERR13 and ERR14 (owner WI 4.5): scrub start and stop and snapshot create,

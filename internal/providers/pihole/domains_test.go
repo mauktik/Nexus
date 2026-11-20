@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Cases: TC-82 to TC-87, TC-E3, TC-ERR16 and TC-ERR17 in
 // planning/pihole-dns-zones/test-cases.md (WI 3.4): the v5 domain methods
 // against a FakeHost, and add-domain and remove-domain through the

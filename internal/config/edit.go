@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 package config
 
 // Remote configuration editing (FR-6, FR-7): the key schema derived from the

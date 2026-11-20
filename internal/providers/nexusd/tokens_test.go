@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 package nexusd
 
 // Tests of planning/nexusd-remote-admin/test-cases.md TC-RA-30 to TC-RA-36,

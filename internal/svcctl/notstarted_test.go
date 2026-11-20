@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Code review B, CR-B1: svcctl says whether the init system's tool was
 // started, because only then can an action have reached the service.
 

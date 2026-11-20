@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/storage-provider/test-cases.md TC-STG-201, TC-STG-202, TC-STG-203, TC-STG-E1.
 // Owner WIs: 5.1 (the storage stubs of catalogStubs and the FR-25 inputs of
 // negative_test.go).

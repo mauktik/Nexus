@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 package nexusd
 
 // The verified package pipeline (WI 5.2, FR-7, NFR-5). An uploaded release

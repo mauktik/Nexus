@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for planning/storage-provider/test-cases.md TC-STG-45, TC-STG-46,
 // TC-STG-47 and TC-STG-48 (WI 2.2): host.health.get carries the daemon's
 // health fan-in as providerSignals.

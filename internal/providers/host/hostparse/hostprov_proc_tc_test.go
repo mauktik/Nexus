@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/system-provider/test-cases.md TC-HP-28, TC-HP-29, TC-HP-30, TC-HP-31, TC-HP-32, TC-HP-33, TC-HP-34, TC-HP-35, TC-HP-36, TC-HP-37, TC-HP-38, TC-HP-39, TC-HP-E8, TC-HP-E9.
 // Owner WI: 2.3. The parsers are checked against the WI 2.1 captures and the
 // same hosts' tool outputs (external-test-vectors), plus synthetic edge lines.

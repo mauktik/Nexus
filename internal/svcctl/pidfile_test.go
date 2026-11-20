@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Security review SEC-2: the OpenRC pidfile is nginx's, in a directory the
 // nginx user owns, so it is read as untrusted: never through a symlink,
 // never blocking on a FIFO, only a small regular file.

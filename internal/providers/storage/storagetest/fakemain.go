@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 package storagetest
 
 // The T1 fake tools' replay entry (storage-provider WI 5.3; test-strategy.md,

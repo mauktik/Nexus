@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Stub-style: SKIP-only (system-provider)
 //
 // Stubs of planning/system-provider/test-cases.md TC-HP-8, TC-HP-112, TC-HP-113, TC-HP-132.

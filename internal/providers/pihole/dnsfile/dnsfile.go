@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package dnsfile is the model of Pi-hole's local DNS records file,
 // /etc/dnsmasq.d/03-custom-dns-names.conf: parsing, zone membership, the
 // batch changes, rendering and the answers dnsmasq is expected to give. It is

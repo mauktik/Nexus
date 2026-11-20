@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Cases: TC-88 to TC-95, TC-ERR18 and TC-ERR19 in
 // planning/pihole-dns-zones/test-cases.md (WI 3.5), and TC-89 (as WI 5.4
 // changed it), TC-145 and TC-ERR31 (WI 5.4): the

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package daemon wires nexusd together: configuration, providers, the core
 // registry and the HTTP server, plus the process lifecycle: readiness
 // notification, SIGHUP reload and bounded SIGTERM shutdown (FR-37).

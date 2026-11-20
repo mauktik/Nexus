@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/services-provider/test-cases.md TC-SV-102 to TC-SV-114,
 // TC-SV-116, TC-SV-150, TC-SV-E16, TC-SV-E17, TC-SV-E18, TC-SV-E20 and
 // TC-SV-ERR25 to TC-SV-ERR32 (WI 4.4): the guarded reboot, its admission,

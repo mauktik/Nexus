@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package capturegate is the storage provider's capture gate (NFR-8a, A-41):
 // a capture-driven test asks Require for the operator capture it reads, and
 // skips while that capture is absent, or fails when

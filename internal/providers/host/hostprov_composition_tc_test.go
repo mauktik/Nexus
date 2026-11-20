@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for planning/system-provider/test-cases.md TC-HP-108, TC-HP-110,
 // TC-HP-E27 and TC-HP-ERR29 (WI 5.1): the host provider composed into
 // nexusd and the CLI. The harness is composition_test.go.

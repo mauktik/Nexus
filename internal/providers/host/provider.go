@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package host is the host provider (the "system" provider): a read-only
 // overview of the Linux host nexusd runs on, with a background sampler for
 // rates and an in-memory metrics history. Its declarations live in the spec

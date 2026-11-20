@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 package nexusd
 
 // Tests for the verified package pipeline (WI 5.2): TC-SM-77 to TC-SM-81,

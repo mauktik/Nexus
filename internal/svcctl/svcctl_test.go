@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/nginx-provider/test-cases.md for WI 1.4. They are in the
 // external test package because they use svcctltest, which imports svcctl.
 

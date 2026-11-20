@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Security review SEC-2 and SEC-7: the master the init system's pidfile names
 // must run as root, or a process the nginx user started could stand in for
 // it. The uid is the real uid on the Uid: line of /proc/<pid>/status, not the

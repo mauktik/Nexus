@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Cases: TC-77 to TC-81, TC-E10, TC-ERR14, TC-ERR15 in
 // planning/pihole-dns-zones/test-cases.md (WI 3.3): the v5 blocking
 // methods, and the stop-blocking and start-blocking helper actions run

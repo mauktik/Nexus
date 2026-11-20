@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package detach runs long operations outside nexusd, so they survive a
 // kill -9 or a restart of the daemon (FR-6). The launcher starts a systemd
 // transient unit whose main process is `nexusd op-supervise`; the supervisor

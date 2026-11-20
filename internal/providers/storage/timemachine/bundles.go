@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package timemachine reads Time Machine shares (FR-11, FR-12, DF-4): the
 // bundle directories directly under a share, each bundle's snapshot
 // history plist and fallback mtimes, and the allocated size of its bands.

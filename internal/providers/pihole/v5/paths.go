@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package v5 is the v5-cli backend for Pi-hole v5 (core v5.18.x, FTL
 // v5.25.x): the host paths, the host-file readers, the FTL text-API client
 // and the Reader that runs inside the nexusd sandbox. The Reader never

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Command nexus-release manages the nexusd release-signing key and signs
 // and checks release tarballs in the internal/release format (FR-15).
 //

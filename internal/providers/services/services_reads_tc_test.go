@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/services-provider/test-cases.md TC-SV-80, TC-SV-81,
 // TC-SV-82, TC-SV-83, TC-SV-84, TC-SV-85, TC-SV-86, TC-SV-87, TC-SV-88,
 // TC-SV-E15, TC-SV-ERR18, TC-SV-ERR19, TC-SV-ERR20 and TC-SV-ERR21 (WI 4.2):

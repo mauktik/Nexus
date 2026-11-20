@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/nexusd-remote-admin/test-cases.md TC-RA-88, TC-RA-89 and
 // TC-RA-E24 (WI 4.4): the generated nexusdconfig commands against real
 // servers running the real nexusd provider, core, ops manager and detach

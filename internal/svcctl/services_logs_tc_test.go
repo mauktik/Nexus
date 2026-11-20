@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/services-provider/test-cases.md TC-SV-61 to TC-SV-66,
 // TC-SV-E10, TC-SV-E11, TC-SV-ERR14 and TC-SV-ERR15 (WI 3.3), and the fuzz
 // targets FuzzJournalLine and FuzzOpenRCLogAssign.

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Stub-style: SKIP-only (services-provider)
 //
 // Tests and stubs of planning/services-provider/test-cases.md TC-SV-26, TC-SV-27, TC-SV-28, TC-SV-29, TC-SV-125, TC-SV-126, TC-SV-153, TC-SV-E6, TC-SV-ERR8, TC-SV-ERR9, TC-SV-ERR10, TC-SV-ERR28.

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 package svcctltest
 
 // F-HOSTS: a multi-service fake of a whole host's init system, built from

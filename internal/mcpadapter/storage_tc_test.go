@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/storage-provider/test-cases.md TC-STG-204, TC-STG-205.
 // Owner WIs: 5.1 (the storage tools in the catalog tool list, and their
 // results over the real provider).

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/storage-provider/test-cases.md TC-STG-125 to
 // TC-STG-140, TC-STG-E4, TC-STG-E11 and TC-STG-ERR1 to ERR3 and ERR12
 // (owner WI 4.2), plus the handler-level halves of TC-STG-114 and

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package testprovider is a provider that exists only for the conformance
 // suite (4.2). It is declared and bound exactly as a real provider is, through
 // def.Define and the provider binding constructors, and is passed to core.New

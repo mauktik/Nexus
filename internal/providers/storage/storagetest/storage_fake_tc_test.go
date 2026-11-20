@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/storage-provider/test-cases.md TC-STG-75 to TC-STG-80
 // (WI 3.5, F-ZFS of test-strategy.md, Fake Fidelity Contracts).
 //

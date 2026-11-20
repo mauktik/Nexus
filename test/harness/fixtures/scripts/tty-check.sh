@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+# SPDX-License-Identifier: Apache-2.0
 # T1 fixture (WI 5.3, TC-98): reports whether any standard stream is a
 # terminal, whether there is a controlling terminal, and what a read of
 # stdin gets. Under Nexus every stream is a pipe or /dev/null, there is no

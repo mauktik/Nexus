@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package backend is the seam between the pihole provider and a Pi-hole
 // major version: the Reader used in the nexusd sandbox, the Mutator used in
 // the privileged helper, version detection, and Select. v1 ships the v5-cli

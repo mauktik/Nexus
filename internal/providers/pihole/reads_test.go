@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Cases: TC-54, TC-57b, TC-58 to TC-65, TC-E7, TC-E8, TC-ERR9 and TC-ERR10
 // in planning/pihole-dns-zones/test-cases.md, and the registry halves of
 // TC-55 and TC-56 that need the read bindings.

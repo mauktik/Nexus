@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/storage-provider/test-cases.md TC-STG-207.
 // Owner WIs: 5.1 (docs/cli/ and docs/api.md regenerated with the storage
 // ops in the catalog).

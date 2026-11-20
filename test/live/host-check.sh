@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+# SPDX-License-Identifier: Apache-2.0
 # Live check of the host provider (system-provider WI 5.4): TC-HP-127 to
 # TC-HP-130 on a real Ubuntu/systemd host and on the Alpine/OpenRC VM, each
 # running the release tarball. It drives the real `nexus` CLI (every

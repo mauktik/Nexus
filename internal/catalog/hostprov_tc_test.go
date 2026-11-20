@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for planning/system-provider/test-cases.md TC-HP-104 (WI 5.1): the
 // host rows of the catalog golden table.
 

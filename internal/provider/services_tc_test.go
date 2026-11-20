@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/services-provider/test-cases.md TC-SV-7, TC-SV-ERR5
 // (WI 1.2): the AfterReboot hook of a detached binding and the declaration
 // and hook pairing that Detached enforces.

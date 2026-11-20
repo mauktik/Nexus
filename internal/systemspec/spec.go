@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package systemspec declares the system.* operations and their wire types.
 // Like a provider's spec package it holds only data and types, so the CLI can
 // import it through internal/catalog without linking daemon code (CON-5,

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/storage-provider/test-cases.md TC-STG-25 to TC-STG-31,
 // owned by WI 1.4: the providers.storage section. The validate-config half
 // of TC-STG-30 is in storage_check_test.go, which is package config_test

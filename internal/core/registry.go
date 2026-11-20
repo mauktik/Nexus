@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package core holds the registry of compiled-in providers and their
 // bindings, provider capabilities, and the system.* bindings. Transports
 // (REST, and MCP from 8.1) derive everything they serve from the registry.

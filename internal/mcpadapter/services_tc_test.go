@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/services-provider/test-cases.md TC-SV-123, TC-SV-124,
 // TC-SV-149, TC-SV-151 and TC-SV-152. Owner WIs: 5.1 (TC-SV-123,
 // TC-SV-124), 5.4 (TC-SV-149, TC-SV-151, TC-SV-152).

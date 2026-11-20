@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for TC-SM-61 (nexusd-self-management): planning/nexusd-self-management/test-cases.md.
 package main
 

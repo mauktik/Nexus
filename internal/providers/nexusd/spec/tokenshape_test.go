@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 package spec_test
 
 // The token name's not-token-shape refine (WI 2.2 amendment, NFR-1): its

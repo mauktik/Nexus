@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/storage-provider/test-cases.md TC-STG-100 to TC-STG-109
 // (WI 3.4): Bundles, ReadBundle, LastCompletion and WalkBands over real temp
 // trees opened through os.Root (F-TREE, storagetest/trees.go), with a

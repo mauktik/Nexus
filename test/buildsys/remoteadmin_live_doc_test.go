@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // The offline part of nexusd-remote-admin WI 5.4: the structure of
 // docs/verification/nexusd-remote-admin.md. TC-RA-108 and TC-RA-109 are live
 // cases on the user's hosts (CON-6) and have no Go test; this guards the page

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package storage is the storage provider: ZFS pools, datasets and
 // snapshots, Proxmox vzdump backup archives and Time Machine shares, read
 // inside nexusd's sandbox. Its declarations live in the spec subpackage.

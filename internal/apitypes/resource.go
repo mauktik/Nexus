@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package apitypes holds the v1 wire types. Field names and shapes are part of
 // the versioned contract (FR-30, NFR-5): change them only additively.
 package apitypes

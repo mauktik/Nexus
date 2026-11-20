@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package reloadstatus is the outcome of nexusd's last configuration reload,
 // <stateDir>/reload-status.json. The daemon writes it after every reload,
 // SIGHUP or API (Daemon.reload); the config-set service helper reads it to

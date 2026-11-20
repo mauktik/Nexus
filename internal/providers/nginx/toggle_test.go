@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build linux
 
 // Enable and disable rename with renameat2(RENAME_NOREPLACE), which only

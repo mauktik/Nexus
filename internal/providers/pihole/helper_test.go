@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Cases: TC-54b, TC-66 to TC-73, TC-ERR11 and TC-ERR30 in
 // planning/pihole-dns-zones/test-cases.md (WI 3.1): the detached binding
 // builder, the helper, the real exec runner's exit contract, core files,

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package server is the HTTP transport of nexusd: timeouts, bearer
 // authentication, body limit, panic containment, problem+json for unmatched
 // requests, /healthz, the REST routes derived from the core registry, and

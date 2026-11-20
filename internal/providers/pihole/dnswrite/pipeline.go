@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package dnswrite is the DNS file write pipeline (FR-22): the only code
 // that replaces Pi-hole's local DNS records file. It runs in the privileged
 // helper, under the pihole lane, and takes the pre-Nexus backup, swaps the

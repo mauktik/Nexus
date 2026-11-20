@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package problem implements RFC 9457 problem details and the registry of
 // stable Nexus problem types (FR-8). Every non-2xx response, and every failed
 // operation's error, uses this shape.

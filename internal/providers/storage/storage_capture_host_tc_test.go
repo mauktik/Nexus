@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/storage-provider/test-cases.md TC-STG-7 and TC-STG-8
 // (WI 1.2): the host captures show what the requirements rely on, and the
 // home-server sandbox probe shows ZFS reads working under the unit's

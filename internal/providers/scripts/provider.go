@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package scripts is the scripts provider: it runs scripts that the host's
 // administrator cataloged in the root-owned configuration file, and nothing
 // else (FR-18, FR-25). Its declarations live in the spec subpackage.

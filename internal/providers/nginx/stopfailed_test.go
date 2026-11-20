@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build linux
 
 // Code review B, CR-B2: `systemctl stop` of a failed unit exits 0 and leaves

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/system-provider/test-cases.md TC-HP-15, TC-HP-E4,
 // TC-HP-ERR4 and TC-HP-ERR5, owned by WI 1.3: the providers.host section.
 // The daemon.CheckConfig half of TC-HP-ERR4 is in host_config_test.go,

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Security review SEC-3: a managed site is a root-owned regular file with
 // one link, and the provider is available only for an includeDir that only
 // root can change.

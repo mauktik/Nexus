@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package output renders the objects a data command returns (FR-30): as a
 // table, JSON, JSON Lines or YAML, with dot-path field selection and
 // client-side filtering. It writes results only; the caller sends

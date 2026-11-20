@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+# SPDX-License-Identifier: Apache-2.0
 # Live check of nginx-provider Part A (WI 3.5): TC-51 on a real Alpine host
 # with OpenRC, and TC-52 (--ubuntu) on a real Ubuntu host. Each host runs
 # the release tarball. Copy this file to the host and run it there as root.

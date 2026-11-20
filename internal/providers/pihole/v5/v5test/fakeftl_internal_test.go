@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Code review CR-23: FakeFTL decides whether a commit landed in the read
 // after a reload's completion line by the commit's own time against the
 // window's bounds, not by when the window's timer runs. This test makes the

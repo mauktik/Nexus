@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/nexusd-remote-admin/test-cases.md TC-RA-90, TC-RA-91 and
 // TC-RA-92, owned by WI 5.1: the hand-written documentation of remote token
 // and configuration management, the generated reference, and the shipped

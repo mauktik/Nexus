@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/nexusd-remote-admin/test-cases.md TC-RA-37 and
 // TC-RA-38 (WI 2.4): the remote token ops on a real daemon.New with the
 // built-in nexusd provider, checked for the secret in every sink (NFR-1)

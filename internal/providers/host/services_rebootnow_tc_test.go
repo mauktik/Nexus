@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/services-provider/test-cases.md TC-SV-115 (WI 4.4):
 // host.RebootRequiredNow, the export the services provider's reboot reads
 // the reboot-required state through, against the host provider's own rule.

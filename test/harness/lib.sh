@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+# SPDX-License-Identifier: Apache-2.0
 # Container-side helpers of the T1 harnesses. run.sh copies this file to
 # /harness/lib.sh with the shipped unit at /harness/deploy/nexusd.service
 # and the shipped OpenRC script at /harness/deploy/nexusd.openrc; tests call

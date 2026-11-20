@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+# SPDX-License-Identifier: Apache-2.0
 # Installs nexusd from an unpacked release directory (FR-36, FR-24):
 #
 #   sudo ./install.sh

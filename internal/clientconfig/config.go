@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package clientconfig holds the nexus CLI's host configuration: where it
 // lives, how it is read and written, and how a command's target host is
 // resolved from it, the --host flag and the environment (FR-32, FR-35).

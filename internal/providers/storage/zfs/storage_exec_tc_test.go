@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/storage-provider/test-cases.md TC-STG-50 to TC-STG-59
 // (WI 3.1): tool resolution, the runner, the in-flight table and the version
 // parser. Captures are gated with capturegate.Require; this internal package

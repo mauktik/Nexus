@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Cases: TC-75, TC-76, TC-ERR12, TC-ERR13 and TC-ERR29 in
 // planning/pihole-dns-zones/test-cases.md (WI 3.2), and TC-148 and TC-ERR32
 // (WI 5.5, which also changes TC-75's argv): the v5 service methods,

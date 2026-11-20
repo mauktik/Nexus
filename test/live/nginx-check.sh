@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+# SPDX-License-Identifier: Apache-2.0
 # Live check of the nginx provider (nginx-provider WI 7.2): TC-118 on the
 # Alpine/OpenRC nginx VM and TC-119 on a real Ubuntu/systemd host, each
 # running the release tarball. It drives the real `nexus` CLI against the

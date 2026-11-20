@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/services-provider/test-cases.md TC-SV-23, TC-SV-24,
 // TC-SV-25, TC-SV-E5 and TC-SV-ERR7 (WI 1.4): the terminal audit record of
 // an Audited stream (D-7).

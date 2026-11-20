@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+# SPDX-License-Identifier: Apache-2.0
 # Ubuntu (systemd) reboot-race dry run, after the fix: nexusd from this
 # tree installed by its release install.sh in the systemd harness image, a
 # scripts op that sleeps an hour, then `docker restart -t 60` (STOPSIGNAL

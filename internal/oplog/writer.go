@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package oplog is the capped, offset-addressed output log of an operation
 // (FR-5). The supervisor process writes it and nexusd reads it, so the only
 // shared state is the directory: numbered segment files of one JSON frame

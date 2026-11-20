@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for planning/system-provider/test-cases.md TC-HP-111 (WI 5.1): the
 // generated reference pages of the host provider are checked in and
 // current.

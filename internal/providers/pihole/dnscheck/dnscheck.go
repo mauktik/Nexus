@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package dnscheck is a minimal DNS client that asks one given server for A
 // records over UDP. It is built on golang.org/x/net/dns/dnsmessage and never
 // goes through net.Resolver, so /etc/hosts and resolv.conf are never

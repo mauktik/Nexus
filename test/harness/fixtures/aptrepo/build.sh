@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+# SPDX-License-Identifier: Apache-2.0
 # Fixture apt repository for the T1 apt tests (architecture.md, "How the Apt
 # tests stay real and network-free"). Packages are built with dpkg-deb and
 # indexed with dpkg-scanpackages into a flat repository that apt reads as

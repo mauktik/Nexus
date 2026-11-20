@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+# SPDX-License-Identifier: Apache-2.0
 # Registry fixtures of WI 6.3, run inside the T1 harness as root by
 # test/integration/docker_updatecheck_test.go:
 #

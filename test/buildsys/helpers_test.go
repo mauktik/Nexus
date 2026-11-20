@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package buildsys holds the T0 build-system cases (TC-1, TC-2, TC-3, TC-E1).
 // They build and execute the binaries and run make in throwaway copies of the
 // repository, so the real checkout is never written to.

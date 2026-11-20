@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/services-provider/test-cases.md TC-SV-117, TC-SV-118,
 // TC-SV-119. Owner WI: 5.1. This is an external test: the composed daemon
 // imports this package. The injected hooks are read through export_test.go.

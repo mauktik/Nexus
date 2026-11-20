@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/services-provider/test-cases.md TC-SV-73, TC-SV-74,
 // TC-SV-75, TC-SV-76, TC-SV-77, TC-SV-78, TC-SV-79, TC-SV-E14 and
 // TC-SV-ERR17 (WI 4.1): the provider skeleton, Configure, Preflight and the

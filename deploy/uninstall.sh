@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+# SPDX-License-Identifier: Apache-2.0
 # Removes nexusd (FR-36, FR-24, FR-19):
 #
 #   sudo ./uninstall.sh            stop nexusd and take it out of boot, remove

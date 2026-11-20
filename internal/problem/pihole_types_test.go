@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Stub-style: RED-by-design (WI 1.2). Compiles today and fails its
 // assertions until the nine pihole slugs are in the registry; GREEN when
 // WI 1.2 lands. The developer may fold it into problem_test.go.

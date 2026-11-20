@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/nexusd-remote-admin/test-cases.md TC-RA-1, TC-RA-2,
 // TC-RA-3, TC-RA-4, TC-RA-110, TC-RA-E1, TC-RA-E2, TC-RA-ERR1, TC-RA-ERR2,
 // TC-RA-ERR3, TC-RA-ERR4 and TC-RA-ERR40 (WI 1.1): the SyncMutation,

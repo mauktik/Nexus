@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Stub-style: RED-by-design (WI 1.1). Fails to compile until
 // Providers.Pihole / PiholeConfig exist; GREEN when WI 1.1 lands. The
 // developer may fold these cases into config_test.go.

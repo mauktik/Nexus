@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // External tests of the provider's exported surface. This file is also
 // where the internal tests get the real daemon.CheckConfig and
 // daemon.CheckConfigData: it is the only test file here that may import

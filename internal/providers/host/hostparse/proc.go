@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package hostparse holds the host provider's pure parsers (architecture
 // D-4): each takes the bytes of one /proc, /sys, /etc or /run file and
 // returns typed values. A parser skips a line it cannot read, returns an

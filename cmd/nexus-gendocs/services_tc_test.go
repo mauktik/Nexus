@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Stub-style: SKIP-only (services-provider)
 //
 // Stubs of planning/services-provider/test-cases.md TC-SV-128, TC-SV-129, TC-SV-130, TC-SV-131, TC-SV-133.

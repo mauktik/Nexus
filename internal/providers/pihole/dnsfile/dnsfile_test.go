@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Cases: TC-15 to TC-31, TC-E5, TC-E6 in planning/pihole-dns-zones/test-cases.md.
 // The symbol names follow the "dnsfile" row of the test-seam contract in
 // test-strategy.md; the owning developer may rename a symbol to the one

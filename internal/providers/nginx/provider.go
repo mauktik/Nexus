@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package nginx is the nginx provider: it reports the host's packaged nginx
 // service and lists and reads the site configuration files of one include
 // directory. Its declarations live in the spec subpackage.

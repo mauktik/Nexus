@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+# SPDX-License-Identifier: Apache-2.0
 # T1 harness runner: `make test-harness [BASE=ubuntu:latest] [RUN=regex]`
 # (architecture.md, Verification Architecture). `run.sh alpine`
 # (make test-harness-alpine) is the same run on the Alpine/OpenRC harness:

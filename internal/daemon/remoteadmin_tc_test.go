@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/nexusd-remote-admin/test-cases.md TC-RA-56, TC-RA-57,
 // TC-RA-58, TC-RA-59 and TC-RA-ERR16 (WI 3.2): the reload status the daemon
 // writes after every reload, and the byte-level configuration check.

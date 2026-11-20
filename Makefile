@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+# SPDX-License-Identifier: Apache-2.0
+
 # Nexus build. `make check` (vet + test + vuln) is the gate; hosted CI is not
 # assumed. `make vuln` needs network access to fetch the pinned govulncheck.
 

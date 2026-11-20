@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/system-provider/test-cases.md TC-HP-61, TC-HP-62, TC-HP-63, TC-HP-64, TC-HP-65, TC-HP-66, TC-HP-67, TC-HP-68, TC-HP-69, TC-HP-70, TC-HP-E14, TC-HP-E15, TC-HP-E16, TC-HP-E17, TC-HP-ERR14, TC-HP-ERR15, TC-HP-ERR16, TC-HP-ERR17.
 // Owner WI: 3.3. The ready snapshot is the capture's fs/ sample then its t1/
 // sample, 10 s apart on F-CLK; the sampler helpers are in sampler_test.go.

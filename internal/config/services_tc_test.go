@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/services-provider/test-cases.md TC-SV-37, TC-SV-38,
 // TC-SV-39, TC-SV-40, TC-SV-E7, TC-SV-ERR11. Owner WI: 2.3.
 
