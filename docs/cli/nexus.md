@@ -46,6 +46,7 @@ nexus [flags]
 | [`nexus hostnet`](nexus_hostnet.md) | Verbs: get |
 | [`nexus hostnetconfig`](nexus_hostnetconfig.md) | Verbs: get |
 | [`nexus hostsummary`](nexus_hostsummary.md) | Verbs: get |
+| [`nexus machine`](nexus_machine.md) | Verbs: restart |
 | [`nexus nexusd`](nexus_nexusd.md) | Verbs: get, validate-config, reload, restart, update, rollback |
 | [`nexus nexusdconfig`](nexus_nexusdconfig.md) | Verbs: get, update |
 | [`nexus nexusdtoken`](nexus_nexusdtoken.md) | Verbs: get, add, remove |
@@ -70,6 +71,8 @@ nexus [flags]
 | [`nexus piholesummary`](nexus_piholesummary.md) | Verbs: get |
 | [`nexus piholezone`](nexus_piholezone.md) | Verbs: get, add, remove |
 | [`nexus script`](nexus_script.md) | Verbs: get, invoke |
+| [`nexus service`](nexus_service.md) | Verbs: get, start, stop, restart, invoke |
+| [`nexus servicelog`](nexus_servicelog.md) | Verbs: get |
 
 ## Every command
 
@@ -101,6 +104,7 @@ nexus [flags]
 | [`nexus hostnet get`](nexus_hostnet_get.md) | List the host's network interfaces |
 | [`nexus hostnetconfig get`](nexus_hostnetconfig_get.md) | Get the host's gateways and DNS resolvers |
 | [`nexus hostsummary get`](nexus_hostsummary_get.md) | Get the host overview |
+| [`nexus machine restart`](nexus_machine_restart.md) | Reboot the host |
 | [`nexus nexusd get`](nexus_nexusd_get.md) | Get the running nexusd |
 | [`nexus nexusd reload`](nexus_nexusd_reload.md) | Reload the nexusd configuration |
 | [`nexus nexusd restart`](nexus_nexusd_restart.md) | Restart nexusd |
@@ -157,3 +161,9 @@ nexus [flags]
 | [`nexus piholezone remove`](nexus_piholezone_remove.md) | Remove a DNS zone |
 | [`nexus script get`](nexus_script_get.md) | List cataloged scripts, or with NAME, get a cataloged script |
 | [`nexus script invoke`](nexus_script_invoke.md) | Run a cataloged script |
+| [`nexus service get`](nexus_service_get.md) | List system services, or with NAME, get a system service |
+| [`nexus service invoke`](nexus_service_invoke.md) | Start, stop or restart a system service |
+| [`nexus service restart`](nexus_service_restart.md) | Restart a system service |
+| [`nexus service start`](nexus_service_start.md) | Start a system service |
+| [`nexus service stop`](nexus_service_stop.md) | Stop a system service |
+| [`nexus servicelog get`](nexus_servicelog_get.md) | Read a service's recent logs |

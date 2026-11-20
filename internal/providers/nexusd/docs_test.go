@@ -129,8 +129,10 @@ func TestTCRA90_TheDocsCarryTheDenyListTheRecoveryAnchorAndThe(t *testing.T) {
 			rows = append(rows, l)
 		}
 	}
-	if len(spec.ConfigDenyList) != 14 {
-		t.Errorf("spec.ConfigDenyList has %d entries, want the fourteen of FR-12", len(spec.ConfigDenyList))
+	// The fourteen of FR-12, plus services-provider's
+	// providers.services.reboot.enabled=true (A-19).
+	if len(spec.ConfigDenyList) != 15 {
+		t.Errorf("spec.ConfigDenyList has %d entries, want the fourteen of FR-12 and services-provider's one", len(spec.ConfigDenyList))
 	}
 	for _, d := range spec.ConfigDenyList {
 		key := "`" + d.Key + "`"
@@ -335,6 +337,16 @@ func TestTCRA92_TheShippedDefaultYAMLGainsCommentsOnly(t *testing.T) {
 	}
 	baseV, basePaths := docsDecode(t, docsBaseCommit+":deploy/nexusd.default.yaml", base)
 	nowV, nowPaths := docsDecode(t, "deploy/nexusd.default.yaml", now)
+	// Sections added by later features are not remote-admin's to judge:
+	// providers.services (services-provider WI 2.3).
+	if m, ok := nowV.(map[string]any); ok {
+		if p, ok := m["providers"].(map[string]any); ok {
+			delete(p, "services")
+		}
+	}
+	maps.DeleteFunc(nowPaths, func(k string, _ bool) bool {
+		return k == "providers.services" || strings.HasPrefix(k, "providers.services.")
+	})
 	if !reflect.DeepEqual(baseV, nowV) {
 		t.Errorf("deploy/nexusd.default.yaml decodes differently from %s's:\n got %v\nwant %v", docsBaseCommit, nowV, baseV)
 	}

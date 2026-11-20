@@ -1,0 +1,14 @@
+Id=nx-svc-alias.service
+Description=nexus T1 aliased service
+LoadState=loaded
+ActiveState=inactive
+SubState=dead
+FragmentPath=/etc/systemd/system/nx-svc-alias.service
+UnitFileState=enabled
+ActiveEnterTimestamp=
+InactiveEnterTimestamp=
+MainPID=0
+Result=success
+NRestarts=0
+MemoryCurrent=[not set]
+Exit 0

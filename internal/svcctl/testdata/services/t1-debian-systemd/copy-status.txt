@@ -1,0 +1,5 @@
+proc/self/cgroup: Exit 0
+proc/self/mountinfo: Exit 1
+proc/sys/kernel/osrelease: Exit 0
+proc/uptime: Exit 0
+proc/sys/kernel/random/boot_id: Exit 0

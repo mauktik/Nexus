@@ -1,0 +1,17 @@
+argc
+argv_0
+argv_1
+argv_2
+argv_3
+child_pid
+exec
+pidfile
+respawn_delay
+respawn_delay_cap
+respawn_delay_step
+respawn_max
+respawn_period
+retry
+start_count
+start_time
+Exit 0

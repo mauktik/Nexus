@@ -188,6 +188,9 @@ func (a *app) newOpCommand(g *opCommand) (*cobra.Command, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := relaxTypedConfirmation(g, b); err != nil {
+		return nil, err
+	}
 	g.columns = map[string][]output.Path{}
 	for _, op := range g.ops {
 		cols, err := a.columnsFor(op)
@@ -244,7 +247,7 @@ func (a *app) newOpCommand(g *opCommand) (*cobra.Command, error) {
 	}
 	b.register(cmd)
 	registerOutputFlags(cmd, g)
-	registerTargetFlags(cmd, b)
+	registerTargetFlags(cmd, g, b)
 	registerStdinFlags(cmd, g)
 	if err := registerWaitFlags(cmd, g); err != nil {
 		return nil, err
@@ -430,6 +433,10 @@ func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string
 	if flagSet(cmd, flagStdin) && flagChanged(cmd, flagSaveAsHost) {
 		return usagef("--%s saves the token of one call; it cannot be used with --%s", flagSaveAsHost, flagStdin)
 	}
+	if flagSet(cmd, flagStdin) && typedConfirmed(g) {
+		return usagef("--%s cannot be used with %s %s %s: it targets exactly one host, whose name is typed to confirm",
+			flagStdin, programName, g.noun, g.verb)
+	}
 	if flagSet(cmd, flagStdin) {
 		return a.interruptedExit(a.invokeStdin(cmd, g, b))
 	}
@@ -485,9 +492,22 @@ func (a *app) invoke(cmd *cobra.Command, g *opCommand, b *binding, args []string
 	for i, t := range targets {
 		hosts[i] = t.Name
 	}
-	name, _ := in[op.CLI.Positional].(string)
-	if err := a.confirmTargets(cmd, op, hosts, 0, name); err != nil {
-		return err
+	if op.CLI.TypedConfirmation != "" {
+		// The typed host name is the confirmation: no y/N question, and
+		// --yes neither fills nor skips it.
+		if err := a.typedConfirmation(cmd, op, targets, in); err != nil {
+			return err
+		}
+		header := req.Header
+		if req, err = buildRequest(op, in); err != nil {
+			return err
+		}
+		req.Header = header
+	} else {
+		name, _ := in[op.CLI.Positional].(string)
+		if err := a.confirmTargets(cmd, op, hosts, 0, name); err != nil {
+			return err
+		}
 	}
 	a.multi = len(targets) > 1
 	opts.HostLabels = a.multi

@@ -1,0 +1,3 @@
+description="nexus T1 test service"
+output_log=/var/log/nx-svc-test.log
+error_log=/var/log/nx-svc-test.err

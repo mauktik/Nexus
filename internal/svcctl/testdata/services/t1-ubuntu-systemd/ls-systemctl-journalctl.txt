@@ -1,0 +1,3 @@
+-rwxr-xr-x 1 root root 134304 Sep 16 14:55 /usr/bin/journalctl
+-rwxr-xr-x 1 root root 331632 Sep 16 14:55 /usr/bin/systemctl
+Exit 0

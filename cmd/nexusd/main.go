@@ -22,6 +22,7 @@ import (
 	"github.com/mauktik/nexus/internal/providers/nexusd"
 	"github.com/mauktik/nexus/internal/providers/nginx"
 	"github.com/mauktik/nexus/internal/providers/pihole"
+	"github.com/mauktik/nexus/internal/providers/services"
 	"github.com/mauktik/nexus/internal/tlsutil"
 	"github.com/mauktik/nexus/internal/version"
 )
@@ -67,6 +68,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 			// Hidden: a pihole mutation, run by op-supervise as root in the
 			// operation's unit. Pi-hole command output goes to stdout.
 			return pihole.Helper(args[1:], stdout, stderr)
+		case services.HelperCommand:
+			// Hidden: a service start, stop or restart, or the guarded
+			// reboot, run by op-supervise outside nexusd's sandbox (D-5,
+			// CON-2). Its progress goes to stdout, which the supervisor
+			// frames into the operation's output.
+			return services.Helper(args[1:], stdout, stderr)
 		}
 	}
 

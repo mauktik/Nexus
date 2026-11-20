@@ -3,7 +3,7 @@ package mcpadapter
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/mauktik/nexus/internal/apitypes"
+	"github.com/mauktik/nexus/internal/core"
 )
 
 // The operation handle loop (FR-28). A long-running tool answers at once
@@ -26,18 +27,15 @@ type offsetPage struct {
 	Truncated  bool             `json:"truncated" jsonschema:"True when the page size ended the page: more output follows nextOffset."`
 }
 
-// sincePage is a page of a time-addressed log: container logs, whose frames
-// have no byte offset.
+// sincePage is a page of a time-addressed log: container and service logs,
+// whose frames have no byte offset.
 type sincePage struct {
 	Frames []apitypes.Frame `json:"frames" jsonschema:"Log lines, oldest first."`
 	// NextOffset is the last frame's time. Docker's since may repeat lines
-	// logged at that time.
+	// logged at that time. An untimed page has none.
 	NextOffset string `json:"nextOffset,omitempty" jsonschema:"RFC 3339 time to pass back as since for the next page; lines at that time may repeat."`
 	Truncated  bool   `json:"truncated" jsonschema:"True when the page size ended the page: more lines follow nextOffset."`
 }
-
-// errPageFull stops a stream once its page is full.
-var errPageFull = errors.New("page full")
 
 // pageBuilder collects one page of frames, at most limit bytes of text.
 type pageBuilder struct {
@@ -54,6 +52,11 @@ type pageBuilder struct {
 	startT   time.Time // The time this page started from; zero when none
 	haveData bool
 	lastT    time.Time
+	// untimed: the page took a frame with no time (the zero T, as an OpenRC
+	// log file's lines are). No time continues such a page: a since from
+	// the zero time would be year 0001, which the op refuses or misreads
+	// (A-38), so the page has no nextOffset, whether or not it is full.
+	untimed bool
 }
 
 // newPageBuilder starts a page at the call's offset or since.
@@ -97,6 +100,17 @@ func (b *pageBuilder) add(f apitypes.Frame) bool {
 			b.next = *f.O
 		}
 	case sincePager:
+		if b.untimed || f.T.IsZero() {
+			// The page keeps the frames it took. Only a line too large to
+			// fit an empty page is taken in part, so the page is not empty.
+			if part := encodedPrefix(f.D, room); len(b.frames) == 0 && part != "" {
+				g := f
+				g.D = part
+				b.frames = append(b.frames, g)
+			}
+			b.untimed = true
+			break
+		}
 		if b.haveData && b.lastT.After(b.startT) {
 			b.since = formatTime(b.lastT)
 			break
@@ -127,16 +141,22 @@ func (b *pageBuilder) take(f apitypes.Frame) {
 	b.frames = append(b.frames, f)
 	b.used += encodedLen(f.D)
 	b.haveData, b.lastT = true, f.T
+	if f.T.IsZero() {
+		b.untimed = true
+	}
 	if f.O != nil {
 		b.next = *f.O + rawLen(f.D)
 	}
 }
 
 // page is the finished page. A page the size did not end continues from
-// its last frame.
+// its last frame; an untimed page continues from nothing.
 func (b *pageBuilder) page() any {
 	if b.pager == offsetPager {
 		return offsetPage{Frames: b.frames, NextOffset: b.next, Truncated: b.full}
+	}
+	if b.untimed {
+		return sincePage{Frames: b.frames, Truncated: b.full}
 	}
 	if !b.full && b.haveData {
 		b.since = formatTime(b.lastT)
@@ -203,9 +223,11 @@ func encodedPrefix(s string, n int) string {
 
 func formatTime(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
 
-// page drives a stream until it ends or a page is full, then stops it. A
-// stream stopped for a full page reports the cancellation, which is not an
-// error of the call.
+// page drives a stream until it ends or a page is full, then stops it: emit
+// returns core.ErrStreamStopped, so the Dispatcher ends the stream as
+// complete rather than as a client that went away (A-44), and the stream's
+// context is canceled to stop the handler. Whatever the stream returns after
+// a full page is not an error of the call.
 func (a *Adapter) page(ctx context.Context, t *tool, input json.RawMessage,
 	stream func(context.Context, func(apitypes.Frame) error) error) *mcp.CallToolResult {
 	b := newPageBuilder(t.pager, a.pageBytes, input)
@@ -216,7 +238,7 @@ func (a *Adapter) page(ctx context.Context, t *tool, input json.RawMessage,
 			return nil
 		}
 		stop()
-		return errPageFull
+		return fmt.Errorf("%w: page full", core.ErrStreamStopped)
 	})
 	if err != nil && !b.full {
 		return a.failure(t.op, err)

@@ -307,6 +307,9 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 		if u, ok := p.(provider.DaemonUser); ok {
 			u.UseDaemon(d)
 		}
+		if u, ok := p.(provider.OperationsUser); ok {
+			u.UseOperations(mgr)
+		}
 	}
 	return d, nil
 }

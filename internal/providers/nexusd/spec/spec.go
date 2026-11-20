@@ -362,6 +362,10 @@ var ConfigDenyList = []ConfigDeny{
 		"a stolen nexusd:admin token cannot shorten the record of its own use"},
 	{Key: "auth.failureLimitPerMinute", Reason: "brute-force protection changes only by a root edit of the file " +
 		"on the host, so a stolen nexusd:admin token cannot raise the limit on guessing tokens"},
+	// services-provider A-19: a stolen nexusd:admin token cannot switch the
+	// reboot on; switching it off stays settable.
+	{Key: "providers.services.reboot.enabled", Value: "true", Reason: "the reboot is switched on only by editing " +
+		"the file on the host"},
 }
 
 // LockoutKeyPrefixes are the key prefixes whose change may lock the client

@@ -23,6 +23,7 @@ import (
 
 	hostspec "github.com/mauktik/nexus/internal/providers/host/spec"
 	nexusdspec "github.com/mauktik/nexus/internal/providers/nexusd/spec"
+	servicesspec "github.com/mauktik/nexus/internal/providers/services/spec"
 )
 
 // DefaultPath is where the installer writes the configuration.
@@ -90,13 +91,14 @@ type MCP struct {
 // so the provider can decode it strictly into its own type through
 // Section.Decode, which is the closure handed to Provider.Configure.
 type Providers struct {
-	Docker  Section[DockerConfig]       `yaml:"docker"`
-	Apt     Section[AptConfig]          `yaml:"apt"`
-	Scripts Section[ScriptsConfig]      `yaml:"scripts"`
-	Nginx   Section[NginxConfig]        `yaml:"nginx"`
-	Nexusd  Section[NexusdConfig]       `yaml:"nexusd"`
-	Pihole  Section[PiholeConfig]       `yaml:"pihole"`
-	Host    Section[HostProviderConfig] `yaml:"host"`
+	Docker   Section[DockerConfig]       `yaml:"docker"`
+	Apt      Section[AptConfig]          `yaml:"apt"`
+	Scripts  Section[ScriptsConfig]      `yaml:"scripts"`
+	Nginx    Section[NginxConfig]        `yaml:"nginx"`
+	Nexusd   Section[NexusdConfig]       `yaml:"nexusd"`
+	Pihole   Section[PiholeConfig]       `yaml:"pihole"`
+	Host     Section[HostProviderConfig] `yaml:"host"`
+	Services Section[ServicesConfig]     `yaml:"services"`
 }
 
 // DockerConfig is the docker provider section.
@@ -192,6 +194,60 @@ type HostProviderConfig struct {
 	SourceTimeout time.Duration `yaml:"sourceTimeout"`
 }
 
+// ServicesConfig is the services provider section: system services, the
+// allow-list of those start, stop and restart may act on, and the guarded
+// host reboot (services-provider FR-1, FR-8, FR-10). The allow-list and
+// reboot.enabled change only by editing the file: config set refuses lists
+// and reboot.enabled=true.
+type ServicesConfig struct {
+	Enabled bool             `yaml:"enabled"`
+	Control []ServiceControl `yaml:"control"`
+	Reboot  ServicesReboot   `yaml:"reboot"`
+}
+
+// ServiceControl is one allow-list entry. An absent actions grants all
+// three, and an absent timeout is servicesspec.DefaultControlTimeout.
+type ServiceControl struct {
+	Name    string        `yaml:"name"`    // Without .service
+	Actions []string      `yaml:"actions"` // Subset of start, stop and restart
+	Timeout time.Duration `yaml:"timeout"` // How long the service may take to reach the target state
+}
+
+// ServicesReboot is the guarded host reboot.
+type ServicesReboot struct {
+	Enabled bool `yaml:"enabled"`
+	// Timeout is how long after the trigger the host must go down before
+	// the reboot fails reboot-did-not-happen.
+	Timeout time.Duration `yaml:"timeout"`
+}
+
+// applyDefaults fills each allow-list entry's absent keys, which the strict
+// decoder cannot pre-fill because it builds list entries from zero. A key is
+// absent when the decoder recorded no location for it, so an explicit
+// timeout: 0s stays zero and is refused by validate-config.
+func (c *ServicesConfig) applyDefaults(locs locations, path string) {
+	for i := range c.Control {
+		p := fmt.Sprintf("%s.control[%d]", path, i)
+		if _, ok := locs[p+".actions"]; !ok {
+			c.Control[i].Actions = append([]string(nil), servicesspec.Actions...)
+		} else if c.Control[i].Actions == nil {
+			// `actions:` or `actions: ~`: the key is there with no list, which
+			// grants none, as `actions: []` does. Only an absent key means all
+			// three.
+			c.Control[i].Actions = []string{}
+		}
+		if _, ok := locs[p+".timeout"]; !ok {
+			c.Control[i].Timeout = servicesspec.DefaultControlTimeout
+		}
+	}
+}
+
+// defaulter is a section type with defaults inside lists: Parse and
+// Section.Decode both apply them after decoding.
+type defaulter interface {
+	applyDefaults(locs locations, path string)
+}
+
 // Script is one catalog entry.
 type Script struct {
 	ID               string            `yaml:"id"`
@@ -237,6 +293,9 @@ func (s Section[T]) Decode(out any) error {
 	}
 	d := newDecoder(s.file)
 	d.decode(s.node, out, s.path)
+	if df, ok := out.(defaulter); ok {
+		df.applyDefaults(d.locs, s.path)
+	}
 	return d.errs.err()
 }
 
@@ -300,6 +359,10 @@ func Default() Config {
 				SampleInterval:  hostspec.DefaultSampleInterval,
 				HistoryDuration: hostspec.DefaultHistoryDuration,
 				SourceTimeout:   hostspec.DefaultSourceTimeout,
+			}},
+			Services: Section[ServicesConfig]{Settings: ServicesConfig{
+				Control: []ServiceControl{},
+				Reboot:  ServicesReboot{Timeout: servicesspec.DefaultRebootTimeout},
 			}},
 		},
 	}
@@ -437,6 +500,7 @@ func Parse(data []byte, file string) (*Config, error) {
 		}
 		cfg.Host.Name = name
 	}
+	cfg.Providers.Services.Settings.applyDefaults(d.locs, "providers.services")
 	cfg.locs = d.locs
 	cfg.validate(&d.errs)
 	if err := d.errs.err(); err != nil {

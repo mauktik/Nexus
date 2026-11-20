@@ -1,0 +1,2 @@
+/usr/bin/stat: cannot statx '/etc/pve': No such file or directory
+Exit 1

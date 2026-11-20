@@ -106,13 +106,22 @@ type Op struct {
 	// SecretOutput is the JSON name of a string field of the output that
 	// carries a credential returned once. Requires SyncMutation.
 	SecretOutput string
-	// Audited makes a read-only sync op's calls audited like a mutation's:
-	// requested before the handler (fail-closed), then completed or refused.
+	// Audited makes a read-only sync or stream op's calls audited like a
+	// mutation's: requested before the handler (fail-closed), then completed
+	// or refused.
 	Audited bool
 	// CompletesAtAdmission lets a long-running op end a call at admission
 	// with 200 and its output: no operation record, lane hold, Prepare or
 	// unit. Its binding must provide DetachedSpec.Admission (D-7).
 	CompletesAtAdmission bool
+	// CompletesAcrossReboot lets a detached op's outcome be decided in the
+	// boot after the one it was launched in: its helper records a reboot
+	// request with detach.RecordReboot before triggering a reboot, and its
+	// binding's DetachedSpec.AfterReboot reports the outcome once nexusd
+	// runs in a new boot. Requires ModeLongRunning, Risk mutating or
+	// destructive, Kind resource-action or provider-action, CLI.ReconnectWindow
+	// > 0, and neither SyncMutation nor CompletesAtAdmission.
+	CompletesAcrossReboot bool
 
 	inputType  reflect.Type // Set by Define
 	outputType reflect.Type // Set by Define
@@ -161,6 +170,13 @@ type CLIBinding struct {
 	// EchoWarnings also prints the result's warnings ([]string "warnings",
 	// apitypes.ActionResult) on stderr, after printing the result.
 	EchoWarnings bool
+	// TypedConfirmation is the JSON name of a required string input field
+	// the operator must type. The CLI asks for it on /dev/tty when its flag
+	// is absent, never fills it from another flag or --yes, takes an
+	// explicit flag as the confirmation (no y/N question), and runs the
+	// command against exactly one host. Requires a mutating op; the field
+	// must not be Positional.
+	TypedConfirmation string
 }
 
 // CLIUpload binds a long-running command to a KindUpload op of the same
@@ -275,6 +291,18 @@ func jsonName(f reflect.StructField) string {
 	return name
 }
 
+// jsonOmits reports whether f's JSON tag has omitempty or omitzero, which
+// make the field optional in the generated schema.
+func jsonOmits(f reflect.StructField) bool {
+	_, opts, _ := strings.Cut(f.Tag.Get("json"), ",")
+	for _, o := range strings.Split(opts, ",") {
+		if o == "omitempty" || o == "omitzero" {
+			return true
+		}
+	}
+	return false
+}
+
 func validate(op Op) error {
 	if op.ID == "" {
 		return fmt.Errorf("empty ID")
@@ -382,11 +410,29 @@ func validate(op Op) error {
 	return nil
 }
 
-// validateDeclarations checks CompletesAtAdmission, SyncMutation,
-// SecretOutput and Audited. It runs before the other rules so that a refusal names
-// the declaration whose rule failed.
+// validateDeclarations checks CompletesAcrossReboot, CompletesAtAdmission,
+// SyncMutation, SecretOutput, Audited and CLI.TypedConfirmation. It runs
+// before the other rules so that a refusal names the declaration whose rule
+// failed.
 func validateDeclarations(op Op) error {
 	action := op.Kind == KindResourceAction || op.Kind == KindProviderAction
+	if op.CompletesAcrossReboot {
+		switch {
+		case !op.Mutating():
+			return fmt.Errorf("CompletesAcrossReboot requires a mutating op, got Risk %q", op.Risk)
+		case op.Mode != ModeLongRunning:
+			return fmt.Errorf("CompletesAcrossReboot requires ModeLongRunning, got %q", op.Mode)
+		case !action:
+			return fmt.Errorf("CompletesAcrossReboot requires KindResourceAction or KindProviderAction, got Kind %q", op.Kind)
+		case op.CLI.ReconnectWindow <= 0:
+			// The waiting CLI must outlast the reboot's outage.
+			return fmt.Errorf("CompletesAcrossReboot requires CLI.ReconnectWindow > 0, got %v", op.CLI.ReconnectWindow)
+		case op.SyncMutation:
+			return fmt.Errorf("CompletesAcrossReboot cannot be set with SyncMutation")
+		case op.CompletesAtAdmission:
+			return fmt.Errorf("CompletesAcrossReboot cannot be set with CompletesAtAdmission")
+		}
+	}
 	if op.CompletesAtAdmission {
 		switch {
 		case !op.Mutating():
@@ -446,8 +492,26 @@ func validateDeclarations(op Op) error {
 		if op.Risk != RiskReadOnly {
 			return fmt.Errorf("Audited requires RiskReadOnly, got %q", op.Risk)
 		}
-		if op.Mode != ModeSync {
-			return fmt.Errorf("Audited requires ModeSync, got %q", op.Mode)
+		if op.Mode != ModeSync && op.Mode != ModeStream {
+			return fmt.Errorf("Audited requires ModeSync or ModeStream, got %q", op.Mode)
+		}
+	}
+	if c := op.CLI.TypedConfirmation; c != "" {
+		if !op.Mutating() {
+			return fmt.Errorf("CLI.TypedConfirmation %q requires a mutating op, got Risk %q", c, op.Risk)
+		}
+		f, ok := jsonStructField(op.inputType, c)
+		switch {
+		case !ok:
+			return fmt.Errorf("CLI.TypedConfirmation %q is an unknown field of input %v", c, op.inputType)
+		case f.Type.Kind() != reflect.String:
+			return fmt.Errorf("CLI.TypedConfirmation %q is not a string field of input %v", c, op.inputType)
+		case jsonOmits(f):
+			// The schema leaves an omitempty or omitzero field optional; the
+			// confirmation must be required so the daemon refuses its absence.
+			return fmt.Errorf("CLI.TypedConfirmation %q is not required: its field is omitempty or omitzero", c)
+		case c == op.CLI.Positional:
+			return fmt.Errorf("CLI.TypedConfirmation %q must not be CLI.Positional", c)
 		}
 	}
 	return nil
@@ -544,16 +608,26 @@ func hasWarnings(t reflect.Type) bool {
 }
 
 // jsonField returns the type of the field that encoding/json encodes under
-// name in struct type t. It follows encoding/json: an embedded struct without
-// a JSON name is flattened, "-" hides a field (and so all of an embedded
-// struct's fields), the shallowest field wins and, at equal depth, the only
-// tagged one; any other tie hides the name.
+// name in struct type t.
 func jsonField(t reflect.Type, name string) (reflect.Type, bool) {
-	if t == nil || t.Kind() != reflect.Struct || name == "" {
+	f, ok := jsonStructField(t, name)
+	if !ok {
 		return nil, false
 	}
+	return f.Type, true
+}
+
+// jsonStructField returns the field that encoding/json encodes under name in
+// struct type t. It follows encoding/json: an embedded struct without a JSON
+// name is flattened, "-" hides a field (and so all of an embedded struct's
+// fields), the shallowest field wins and, at equal depth, the only tagged
+// one; any other tie hides the name.
+func jsonStructField(t reflect.Type, name string) (reflect.StructField, bool) {
+	if t == nil || t.Kind() != reflect.Struct || name == "" {
+		return reflect.StructField{}, false
+	}
 	type match struct {
-		typ    reflect.Type
+		field  reflect.StructField
 		tagged bool
 	}
 	seen := map[reflect.Type]bool{}
@@ -589,7 +663,7 @@ func jsonField(t reflect.Type, name string) (reflect.Type, bool) {
 					json = f.Name
 				}
 				if json == name {
-					matches = append(matches, match{f.Type, tag != ""})
+					matches = append(matches, match{f, tag != ""})
 				}
 			}
 		}
@@ -598,7 +672,7 @@ func jsonField(t reflect.Type, name string) (reflect.Type, bool) {
 			level = next
 			continue
 		case 1:
-			return matches[0].typ, true
+			return matches[0].field, true
 		}
 		var dominant []match
 		for _, m := range matches {
@@ -607,11 +681,11 @@ func jsonField(t reflect.Type, name string) (reflect.Type, bool) {
 			}
 		}
 		if len(dominant) == 1 {
-			return dominant[0].typ, true
+			return dominant[0].field, true
 		}
-		return nil, false
+		return reflect.StructField{}, false
 	}
-	return nil, false
+	return reflect.StructField{}, false
 }
 
 // isKebab reports whether s is a kebab-case flag name: lowercase words of

@@ -1,0 +1,7 @@
+ * Starting nx-svc-fail ...
+ * start-stop-daemon: failed to start `/bin/false'
+
+ * Failed to start nx-svc-fail
+                                           [ !! ]
+ * ERROR: nx-svc-fail failed to start
+Exit 1

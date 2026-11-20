@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -46,6 +47,12 @@ var ErrTargetNotFound = errors.New("target operation not found")
 // wrapped. The Dispatcher answers an upload whose Receive fails with it as
 // upload-too-large.
 var ErrUploadTooLarge = errors.New("upload exceeds the size limit")
+
+// ErrStreamStopped is what a stream's consumer returns, or an error wrapping
+// it, from emit to end the stream on purpose. The stream is then complete:
+// an Audited stream is audited completed with no clientDisconnected fact,
+// whatever its handler returns after the stop, and the stream returns nil.
+var ErrStreamStopped = errors.New("stream stopped by its consumer")
 
 // TargetRecord is what authorization needs from the operation record a
 // Scope.FromTarget op names.
@@ -128,9 +135,11 @@ type InvokeResult struct {
 // It writes the audit records of these steps (FR-24): denied for every
 // failed authentication or scope check, refused for an audited request
 // (mutating, or a read declaring def.Op.Audited) any later step refuses,
-// requested, durably, before an audited sync handler runs, completed once a
-// SyncMutation or Audited handler, or an Admission hook that answered Done,
-// succeeded, and stored once an upload's body is stored. Requested,
+// requested, durably, before an audited sync or stream handler runs,
+// completed once a SyncMutation or Audited handler, or an Admission hook that
+// answered Done, succeeded, exactly one terminal record after an Audited
+// stream's requested record (d.stream), and stored once an upload's body is
+// stored. Requested,
 // refused, completed and stored records carry the audit facts provider code
 // added to the call's context (FR-16). A failed requested write refuses the
 // call with audit-unavailable; a failed denied, refused, completed or stored
@@ -230,11 +239,9 @@ func (d *Dispatcher) Invoke(ctx context.Context, req InvokeRequest) (InvokeResul
 		}
 		return InvokeResult{Status: 200, Body: out}, nil
 	case provider.BindStream:
+		callCtx := ctx
 		return InvokeResult{Status: 200, Stream: func(ctx context.Context, emit func(apitypes.Frame) error) error {
-			if err := d.callStream(ctx, b, in, emit); err != nil {
-				return d.sanitize(ctx, op, err)
-			}
-			return nil
+			return d.stream(callCtx, ctx, op, req, b, in, emit, requestID)
 		}}, nil
 	case provider.BindUpload:
 		return d.upload(ctx, op, req, b, in)
@@ -796,6 +803,90 @@ func (d *Dispatcher) callSync(ctx context.Context, b provider.Binding, in any) (
 func (d *Dispatcher) callStream(ctx context.Context, b provider.Binding, in any, emit func(apitypes.Frame) error) (err error) {
 	defer d.contain(b.Op(), &err)
 	return b.CallStream(ctx, in, emit)
+}
+
+// stream runs a stream handler under the transport's context sctx, with the
+// values of the call's context callCtx (its facts collector and principal),
+// and writes an Audited stream's one terminal record, naming its requested
+// record requestID (D-7): completed when the handler returns nil, or when
+// the consumer ended the stream on purpose (emit returned ErrStreamStopped),
+// whatever the handler returned after; when the client is gone (sctx is
+// done, or emit failed), completed after a delivered frame and refused
+// before one, both with the fact clientDisconnected=true; refused with the
+// sanitized problem for any other error. A stream that is not audited writes
+// nothing.
+func (d *Dispatcher) stream(callCtx, sctx context.Context, op def.Op, req InvokeRequest, b provider.Binding, in any,
+	emit func(apitypes.Frame) error, requestID string) error {
+	var delivered atomic.Int64
+	var emitFailed, consumerStopped atomic.Bool
+	counted := func(f apitypes.Frame) error {
+		if err := emit(f); err != nil {
+			if errors.Is(err, ErrStreamStopped) {
+				consumerStopped.Store(true)
+			} else {
+				emitFailed.Store(true)
+			}
+			return err
+		}
+		delivered.Add(1)
+		return nil
+	}
+	err := d.callStream(valuesFrom{Context: sctx, vals: callCtx}, b, in, counted)
+	auditedCall := audited(op, req)
+	// The consumer's own stop also cancels sctx, so it is checked before the
+	// client-gone branch below.
+	if consumerStopped.Load() {
+		if auditedCall {
+			d.completed(callCtx, op, req, requestID)
+		}
+		return nil
+	}
+	if err == nil && auditedCall && (sctx.Err() != nil || emitFailed.Load()) {
+		// The handler swallowed the client's going away and returned nil.
+		// It is still a disconnect: recorded as one, and refused when no
+		// frame was delivered. Nil is what the caller gets either way.
+		audit.AddFact(callCtx, "clientDisconnected", "true")
+		if delivered.Load() > 0 {
+			d.completed(callCtx, op, req, requestID)
+			return nil
+		}
+		_ = d.refuseAfter(callCtx, op, req, d.sanitize(sctx, op, errClientGone), requestID)
+		return nil
+	}
+	if err == nil {
+		if auditedCall {
+			d.completed(callCtx, op, req, requestID)
+		}
+		return nil
+	}
+	perr := d.sanitize(sctx, op, err)
+	if auditedCall && (sctx.Err() != nil || emitFailed.Load()) {
+		audit.AddFact(callCtx, "clientDisconnected", "true")
+		if delivered.Load() > 0 {
+			d.completed(callCtx, op, req, requestID)
+			return perr
+		}
+	}
+	return d.refuseAfter(callCtx, op, req, perr, requestID)
+}
+
+// errClientGone is the cause recorded for an Audited stream whose client
+// went away before its first frame while its handler returned nil.
+var errClientGone = errors.New("core: the client went away before the stream's first frame")
+
+// valuesFrom is a stream's context: the transport's cancellation, deadline
+// and values, falling back to the values of the call's context, so provider
+// code reaches the call's facts collector and principal.
+type valuesFrom struct {
+	context.Context
+	vals context.Context
+}
+
+func (c valuesFrom) Value(key any) any {
+	if v := c.Context.Value(key); v != nil {
+		return v
+	}
+	return c.vals.Value(key)
 }
 
 func (d *Dispatcher) contain(op def.Op, err *error) {

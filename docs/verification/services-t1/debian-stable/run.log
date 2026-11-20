@@ -1,0 +1,333 @@
+harness: docker context default, daemon architecture aarch64 -> GOARCH=arm64, BASE=debian:stable, init systemd
+harness: building image nexus-harness:debian-stable from test/harness/Dockerfile
+harness: building linux/arm64 test-only binaries into build/harness/
+harness: building the self-update fixtures (v9.9.1 v9.9.2 v9.9.3 v9.9.4 v9.9.5 v9.9.6 v9.9.7) into build/harness/selfupdate
+harness: per-run signing key build/harness/release-test.key, public key TMxVO/J9kp2ko9gpfCRonTdP6e8ebx2cqf+GBo/9qLg=; untrusted key build/harness/release-untrusted.key
+harness: fixture v9.9.1: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.1-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.2: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.2-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.3: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.3-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.4: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.4-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.5: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.5-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.6: refused by the per-run key, as intended (signed by build/harness/release-untrusted.key)
+harness: fixture v9.9.7: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.7-linux-arm64.tar.gz: signature verified
+harness: starting container nexus-harness-20261118T191112Z-2741
+harness: mounts: volume:/var/lib/containerd volume:/var/lib/docker 
+harness: waiting for systemd (running or degraded)
+harness: system state: degraded
+harness: failed units: systemd-modules-load.service
+harness: required unit systemd-journald.service active
+harness: required unit dbus.service active
+harness: required unit docker.service active
+harness: versions: systemd 257 (257.13-1~deb13u1) apt 3.0.4 dpkg 1.22.22 nginx version: nginx/1.26.3 curl 8.14.1 (aarch64-unknown-linux-gnu) libcurl/8.14.1 OpenSSL/3.5.7 zlib/1.3.1 brotli/1.1.0 zstd/1.5.7 libidn2/2.3.8 libpsl/0.21.2 libssh2/1.11.1 nghttp2/1.64.0 nghttp3/1.8.0 librtmp/2.3 OpenLDAP/2.6.10 Debian GNU/Linux 13 (trixie)
+harness: copying binaries, unit, lib.sh and fixtures in with docker cp
+harness: host signing key ~/.config/nexus/release-signing.key unchanged (mtime 1794699338)
+harness: fixture file: total 219856
+harness: fixture file: -rw-r--r--  1 devuser  staff  15938347 Nov 18 11:11 nexusd-v9.9.1-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 18 11:11 nexusd-v9.9.1-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  15938423 Nov 18 11:11 nexusd-v9.9.2-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 18 11:11 nexusd-v9.9.2-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  15938396 Nov 18 11:11 nexusd-v9.9.3-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 18 11:11 nexusd-v9.9.3-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff   1123207 Nov 18 11:11 nexusd-v9.9.4-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 18 11:11 nexusd-v9.9.4-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  30754433 Nov 18 11:11 nexusd-v9.9.5-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 18 11:11 nexusd-v9.9.5-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  15938391 Nov 18 11:11 nexusd-v9.9.6-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 18 11:11 nexusd-v9.9.6-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  15938594 Nov 18 11:11 nexusd-v9.9.7-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 18 11:11 nexusd-v9.9.7-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff        45 Nov 18 11:11 release-test.pub
+harness: copying the self-update fixtures into /harness/selfupdate
+harness: running tests
+=== RUN   TestTCSV135_T1SystemdListAndGetAgreeWith
+    services_tc_test.go:733: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    services_tc_test.go:733: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 462
+    services_tc_test.go:835: list: 143 services, equal to the listings' union, states and enabled equal to is-active/is-enabled
+    services_tc_test.go:855: failed set ["nx-svc-fail" "systemd-modules-load"]
+    services_tc_test.go:858: get nexusd equals systemctl show: state running (active (running)), mainPid 462, since 2026-11-18 19:11:30 +0000 UTC, unit /etc/systemd/system/nexusd.service, enabled disabled
+    services_tc_test.go:858: get nx-svc-test equals systemctl show: state running (active (running)), mainPid 487, since 2026-11-18 19:11:30 +0000 UTC, unit /etc/systemd/system/nx-svc-test.service, enabled static
+    services_capture_test.go:132: cleanup: systemctl reset-failed nx-svc-test.service nx-svc-fail.service nx-svc-slow.service nx-svc-other.service nx-svc-alias.service: exit status 1 Failed to reset failed state of unit nx-svc-test.service: Unit nx-svc-test.service not loaded.
+        Failed to reset failed state of unit nx-svc-slow.service: Unit nx-svc-slow.service not loaded.
+        Failed to reset failed state of unit nx-svc-other.service: Unit nx-svc-other.service not loaded.
+        Failed to reset failed state of unit nx-svc-alias.service: Unit nx-svc-alias.service not loaded.
+--- PASS: TestTCSV135_T1SystemdListAndGetAgreeWith (2.20s)
+=== RUN   TestTCSV136_T1OpenRCListAndGetAgreeWith
+    services_tc_test.go:950: requires openrc (detected systemd)
+--- SKIP: TestTCSV136_T1OpenRCListAndGetAgreeWith (0.00s)
+=== RUN   TestTCSV137_T1LogsAgreeWithJournalctlAndWith
+    services_tc_test.go:1051: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    services_tc_test.go:1051: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 1040
+    services_tc_test.go:1088: logs tail=5 = the tool's last 5 lines ["nx-svc-line-7" "nx-svc-line-8" "Stopping nx-svc-test.service - nexus T1 test service..." "nx-svc-test.service: Deactivated successfully." "Stopped nx-svc-test.service - nexus T1 test service."]
+    services_tc_test.go:1130: logs since=2026-11-18T19:11:34Z: 9 lines nx-svc-line-0 to nx-svc-line-8, equal to journalctl --since
+    services_capture_test.go:132: cleanup: systemctl reset-failed nx-svc-test.service nx-svc-fail.service nx-svc-slow.service nx-svc-other.service nx-svc-alias.service: exit status 1 Failed to reset failed state of unit nx-svc-test.service: Unit nx-svc-test.service not loaded.
+        Failed to reset failed state of unit nx-svc-fail.service: Unit nx-svc-fail.service not loaded.
+        Failed to reset failed state of unit nx-svc-slow.service: Unit nx-svc-slow.service not loaded.
+        Failed to reset failed state of unit nx-svc-other.service: Unit nx-svc-other.service not loaded.
+        Failed to reset failed state of unit nx-svc-alias.service: Unit nx-svc-alias.service not loaded.
+--- PASS: TestTCSV137_T1LogsAgreeWithJournalctlAndWith (10.90s)
+=== RUN   TestTCSV138_T1StartStopAndRestartOfNx
+    services_tc_test.go:1151: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    services_tc_test.go:1151: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 1325
+    services_tc_test.go:1203: start nx-svc-test: operation 01a1f012-74c1-75f3-bb6e-83717f79d16a Succeeded, result {"changed":true,"service":"nx-svc-test","action":"start","state":"running","rawState":"active (running)","mainPid":1375,"since":"2026-11-18T19:11:43Z"}, error <nil>
+    services_tc_test.go:1214: start: running, MainPID 1375; the tool says active
+    services_tc_test.go:1216: restart nx-svc-test: operation 01a1f012-7761-72ca-b48d-1a5c64547f79 Succeeded, result {"changed":true,"service":"nx-svc-test","action":"restart","state":"running","rawState":"active (running)","mainPid":1405,"since":"2026-11-18T19:11:44Z"}, error <nil>
+    services_tc_test.go:1231: restart: running, MainPID 1375 -> 1405, entered running 2785254495908 -> 2785255185018
+    services_tc_test.go:1233: stop nx-svc-test: operation 01a1f012-7936-75d2-8056-bc56b68032a2 Succeeded, result {"changed":true,"service":"nx-svc-test","action":"stop","state":"stopped","rawState":"inactive (dead)","mainPid":null,"since":null}, error <nil>
+    services_tc_test.go:1244: stop: stopped; the tool says inactive
+    services_tc_test.go:1246: stop nx-svc-test: operation 01a1f012-7aeb-73ee-94c9-e4887a22bd15 Succeeded, result {"changed":false,"service":"nx-svc-test","action":"stop","state":"stopped","rawState":"inactive (dead)","mainPid":null,"since":null}, error <nil>
+    services_tc_test.go:1256: second stop: changed false; the tool's readback is unchanged (inactive, entered /0)
+    services_tc_test.go:1261: operation 01a1f012-74c1-75f3-bb6e-83717f79d16a ran in nexus-op-01a1f012-74c1-75f3-bb6e-83717f79d16a.service: 3 journal entries map[UNIT=nexus-op-01a1f012-74c1-75f3-bb6e-83717f79d16a.service:3 _SYSTEMD_UNIT=init.scope:3]
+    services_tc_test.go:1261: operation 01a1f012-7761-72ca-b48d-1a5c64547f79 ran in nexus-op-01a1f012-7761-72ca-b48d-1a5c64547f79.service: 3 journal entries map[UNIT=nexus-op-01a1f012-7761-72ca-b48d-1a5c64547f79.service:3 _SYSTEMD_UNIT=init.scope:3]
+    services_tc_test.go:1261: operation 01a1f012-7936-75d2-8056-bc56b68032a2 ran in nexus-op-01a1f012-7936-75d2-8056-bc56b68032a2.service: 3 journal entries map[UNIT=nexus-op-01a1f012-7936-75d2-8056-bc56b68032a2.service:3 _SYSTEMD_UNIT=init.scope:3]
+    services_tc_test.go:1261: operation 01a1f012-7aeb-73ee-94c9-e4887a22bd15 ran in nexus-op-01a1f012-7aeb-73ee-94c9-e4887a22bd15.service: 3 journal entries map[UNIT=nexus-op-01a1f012-7aeb-73ee-94c9-e4887a22bd15.service:3 _SYSTEMD_UNIT=init.scope:3]
+    services_capture_test.go:132: cleanup: systemctl reset-failed nx-svc-fail.service nx-svc-slow.service nx-svc-other.service nx-svc-alias.service nx-svc-test.service: exit status 1 Failed to reset failed state of unit nx-svc-fail.service: Unit nx-svc-fail.service not loaded.
+        Failed to reset failed state of unit nx-svc-slow.service: Unit nx-svc-slow.service not loaded.
+        Failed to reset failed state of unit nx-svc-other.service: Unit nx-svc-other.service not loaded.
+        Failed to reset failed state of unit nx-svc-alias.service: Unit nx-svc-alias.service not loaded.
+        Failed to reset failed state of unit nx-svc-test.service: Unit nx-svc-test.service not loaded.
+--- PASS: TestTCSV138_T1StartStopAndRestartOfNx (2.89s)
+=== RUN   TestTCSV139_T1AFailedStartReportsServiceAction
+    services_tc_test.go:1277: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    services_tc_test.go:1277: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 1724
+    services_tc_test.go:1286: /usr/bin/systemctl reset-failed nx-svc-fail.service: exit status 1 Failed to reset failed state of unit nx-svc-fail.service: Unit nx-svc-fail.service not loaded.
+    services_tc_test.go:1299: start nx-svc-fail: operation 01a1f012-8009-76ad-b17a-705b7f94b320 Failed, result null, error service-action-failed: nx-svc-fail is failed (failed (failed)) after start, not running; /usr/bin/systemctl start exited 1: Job for nx-svc-fail.service failed because the control process exited with error code.
+        See "systemctl status nx-svc-fail.service" and "journalctl -xeu nx-svc-fail.service" for details.
+    services_tc_test.go:1322: start nx-svc-fail: Failed service-action-failed, state failed, exitCode 1; systemctl show: map[ActiveState:failed Result:exit-code]; detail "nx-svc-fail is failed (failed (failed)) after start, not running; /usr/bin/systemctl start exited 1: Job for nx-svc-fail.service failed because the control process exited with error code.\nSee \"systemctl status nx-svc-fail.service\" and \"journalctl -xeu nx-svc-fail.service\" for details.\n"
+    services_capture_test.go:132: cleanup: systemctl reset-failed nx-svc-test.service nx-svc-fail.service nx-svc-slow.service nx-svc-other.service nx-svc-alias.service: exit status 1 Failed to reset failed state of unit nx-svc-test.service: Unit nx-svc-test.service not loaded.
+        Failed to reset failed state of unit nx-svc-slow.service: Unit nx-svc-slow.service not loaded.
+        Failed to reset failed state of unit nx-svc-other.service: Unit nx-svc-other.service not loaded.
+        Failed to reset failed state of unit nx-svc-alias.service: Unit nx-svc-alias.service not loaded.
+--- PASS: TestTCSV139_T1AFailedStartReportsServiceAction (1.38s)
+=== RUN   TestTCSV140_T1EveryFR9RefusalSendsNothing
+    services_tc_test.go:1433: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    services_tc_test.go:1453: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 2062
+    services_tc_test.go:1490: POST /v1/providers/services/services/nexusd/start {}: 409 protected-service (nexusd.service is the unit running nexusd); readback unchanged: map[ActiveEnterTimestampMonotonic:2785258812105 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:2062 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/nexusd/stop {}: 409 protected-service (nexusd.service is the unit running nexusd); readback unchanged: map[ActiveEnterTimestampMonotonic:2785258812105 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:2062 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/nexusd/restart {}: 409 protected-service (nexusd.service is the unit running nexusd); readback unchanged: map[ActiveEnterTimestampMonotonic:2785258812105 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:2062 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/nexusd/control {"action":"start"}: 409 protected-service (nexusd.service is the unit running nexusd); readback unchanged: map[ActiveEnterTimestampMonotonic:2785258812105 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:2062 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/nexusd/control {"action":"stop"}: 409 protected-service (nexusd.service is the unit running nexusd); readback unchanged: map[ActiveEnterTimestampMonotonic:2785258812105 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:2062 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/nexusd/control {"action":"restart"}: 409 protected-service (nexusd.service is the unit running nexusd); readback unchanged: map[ActiveEnterTimestampMonotonic:2785258812105 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:2062 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/ssh/start {}: 409 protected-service (the built-in systemd list entry "ssh"); readback unchanged: map[ActiveEnterTimestampMonotonic:0 ActiveState:inactive InactiveEnterTimestampMonotonic:0 LoadState:not-found MainPID:0 SubState:dead]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/ssh/stop {}: 409 protected-service (the built-in systemd list entry "ssh"); readback unchanged: map[ActiveEnterTimestampMonotonic:0 ActiveState:inactive InactiveEnterTimestampMonotonic:0 LoadState:not-found MainPID:0 SubState:dead]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/ssh/restart {}: 409 protected-service (the built-in systemd list entry "ssh"); readback unchanged: map[ActiveEnterTimestampMonotonic:0 ActiveState:inactive InactiveEnterTimestampMonotonic:0 LoadState:not-found MainPID:0 SubState:dead]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/ssh/control {"action":"start"}: 409 protected-service (the built-in systemd list entry "ssh"); readback unchanged: map[ActiveEnterTimestampMonotonic:0 ActiveState:inactive InactiveEnterTimestampMonotonic:0 LoadState:not-found MainPID:0 SubState:dead]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/ssh/control {"action":"stop"}: 409 protected-service (the built-in systemd list entry "ssh"); readback unchanged: map[ActiveEnterTimestampMonotonic:0 ActiveState:inactive InactiveEnterTimestampMonotonic:0 LoadState:not-found MainPID:0 SubState:dead]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/ssh/control {"action":"restart"}: 409 protected-service (the built-in systemd list entry "ssh"); readback unchanged: map[ActiveEnterTimestampMonotonic:0 ActiveState:inactive InactiveEnterTimestampMonotonic:0 LoadState:not-found MainPID:0 SubState:dead]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/dbus/start {}: 409 protected-service (the built-in systemd list entry "dbus"); readback unchanged: map[ActiveEnterTimestampMonotonic:2785238379960 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:78 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/dbus/stop {}: 409 protected-service (the built-in systemd list entry "dbus"); readback unchanged: map[ActiveEnterTimestampMonotonic:2785238379960 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:78 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/dbus/restart {}: 409 protected-service (the built-in systemd list entry "dbus"); readback unchanged: map[ActiveEnterTimestampMonotonic:2785238379960 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:78 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/dbus/control {"action":"start"}: 409 protected-service (the built-in systemd list entry "dbus"); readback unchanged: map[ActiveEnterTimestampMonotonic:2785238379960 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:78 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/dbus/control {"action":"stop"}: 409 protected-service (the built-in systemd list entry "dbus"); readback unchanged: map[ActiveEnterTimestampMonotonic:2785238379960 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:78 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/dbus/control {"action":"restart"}: 409 protected-service (the built-in systemd list entry "dbus"); readback unchanged: map[ActiveEnterTimestampMonotonic:2785238379960 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:78 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/systemd-journald/start {}: 409 protected-service (the built-in systemd list entry "systemd-journald"); readback unchanged: map[ActiveEnterTimestampMonotonic:2785238295627 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:34 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/systemd-journald/stop {}: 409 protected-service (the built-in systemd list entry "systemd-journald"); readback unchanged: map[ActiveEnterTimestampMonotonic:2785238295627 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:34 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/systemd-journald/restart {}: 409 protected-service (the built-in systemd list entry "systemd-journald"); readback unchanged: map[ActiveEnterTimestampMonotonic:2785238295627 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:34 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/systemd-journald/control {"action":"start"}: 409 protected-service (the built-in systemd list entry "systemd-journald"); readback unchanged: map[ActiveEnterTimestampMonotonic:2785238295627 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:34 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/systemd-journald/control {"action":"stop"}: 409 protected-service (the built-in systemd list entry "systemd-journald"); readback unchanged: map[ActiveEnterTimestampMonotonic:2785238295627 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:34 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/systemd-journald/control {"action":"restart"}: 409 protected-service (the built-in systemd list entry "systemd-journald"); readback unchanged: map[ActiveEnterTimestampMonotonic:2785238295627 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:34 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/getty@tty1/start {}: 409 protected-service (the built-in systemd list entry "getty@*"); readback unchanged: map[ActiveEnterTimestampMonotonic:2785238385966 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:92 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/getty@tty1/stop {}: 409 protected-service (the built-in systemd list entry "getty@*"); readback unchanged: map[ActiveEnterTimestampMonotonic:2785238385966 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:92 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/getty@tty1/restart {}: 409 protected-service (the built-in systemd list entry "getty@*"); readback unchanged: map[ActiveEnterTimestampMonotonic:2785238385966 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:92 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/getty@tty1/control {"action":"start"}: 409 protected-service (the built-in systemd list entry "getty@*"); readback unchanged: map[ActiveEnterTimestampMonotonic:2785238385966 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:92 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/getty@tty1/control {"action":"stop"}: 409 protected-service (the built-in systemd list entry "getty@*"); readback unchanged: map[ActiveEnterTimestampMonotonic:2785238385966 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:92 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/getty@tty1/control {"action":"restart"}: 409 protected-service (the built-in systemd list entry "getty@*"); readback unchanged: map[ActiveEnterTimestampMonotonic:2785238385966 ActiveState:active InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:92 SubState:running]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/nx-netalias/start {}: 409 protected-service (nx-netalias is an alias of systemd-networkd: the built-in systemd list entry "systemd-networkd"); readback unchanged: map[ActiveEnterTimestampMonotonic:0 ActiveState:inactive InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:0 SubState:dead]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/nx-netalias/stop {}: 409 protected-service (nx-netalias is an alias of systemd-networkd: the built-in systemd list entry "systemd-networkd"); readback unchanged: map[ActiveEnterTimestampMonotonic:0 ActiveState:inactive InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:0 SubState:dead]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/nx-netalias/restart {}: 409 protected-service (nx-netalias is an alias of systemd-networkd: the built-in systemd list entry "systemd-networkd"); readback unchanged: map[ActiveEnterTimestampMonotonic:0 ActiveState:inactive InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:0 SubState:dead]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/nx-netalias/control {"action":"start"}: 409 protected-service (nx-netalias is an alias of systemd-networkd: the built-in systemd list entry "systemd-networkd"); readback unchanged: map[ActiveEnterTimestampMonotonic:0 ActiveState:inactive InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:0 SubState:dead]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/nx-netalias/control {"action":"stop"}: 409 protected-service (nx-netalias is an alias of systemd-networkd: the built-in systemd list entry "systemd-networkd"); readback unchanged: map[ActiveEnterTimestampMonotonic:0 ActiveState:inactive InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:0 SubState:dead]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1490: POST /v1/providers/services/services/nx-netalias/control {"action":"restart"}: 409 protected-service (nx-netalias is an alias of systemd-networkd: the built-in systemd list entry "systemd-networkd"); readback unchanged: map[ActiveEnterTimestampMonotonic:0 ActiveState:inactive InactiveEnterTimestampMonotonic:0 LoadState:loaded MainPID:0 SubState:dead]; 0 nexus-op units, 0 op dirs
+    services_tc_test.go:1510: audit: 36 refused records, each protected-service, for 36 requests on ["nexusd" "ssh" "dbus" "systemd-journald" "getty@tty1" "nx-netalias"]
+    services_capture_test.go:132: cleanup: systemctl reset-failed nx-svc-other.service nx-svc-alias.service nx-svc-test.service nx-svc-fail.service nx-svc-slow.service: exit status 1 Failed to reset failed state of unit nx-svc-other.service: Unit nx-svc-other.service not loaded.
+        Failed to reset failed state of unit nx-svc-alias.service: Unit nx-svc-alias.service not loaded.
+        Failed to reset failed state of unit nx-svc-test.service: Unit nx-svc-test.service not loaded.
+        Failed to reset failed state of unit nx-svc-fail.service: Unit nx-svc-fail.service not loaded.
+        Failed to reset failed state of unit nx-svc-slow.service: Unit nx-svc-slow.service not loaded.
+--- PASS: TestTCSV140_T1EveryFR9RefusalSendsNothing (1.38s)
+=== RUN   TestTCSV141_T1NotAllowedAndUnknownNamesCreate
+    services_tc_test.go:1521: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    services_tc_test.go:1540: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 2479
+    services_tc_test.go:1556: capabilities: nx-missing missing (systemd has no unit nx-missing.service)
+    services_tc_test.go:1575: start nx-svc-other: 409 not-allowed (nx-svc-other is not in providers.services.control, which only the configuration file on the host changes); start nx-missing: 404 not-found (systemd has no service nx-missing); no operation, nx-svc-other inactive
+    services_capture_test.go:132: cleanup: systemctl reset-failed nx-svc-slow.service nx-svc-other.service nx-svc-alias.service nx-svc-test.service nx-svc-fail.service: exit status 1 Failed to reset failed state of unit nx-svc-slow.service: Unit nx-svc-slow.service not loaded.
+        Failed to reset failed state of unit nx-svc-other.service: Unit nx-svc-other.service not loaded.
+        Failed to reset failed state of unit nx-svc-alias.service: Unit nx-svc-alias.service not loaded.
+        Failed to reset failed state of unit nx-svc-test.service: Unit nx-svc-test.service not loaded.
+        Failed to reset failed state of unit nx-svc-fail.service: Unit nx-svc-fail.service not loaded.
+--- PASS: TestTCSV141_T1NotAllowedAndUnknownNamesCreate (0.69s)
+=== RUN   TestTCSV142_T1TheRebootIsUnavailableWithoutA
+    services_tc_test.go:1591: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    services_tc_test.go:1608: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 2752
+    services_tc_test.go:1627: without the mount: rebootAvailable false (this host is a docker container (/.dockerenv) whose boot ID is the host kernel's, not per-container: nothing is mounted over /proc/sys/kernel/random/boot_id in /proc/self/mountinfo or /proc/1/mountinfo, so a reboot could not be confirmed); POST reboot 409 reboot-unavailable with that reason
+    services_tc_test.go:1630: boot ID 0d7955b6-218e-4b02-826a-c870ef445da3 bind-mounted from /run/nx-boot-id over /proc/sys/kernel/random/boot_id
+    services_tc_test.go:1631: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 2790
+    services_tc_test.go:1632: capabilities: bootIdSource container-mount, rebootAvailable true
+    services_tc_test.go:1636: with the mount: /proc/sys/kernel/random/boot_id reads 0d7955b6-218e-4b02-826a-c870ef445da3 = /run/nx-boot-id
+    services_tc_test.go:1602: after cleanup /proc/self/mountinfo has no mount on /proc/sys/kernel/random/boot_id
+    services_capture_test.go:132: cleanup: systemctl reset-failed nx-svc-test.service nx-svc-fail.service nx-svc-slow.service nx-svc-other.service nx-svc-alias.service: exit status 1 Failed to reset failed state of unit nx-svc-test.service: Unit nx-svc-test.service not loaded.
+        Failed to reset failed state of unit nx-svc-fail.service: Unit nx-svc-fail.service not loaded.
+        Failed to reset failed state of unit nx-svc-slow.service: Unit nx-svc-slow.service not loaded.
+        Failed to reset failed state of unit nx-svc-other.service: Unit nx-svc-other.service not loaded.
+        Failed to reset failed state of unit nx-svc-alias.service: Unit nx-svc-alias.service not loaded.
+--- PASS: TestTCSV142_T1TheRebootIsUnavailableWithoutA (0.77s)
+=== RUN   TestTCSV143_T1EveryRebootGuardRefusesOnThe
+    services_tc_test.go:1666: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    services_tc_test.go:1666: boot ID 216f812f-fee3-4065-821f-6e9fc7c686c9 bind-mounted from /run/nx-boot-id over /proc/sys/kernel/random/boot_id
+    services_tc_test.go:1666: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 3073
+    services_tc_test.go:1667: capabilities: bootIdSource container-mount, rebootAvailable true
+    services_tc_test.go:1692: (1) reboot.enabled false: 409 reboot-unavailable: the reboot is unavailable: providers.services.reboot.enabled is false; only the configuration file on the host sets it
+    services_tc_test.go:1696: capabilities: bootIdSource container-mount, rebootAvailable true
+    services_tc_test.go:1698: (2) confirmHost "HARNESS": 400 validation-failed: confirmHost must equal this host's name, "harness", exactly as system.capabilities.get reports it
+    services_tc_test.go:1698: (2) confirmHost "h1; reboot": 400 validation-failed: confirmHost must equal this host's name, "harness", exactly as system.capabilities.get reports it
+    services_tc_test.go:1698: (2) confirmHost "$(reboot)": 400 validation-failed: confirmHost must equal this host's name, "harness", exactly as system.capabilities.get reports it
+    services_tc_test.go:1721: (3) nexusd not enabled at boot: 409 nexusd-not-enabled-at-boot: nexusd is not enabled at boot (disabled), so nexusd would not come back after the reboot
+    services_tc_test.go:1733: (4) nx-svc-slow running: 409 operations-running: 1 other operation(s) are queued or running, and the reboot would end them outcome-unknown: 01a1f012-9224-74da-99f7-46114bdb6e1c
+    services_tc_test.go:1753: (5) force whatIf 01a1f012-929a-7553-92be-8976ad1ff1cc: Succeeded, no-running-operations: force: the reboot goes ahead although 1 other operation(s) are queued or running: 01a1f012-9224-74da-99f7-46114bdb6e1c
+    services_tc_test.go:1768: (6) bogus: 1 in the config: 422 config-invalid: /etc/nexus/nexusd.yaml has 1 error(s), so nexusd would not start after the boot
+    services_tc_test.go:1781: audit: refused ["reboot-unavailable" "validation-failed" "validation-failed" "validation-failed" "nexusd-not-enabled-at-boot" "operations-running" "config-invalid"]; PID 1 start time 278523812 unchanged
+    services_capture_test.go:132: cleanup: systemctl reset-failed nx-svc-slow.service nx-svc-other.service nx-svc-alias.service nx-svc-test.service nx-svc-fail.service: exit status 1 Failed to reset failed state of unit nx-svc-slow.service: Unit nx-svc-slow.service not loaded.
+        Failed to reset failed state of unit nx-svc-other.service: Unit nx-svc-other.service not loaded.
+        Failed to reset failed state of unit nx-svc-alias.service: Unit nx-svc-alias.service not loaded.
+        Failed to reset failed state of unit nx-svc-test.service: Unit nx-svc-test.service not loaded.
+        Failed to reset failed state of unit nx-svc-fail.service: Unit nx-svc-fail.service not loaded.
+--- PASS: TestTCSV143_T1EveryRebootGuardRefusesOnThe (21.90s)
+=== RUN   TestTCSV144_T1WhatIfReportsTheGuardsWithThe
+    services_tc_test.go:1797: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    services_tc_test.go:1797: boot ID acf2d1de-a3c2-4bf6-b6bd-699849d1b671 bind-mounted from /run/nx-boot-id over /proc/sys/kernel/random/boot_id
+    services_tc_test.go:1797: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 3520
+    services_tc_test.go:1798: capabilities: bootIdSource container-mount, rebootAvailable true
+    services_tc_test.go:1800: host sampler ready 2.045s after the start
+    services_tc_test.go:1843: whatIf 01a1f012-ee3f-73b0-868a-fe67f391ba8c: Succeeded, wouldReboot true, 5 guards passed, bootId acf2d1de-a3c2-4bf6-b6bd-699849d1b671, uptime 2785285.56 (/proc/uptime 2785286.17), rebootRequired unknown = host health's; no reboot-requested; PID 1 unchanged
+    services_capture_test.go:132: cleanup: systemctl reset-failed nx-svc-test.service nx-svc-fail.service nx-svc-slow.service nx-svc-other.service nx-svc-alias.service: exit status 1 Failed to reset failed state of unit nx-svc-test.service: Unit nx-svc-test.service not loaded.
+        Failed to reset failed state of unit nx-svc-fail.service: Unit nx-svc-fail.service not loaded.
+        Failed to reset failed state of unit nx-svc-slow.service: Unit nx-svc-slow.service not loaded.
+        Failed to reset failed state of unit nx-svc-other.service: Unit nx-svc-other.service not loaded.
+        Failed to reset failed state of unit nx-svc-alias.service: Unit nx-svc-alias.service not loaded.
+--- PASS: TestTCSV144_T1WhatIfReportsTheGuardsWithThe (3.55s)
+=== RUN   TestTCSV145_T1ADelayWindowCancelEndsCanceled
+    services_tc_test.go:1903: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    services_tc_test.go:1903: boot ID 2c2db50f-b28e-4696-a0be-94526a24833f bind-mounted from /run/nx-boot-id over /proc/sys/kernel/random/boot_id
+    services_tc_test.go:1903: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 3867
+    services_tc_test.go:1904: capabilities: bootIdSource container-mount, rebootAvailable true
+    services_tc_test.go:2067: reboot 01a1f012-f408-71ce-ae68-72ff08c18b81: Canceled 512ms after the cancel; watcher ["polls=7"]; no reboot-requested; PID 1 unchanged; audit ["services.actions.reboot requested  op=" "services.actions.reboot Queued  op=01a1f012-f408-71ce-ae68-72ff08c18b81" "services.actions.reboot Running  op=01a1f012-f408-71ce-ae68-72ff08c18b81" "system.operations.cancel requested  op=01a1f012-f408-71ce-ae68-72ff08c18b81" "services.actions.reboot Canceled  op=01a1f012-f408-71ce-ae68-72ff08c18b81"]
+    services_capture_test.go:132: cleanup: systemctl reset-failed nx-svc-test.service nx-svc-fail.service nx-svc-slow.service nx-svc-other.service nx-svc-alias.service: exit status 1 Failed to reset failed state of unit nx-svc-test.service: Unit nx-svc-test.service not loaded.
+        Failed to reset failed state of unit nx-svc-fail.service: Unit nx-svc-fail.service not loaded.
+        Failed to reset failed state of unit nx-svc-slow.service: Unit nx-svc-slow.service not loaded.
+        Failed to reset failed state of unit nx-svc-other.service: Unit nx-svc-other.service not loaded.
+        Failed to reset failed state of unit nx-svc-alias.service: Unit nx-svc-alias.service not loaded.
+--- PASS: TestTCSV145_T1ADelayWindowCancelEndsCanceled (1.48s)
+=== RUN   TestTCSV146_T1ReadsUnderTheExactUnitCause
+    services_tc_test.go:2084: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    services_tc_test.go:2087: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 4190
+    services_tc_test.go:2099: list, get nexusd, capabilities: 200; logs nexusd tail=200: 200 with 175 frames
+    services_tc_test.go:2129: sandbox: 23 journal and kernel lines of nexusd, systemctl and journalctl in the window, no denial: true
+    services_capture_test.go:132: cleanup: systemctl reset-failed nx-svc-test.service nx-svc-fail.service nx-svc-slow.service nx-svc-other.service nx-svc-alias.service: exit status 1 Failed to reset failed state of unit nx-svc-test.service: Unit nx-svc-test.service not loaded.
+        Failed to reset failed state of unit nx-svc-fail.service: Unit nx-svc-fail.service not loaded.
+        Failed to reset failed state of unit nx-svc-slow.service: Unit nx-svc-slow.service not loaded.
+        Failed to reset failed state of unit nx-svc-other.service: Unit nx-svc-other.service not loaded.
+        Failed to reset failed state of unit nx-svc-alias.service: Unit nx-svc-alias.service not loaded.
+--- PASS: TestTCSV146_T1ReadsUnderTheExactUnitCause (1.86s)
+=== RUN   TestTCSV147_T1TheProtectedSetAndSelfServiceAre
+    services_tc_test.go:2146: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    services_tc_test.go:2146: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 4467
+    services_tc_test.go:2185: cgroup "0::/docker/b5e6894ae7ca8b37fe186008dbdef5a1f956ec1c5e417f339e4d0dcfa3772b40/system.slice/nexusd.service" -> nexusd.service; Requires/BindsTo/Requisite .service [] all in protected ["nexusd" "ssh" "sshd" "dbus" "dbus-broker" "systemd-journald" "systemd-logind" "systemd-networkd" "systemd-resolved" "NetworkManager" "networking" "getty@*" "serial-getty@*" "nexus-op-*"]
+    services_tc_test.go:2206: host sampler ready 2.113s after the start
+    services_tc_test.go:2212: selfService nexusd; initSystem systemd = the host provider's
+    services_capture_test.go:132: cleanup: systemctl reset-failed nx-svc-other.service nx-svc-alias.service nx-svc-test.service nx-svc-fail.service nx-svc-slow.service: exit status 1 Failed to reset failed state of unit nx-svc-other.service: Unit nx-svc-other.service not loaded.
+        Failed to reset failed state of unit nx-svc-alias.service: Unit nx-svc-alias.service not loaded.
+        Failed to reset failed state of unit nx-svc-test.service: Unit nx-svc-test.service not loaded.
+        Failed to reset failed state of unit nx-svc-fail.service: Unit nx-svc-fail.service not loaded.
+        Failed to reset failed state of unit nx-svc-slow.service: Unit nx-svc-slow.service not loaded.
+--- PASS: TestTCSV147_T1TheProtectedSetAndSelfServiceAre (2.89s)
+PASS
+harness: WARNING: 1 test(s) SKIPPED, not verified on this run:
+    --- SKIP: TestTCSV136_T1OpenRCListAndGetAgreeWith (0.00s)
+harness: tests exited 0
+harness: collecting logs into build/harness/logs/20261118T191112Z
+harness: container nexus-harness-20261118T191112Z-2741 removed
+harness: dist/ untouched
+harness: exit 0

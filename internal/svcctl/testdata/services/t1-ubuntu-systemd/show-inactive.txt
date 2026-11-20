@@ -1,0 +1,14 @@
+Id=apt-daily-upgrade.service
+Description=Daily apt upgrade and clean activities
+LoadState=loaded
+ActiveState=inactive
+SubState=dead
+FragmentPath=/usr/lib/systemd/system/apt-daily-upgrade.service
+UnitFileState=static
+ActiveEnterTimestamp=
+InactiveEnterTimestamp=
+MainPID=0
+Result=success
+NRestarts=0
+MemoryCurrent=[not set]
+Exit 0

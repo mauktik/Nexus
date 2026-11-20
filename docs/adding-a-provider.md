@@ -2,8 +2,9 @@
 
 A provider is a set of operations on one kind of thing on the host: `docker`
 for containers, `apt` for packages, `scripts` for cataloged scripts, `nexusd`
-for the daemon itself, `pihole` for a Pi-hole and its local DNS names, and
-`host` for a read-only overview of the host itself. Every surface is
+for the daemon itself, `pihole` for a Pi-hole and its local DNS names,
+`host` for a read-only overview of the host itself, and `services` for the
+host's system services and its guarded reboot. Every surface is
 derived from the provider's declarations: the REST routes, the
 OpenAPI document, the MCP tools, the `nexus` commands, authorization, audit
 and idempotency. Adding a provider therefore means writing a **spec**
@@ -22,6 +23,11 @@ Remote token and configuration management added the declarations
 `SyncMutation`, `SecretOutput`, `Audited` and `CompletesAtAdmission`, two CLI
 declarations and a few smaller pieces; see
 [section 7](#7-generic-mechanisms-added-for-remote-administration).
+The `services` provider added `CompletesAcrossReboot` with `AfterReboot`
+and the reboot record, for an operation that completes in the next boot;
+audited streams; `TypedConfirmation`; `OperationsUser`; and untimed frames
+in the MCP since-pager; see
+[section 8](#8-generic-mechanisms-added-for-the-services-provider).
 A provider that needs
 a new kind of mechanism changes core, and that change must be generic, not
 keyed on the provider's name, and documented here.
@@ -392,3 +398,126 @@ name (CON-3). Any provider may use them; a `SyncMutation` or
   `systemctl reload` it triggered applied the file it wrote, without an API
   call or a credential. Config set's helper polls it for a status newer
   than the one it read before the reload.
+
+## 8. Generic mechanisms added for the services provider
+
+The `services` provider (`internal/providers/services`, [services.md](services.md))
+reboots the host `nexusd` runs on, streams logs whose reads must be audited,
+and needs an operator to type the host's name before a reboot. Each need was
+added to core as a generic mechanism, declared on `def.Op`, `def.CLIBinding`,
+a binding or a provider interface, checked by `def.validate` or the binding,
+and keyed on the declaration rather than on the provider's name (CON-4).
+
+- **`def.Op.CompletesAcrossReboot` with `provider.DetachedSpec.AfterReboot`:
+  an operation that completes in the next boot.** Normally a detached
+  operation whose process a shutdown killed ends `outcome-unknown`. An op
+  that declares `CompletesAcrossReboot` is decided in the boot after the one
+  it started in. It must be `ModeLongRunning`, mutating or destructive, a
+  resource or provider action, declare `CLI.ReconnectWindow`, and be neither
+  `SyncMutation` nor `CompletesAtAdmission`. Its detached binding sets
+  `DetachedSpec.AfterReboot` exactly when the op declares it; `Detached`
+  panics on a mismatch either way. `AfterReboot(ctx, in, provider.Rebooted,
+  run)` builds the output from what the manager knows
+  (`PreviousBootID`, `BootID`, `RequestedAt` and `ReadyAt`, when this
+  `nexusd` became ready), with `Finalize`'s rules: idempotent, reads files,
+  never waits.
+  - **The record.** The op's own helper calls `detach.RecordReboot` with a
+    `detach.RebootRecord{BootID, RequestedAt}` just before it triggers the
+    reboot. It writes `ops/<id>/reboot-requested`
+    atomically, with fsync of the file and its directory. When the trigger
+    fails, or the helper withdraws for a cancel, it calls
+    `detach.RetractReboot`. `detach.ReadReboot` reads it, at most
+    4 KiB, and refuses an empty boot ID.
+  - **The manager's rules**, for an op that declares the flag:
+    - **R1, launch:** the op is never launched while this boot's ID is
+      unknown.
+    - **R2, cancel:** a running op with a reboot record answers 409
+      `not-cancelable`; so does one whose record exists but cannot be read.
+      Without a record, the cancel goes through `Launcher.Cancel` as for any
+      detached op.
+    - **R3, hold:** when the unit ends interrupted, lost or canceled and a
+      record from this boot exists, nothing is committed. The op stays
+      `Running` and its lane stays held until `nexusd` stops, or until its
+      `MaxRuntime` passes, which ends it `outcome-unknown`.
+    - **R4, after reboot:** when the unit ended in any way other than a
+      normal exit and the record's boot ID differs from this boot's,
+      `AfterReboot` decides: its output makes the op `Succeeded`, its error
+      `Failed`. The terminal audit record carries the facts `previousBootId`
+      and `bootId`. A record that cannot be read ends the op
+      `outcome-unknown` at once, with no hold and no `AfterReboot`.
+    - **R5, normal exit:** a helper that wrote its result always goes to
+      `Finalize`, record or not.
+
+    R3 and R4 are decided before the canceled branch, so a canceled unit
+    with no record still ends `Canceled`, and ops without the flag behave
+    exactly as before.
+  - **The helper's stop handling (S1 to S5).** A real cancel is the cancel
+    file and then a SIGTERM, which the supervisor forwards to the helper and
+    follows with SIGKILL after the spec's `Grace`. A helper that only polled
+    the cancel file would be killed by that SIGTERM between writing the
+    record and triggering, leaving a record with no reboot. So the helper
+    handles SIGTERM itself for its whole run, through
+    `signal.NotifyContext`'s stop context, and a check is "the stop context
+    is done, or `detach.CancelRequested` is true"; a cancel file that cannot
+    be checked counts as a cancel. Where two cases must be told apart it
+    looks at the stop context first and the file after it, so a SIGTERM from
+    `Launcher.Cancel` always finds its file.
+    - **S1, a stop before the record:** no record, no trigger, exit. The
+      supervisor reports canceled (file present) or interrupted.
+    - **S2, the cancel file at the check after the record:** `RetractReboot`,
+      no trigger, exit; the op ends `Canceled` at once.
+    - **S3, a SIGTERM with no cancel file at that check** (an operator's
+      `systemctl stop`, or a shutdown begun elsewhere): keep the record, no
+      trigger, exit. R3 holds the op, and R4 completes it if the host does
+      reboot.
+    - **S4, a stop after that check, before or during the trigger:** the
+      trigger still runs once, under `context.WithoutCancel` with its own
+      30-second bound and in its own process group, so neither the stop
+      context nor the supervisor's group SIGTERM kills it. Afterwards the
+      helper keeps the record if the trigger succeeded, or retracts it and
+      writes its failure if not.
+    - **S5, a stop after a successful trigger:** exit at once and keep the
+      record.
+
+    The spec's `Grace` must exceed the trigger's bound (the reboot uses 40
+    seconds), so SIGKILL never lands while the helper is still deciding.
+- **Audited streams: `def.Op.Audited` on a `ModeStream` op.** `Audited`
+  now also applies to a read-only `ModeStream` op. The Dispatcher writes
+  `requested` before the stream starts (fail-closed), then exactly one
+  terminal record naming it: `completed` when the stream ends without
+  error; `completed` with the fact `clientDisconnected=true` when the client
+  went away after at least one frame was delivered, since the data was
+  read; `refused` with the problem's slug otherwise, including a client that
+  went away before any frame, which also carries `clientDisconnected=true`.
+  A consumer that ends the stream on purpose returns `core.ErrStreamStopped`
+  from its `emit`, as the MCP pager does when a page is full: that is
+  recorded `completed` without `clientDisconnected`. A handler's
+  `audit.AddFact` facts land on the terminal record, because `requested` is
+  written before the handler runs. Service logs use it.
+- **`TypedConfirmation` on `def.CLIBinding`: a value the operator types.** Names
+  a required, non-`omitempty`, non-positional string input field of a
+  mutating op. The CLI never fills it from another flag, `--host` included,
+  or from `--yes`. When its flag is absent it asks on the terminal ("Type
+  the host name H to confirm:"); an explicit flag is the confirmation, so
+  no y/N question follows; with no terminal and no flag the command is a
+  usage error (exit 2) and nothing is sent. The command runs against exactly
+  one host: `--host all`, a host list, a `--tag` selecting several, and
+  `--stdin` are refused before anything is sent. The server still checks
+  the value. `nexus machine restart --confirm-host` is built this way.
+- **`OperationsUser` (`provider.OperationsUser`): the operations that have
+  not ended.** A
+  provider that implements `UseOperations(provider.Operations)` is given,
+  once and before any request, a view whose `Active()` lists the `Queued`
+  and `Running` operations (`provider.ActiveOperation{ID, Op, Status}`)
+  from the store. It follows `KVUser`, `OpsDirUser` and `DaemonUser`. The
+  reboot's no-running-operations guard uses it, and fails closed when it is
+  not injected or returns an error.
+- **Untimed frames in the MCP since-pager.** A log frame always carries
+  `t`; the zero time, `0001-01-01T00:00:00Z`, means the line has no time of
+  its own, as an OpenRC log file's lines have none. Consumers test
+  `T.IsZero()`, and a provider never invents a time. The adapter's
+  since-pager gives no `nextOffset` for a page that holds an untimed frame,
+  because no time can continue it; a full page is then `truncated` with no
+  `nextOffset`, and the agent asks again with a smaller `tail`. The rule is
+  keyed on the frame, not the provider: frames that all carry a time, such
+  as the journal's and Docker's, page exactly as before.

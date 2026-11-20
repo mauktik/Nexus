@@ -26,6 +26,7 @@ import (
 	nginx "github.com/mauktik/nexus/internal/providers/nginx/spec"
 	pihole "github.com/mauktik/nexus/internal/providers/pihole/spec"
 	scripts "github.com/mauktik/nexus/internal/providers/scripts/spec"
+	services "github.com/mauktik/nexus/internal/providers/services/spec"
 )
 
 // attacks is the FR-25 list sent through every string parameter: shell
@@ -55,12 +56,45 @@ var piholeAttacks = []struct{ name, value string }{
 	{"quote", "a'b"},
 }
 
+// servicesAttacks are sent, besides attacks, through the services ops'
+// string parameters named here (services-provider FR-25, TC-SV-121): a
+// service name that is a path, carries a separator or a space, is one
+// character too long, starts with a dash or is the canonical .service name,
+// and a confirmHost carrying a newline, a NUL or an escape sequence. Each
+// must answer 400 with no handler call, confirmHost's inert acceptance
+// notwithstanding.
+var servicesAttacks = map[string][]struct{ name, value string }{
+	"/name": {
+		{"dotdot", "../x"},
+		{"slash", "a/b"},
+		{"semicolon", "a;b"},
+		{"space", "a b"},
+		{"65chars", strings.Repeat("a", services.MaxNameLength+1)},
+		{"dash", "-x"},
+		{"unit-suffix", "x.service"},
+	},
+	"/confirmHost": {
+		{"newline", "h1\n"},
+		{"nul", "h1\x00"},
+		{"escape", "h1\x1b[31m"},
+	},
+}
+
 // attacksFor returns the attack list for op.
 func attacksFor(op def.Op) []struct{ name, value string } {
 	if op.Provider == pihole.Name {
 		return append(slices.Clip(attacks), piholeAttacks...)
 	}
 	return attacks
+}
+
+// paramAttacksFor returns the attack list for op's string parameter path:
+// attacksFor, plus servicesAttacks for a services parameter.
+func paramAttacksFor(op def.Op, path string) []struct{ name, value string } {
+	if op.Provider == services.Name {
+		return slices.Concat(attacksFor(op), servicesAttacks[path])
+	}
+	return attacksFor(op)
 }
 
 // inertAllowed lists the parameters, as "<op> <path>", that may accept a
@@ -83,6 +117,11 @@ var inertAllowed = map[string]bool{
 	// regex with `\.` and ";querytype=A" byte for byte.
 	pihole.AddDomain.Op().ID + " /value":    true,
 	pihole.RemoveDomain.Op().ID + " /value": true,
+	// confirmHost is only compared with the host's name and recorded as an
+	// audit fact, never passed to a command; its schema refuses control
+	// characters only (services-provider FR-10). WI 5.3 proves inertness on
+	// real init systems (A-42).
+	services.Reboot.Op().ID + " /confirmHost": true,
 }
 
 // stringParams lists the paths of op's string inputs.
@@ -256,7 +295,7 @@ func TestAttackStringsAgainstEveryStringParameter(t *testing.T) {
 			key := op.ID + " " + path
 			walked[key] = true
 			isTarget := op.Scope.FromTarget && strings.TrimPrefix(path, "/") == targetWildcard(route)
-			for _, a := range attacksFor(op) {
+			for _, a := range paramAttacksFor(op, path) {
 				t.Run(fmt.Sprintf("%s%s/%s", op.ID, path, a.name), func(t *testing.T) {
 					in := sm.withValue(t, op, base, path, a.value)
 					before := len(s.spy.Calls())

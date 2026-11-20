@@ -133,7 +133,19 @@ func (o *openrc) mainPID(service string) int {
 // path, leaves no window between the check and the open for the entry to be
 // swapped.
 func openRegular(path string) (*os.File, os.FileInfo, error) {
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	return openRegularFlags(path, syscall.O_NOFOLLOW)
+}
+
+// openRegularFollowing is openRegular for a path that is legitimately a
+// symlink (an OpenRC init script such as net.eth0 -> net.lo): the link is
+// followed, and the file it reaches must still be a regular file, opened
+// without blocking.
+func openRegularFollowing(path string) (*os.File, os.FileInfo, error) {
+	return openRegularFlags(path, 0)
+}
+
+func openRegularFlags(path string, extra int) (*os.File, os.FileInfo, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK|extra, 0)
 	if err != nil {
 		return nil, nil, err
 	}
