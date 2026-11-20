@@ -1,0 +1,17 @@
+{"pid":1137,"argv":["/usr/sbin/zpool","list","-H","-o","name"],"capEff":"0000000000000004","time":"2026-11-19T18:20:38.718218989Z"}
+{"pid":1143,"argv":["/usr/sbin/zfs","version"],"capEff":"0000000000000004","time":"2026-11-19T18:20:38.726775856Z"}
+{"pid":1161,"argv":["/usr/sbin/zpool","status","-j","--json-int"],"capEff":"0000000000000004","time":"2026-11-19T18:20:38.771513111Z"}
+{"pid":1160,"argv":["/usr/sbin/zpool","list","-j","--json-int","-o","name,size,allocated,free,capacity,fragmentation,dedupratio,health,altroot,readonly"],"capEff":"0000000000000004","time":"2026-11-19T18:20:38.772911366Z"}
+{"pid":1173,"argv":["/usr/sbin/zpool","list","-j","--json-int","-o","name,size,allocated,free,capacity,fragmentation,dedupratio,health,altroot,readonly"],"capEff":"0000000000000004","time":"2026-11-19T18:20:43.793951828Z"}
+{"pid":1182,"argv":["/usr/sbin/zfs","list","-H","-p","-t","snapshot","-o","name,creation","-d","1","z1/ds/share"],"capEff":"0000000000000004","time":"2026-11-19T18:20:43.804833661Z"}
+{"pid":1180,"argv":["/usr/sbin/zfs","list","-H","-p","-t","snapshot","-o","name,creation,used,refer,userrefs,nexus:created-by"],"capEff":"0000000000000004","time":"2026-11-19T18:20:43.805624956Z"}
+{"pid":1181,"argv":["/usr/sbin/zfs","list","-j","--json-int","-t","filesystem,volume","-o","name,type,used,avail,refer,usedbysnapshots,quota,refquota,reservation,compression,compressratio,recordsize,mountpoint,mounted,encryption,keystatus","z1/ds/share"],"capEff":"0000000000000004","time":"2026-11-19T18:20:43.805699623Z"}
+{"pid":1201,"argv":["/usr/sbin/zpool","list","-H","-o","name"],"capEff":"0000000000000004","time":"2026-11-19T18:20:43.815124576Z"}
+{"pid":1208,"argv":["/usr/sbin/zpool","list","-j","--json-int","-o","name,size,allocated,free,capacity,fragmentation,dedupratio,health,altroot,readonly","z3"],"capEff":"0000000000000004","time":"2026-11-19T18:20:43.824212444Z"}
+{"pid":1209,"argv":["/usr/sbin/zpool","list","-j","--json-int","-o","name,size,allocated,free,capacity,fragmentation,dedupratio,health,altroot,readonly","z2"],"capEff":"0000000000000004","time":"2026-11-19T18:20:43.825954742Z"}
+{"pid":1210,"argv":["/usr/sbin/zpool","status","-j","--json-int","-v","z3"],"capEff":"0000000000000004","time":"2026-11-19T18:20:43.826027368Z"}
+{"pid":1228,"argv":["/usr/sbin/zpool","list","-j","--json-int","-o","name,size,allocated,free,capacity,fragmentation,dedupratio,health,altroot,readonly","z1"],"capEff":"0000000000000004","time":"2026-11-19T18:20:43.836494283Z"}
+{"pid":1227,"argv":["/usr/sbin/zpool","get","-j","--json-int","all","z3"],"capEff":"0000000000000004","time":"2026-11-19T18:20:43.839125459Z"}
+{"pid":1239,"argv":["/usr/sbin/zpool","get","-j","--json-int","all","z1"],"capEff":"0000000000000004","time":"2026-11-19T18:20:43.845839402Z"}
+{"pid":1244,"argv":["/usr/sbin/zpool","status","-j","--json-int","-v","z1"],"capEff":"0000000000000004","time":"2026-11-19T18:20:43.849239082Z"}
+{"pid":1252,"argv":["/usr/sbin/zpool","status","-j","--json-int","-v","z2"],"capEff":"0000000000000004","time":"2026-11-19T18:20:43.855650523Z"}

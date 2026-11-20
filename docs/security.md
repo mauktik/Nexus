@@ -155,6 +155,9 @@ Keep `nexusd` LAN only.
 | `pihole:dns` | DNS zone and record changes, single or batched: can redirect any name for every LAN client |
 | `pihole:write` | Pi-hole blocking, allow and deny entries, adlists, gravity, DNS restart and cache flush |
 | `host:read` | The `host` provider's read-only overview of the host: host identity (hostname, OS, kernel, DMI vendor and model), network addresses and gateway, DNS resolvers, mount points, and process names and owners of the top processes, plus usage and metrics |
+| `storage:read` | The `storage` provider's reads: ZFS pools, datasets and snapshots, `vzdump` backup archives and Time Machine shares, and the storage health signals. Exposes dataset and snapshot names, mount points, Time Machine bundle names (usually the Macs' computer names) and backup notes |
+| `storage:scrub` | Starting and stopping a scrub of an allow-listed pool: can put sustained read load on every disk of the pool, and so on the shared Proxmox storage underneath |
+| `storage:snapshot` | Creating a snapshot of an allow-listed dataset: can fill a pool over time, because snapshots hold freed blocks |
 | `audit:read` | Querying the audit log |
 | `nexusd:read` | The running `nexusd`: version, uptime, rollback binary, whether updates are configured, and checking its configuration file |
 | `nexusd:admin` | Reloading, restarting, updating and rolling back `nexusd`, and uploading a release; creating, listing and revoking tokens; reading the configuration file and setting its keys; **root-equivalent** |
@@ -195,6 +198,13 @@ root-equivalent:
 `nginx:write` is not in this list: it starts, stops, reloads and renames
 root-owned files that already exist, so it decides whether sites are served,
 not what they say. It can still take every site offline.
+
+`storage:scrub` and `storage:snapshot` are not in this list either. Neither
+runs caller-supplied code: each runs one fixed `zpool` or `zfs` command, and
+only on a pool or dataset that the root-owned configuration lists, after
+the configuration enables it ([storage.md](storage.md#guarded-writes)). A
+scrub can still load a pool's disks for hours, and snapshots can fill a
+pool, so give these scopes only to whoever may do that.
 
 Nexus narrows what callers can ask for: no operation accepts a command,
 shell string, executable path or container specification, every parameter
@@ -666,6 +676,78 @@ network addresses and gateway, DNS resolvers, mount points, and process
 names and owners. Give it to an agent that should see the host's shape and
 load, not to one that should not learn its layout.
 
+## What the storage provider reads and writes
+
+The `storage` provider ([storage.md](storage.md)) reads inside the `nexusd`
+sandbox and writes outside it.
+
+**Reads** run inside the unchanged unit, under `storage:read`:
+
+- **Two tools only.** Every ZFS fact comes from `zpool` and `zfs`, found at
+  `/usr/sbin` or `/sbin` when the provider starts. The runner refuses any
+  other program before it runs anything, runs each with a fixed argument
+  list, the environment `PATH=/usr/sbin:/usr/bin:/sbin:/bin` and `LC_ALL=C`
+  only, and no stdin, and caps its output. Only read subcommands are run
+  (`zpool list`, `zpool status`, `zpool get`, `zfs list`, `zfs version`).
+  It never runs a Proxmox command (`pvesm`, `vzdump`, `qm`, `pct`,
+  `pvesh`), calls no Proxmox API and holds no hypervisor credential.
+- **Configured directories only.** Every file it reads is under a path of
+  `providers.storage.backups.vzdumpPaths` or
+  `providers.storage.timeMachine.paths`, which only the root-owned file
+  sets. Each is opened as a root that a symlink cannot leave. No request
+  supplies a path, a command or a property name.
+- **Bounded file contents.** The only file contents read are the first
+  1 KiB of each `vzdump` notes file, the last 256 KiB of each `vzdump` log
+  (of which at most 10 `ERROR:` lines are returned), and each Time Machine
+  bundle's `com.apple.TimeMachine.SnapshotHistory.plist`, from which only the
+  completion dates are kept; a plist that does not parse gives a fixed reason
+  and never quotes the file. Each file is opened without blocking, and the
+  open file must be the regular file that was checked: a symlink at the
+  file's own name is refused, even one that stays inside the directory, and
+  so is a FIFO; a symlinked `dump/` directory is followed only inside the
+  configured directory. Each directory
+  it lists is opened as a directory without blocking. Everything else is
+  listed or `stat`ed only.
+- **Never read:** `MachineID.plist` (the Mac's host UUID, serial and model
+  identifiers), the contents of band files or of anything else in a bundle,
+  `keylocation` or any key material or passphrase, and any user property
+  other than the provider's own `nexus:created-by`. Encryption and key status
+  are reported, never acted on.
+- **Untrusted text.** Names (pool, dataset, snapshot, guest, share and
+  Time Machine bundle names), `zpool status` text, notes and log lines are
+  host data, labelled `contentTrust: "untrusted-host-data"`. Bundle names
+  also appear in health signal subjects and messages, and in `unavailable`
+  reasons, which can carry the name of a failing path or a parser or tool
+  message. Every reason is cut to 256 bytes, with control characters
+  replaced, and never holds the contents of a file.
+
+`storage:read` therefore exposes dataset and snapshot names, mount points,
+Time Machine bundle names, which are usually the Macs' computer names, and
+backup notes, which usually name the guests. Give it to an agent that may
+learn what the host stores and backs up.
+
+**Writes** run outside the sandbox. Scrub start and stop (`storage:scrub`)
+and snapshot create (`storage:snapshot`) need `CAP_SYS_ADMIN` for the ZFS
+ioctl, which the unit does not grant, so each runs the `nexusd` binary's
+hidden `storage-helper` subcommand as root in its own `nexus-op-<id>` unit
+(see [Operation units](#operation-units)). The unit was not widened. Each
+write acts only when its switch is on and its pool or dataset is
+allow-listed, checked at admission and again when the operation starts. The
+helper re-checks every value in its input file that reaches a command: the
+action, the operation ID, which must match its directory, and the pool,
+dataset and snapshot names against their patterns. It finds the tools
+itself (the input names no tool path) and refuses an input with an unknown
+member. It does not re-read the configuration: `nexusd` checks the switch
+and the allow-list at admission and when the operation starts. Like every
+operation unit, the helper runs what `nexusd` hands `op-supervise`, so
+these checks keep a damaged input file from reaching an argument list. They
+do not contain a compromised `nexusd`. It runs only these fixed argument
+lists: `zpool scrub <pool>`, `zpool scrub -s <pool>` and
+`zfs snapshot -o nexus:created-by=<operation ID> [-r] <dataset>@<name>`,
+plus `zpool status` and `zfs list` to confirm. The provider names every
+snapshot itself. No write destroys, rolls back, clones, sends or holds
+anything, and no write is an MCP tool.
+
 ## Audit log and its limits
 
 Every authenticated mutating request, every denied request and every
@@ -757,8 +839,8 @@ becomes on Alpine, where there is no unit.
 
 `nexusd` runs as root under this unit, because Docker socket access and apt
 are root-equivalent anyway. The privileged work (apt changes, script runs,
-container updates, Pi-hole and nginx changes, and restarting, updating and rolling
-back `nexusd`) runs in `nexus-op-*` transient units that `nexusd` starts with
+container updates, Pi-hole and nginx changes, ZFS scrub start and stop and snapshot
+create, and restarting, updating and rolling back `nexusd`) runs in `nexus-op-*` transient units that `nexusd` starts with
 `systemd-run`. Those units are outside this sandbox. The sandbox limits what
 the `nexusd` process itself can do if it is compromised. It is not a boundary
 between a token holder and root: a token with a mutating `docker`, `apt` or

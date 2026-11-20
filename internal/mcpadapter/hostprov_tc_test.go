@@ -6,6 +6,7 @@ package mcpadapter_test
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -21,15 +22,19 @@ import (
 //
 // The host delta, the three tools, their annotations and descriptions are
 // hostToolBudget's (shared with TestHostToolBudget); this adds the total
-// and the pinned tool count.
+// and the pinned tool count. The 2,850 bound is the catalog this case was
+// designed on, before the storage tools (TC-STG-204 measures them).
 func TestTCHP106_TheMCPToolBudgetWithTheHost(t *testing.T) {
 	tools, total, base := hostToolBudget(t)
 	t.Logf("TC-HP-106: total %d tokens, host delta %d (design: 2,831 total, 135 host)", total, total-base)
-	if total >= 2850 || total >= budgetLimit {
-		t.Errorf("budget %d tokens, want under 2,850 (and under %d)", total, budgetLimit)
+	_, withoutStorage := toolBudget(slices.DeleteFunc(slices.Clone(tools), func(tool *mcp.Tool) bool {
+		return slices.Contains(storageTools, tool.Name)
+	}))
+	if withoutStorage >= 2850 || total >= budgetLimit {
+		t.Errorf("budget %d tokens without storage, %d in all; want under 2,850 (and under %d)", withoutStorage, total, budgetLimit)
 	}
-	if len(tools) != 68 {
-		t.Errorf("%d tools, want 68", len(tools))
+	if len(tools) != 73 {
+		t.Errorf("%d tools, want 73", len(tools))
 	}
 }
 

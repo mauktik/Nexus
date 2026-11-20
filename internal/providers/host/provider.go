@@ -136,6 +136,9 @@ type Provider struct {
 	// run is the current sampler run, nil while the sampler is not
 	// running. Handlers read its snapshot and history through it.
 	run atomic.Pointer[samplerRun]
+	// healthSources is the daemon's health fan-in, nil until
+	// UseHealthSources (and in validate-config and tests).
+	healthSources atomic.Pointer[provider.HealthSources]
 }
 
 // New returns the provider with the default settings until Configure. It
@@ -203,6 +206,16 @@ func (p *Provider) Configure(decode func(into any) error) error {
 	s := settingsOf(c)
 	p.settings.Store(&s)
 	return nil
+}
+
+// UseHealthSources implements provider.HealthSourcesUser: host.health.get
+// shows hs's blocks as providerSignals. A nil hs shows none.
+func (p *Provider) UseHealthSources(hs provider.HealthSources) {
+	if hs == nil {
+		p.healthSources.Store(nil)
+		return
+	}
+	p.healthSources.Store(&hs)
 }
 
 // Settings returns the settings in force.

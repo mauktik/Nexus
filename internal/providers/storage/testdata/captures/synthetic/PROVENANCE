@@ -1,0 +1,32 @@
+host: none (derived from the OpenZFS 2.4.1 vectors)
+source: synthetic
+date: 2026-11-18T07:05:00Z
+os-release: n/a
+zfs-version: zfs-2.4.1
+kernel: n/a
+captured-as: n/a
+options: n/a
+redaction: none
+note: each file changes only values of the vector it derives from, or removes or adds whole pool and vdev objects of the same shape; provisional until the host captures of WI 1.2, and never the only evidence for a parser rule a host capture can show
+commands:
+  zpool-status-degraded-mirror.json: none (derived)
+  zpool-status-scrub-finished-repairs.json: none (derived)
+  zpool-status-scrub-canceled.json: none (derived)
+  zpool-status-scrub-paused.json: none (derived)
+  zpool-status-scrub-scanning.json: none (derived)
+  zpool-status-resilver-scanning.json: none (derived)
+  zpool-status-suspended.json: none (derived)
+  zpool-status-unknown-health.json: none (derived)
+  zpool-status-permanent-errors-60.json: none (derived)
+  zpool-list-unknown-major.json: none (derived)
+files:
+  zpool-status-degraded-mirror.json: derived-from upstream-openzfs-2.4.1/zpool-status-jv.source-derived.json; the raidz1-0 object becomes mirror-0 (vdev_type mirror, state DEGRADED) with two of its leaves; one leaf DEGRADED with aux ERR_EXCEEDED and read 3, write 1, checksum 24 errors; the dedup and special classes removed whole; pool state DEGRADED with ZPOOL_STATUS_FAILING_DEV's status, action and msgid; scrub FINISHED with no errors; error_count 0 and no errlist
+  zpool-status-scrub-finished-repairs.json: derived-from upstream-openzfs-2.4.1/zpool-status-jv.source-derived.json; scrub FINISHED that repaired 262144 bytes (processed), errors 0; one leaf with 4 checksum errors, every vdev ONLINE; pool ONLINE with ZPOOL_STATUS_FAILING_DEV's status, action and msgid; error_count 0 and no errlist
+  zpool-status-scrub-canceled.json: derived-from upstream-openzfs-2.4.1/zpool-status-jv.source-derived.json; zpool-status-scrub-finished-repairs.json with scan_stats.state CANCELED and end_time the cancel time (start_time + 1 h 42 s); nothing else differs
+  zpool-status-scrub-paused.json: derived-from upstream-openzfs-2.4.1/zpool-status-jv.source-derived.json; zpool-status-scrub-finished-repairs.json with scan_stats.state SCANNING, end_time 0 (no finish) and scrub_pause (pss_pass_scrub_pause) the pause time (start_time + 30 min); nothing else differs
+  zpool-status-scrub-scanning.json: derived-from upstream-openzfs-2.4.1/zpool-status-jv.source-derived.json; every vdev ONLINE with no errors, no status, action, msgid, moreinfo or errlist (ZPOOL_STATUS_OK adds none); scrub SCANNING, end_time 0, a third examined and a quarter issued
+  zpool-status-resilver-scanning.json: derived-from upstream-openzfs-2.4.1/zpool-status-jv.source-derived.json; resilver SCANNING (function RESILVER), end_time 0, half examined; pool and raidz1-0 DEGRADED; ZPOOL_STATUS_RESILVERING's status and action (no msgid or moreinfo, libzfs_status.c lists none)
+  zpool-status-suspended.json: derived-from upstream-openzfs-2.4.1/zpool-status-jv.source-derived.json; pool state SUSPENDED (zpool_get_state_str for ZPOOL_STATUS_IO_FAILURE_WAIT, lib/libzfs/libzfs_pool.c L257-L280) with that reason's status, action and msgid ZFS-8000-HC; the raidz1-0 leaves with 7 write errors each
+  zpool-status-unknown-health.json: derived-from upstream-openzfs-2.4.1/zpool-status-jv.source-derived.json; pool state NEXUS_SYNTHETIC_STATE, a word no 2.4.1 code path prints, standing for a later version's health word; otherwise every vdev ONLINE
+  zpool-status-permanent-errors-60.json: derived-from upstream-openzfs-2.4.1/zpool-status-jv.source-derived.json; error_count 60 and an errlist of 60 paths (/tank/data/file-01.bin to file-60.bin); otherwise the source unchanged
+  zpool-list-unknown-major.json: derived-from upstream-openzfs-2.4.1/zpool-list.8.example3.json; output_version.vers_major 1, a major 2.4.1 never prints (zpool_json_schema(0, 1) cmd/zpool/zpool_main.c L1085-L1098); nothing else differs

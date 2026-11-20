@@ -172,3 +172,36 @@ providers:
     sampleInterval: 10s # 2s..60s: how often the sampler reads the host
     historyDuration: 1h # sampleInterval..24h: how far back the in-memory history goes
     sourceTimeout: 2s
+  # ZFS pools, datasets and snapshots, Proxmox vzdump backup archives and
+  # Time Machine shares, read inside the sandbox through /usr/sbin/zpool,
+  # /usr/sbin/zfs and the directories listed here, plus storage health
+  # signals for get_host_health. Reads need storage:read. Three writes, scrub
+  # start, scrub stop (storage:scrub) and snapshot create (storage:snapshot),
+  # each act only when enabled below and only on an allow-listed pool or
+  # dataset; they are REST and CLI only, never MCP. The lists change only by
+  # editing this file.
+  storage:
+    enabled: false # Off until enabled here
+    commandTimeout: 30s # 5s..120s: bound on one zpool or zfs call
+    backups: # Proxmox vzdump archives
+      vzdumpPaths: [] # Absolute directories holding Proxmox vzdump archives (the path and its dump/)
+      maxAge: 192h # 1h..8760h: a guest's latest archive older than this is stale (8 days)
+      expectedGuests: [] # vmids (100..999999999) that must have archives; missing ones are stale
+    timeMachine: # Time Machine shares
+      paths: [] # Absolute Time Machine share directories
+      maxAge: 168h # 1h..8760h: a bundle whose last backup is older than this is stale (7 days)
+      sizeInterval: 1h # 10m..24h: how often bundle sizes are recomputed in the background
+    thresholds: # When health signals are raised
+      poolCapacityWarn: 80 # percent; warn < crit, each 1..100
+      poolCapacityCrit: 90 # percent; 1..100
+      scrubMaxAgeDays: 35 # 1..366: a pool not scrubbed for this many days is overdue
+      quotaWarn: 85 # percent of a dataset's quota
+      shareWarn: 85 # percent of a Time Machine share; warn < crit, each 1..100
+      shareCrit: 95 # percent of a Time Machine share; 1..100
+    scrub: # Scrub start and stop (storage:scrub)
+      enabled: false # Scrub start and stop act only when true
+      pools: [] # Pool names scrub start and stop may act on
+    snapshots: # Snapshot create (storage:snapshot)
+      enabled: false # Snapshot create acts only when true
+      datasets: [] # Each: name (required), recursive (default false)
+      maxPoolCapacityPercent: 90 # 1..100: refuse a snapshot when the pool is this full

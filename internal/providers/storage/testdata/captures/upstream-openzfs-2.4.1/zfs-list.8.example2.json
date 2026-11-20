@@ -1,0 +1,151 @@
+{
+  "output_version": {
+    "command": "zfs list",
+    "vers_major": 0,
+    "vers_minor": 1
+  },
+  "datasets": {
+    "pool": {
+      "name": "pool",
+      "type": "FILESYSTEM",
+      "pool": "pool",
+      "properties": {
+        "used": {
+          "value": "290K",
+          "source": {
+            "type": "NONE",
+            "data": "-"
+          }
+        },
+        "available": {
+          "value": "30.5G",
+          "source": {
+            "type": "NONE",
+            "data": "-"
+          }
+        },
+        "referenced": {
+          "value": "24K",
+          "source": {
+            "type": "NONE",
+            "data": "-"
+          }
+        },
+        "mountpoint": {
+          "value": "/pool",
+          "source": {
+            "type": "DEFAULT",
+            "data": "-"
+          }
+        }
+      }
+    },
+    "pool/home": {
+      "name": "pool/home",
+      "type": "FILESYSTEM",
+      "pool": "pool",
+      "properties": {
+        "used": {
+          "value": "48K",
+          "source": {
+            "type": "NONE",
+            "data": "-"
+          }
+        },
+        "available": {
+          "value": "30.5G",
+          "source": {
+            "type": "NONE",
+            "data": "-"
+          }
+        },
+        "referenced": {
+          "value": "24K",
+          "source": {
+            "type": "NONE",
+            "data": "-"
+          }
+        },
+        "mountpoint": {
+          "value": "/mnt/home",
+          "source": {
+            "type": "LOCAL",
+            "data": "-"
+          }
+        }
+      }
+    },
+    "pool/home/bob": {
+      "name": "pool/home/bob",
+      "type": "FILESYSTEM",
+      "pool": "pool",
+      "properties": {
+        "used": {
+          "value": "24K",
+          "source": {
+            "type": "NONE",
+            "data": "-"
+          }
+        },
+        "available": {
+          "value": "30.5G",
+          "source": {
+            "type": "NONE",
+            "data": "-"
+          }
+        },
+        "referenced": {
+          "value": "24K",
+          "source": {
+            "type": "NONE",
+            "data": "-"
+          }
+        },
+        "mountpoint": {
+          "value": "/mnt/home/bob",
+          "source": {
+            "type": "INHERITED",
+            "data": "pool/home"
+          }
+        }
+      }
+    },
+    "pool/home/bob@v1": {
+      "name": "pool/home/bob@v1",
+      "type": "SNAPSHOT",
+      "pool": "pool",
+      "dataset": "pool/home/bob",
+      "snapshot_name": "v1",
+      "properties": {
+        "used": {
+          "value": "0B",
+          "source": {
+            "type": "NONE",
+            "data": "-"
+          }
+        },
+        "available": {
+          "value": "-",
+          "source": {
+            "type": "NONE",
+            "data": "-"
+          }
+        },
+        "referenced": {
+          "value": "24K",
+          "source": {
+            "type": "NONE",
+            "data": "-"
+          }
+        },
+        "mountpoint": {
+          "value": "-",
+          "source": {
+            "type": "NONE",
+            "data": "-"
+          }
+        }
+      }
+    }
+  }
+}

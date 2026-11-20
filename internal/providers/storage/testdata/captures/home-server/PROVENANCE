@@ -1,0 +1,85 @@
+host: home-server
+source: host
+date: 2026-11-19T15:35:31Z
+timezone: America/Los_Angeles
+utc-offset: -0800
+os-release: Ubuntu 26.04.1 LTS
+zfs-version: zfs-2.4.1-1ubuntu5.1
+kernel: 7.0.0-38-generic
+captured-as: root
+options: --sandbox-probe
+forms: ls=gnu du=gnu df=gnu timeout=timeout 120 tz=localtime-link
+redaction: mac: 2; guest: 1; plist-strings: 122
+normalized: shares/4 bundle directories renamed to the A-62 deduplicated placeholders (orchestrator, 2026-11-19); shares/3 `.com.apple.timemachine.supported-<id>` marker ids renamed to id-<n> (code review CR-7); schedules/systemctl-list-timers.txt reduced to what the current capture.sh filter keeps (the header, the lines naming zfs, zpool, scrub or snapshot, and the Exit line), dropping the other 17 timers and the count line (security review B-SEC-4)
+snapshot-rows: 635
+snapshot-bytes-json: 365494
+snapshot-bytes-text: 49490
+commands:
+  host/id-u.txt: id -u
+  host/os-release.txt: sed -n s/^PRETTY_NAME=//p /etc/os-release
+  host/uname-r.txt: uname -r
+  host/date.txt: date -u +%FT%TZ
+  host/utc-offset.txt: date +%z
+  host/localtime-link.txt: readlink /etc/localtime
+  host/etc-timezone.txt: head -n 1 /etc/timezone
+  host/timedatectl-timezone.txt: timedatectl show -p Timezone --value
+  host/ls-dev-zfs.txt: ls -ln /dev/zfs
+  host/stat-usr-sbin-zpool.txt: stat /usr/sbin/zpool
+  host/stat-sbin-zpool.txt: stat /sbin/zpool
+  host/stat-usr-sbin-zfs.txt: stat /usr/sbin/zfs
+  host/stat-sbin-zfs.txt: stat /sbin/zfs
+  host/ls-etc-pve.txt: ls -ldn /etc/pve
+  host/ls-pve-manager-list.txt: ls -ldn /var/lib/dpkg/info/pve-manager.list
+  zfs/zfs-version.txt: /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/sbin/zfs version
+  zfs/zfs-version.json: /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/sbin/zfs version -j
+  zfs/zpool-list.json: /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/sbin/zpool list -j --json-int -o name,size,allocated,free,capacity,fragmentation,dedupratio,health,altroot,readonly
+  zfs/zpool-list.txt: /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/sbin/zpool list -H -p -o name,size,allocated,free,capacity,fragmentation,dedupratio,health,altroot,readonly
+  zfs/zpool-list-names.txt: /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/sbin/zpool list -H -o name
+  zfs/zpool-status.json: /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/sbin/zpool status -j --json-int
+  zfs/zpool-status-v.json: /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/sbin/zpool status -j --json-int -v
+  zfs/zpool-status-v.txt: /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/sbin/zpool status -p -v
+  zfs/zpool-get-z1.json: /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/sbin/zpool get -j --json-int all z1
+  zfs/zpool-get-z1.txt: /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/sbin/zpool get -H -p -o name,property,value,source all z1
+  zfs/zpool-get-z2.json: /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/sbin/zpool get -j --json-int all z2
+  zfs/zpool-get-z2.txt: /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/sbin/zpool get -H -p -o name,property,value,source all z2
+  zfs/zpool-get-z3.json: /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/sbin/zpool get -j --json-int all z3
+  zfs/zpool-get-z3.txt: /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/sbin/zpool get -H -p -o name,property,value,source all z3
+  zfs/zfs-list-datasets.json: /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/sbin/zfs list -j --json-int -t filesystem,volume -o name,type,used,avail,refer,usedbysnapshots,quota,refquota,reservation,compression,compressratio,recordsize,mountpoint,mounted,encryption,keystatus
+  zfs/zfs-list-datasets.txt: /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/sbin/zfs list -H -p -t filesystem,volume -o name,type,used,avail,refer,usedbysnapshots,quota,refquota,reservation,compression,compressratio,recordsize,mountpoint,mounted,encryption,keystatus
+  zfs/zfs-list-snapshots.json: /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/sbin/zfs list -j --json-int -t snapshot -o name,creation,used,refer,userrefs,nexus:created-by
+  zfs/zfs-list-snapshots.txt: /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/sbin/zfs list -H -p -t snapshot -o name,creation,used,refer,userrefs,nexus:created-by
+  zfs/zfs-list-snapshots-creation.txt: /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/sbin/zfs list -H -p -t snapshot -o name,creation
+  zfs/negative-zpool-list.json: /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/sbin/zpool list -j --json-int -o name,size,allocated,free,capacity,fragmentation,dedupratio,health,altroot,readonly nexus-capture-absent
+  zfs/negative-zpool-status.json: /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/sbin/zpool status -j --json-int nexus-capture-absent
+  zfs/negative-zfs-list.json: /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/sbin/zfs list -j --json-int nexus-capture-absent/x
+  shares/1/ls.txt: ls -lan --time-style=full-iso /media/vzdump
+  shares/1/df.txt: df -B1 /media/vzdump
+  shares/2/ls.txt: ls -lan --time-style=full-iso /media/vzdump/dump
+  shares/2/df.txt: df -B1 /media/vzdump/dump
+  shares/3/ls.txt: ls -lan --time-style=full-iso /media/timemachine
+  shares/3/df.txt: df -B1 /media/timemachine
+  shares/3/mac-1.sparsebundle/ls.txt: ls -lan --time-style=full-iso /media/timemachine/mac-1.sparsebundle
+  shares/3/mac-1.sparsebundle/SnapshotHistory.head8: head -c 8 /media/timemachine/mac-1.sparsebundle/com.apple.TimeMachine.SnapshotHistory.plist [noeol]
+  shares/3/mac-1.sparsebundle/SnapshotHistory.plist: cat /media/timemachine/mac-1.sparsebundle/com.apple.TimeMachine.SnapshotHistory.plist
+  shares/3/mac-1.sparsebundle/du.txt: timeout 120 du -s --block-size=1 /media/timemachine/mac-1.sparsebundle/bands
+  shares/3/mac-2.sparsebundle/ls.txt: ls -lan --time-style=full-iso /media/timemachine/mac-2.sparsebundle
+  shares/3/mac-2.sparsebundle/SnapshotHistory.head8: head -c 8 /media/timemachine/mac-2.sparsebundle/com.apple.TimeMachine.SnapshotHistory.plist [noeol]
+  shares/3/mac-2.sparsebundle/SnapshotHistory.plist: cat /media/timemachine/mac-2.sparsebundle/com.apple.TimeMachine.SnapshotHistory.plist
+  shares/4/ls.txt: ls -lan --time-style=full-iso /media/timemachine2
+  shares/4/df.txt: df -B1 /media/timemachine2
+  shares/4/mac-1.sparsebundle/ls.txt: ls -lan --time-style=full-iso /media/timemachine2/mac-1.sparsebundle
+  shares/4/mac-1.sparsebundle/SnapshotHistory.head8: head -c 8 /media/timemachine2/mac-1.sparsebundle/com.apple.TimeMachine.SnapshotHistory.plist [noeol]
+  shares/4/mac-1.sparsebundle/SnapshotHistory.plist: cat /media/timemachine2/mac-1.sparsebundle/com.apple.TimeMachine.SnapshotHistory.plist
+  shares/4/mac-1.sparsebundle/du.txt: timeout 120 du -s --block-size=1 /media/timemachine2/mac-1.sparsebundle/bands
+  shares/4/mac-2.sparsebundle/ls.txt: ls -lan --time-style=full-iso /media/timemachine2/mac-2.sparsebundle
+  shares/4/mac-2.sparsebundle/SnapshotHistory.head8: head -c 8 /media/timemachine2/mac-2.sparsebundle/com.apple.TimeMachine.SnapshotHistory.plist [noeol]
+  shares/4/mac-2.sparsebundle/SnapshotHistory.plist: cat /media/timemachine2/mac-2.sparsebundle/com.apple.TimeMachine.SnapshotHistory.plist
+  vzdump/newest-log-head.txt: head -n 40 /media/vzdump/dump/vzdump-lxc-103-2026_08_27-10_34_54.log
+  vzdump/newest-log-tail.txt: tail -n 40 /media/vzdump/dump/vzdump-lxc-103-2026_08_27-10_34_54.log
+  vzdump/newest-notes-line1.txt: head -n 1 /media/vzdump/dump/vzdump-lxc-103-2026_08_27-10_34_54.tar.zst.notes [noeol]
+  schedules/systemctl-list-timers.txt: systemctl list-timers --all --no-pager
+  schedules/cron.d-zfsutils-linux: cat /etc/cron.d/zfsutils-linux
+  schedules/cron.d-zfs-auto-snapshot: cat /etc/cron.d/zfs-auto-snapshot
+  schedules/ls-cron-zfs-auto-snapshot.txt: ls -ln /etc/cron.d/zfs-auto-snapshot /etc/cron.daily/zfs-auto-snapshot /etc/cron.hourly/zfs-auto-snapshot /etc/cron.monthly/zfs-auto-snapshot /etc/cron.weekly/zfs-auto-snapshot
+  sandbox-probe/unit-cat.txt: systemctl cat nexusd
+  sandbox-probe/mounts-outside: /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C /usr/sbin/zfs list -H -o name,mounted,mountpoint

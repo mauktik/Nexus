@@ -1,0 +1,3 @@
+NEXT                                 LEFT LAST                              PASSED UNIT                           ACTIVATES
+Sun 2026-11-22 03:10:19 PST        2 days Sun 2026-11-15 03:10:46 PST   4 days ago e2scrub_all.timer              e2scrub_all.service
+Exit 0

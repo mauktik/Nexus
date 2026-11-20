@@ -1,0 +1,17 @@
+{"pid":1041,"argv":["/usr/sbin/zpool","list","-H","-o","name"],"capEff":"0000000000000004","time":"2026-11-19T18:21:43.692363099Z"}
+{"pid":1049,"argv":["/usr/sbin/zfs","version"],"capEff":"0000000000000004","time":"2026-11-19T18:21:43.700017628Z"}
+{"pid":1068,"argv":["/usr/sbin/zpool","status","-j","--json-int"],"capEff":"0000000000000004","time":"2026-11-19T18:21:43.746307304Z"}
+{"pid":1067,"argv":["/usr/sbin/zpool","list","-j","--json-int","-o","name,size,allocated,free,capacity,fragmentation,dedupratio,health,altroot,readonly"],"capEff":"0000000000000004","time":"2026-11-19T18:21:43.746642389Z"}
+{"pid":1079,"argv":["/usr/sbin/zpool","list","-H","-o","name"],"capEff":"0000000000000004","time":"2026-11-19T18:21:43.755132879Z"}
+{"pid":1085,"argv":["/usr/sbin/zpool","list","-j","--json-int","-o","name,size,allocated,free,capacity,fragmentation,dedupratio,health,altroot,readonly","z1"],"capEff":"0000000000000004","time":"2026-11-19T18:21:43.762935659Z"}
+{"pid":1086,"argv":["/usr/sbin/zpool","status","-j","--json-int","-v","z1"],"capEff":"0000000000000004","time":"2026-11-19T18:21:43.763285369Z"}
+{"pid":1087,"argv":["/usr/sbin/zpool","get","-j","--json-int","all","z1"],"capEff":"0000000000000004","time":"2026-11-19T18:21:43.767452051Z"}
+{"pid":1104,"argv":["/usr/sbin/zfs","list","-H","-p","-t","snapshot","-o","name,creation"],"capEff":"0000000000000004","time":"2026-11-19T18:21:43.775909416Z"}
+{"pid":1103,"argv":["/usr/sbin/zfs","list","-j","--json-int","-t","filesystem,volume","-o","name,type,used,avail,refer,usedbysnapshots,quota,refquota,reservation,compression,compressratio,recordsize,mountpoint,mounted,encryption,keystatus"],"capEff":"0000000000000004","time":"2026-11-19T18:21:43.776039542Z"}
+{"pid":1116,"argv":["/usr/sbin/zfs","list","-H","-p","-t","snapshot","-o","name,creation","-d","1","z1/ds/share"],"capEff":"0000000000000004","time":"2026-11-19T18:21:43.78637579Z"}
+{"pid":1115,"argv":["/usr/sbin/zfs","list","-j","--json-int","-t","filesystem,volume","-o","name,type,used,avail,refer,usedbysnapshots,quota,refquota,reservation,compression,compressratio,recordsize,mountpoint,mounted,encryption,keystatus","z1/ds/share"],"capEff":"0000000000000004","time":"2026-11-19T18:21:43.786987042Z"}
+{"pid":1127,"argv":["/usr/sbin/zfs","list","-H","-p","-t","snapshot","-o","name,creation,used,refer,userrefs,nexus:created-by"],"capEff":"0000000000000004","time":"2026-11-19T18:21:43.796019868Z"}
+{"pid":1133,"argv":["/usr/sbin/zfs","list","-H","-p","-t","snapshot","-o","name,creation,used,refer,userrefs,nexus:created-by"],"capEff":"0000000000000004","time":"2026-11-19T18:21:43.807245285Z"}
+{"pid":1141,"argv":["/usr/sbin/zfs","list","-j","--json-int","-t","filesystem,volume","-o","name,type,used,avail,refer,usedbysnapshots,quota,refquota,reservation,compression,compressratio,recordsize,mountpoint,mounted,encryption,keystatus"],"capEff":"0000000000000004","time":"2026-11-19T18:21:43.820152418Z"}
+{"pid":1139,"argv":["/usr/sbin/zpool","list","-j","--json-int","-o","name,size,allocated,free,capacity,fragmentation,dedupratio,health,altroot,readonly"],"capEff":"0000000000000004","time":"2026-11-19T18:21:43.821674382Z"}
+{"pid":1140,"argv":["/usr/sbin/zpool","status","-j","--json-int"],"capEff":"0000000000000004","time":"2026-11-19T18:21:43.823422388Z"}

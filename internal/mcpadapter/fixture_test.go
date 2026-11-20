@@ -25,6 +25,7 @@ import (
 	nginx "github.com/mauktik/nexus/internal/providers/nginx/spec"
 	pihole "github.com/mauktik/nexus/internal/providers/pihole/spec"
 	scripts "github.com/mauktik/nexus/internal/providers/scripts/spec"
+	storage "github.com/mauktik/nexus/internal/providers/storage/spec"
 )
 
 // The jobs provider is the 8.2 fixture: a long-running op that writes
@@ -275,6 +276,20 @@ func catalogStubs(s *testprovider.Spy) []provider.Provider {
 			testprovider.Sync(s, host.NetConfigGet),
 			testprovider.Sync(s, host.HealthGet),
 			testprovider.Sync(s, host.MetricsGet),
+		),
+		testprovider.NewStub(storage.Spec(),
+			testprovider.Sync(s, storage.HealthGet),
+			testprovider.Sync(s, storage.PoolsList),
+			testprovider.Sync(s, storage.PoolsGet),
+			testprovider.Sync(s, storage.DatasetsList),
+			testprovider.Sync(s, storage.DatasetsGet),
+			testprovider.Sync(s, storage.SnapshotsList),
+			testprovider.Sync(s, storage.BackupsList),
+			testprovider.Sync(s, storage.BackupsSummary),
+			testprovider.Sync(s, storage.TimeMachineList),
+			testprovider.InProcess(s, storage.PoolsScrub),
+			testprovider.InProcess(s, storage.PoolsStopScrub),
+			testprovider.InProcess(s, storage.DatasetsSnapshot),
 		),
 	}
 }

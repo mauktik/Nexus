@@ -1,0 +1,6 @@
+-rw-r--r-- 1 0 0 184 Oct 11  2018 /etc/cron.d/zfs-auto-snapshot
+-rwxr-xr-x 1 0 0 173 Oct 11  2018 /etc/cron.daily/zfs-auto-snapshot
+-rwxr-xr-x 1 0 0 174 Oct 11  2018 /etc/cron.hourly/zfs-auto-snapshot
+-rwxr-xr-x 1 0 0 175 Oct 11  2018 /etc/cron.monthly/zfs-auto-snapshot
+-rwxr-xr-x 1 0 0 173 Oct 11  2018 /etc/cron.weekly/zfs-auto-snapshot
+Exit 0

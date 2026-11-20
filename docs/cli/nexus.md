@@ -28,12 +28,15 @@ nexus [flags]
 | Command | Description |
 | --- | --- |
 | [`nexus auditrecord`](nexus_auditrecord.md) | Verbs: get |
+| [`nexus backup`](nexus_backup.md) | Verbs: get |
+| [`nexus backupsummary`](nexus_backupsummary.md) | Verbs: get |
 | [`nexus capability`](nexus_capability.md) | Verbs: get |
 | [`nexus command`](nexus_command.md) | Verbs: get |
 | [`nexus completion`](nexus_completion.md) | Verbs: get |
 | [`nexus container`](nexus_container.md) | Verbs: get, start, stop, restart, remove, update |
 | [`nexus containerlog`](nexus_containerlog.md) | Verbs: get |
 | [`nexus containerupdate`](nexus_containerupdate.md) | Verbs: get |
+| [`nexus dataset`](nexus_dataset.md) | Verbs: get |
 | [`nexus help`](nexus_help.md) | Show usage and examples for a command |
 | [`nexus host`](nexus_host.md) | Configured hosts |
 | [`nexus hostcpu`](nexus_hostcpu.md) | Verbs: get |
@@ -69,13 +72,20 @@ nexus [flags]
 | [`nexus piholeresolver`](nexus_piholeresolver.md) | Verbs: restart |
 | [`nexus piholesummary`](nexus_piholesummary.md) | Verbs: get |
 | [`nexus piholezone`](nexus_piholezone.md) | Verbs: get, add, remove |
+| [`nexus pool`](nexus_pool.md) | Verbs: get |
 | [`nexus script`](nexus_script.md) | Verbs: get, invoke |
+| [`nexus scrub`](nexus_scrub.md) | Verbs: start, stop |
+| [`nexus snapshot`](nexus_snapshot.md) | Verbs: get, add |
+| [`nexus storagehealth`](nexus_storagehealth.md) | Verbs: get |
+| [`nexus timemachine`](nexus_timemachine.md) | Verbs: get |
 
 ## Every command
 
 | Command | Description |
 | --- | --- |
 | [`nexus auditrecord get`](nexus_auditrecord_get.md) | Query the audit log |
+| [`nexus backup get`](nexus_backup_get.md) | List the vzdump backup archives |
+| [`nexus backupsummary get`](nexus_backupsummary_get.md) | Get the vzdump backup summary per guest |
 | [`nexus capability get`](nexus_capability_get.md) | Describe this host's providers and their availability |
 | [`nexus command get`](nexus_command_get.md) | List the commands, optionally by verb or noun |
 | [`nexus completion get`](nexus_completion_get.md) | Print the shell completion script |
@@ -87,6 +97,7 @@ nexus [flags]
 | [`nexus container update`](nexus_container_update.md) | Update a container to its image's newest digest |
 | [`nexus containerlog get`](nexus_containerlog_get.md) | Read a container's logs |
 | [`nexus containerupdate get`](nexus_containerupdate_get.md) | Check containers for image updates |
+| [`nexus dataset get`](nexus_dataset_get.md) | List the ZFS datasets, or with NAME, get one ZFS dataset |
 | [`nexus help`](nexus_help.md) | Show usage and examples for a command |
 | [`nexus host add`](nexus_host_add.md) | Register a host and pin its certificate |
 | [`nexus host get`](nexus_host_get.md) | List configured hosts, or show one |
@@ -155,5 +166,12 @@ nexus [flags]
 | [`nexus piholezone add`](nexus_piholezone_add.md) | Declare a DNS zone |
 | [`nexus piholezone get`](nexus_piholezone_get.md) | List DNS zones, or with NAME, get a DNS zone |
 | [`nexus piholezone remove`](nexus_piholezone_remove.md) | Remove a DNS zone |
+| [`nexus pool get`](nexus_pool_get.md) | List the ZFS pools, or with NAME, get one ZFS pool |
 | [`nexus script get`](nexus_script_get.md) | List cataloged scripts, or with NAME, get a cataloged script |
 | [`nexus script invoke`](nexus_script_invoke.md) | Run a cataloged script |
+| [`nexus scrub start`](nexus_scrub_start.md) | Start a scrub of a ZFS pool |
+| [`nexus scrub stop`](nexus_scrub_stop.md) | Stop the scrub of a ZFS pool |
+| [`nexus snapshot add`](nexus_snapshot_add.md) | Snapshot a ZFS dataset |
+| [`nexus snapshot get`](nexus_snapshot_get.md) | List the ZFS snapshots |
+| [`nexus storagehealth get`](nexus_storagehealth_get.md) | Get the storage health signals |
+| [`nexus timemachine get`](nexus_timemachine_get.md) | List the Time Machine shares |

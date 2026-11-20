@@ -1,0 +1,3 @@
+Filesystem         1B-blocks         Used    Available Use% Mounted on
+z2/d1/vms      1099511496704 190953029632 908558467072  18% /media/vzdump
+Exit 0

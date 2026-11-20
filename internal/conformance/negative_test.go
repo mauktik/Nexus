@@ -26,6 +26,7 @@ import (
 	nginx "github.com/mauktik/nexus/internal/providers/nginx/spec"
 	pihole "github.com/mauktik/nexus/internal/providers/pihole/spec"
 	scripts "github.com/mauktik/nexus/internal/providers/scripts/spec"
+	storage "github.com/mauktik/nexus/internal/providers/storage/spec"
 )
 
 // attacks is the FR-25 list sent through every string parameter: shell
@@ -53,6 +54,49 @@ var piholeAttacks = []struct{ name, value string }{
 	{"slash", "a/b"},
 	{"equals", "a=b"},
 	{"quote", "a'b"},
+}
+
+// negative is one FR-25 input of a provider's own grammar: input sent to op
+// must be refused with 400 validation-failed naming field, before any
+// handler call.
+type negative struct {
+	op    def.Op
+	field string
+	input map[string]any
+}
+
+// storageNegatives are the storage ops' FR-25 inputs (TC-STG-202): pool
+// and dataset names outside the OpenZFS grammar, labels, vmids and cursors
+// out of bounds, and a body that names the snapshot.
+func storageNegatives() []negative {
+	var out []negative
+	add := func(op def.Op, field string, base map[string]any, values ...any) {
+		for _, v := range values {
+			in := map[string]any{field: v}
+			for k, b := range base {
+				in[k] = b
+			}
+			out = append(out, negative{op: op, field: field, input: in})
+		}
+	}
+	pools := []any{"../x", "a;b", "a b", "1pool", "-x", "p" + strings.Repeat("a", 255)}
+	for _, op := range []def.Op{storage.PoolsGet.Op(), storage.PoolsScrub.Op(), storage.PoolsStopScrub.Op(), storage.PoolsList.Op()} {
+		add(op, "name", nil, pools...)
+	}
+	add(storage.DatasetsList.Op(), "pool", nil, pools...)
+	datasets := []any{"z1/../x", "z1//x", "z1/x@y", "z1/x#y", "/z1"}
+	add(storage.DatasetsGet.Op(), "name", nil, datasets...)
+	add(storage.DatasetsSnapshot.Op(), "name", nil, datasets...)
+	add(storage.SnapshotsList.Op(), "dataset", nil, datasets...)
+	add(storage.DatasetsSnapshot.Op(), "label", map[string]any{"name": "z1/ds/share"}, "Bad", "-x", strings.Repeat("a", 33))
+	add(storage.BackupsList.Op(), "vmid", nil, 99, 1000000000)
+	for _, op := range []def.Op{storage.PoolsList.Op(), storage.DatasetsList.Op(), storage.SnapshotsList.Op(),
+		storage.BackupsList.Op(), storage.TimeMachineList.Op()} {
+		add(op, "cursor", nil, strings.Repeat("a", storage.MaxCursorLength+1))
+	}
+	// The caller never names the snapshot (D-11).
+	add(storage.DatasetsSnapshot.Op(), "snapshot", map[string]any{"name": "z1/ds/share"}, "nexus-x")
+	return out
 }
 
 // attacksFor returns the attack list for op.

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Snapshots</key>
+	<array>
+		<dict>
+			<key>com.apple.backupd.SnapshotCompletionDate</key>
+			<date>2026-07-17T14:36:24Z</date>
+			<key>com.apple.backupd.SnapshotName</key>
+			<string>redacted-71</string>
+		</dict>
+	</array>
+</dict>
+</plist>
+Exit 0

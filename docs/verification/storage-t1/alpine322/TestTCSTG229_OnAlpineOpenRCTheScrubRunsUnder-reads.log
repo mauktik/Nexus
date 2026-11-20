@@ -1,0 +1,9 @@
+{"pid":1382,"argv":["/usr/sbin/zpool","list","-H","-o","name"],"capEff":"000001ffffffffff","time":"2026-11-19T18:21:21.392939275Z"}
+{"pid":1388,"argv":["/usr/sbin/zfs","version"],"capEff":"000001ffffffffff","time":"2026-11-19T18:21:21.401012097Z"}
+{"pid":1422,"argv":["/usr/sbin/zpool","list","-H","-o","name"],"capEff":"000001ffffffffff","time":"2026-11-19T18:21:21.517433249Z"}
+{"pid":1429,"argv":["/usr/sbin/zpool","status","-j","--json-int","z1"],"capEff":"000001ffffffffff","time":"2026-11-19T18:21:21.524530818Z"}
+{"pid":1453,"argv":["/usr/sbin/zpool","status","-j","--json-int","z1"],"capEff":"000001ffffffffff","time":"2026-11-19T18:21:21.573784547Z"}
+{"pid":1466,"argv":["/usr/sbin/zpool","status","-j","--json-int","z1"],"capEff":"000001ffffffffff","time":"2026-11-19T18:21:21.58779935Z"}
+{"pid":1472,"argv":["/usr/sbin/zpool","list","-H","-o","name"],"capEff":"000001ffffffffff","time":"2026-11-19T18:21:22.04814502Z"}
+{"pid":1497,"argv":["/usr/sbin/zpool","status","-j","--json-int","z1"],"capEff":"000001ffffffffff","time":"2026-11-19T18:21:22.094426905Z"}
+{"pid":1510,"argv":["/usr/sbin/zpool","status","-j","--json-int","z1"],"capEff":"000001ffffffffff","time":"2026-11-19T18:21:22.109675588Z"}

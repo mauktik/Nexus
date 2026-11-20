@@ -696,6 +696,10 @@ docker cp test/harness/fixtures "$container:/harness/fixtures"
 # The svcctl captures the svcctltest fake answers with (TC-113).
 docker exec "$container" mkdir -p /harness/src/github.com/mauktik/nexus/internal/svcctl
 docker cp internal/svcctl/testdata "$container:/harness/src/github.com/mauktik/nexus/internal/svcctl/testdata"
+# The storage captures the T1 fake zpool and zfs replay, and capture.sh
+# (storage-provider WI 5.3, TC-STG-220 to TC-STG-230).
+docker exec "$container" mkdir -p /harness/src/github.com/mauktik/nexus/internal/providers/storage
+docker cp internal/providers/storage/testdata "$container:/harness/src/github.com/mauktik/nexus/internal/providers/storage/testdata"
 # The release tree install.sh installs from (WI 10.1), root-owned as tar
 # extracts it for root.
 docker cp "$OUT/release" "$container:/harness/release"

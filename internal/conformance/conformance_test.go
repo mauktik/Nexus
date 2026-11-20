@@ -44,6 +44,7 @@ import (
 	nginx "github.com/mauktik/nexus/internal/providers/nginx/spec"
 	pihole "github.com/mauktik/nexus/internal/providers/pihole/spec"
 	scripts "github.com/mauktik/nexus/internal/providers/scripts/spec"
+	storage "github.com/mauktik/nexus/internal/providers/storage/spec"
 	"github.com/mauktik/nexus/internal/server"
 	"github.com/mauktik/nexus/internal/store"
 	"github.com/mauktik/nexus/internal/systemspec"
@@ -169,6 +170,24 @@ var catalogStubs = map[string]func(*testprovider.Spy) provider.Provider{
 			testprovider.Sync(s, host.MetricsGet),
 		)
 	},
+	// The three writes are Detached in the real provider; InProcess stubs
+	// them, as nexusd's.
+	storage.Name: func(s *testprovider.Spy) provider.Provider {
+		return testprovider.NewStub(storage.Spec(),
+			testprovider.Sync(s, storage.HealthGet),
+			testprovider.Sync(s, storage.PoolsList),
+			testprovider.Sync(s, storage.PoolsGet),
+			testprovider.Sync(s, storage.DatasetsList),
+			testprovider.Sync(s, storage.DatasetsGet),
+			testprovider.Sync(s, storage.SnapshotsList),
+			testprovider.Sync(s, storage.BackupsList),
+			testprovider.Sync(s, storage.BackupsSummary),
+			testprovider.Sync(s, storage.TimeMachineList),
+			testprovider.InProcess(s, storage.PoolsScrub),
+			testprovider.InProcess(s, storage.PoolsStopScrub),
+			testprovider.InProcess(s, storage.DatasetsSnapshot),
+		)
+	},
 }
 
 // stack is the real server, Dispatcher, audit log and operation manager over
@@ -176,6 +195,7 @@ var catalogStubs = map[string]func(*testprovider.Spy) provider.Provider{
 // provider.
 type stack struct {
 	base      string
+	stateDir  string // Where tokens are minted
 	reg       *core.Registry
 	audit     *audit.Log
 	spy       *testprovider.Spy
@@ -227,7 +247,7 @@ func newStack(t *testing.T) *stack {
 	}
 
 	scopes := allScopes(reg)
-	s := &stack{reg: reg, audit: alog, spy: spy, exact: map[string]string{}, exactName: map[string]string{}}
+	s := &stack{stateDir: stateDir, reg: reg, audit: alog, spy: spy, exact: map[string]string{}, exactName: map[string]string{}}
 	mint := func(name string, scopes ...string) string {
 		tok, _, err := auth.Create(stateDir, auth.CreateRequest{Name: name, Scopes: scopes})
 		if err != nil {

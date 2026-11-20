@@ -1,0 +1,43 @@
+  pool: z1
+ state: ONLINE
+status: Some supported and requested features are not enabled on the pool.
+	The pool can still be used, but some features are unavailable.
+action: Enable all features using 'zpool upgrade'. Once this is done,
+	the pool may no longer be accessible by software that does not support
+	the features. See zpool-features(7) for details.
+  scan: scrub repaired 0B in 00:01:48 with 0 errors on Sun Nov  8 00:25:49 2026
+config:
+
+	NAME                                    STATE     READ WRITE CKSUM
+	z1                                      ONLINE       0     0     0
+	  scsi-0QEMU_QEMU_HARDDISK_drive-scsi2  ONLINE       0     0     0
+
+errors: No known data errors
+
+  pool: z2
+ state: ONLINE
+status: Some supported and requested features are not enabled on the pool.
+	The pool can still be used, but some features are unavailable.
+action: Enable all features using 'zpool upgrade'. Once this is done,
+	the pool may no longer be accessible by software that does not support
+	the features. See zpool-features(7) for details.
+  scan: scrub repaired 0B in 01:10:07 with 0 errors on Sun Nov  8 01:34:09 2026
+config:
+
+	NAME                                    STATE     READ WRITE CKSUM
+	z2                                      ONLINE       0     0     0
+	  scsi-0QEMU_QEMU_HARDDISK_drive-scsi4  ONLINE       0     0     0
+
+errors: No known data errors
+
+  pool: z3
+ state: ONLINE
+  scan: scrub repaired 0B in 04:42:56 with 0 errors on Sun Nov  8 05:06:59 2026
+config:
+
+	NAME                                    STATE     READ WRITE CKSUM
+	z3                                      ONLINE       0     0     0
+	  scsi-0QEMU_QEMU_HARDDISK_drive-scsi5  ONLINE       0     0     0
+
+errors: No known data errors
+Exit 0

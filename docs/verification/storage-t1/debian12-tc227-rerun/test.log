@@ -1,0 +1,15 @@
+=== RUN   TestTCSTG227_OnDebian12AndAlpine322
+    storage_test.go:1249: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    storage_test.go:1256: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 374
+    storage_test.go:1296: host.health.get storage block: {"source":"storage","observedAt":null,"counts":null,"signals":[],"signalsTruncated":false,"stale":false,"unavailable":{"signals":"capability-unavailable: zfs: /usr/sbin/zpool not found (nor /sbin/zpool); backups: not configured; timeMachine: not configured"}}
+    storage_test.go:1325: log: storage preflight lines 1 -> 1 -> 2 over 20 requests (1.121s after the start) and one reload; other storage lines 2 -> 2
+    storage_test.go:1363: audit: 3 capability-unavailable records for the 3 writes of step 2 (6 refused storage records in all, none not-allowed)
+--- PASS: TestTCSTG227_OnDebian12AndAlpine322 (0.84s)
+PASS

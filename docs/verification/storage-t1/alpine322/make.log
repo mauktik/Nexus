@@ -1,0 +1,123 @@
+BASE='alpine:3.22' RUN='^TestTCSTG|^TestStorageFakeZFS' test/harness/run.sh alpine
+harness: docker endpoint unix://~/.colima/default/docker.sock (local socket)
+harness: docker context default, daemon architecture aarch64 -> GOARCH=arm64, BASE=alpine:3.22, init openrc
+harness: building image nexus-harness:alpine-alpine-3.22 from test/harness/Dockerfile.alpine
+harness: building linux/arm64 test-only binaries into build/harness/
+harness: building the self-update fixtures (v9.9.1 v9.9.2 v9.9.3 v9.9.4 v9.9.5 v9.9.6 v9.9.7) into build/harness/selfupdate
+harness: per-run signing key build/harness/release-test.key, public key +7udC5oo022p/RXm/zFNHwP2utdl1NVR72xZyh7fnY8=; untrusted key build/harness/release-untrusted.key
+harness: fixture v9.9.1: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.1-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.2: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.2-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.3: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.3-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.4: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.4-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.5: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.5-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.6: refused by the per-run key, as intended (signed by build/harness/release-untrusted.key)
+harness: fixture v9.9.7: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.7-linux-arm64.tar.gz: signature verified
+harness: starting container nexus-harness-alpine-20261119T182103Z-69178
+harness: mounts: volume:/var/lib/containerd volume:/var/lib/docker 
+harness: waiting for OpenRC: docker started in the default runlevel
+harness: rc-status default: Runlevel: default docker [ started 00:00:01 (0) ]
+harness: PID 1: /sbin/init 
+harness: versions: openrc (OpenRC [DOCKER]) 0.62.6 nginx version: nginx/1.28.3 curl 8.14.1 (aarch64-alpine-linux-musl) libcurl/8.14.1 OpenSSL/3.5.9 zlib/1.3.2 brotli/1.1.1 zstd/1.5.7 c-ares/1.34.9 libidn2/2.3.7 libpsl/0.21.5 nghttp2/1.69.0 docker 28.3.3 Alpine Linux v3.22
+harness: copying binaries, unit, lib.sh and fixtures in with docker cp
+harness: host signing key ~/.config/nexus/release-signing.key unchanged (mtime 1794699338)
+harness: fixture file: total 223552
+harness: fixture file: -rw-r--r--  1 devuser  staff  16256695 Nov 19 10:21 nexusd-v9.9.1-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 19 10:21 nexusd-v9.9.1-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  16256741 Nov 19 10:21 nexusd-v9.9.2-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 19 10:21 nexusd-v9.9.2-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  16256723 Nov 19 10:21 nexusd-v9.9.3-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 19 10:21 nexusd-v9.9.3-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff   1133767 Nov 19 10:21 nexusd-v9.9.4-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 19 10:21 nexusd-v9.9.4-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  31379593 Nov 19 10:21 nexusd-v9.9.5-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 19 10:21 nexusd-v9.9.5-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  16256724 Nov 19 10:21 nexusd-v9.9.6-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 19 10:21 nexusd-v9.9.6-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  16256877 Nov 19 10:21 nexusd-v9.9.7-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 19 10:21 nexusd-v9.9.7-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff        45 Nov 19 10:21 release-test.pub
+harness: copying the self-update fixtures into /harness/selfupdate
+harness: running tests
+=== RUN   TestStorageFakeZFS
+    storage_fakezfs_test.go:58: not invoked by the fake zpool or zfs wrapper
+--- SKIP: TestStorageFakeZFS (0.00s)
+=== RUN   TestTCSTG220_EveryStorageReadAnswersUnderTheExact
+    storage_test.go:670: requires systemd (detected openrc)
+--- SKIP: TestTCSTG220_EveryStorageReadAnswersUnderTheExact (0.00s)
+=== RUN   TestTCSTG221_PlantedVzdumpAndTimeMachineTreesAre
+    storage_test.go:690: requires systemd (detected openrc)
+--- SKIP: TestTCSTG221_PlantedVzdumpAndTimeMachineTreesAre (0.00s)
+=== RUN   TestTCSTG222_NoSandboxDenialInTheJournalDuring
+    storage_test.go:797: requires systemd (detected openrc)
+--- SKIP: TestTCSTG222_NoSandboxDenialInTheJournalDuring (0.00s)
+=== RUN   TestTCSTG223_AHungZpoolStatusIsBoundedUnder
+    storage_test.go:861: requires systemd (detected openrc)
+--- SKIP: TestTCSTG223_AHungZpoolStatusIsBoundedUnder (0.00s)
+=== RUN   TestTCSTG224_ScrubStartAndStopRunTheFake
+    storage_test.go:1065: requires systemd (detected openrc)
+--- SKIP: TestTCSTG224_ScrubStartAndStopRunTheFake (0.00s)
+=== RUN   TestTCSTG225_ASnapshotIsCreatedOutsideTheSandbox
+    storage_test.go:1104: requires systemd (detected openrc)
+--- SKIP: TestTCSTG225_ASnapshotIsCreatedOutsideTheSandbox (0.00s)
+=== RUN   TestTCSTG226_EveryWriteRefusalIsAuditedAndLeaves
+    storage_test.go:1138: requires systemd (detected openrc)
+--- SKIP: TestTCSTG226_EveryWriteRefusalIsAuditedAndLeaves (0.00s)
+=== RUN   TestTCSTG227_OnDebian12AndAlpine322
+    storage_test.go:1249: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/init.d/nexusd
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd at boot: rc-update add nexusd default
+        install.sh:   start nexusd now: rc-service nexusd start
+    storage_test.go:1256: nexusd under the shipped OpenRC script: /etc/init.d/nexusd sha256 7ccb3febb85e7625daf3927b520609fad6111d7c47a8074dec4d4cc5a5241273, PID 939
+    storage_test.go:1296: host.health.get storage block: {"source":"storage","observedAt":null,"counts":null,"signals":[],"signalsTruncated":false,"stale":false,"unavailable":{"signals":"capability-unavailable: zfs: /usr/sbin/zpool not found (nor /sbin/zpool); backups: not configured; timeMachine: not configured"}}
+    storage_test.go:1325: log: storage preflight lines 1 -> 1 -> 2 over 20 requests (1.2s after the start) and one reload; other storage lines 2 -> 2
+    storage_test.go:1346: audit: 6 refused records for storage writes, every one capability-unavailable (none not-allowed)
+--- PASS: TestTCSTG227_OnDebian12AndAlpine322 (1.63s)
+=== RUN   TestTCSTG228_OnDebian12WithTheFakeTools
+    storage_test.go:1362: requires systemd (detected openrc)
+--- SKIP: TestTCSTG228_OnDebian12WithTheFakeTools (0.00s)
+=== RUN   TestTCSTG229_OnAlpineOpenRCTheScrubRunsUnder
+    storage_test.go:1382: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/init.d/nexusd
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd at boot: rc-update add nexusd default
+        install.sh:   start nexusd now: rc-service nexusd start
+    storage_test.go:1384: nexusd under the shipped OpenRC script: /etc/init.d/nexusd sha256 7ccb3febb85e7625daf3927b520609fad6111d7c47a8074dec4d4cc5a5241273, PID 1344
+    storage_test.go:1397: calls.log: argv ["/usr/sbin/zpool" "scrub" "z1"] euid 0 env ["SHLVL=1" "NEXUS_HARNESS=1" "PATH=/usr/sbin:/usr/bin:/sbin:/bin" "LC_ALL=C" "PWD=/var/lib/nexus/ops/01a1f50a-b2f7-77c2-a867-cc53cac3b107"] CapEff 000001ffffffffff (CAP_SYS_ADMIN true) ppid 1443 parents [{1443 [/usr/local/bin/nexusd storage-helper run --dir /var/lib/nexus/ops/01a1f50a-b2f7-77c2-a867-cc53cac3b107]} {1435 [/usr/local/bin/nexusd op-supervise --dir /var/lib/nexus/ops/01a1f50a-b2f7-77c2-a867-cc53cac3b107 --process]} {1344 [/usr/local/bin/nexusd serve --config /etc/nexus/nexusd.yaml]} {1343 [supervise-daemon nexusd --start --retry TERM/15/KILL/5 --stdout-logger logger -t nexusd -p daemon.info --stderr-logger logger -t nexusd -p daemon.err --pidfile /run/nexusd.pid --respawn-delay 2 --respawn-max 5 --respawn-period 60 --user root root --umask 077 /usr/local/bin/nexusd -- serve --config /etc/nexus/nexusd.yaml]}]
+    storage_test.go:1397: calls.log: argv ["/usr/sbin/zpool" "scrub" "-s" "z1"] euid 0 env ["SHLVL=1" "NEXUS_HARNESS=1" "PATH=/usr/sbin:/usr/bin:/sbin:/bin" "LC_ALL=C" "PWD=/var/lib/nexus/ops/01a1f50a-b502-742e-91fc-d93ee12b061b"] CapEff 000001ffffffffff (CAP_SYS_ADMIN true) ppid 1487 parents [{1487 [/usr/local/bin/nexusd storage-helper run --dir /var/lib/nexus/ops/01a1f50a-b502-742e-91fc-d93ee12b061b]} {1478 [/usr/local/bin/nexusd op-supervise --dir /var/lib/nexus/ops/01a1f50a-b502-742e-91fc-d93ee12b061b --process]} {1344 [/usr/local/bin/nexusd serve --config /etc/nexus/nexusd.yaml]} {1343 [supervise-daemon nexusd --start --retry TERM/15/KILL/5 --stdout-logger logger -t nexusd -p daemon.info --stderr-logger logger -t nexusd -p daemon.err --pidfile /run/nexusd.pid --respawn-delay 2 --respawn-max 5 --respawn-period 60 --user root root --umask 077 /usr/local/bin/nexusd -- serve --config /etc/nexus/nexusd.yaml]}]
+--- PASS: TestTCSTG229_OnAlpineOpenRCTheScrubRunsUnder (2.45s)
+=== RUN   TestTCSTG230_CaptureShInTheHarnessContainersYields
+    storage_test.go:1434: capture.sh: <nil>
+        capture.sh: e57f33b83c8d written to /tmp/cap (redaction: mac: 0; guest: 0; plist-strings: 0); mapping in /tmp/capmap.txt, keep it on this host
+        capture.sh: review /tmp/cap before handing it over
+    storage_test.go:1473: capture.sh wrote 81 files under /tmp/cap, every one with an Exit line; /tmp/capmap.txt mode 600; nothing else written
+    storage_test.go:1481: file-set comparison owed: the committed capture /harness/src/github.com/mauktik/nexus/internal/providers/storage/testdata/captures/public-nginx is absent (operator capture pending, WI 1.2): stat /harness/src/github.com/mauktik/nexus/internal/providers/storage/testdata/captures/public-nginx: no such file or directory
+--- SKIP: TestTCSTG230_CaptureShInTheHarnessContainersYields (1.35s)
+PASS
+harness: WARNING: 10 test(s) SKIPPED, not verified on this run:
+    --- SKIP: TestStorageFakeZFS (0.00s)
+    --- SKIP: TestTCSTG220_EveryStorageReadAnswersUnderTheExact (0.00s)
+    --- SKIP: TestTCSTG221_PlantedVzdumpAndTimeMachineTreesAre (0.00s)
+    --- SKIP: TestTCSTG222_NoSandboxDenialInTheJournalDuring (0.00s)
+    --- SKIP: TestTCSTG223_AHungZpoolStatusIsBoundedUnder (0.00s)
+    --- SKIP: TestTCSTG224_ScrubStartAndStopRunTheFake (0.00s)
+    --- SKIP: TestTCSTG225_ASnapshotIsCreatedOutsideTheSandbox (0.00s)
+    --- SKIP: TestTCSTG226_EveryWriteRefusalIsAuditedAndLeaves (0.00s)
+    --- SKIP: TestTCSTG228_OnDebian12WithTheFakeTools (0.00s)
+    --- SKIP: TestTCSTG230_CaptureShInTheHarnessContainersYields (1.35s)
+harness: tests exited 0
+harness: collecting logs into build/harness/logs/20261119T182103Z
+harness: collected rc.log (56 lines)
+harness: collected messages.log (49 lines)
+harness: container nexus-harness-alpine-20261119T182103Z-69178 removed
+harness: dist/ untouched
+harness: exit 0
+EXIT 0

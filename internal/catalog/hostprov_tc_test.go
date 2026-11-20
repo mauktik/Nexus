@@ -22,15 +22,16 @@ import (
 func TestTCHP104_TheCatalogGoldenTableHasTheTen(t *testing.T) {
 	// 71 rows at 47d93bc plus the ten host rows, plus the three nexusd token
 	// rows (TC-RA-26), the two config read rows (TC-RA-60) and the config set
-	// row (TC-RA-67) of nexusd-remote-admin.
-	if len(golden) != 87 {
-		t.Errorf("golden has %d rows, want 87", len(golden))
+	// row (TC-RA-67) of nexusd-remote-admin, plus the twelve storage rows
+	// (TC-STG-200).
+	if len(golden) != 99 {
+		t.Errorf("golden has %d rows, want 99", len(golden))
 	}
 	src, err := os.ReadFile("golden_test.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"(87 rows:", "the host table", "planning/system-provider/architecture.md"} {
+	for _, want := range []string{"(99 rows:", "the host table", "planning/system-provider/architecture.md"} {
 		if !strings.Contains(string(src), want) {
 			t.Errorf("golden's header comment lacks %q", want)
 		}
@@ -46,15 +47,15 @@ func TestTCHP104_TheCatalogGoldenTableHasTheTen(t *testing.T) {
 		t.Errorf("catalog.All() order %v, want %s right after %s", names, host.Name, pihole.Name)
 	}
 
-	// Filtered to provider host, the catalog is the last ten golden rows, in
-	// order, and they are the host spec's ops.
+	// Filtered to provider host, the catalog is the ten golden rows before
+	// the twelve storage rows, in order, and they are the host spec's ops.
 	var got []row
 	for _, op := range catalog.Ops() {
 		if op.Provider == host.Name {
 			got = append(got, rowOf(t, op))
 		}
 	}
-	if want := golden[len(golden)-10:]; !slices.Equal(got, want) {
+	if want := golden[len(golden)-22 : len(golden)-12]; !slices.Equal(got, want) {
 		t.Errorf("host rows of the catalog:\n got %v\nwant %v", got, want)
 	}
 	if len(got) != len(host.Spec().Ops) {

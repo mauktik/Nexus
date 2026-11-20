@@ -13,6 +13,7 @@ import (
 	"github.com/mauktik/nexus/internal/providers/nginx"
 	"github.com/mauktik/nexus/internal/providers/pihole"
 	"github.com/mauktik/nexus/internal/providers/scripts"
+	storageprov "github.com/mauktik/nexus/internal/providers/storage"
 )
 
 // builtinProviders returns the providers compiled into nexusd, for host,
@@ -27,6 +28,7 @@ func builtinProviders(host string, log *slog.Logger) []provider.Provider {
 		nexusd.New(nexusd.Options{Host: host}),
 		pihole.New(pihole.Options{Host: host, Logger: log}),
 		hostprov.New(hostprov.Options{Host: host, Logger: log}),
+		storageprov.New(storageprov.Options{Host: host, Logger: log}),
 	}
 }
 
@@ -41,5 +43,6 @@ func providerConfigs(cfg *config.Config) map[string]core.ProviderConfig {
 		"nexusd":  {Enabled: p.Nexusd.Settings.Enabled, Decode: p.Nexusd.Decode},
 		"pihole":  {Enabled: p.Pihole.Settings.Enabled, Decode: p.Pihole.Decode},
 		"host":    {Enabled: p.Host.Settings.Enabled, Decode: p.Host.Decode},
+		"storage": {Enabled: p.Storage.Settings.Enabled, Decode: p.Storage.Decode},
 	}
 }

@@ -50,7 +50,7 @@ providers:
 | `enabled` | `false` | | Whether the provider serves requests and the sampler runs, like every provider |
 | `sampleInterval` | `10s` | `2s` to `60s` | How often the sampler reads the host's counters |
 | `historyDuration` | `1h` | `sampleInterval` to `24h` | How far back the metrics history goes |
-| `sourceTimeout` | `2s` | `250ms` to `5s` | The bound on one blocking source: `statfs` of one mount point, one command, one hardware sensor or NIC speed read |
+| `sourceTimeout` | `2s` | `250ms` to `5s` | The bound on one blocking source: `statfs` of one mount point, one command, one hardware sensor or NIC speed read, and the providers' health signals of `host.health.get` |
 
 `nexusd validate-config` refuses a value outside its range, naming the key
 (`providers.host.sampleInterval` and so on). The defaults keep 360 points
@@ -292,6 +292,20 @@ When `/sys/class/net` cannot be listed, the whole list fails with
   100, as in `top`. `user` comes from `/etc/passwd`.
 - `processSampleSeconds` **(sampler)**: the interval the process CPU
   percentages cover.
+- `providerSignals`: one block per enabled provider that reports health
+  signals (today: `storage`), sorted by provider name; `[]` when there is
+  none. Each block has `source` (the provider), `observedAt`, `counts`
+  (`critical`, `warning` and `info`, over every signal the provider found),
+  `signals` (at most 10, critical first, each with `id`, `severity`,
+  `subject`, `message` and `observedAt`), `signalsTruncated`, `stale` and
+  `unavailable`. The blocks are collected beside the host's own reads and
+  bounded by `sourceTimeout`, so they delay the answer by at most that. A
+  provider that is unavailable, or whose read failed or missed the deadline
+  with no report from the last 5 minutes, gives a block whose `counts` is
+  null and whose `unavailable.signals` says why. A read that failed or
+  missed the deadline with a recent report gives that report with its own
+  `observedAt`, `stale: true` and the reason in `unavailable.signals`. A
+  disabled provider gives no block.
 - `sampler`: the sampler's state.
 
 ### `host.metrics.get`

@@ -23,6 +23,10 @@ Read [security.md](security.md) first: Nexus is for the home LAN only.
   (`/usr/sbin/nginx`), its init service, and an `include` line for the
   include directory in `nginx.conf` (see [nginx](nginx.md)). Disabled by
   default.
+- **For the `storage` provider:** OpenZFS's `zpool` and `zfs` at
+  `/usr/sbin` or `/sbin` for the ZFS reads, and the directories it reports
+  on for backups and Time Machine; nothing is installed for it (see
+  [storage](storage.md)). Disabled by default.
 - **Client:** macOS on Apple silicon (darwin/arm64) or Linux on amd64.
 
 ## Install nexusd on a host
@@ -58,6 +62,23 @@ These steps are for Ubuntu. For Alpine, see
 
    - **Providers:** set `enabled: true` for each provider you want, under
      `providers`. Catalog scripts as [scripts.md](scripts.md) describes.
+   - **Storage:** to report ZFS, Proxmox backups and Time Machine shares,
+     enable `providers.storage` and list the directories it reads. On
+     home-server, for example:
+
+     ```yaml
+     providers:
+       storage:
+         enabled: true
+         backups:
+           vzdumpPaths: ["/media/vzdump"]
+         timeMachine:
+           paths: ["/media/timemachine", "/media/timemachine2"]
+     ```
+
+     The scrub and snapshot writes stay off until you enable them and list
+     their pools and datasets; see [storage.md](storage.md#guarded-writes).
+     Reads need a token with `storage:read`.
    - **Compose projects in a home directory:** a Compose update refuses a
      project that anyone but root owns, which includes one under
      `/home/<user>`. To update such projects, list their owner under

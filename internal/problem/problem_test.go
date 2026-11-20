@@ -41,6 +41,11 @@ var wantHTTP = map[Slug]int{
 	"dns-batch-rejected":      422,
 	"config-set-unavailable":  503,
 	"token-limit-reached":     409,
+	// storage-provider (TC-STG-18).
+	"not-allowed":      409,
+	"scan-in-progress": 409,
+	"pool-unhealthy":   409,
+	"pool-low-space":   409,
 }
 
 var wantOperationLevel = []Slug{
@@ -50,11 +55,12 @@ var wantOperationLevel = []Slug{
 	"dns-config-test-failed", "dns-verification-failed", "dns-rollback-failed",
 	"gravity-failed", "pihole-command-failed", "pihole-busy",
 	"config-conflict", "config-restore-failed",
+	"zfs-command-failed",
 }
 
 // TC-7: the registry is complete and marshals as RFC 9457.
 func TestRegistryMatchesTable(t *testing.T) {
-	if len(wantHTTP) != 28 || len(wantOperationLevel) != 16 {
+	if len(wantHTTP) != 32 || len(wantOperationLevel) != 17 {
 		t.Fatalf("test table drifted: %d HTTP, %d operation-level", len(wantHTTP), len(wantOperationLevel))
 	}
 
@@ -62,11 +68,12 @@ func TestRegistryMatchesTable(t *testing.T) {
 	// self-management (TC-SM-5: 8 HTTP-level, 5 operation-level), plus the 9
 	// of pihole-dns-zones (3 HTTP-level, 6 operation-level), plus the 4 of
 	// nginx-provider (3 HTTP-level, 1 operation-level), plus the 4 of
-	// nexusd-remote-admin (TC-RA-5: 2 HTTP-level, 2 operation-level): 36
-	// HTTP-level and 21 operation-level.
+	// nexusd-remote-admin (TC-RA-5: 2 HTTP-level, 2 operation-level), plus
+	// the 5 of storage-provider (TC-STG-18: 4 HTTP-level, 1
+	// operation-level): 40 HTTP-level and 22 operation-level.
 	all := All()
-	if len(all) != 57 {
-		t.Errorf("registry has %d types, want 57 (36 HTTP + 21 operation-level)", len(all))
+	if len(all) != 62 {
+		t.Errorf("registry has %d types, want 62 (40 HTTP + 22 operation-level)", len(all))
 	}
 	for _, typ := range all {
 		if !strings.HasPrefix(typ.URI(), "urn:nexus:problem:") || typ.URI() != "urn:nexus:problem:"+string(typ.Slug) {
@@ -113,8 +120,8 @@ func TestRegistryMatchesTable(t *testing.T) {
 			t.Errorf("%s is missing from the HTTP table", compose)
 		}
 	}
-	if len(HTTP()) != 36 || len(ops) != 21 {
-		t.Errorf("HTTP() = %d, OperationLevel() = %d; want 36 and 21", len(HTTP()), len(ops))
+	if len(HTTP()) != 40 || len(ops) != 22 {
+		t.Errorf("HTTP() = %d, OperationLevel() = %d; want 40 and 22", len(HTTP()), len(ops))
 	}
 
 	if _, ok := Lookup("no-such-problem"); ok {
@@ -132,6 +139,7 @@ func TestExitCodesMatchTable(t *testing.T) {
 		NginxConfigInvalid: 1, NginxConfigUnmanaged: 1, NginxNotRunning: 1,
 		DNSFileConflict: 1, DNSNameUnzoned: 1, DNSBatchRejected: 1,
 		ConfigSetUnavailable: 4, TokenLimitReached: 1,
+		NotAllowed: 1, ScanInProgress: 1, PoolUnhealthy: 1, PoolLowSpace: 1, ZFSCommandFailed: 1,
 	}
 	for slug, exit := range want {
 		if typ, _ := Lookup(slug); typ.Exit != exit {
@@ -306,6 +314,10 @@ var wantExistingExtensions = map[Slug][]string{
 	// nexusd-remote-admin (TC-RA-5).
 	"config-set-unavailable": {"provider", "reason"}, "token-limit-reached": {"maxTokens"},
 	"config-conflict": nil, "config-restore-failed": {"backupPath"},
+	// storage-provider (TC-STG-18).
+	"not-allowed": {"configKey", "pool", "dataset"}, "scan-in-progress": {"pool", "function", "state"},
+	"pool-unhealthy": {"pool", "health"}, "pool-low-space": {"pool", "capacityPercent", "maxCapacityPercent"},
+	"zfs-command-failed": {"command", "exitCode", "output"},
 }
 
 func TestTCSM5_The13NewProblemTypesAre(t *testing.T) {

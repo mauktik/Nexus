@@ -22,6 +22,7 @@ import (
 	"github.com/mauktik/nexus/internal/providers/nexusd"
 	"github.com/mauktik/nexus/internal/providers/nginx"
 	"github.com/mauktik/nexus/internal/providers/pihole"
+	storageprov "github.com/mauktik/nexus/internal/providers/storage"
 	"github.com/mauktik/nexus/internal/tlsutil"
 	"github.com/mauktik/nexus/internal/version"
 )
@@ -67,6 +68,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 			// Hidden: a pihole mutation, run by op-supervise as root in the
 			// operation's unit. Pi-hole command output goes to stdout.
 			return pihole.Helper(args[1:], stdout, stderr)
+		case storageprov.HelperCommand:
+			// Hidden: a scrub start, scrub stop or snapshot, run by
+			// op-supervise in the operation's unit outside nexusd's sandbox,
+			// as the ZFS ioctls need CAP_SYS_ADMIN (D-4). Its progress goes
+			// to stdout, which the supervisor frames into the operation's
+			// output.
+			return storageprov.Helper(args[1:], stdout, stderr)
 		}
 	}
 

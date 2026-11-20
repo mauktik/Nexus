@@ -264,6 +264,14 @@ func New(cfg *config.Config, opts Options) (*Daemon, error) {
 	if err != nil {
 		return fail(fmt.Errorf("providers: %w", err))
 	}
+	// The health fan-in (D-7) needs the registry, and is in place before
+	// anything is served.
+	healthSources := newHealthFanIn(reg, providers, log)
+	for _, p := range providers {
+		if u, ok := p.(provider.HealthSourcesUser); ok {
+			u.UseHealthSources(healthSources)
+		}
+	}
 	authn := auth.New(stateDir, auth.Options{FailureLimitPerMinute: cfg.Auth.FailureLimitPerMinute, Logger: log,
 		Audit: auditLog})
 	srv, err := server.New(reg, server.Options{MaxBodyBytes: cfg.Limits.MaxBodyBytes, Logger: log, Auth: authn,

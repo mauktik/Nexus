@@ -1,0 +1,52 @@
+# /etc/systemd/system/nexusd.service
+[Unit]
+Description=Nexus server manager daemon
+Documentation=https://github.com/mauktik/nexus
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# READY=1 is sent once every listener is open (sd_notify(3)).
+Type=notify
+ExecStart=/usr/local/bin/nexusd serve --config /etc/nexus/nexusd.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+
+# /var/lib/nexus: state.db, tokens.json, tls/ and ops/<id>/.
+StateDirectory=nexus
+StateDirectoryMode=0700
+# /var/log/nexus: audit.jsonl and its rotations.
+LogsDirectory=nexus
+LogsDirectoryMode=0700
+
+# Hardening. Privileged work (apt, scripts, container updates) runs in
+# nexus-op-* transient units started through systemd-run, outside this
+# sandbox. Every directive removed later is recorded with its reason in
+# docs/security.md (A-23).
+NoNewPrivileges=yes
+ProtectSystem=strict
+# Read-only, not inaccessible: scripts and Compose files can live in home
+# directories, and the integrity checks must read them.
+ProtectHome=read-only
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+# AF_NETLINK: net.Interfaces reads the interface addresses for the
+# generated certificate's SANs over netlink.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+
+[Install]
+WantedBy=multi-user.target
+Exit 0

@@ -335,6 +335,16 @@ func TestTCRA92_TheShippedDefaultYAMLGainsCommentsOnly(t *testing.T) {
 	}
 	baseV, basePaths := docsDecode(t, docsBaseCommit+":deploy/nexusd.default.yaml", base)
 	nowV, nowPaths := docsDecode(t, "deploy/nexusd.default.yaml", now)
+	// Sections added by later features are not remote-admin's to judge:
+	// providers.storage (storage-provider WI 1.4).
+	if m, ok := nowV.(map[string]any); ok {
+		if p, ok := m["providers"].(map[string]any); ok {
+			delete(p, "storage")
+		}
+	}
+	maps.DeleteFunc(nowPaths, func(k string, _ bool) bool {
+		return k == "providers.storage" || strings.HasPrefix(k, "providers.storage.")
+	})
 	if !reflect.DeepEqual(baseV, nowV) {
 		t.Errorf("deploy/nexusd.default.yaml decodes differently from %s's:\n got %v\nwant %v", docsBaseCommit, nowV, baseV)
 	}

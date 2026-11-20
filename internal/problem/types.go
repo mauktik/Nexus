@@ -56,6 +56,12 @@ const (
 	// types).
 	ConfigSetUnavailable Slug = "config-set-unavailable"
 	TokenLimitReached    Slug = "token-limit-reached"
+
+	// storage-provider (storage-provider architecture.md, Problem types).
+	NotAllowed     Slug = "not-allowed"
+	ScanInProgress Slug = "scan-in-progress"
+	PoolUnhealthy  Slug = "pool-unhealthy"
+	PoolLowSpace   Slug = "pool-low-space"
 )
 
 // Operation-level problem types: they appear only inside operation.error.
@@ -87,6 +93,9 @@ const (
 	// nexusd-remote-admin: the outcomes of a config set operation.
 	ConfigConflict      Slug = "config-conflict"
 	ConfigRestoreFailed Slug = "config-restore-failed"
+
+	// storage-provider: a scrub or snapshot helper's zpool or zfs call failed.
+	ZFSCommandFailed Slug = "zfs-command-failed"
 )
 
 // Type is one registered problem type. Problem types are part of the
@@ -159,6 +168,16 @@ var registry = []Type{
 	// MaxRemoteTokens.
 	{Slug: ConfigSetUnavailable, Title: "Configuration set unavailable", Status: 503, Exit: 4, Extensions: []string{"provider", "reason"}},
 	{Slug: TokenLimitReached, Title: "Token limit reached", Status: 409, Exit: 1, Extensions: []string{"maxTokens"}},
+	// storage-provider (storage-provider architecture.md, Problem types).
+	// Scrub and snapshot admission refusals, raised before any operation
+	// exists. not-allowed's configKey names the providers.storage key that
+	// refused; the services provider's service and action join its
+	// extensions when both are merged (M-1).
+	{Slug: NotAllowed, Title: "Not allowed", Status: 409, Exit: 1, Extensions: []string{"configKey", "pool", "dataset"}},
+	{Slug: ScanInProgress, Title: "Scan in progress", Status: 409, Exit: 1, Extensions: []string{"pool", "function", "state"}},
+	{Slug: PoolUnhealthy, Title: "Pool unhealthy", Status: 409, Exit: 1, Extensions: []string{"pool", "health"}},
+	{Slug: PoolLowSpace, Title: "Pool low on space", Status: 409, Exit: 1,
+		Extensions: []string{"pool", "capacityPercent", "maxCapacityPercent"}},
 
 	// An operation that fails makes the CLI exit 1.
 	{Slug: OutcomeUnknown, Title: "Outcome unknown", Exit: 1, OperationLevel: true},
@@ -208,6 +227,11 @@ var registry = []Type{
 	// be confirmed back in place.
 	{Slug: ConfigConflict, Title: "Configuration conflict", Exit: 1, OperationLevel: true},
 	{Slug: ConfigRestoreFailed, Title: "Configuration restore failed", Exit: 1, OperationLevel: true, Extensions: []string{"backupPath"}},
+	// storage-provider: command is the tool and subcommand only (zpool
+	// scrub), never the full argv; output is at most 2 KiB of the tool's
+	// combined output, untrusted.
+	{Slug: ZFSCommandFailed, Title: "ZFS command failed", Exit: 1, OperationLevel: true,
+		Extensions: []string{"command", "exitCode", "output"}},
 }
 
 var bySlug = func() map[Slug]Type {

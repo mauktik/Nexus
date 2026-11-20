@@ -1,0 +1,19 @@
+z1	yes	/z1
+z1/ds	yes	/z1/ds
+z1/ds/appdata	yes	/media/appdata
+z1/ds/applications	yes	/media/applications
+z1/ds/share	yes	/media/share
+z2	yes	/z2
+z2/d1	yes	/z2/d1
+z2/d1/backup	yes	/media/backup
+z2/d1/cameras	yes	/media/cameras
+z2/d1/timemachine	yes	/media/timemachine2
+z2/d1/vms	yes	/media/vzdump
+z2/d2	yes	/z2/d2
+z2/d2/appdata	yes	/z2/d2/appdata
+z3	yes	/z3
+z3/ds	yes	/z3/ds
+z3/ds/backup	yes	/media/backup2
+z3/ds/services	yes	/media/services
+z3/ds/timemachine	yes	/media/timemachine
+Exit 0
