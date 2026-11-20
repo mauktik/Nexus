@@ -319,6 +319,14 @@ func (r *Registry) availableForCall(ctx context.Context, name string) (bool, pro
 	return r.Available(name)
 }
 
+// AvailableForCall is availableForCall for callers outside core (the daemon's
+// health fan-in): an unavailable provider whose last preflight is older than
+// RecheckInterval is re-checked first, shared with concurrent callers, its
+// preflight not cancelled by ctx. The Dispatcher keeps calling the unexported name.
+func (r *Registry) AvailableForCall(ctx context.Context, name string) (bool, provider.Status) {
+	return r.availableForCall(ctx, name)
+}
+
 // stale reports whether a provider is enabled, unavailable, and last
 // checked more than RecheckInterval ago.
 func (r *Registry) stale(s *snapshot, name string) bool {

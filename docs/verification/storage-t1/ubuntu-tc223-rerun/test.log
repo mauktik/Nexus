@@ -1,0 +1,19 @@
+=== RUN   TestTCSTG223_AHungZpoolStatusIsBoundedUnder
+    storage_test.go:863: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    storage_test.go:867: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 495
+    storage_test.go:890: (1) pools.list took 5.012s: scan null, "zpool status did not finish within 5s"
+    storage_test.go:895: fake process 530 after the timeout: task states D, pending signals (shared/own) 0000000000000100/0000000000000100
+    storage_test.go:917: (2) pools.list took 30ms: "zpool status is still running since 2026-11-19T18:58:32Z"; reads.log 4 -> 5 lines (no new status)
+    storage_test.go:962: (3) 4 fake processes (pgrep -fc: 4)
+    storage_test.go:983: (3) five reads answered map[datasets.get z1/ds/share:200 pools.get z1:200 pools.get z2:200 pools.get z3:200 snapshots.list:200]; at most 4 fake processes over 86 samples
+    storage_test.go:1000: (4) host.health.get took 2.01s; storage block {"source":"storage","observedAt":null,"counts":null,"signals":[],"signalsTruncated":false,"stale":false,"unavailable":{"signals":"the current read did not finish within 2s"}}
+    storage_test.go:1015: FUSE: 1 lookups of /run/nx-stuck-fuse/stuck read and left unanswered
+--- PASS: TestTCSTG223_AHungZpoolStatusIsBoundedUnder (17.72s)
+PASS

@@ -91,8 +91,12 @@ func TestTCSV4_EveryExistingCatalogOpStillValidatesAnd(t *testing.T) {
 		if inBase[r] {
 			continue
 		}
+		id, _, _ := strings.Cut(strings.TrimPrefix(r, `{"`), `"`)
+		if strings.HasPrefix(id, "storage.") {
+			continue // rc7 integration: the sibling storage provider's rows (its TC-STG-200 counts them)
+		}
 		added++
-		if id, _, _ := strings.Cut(strings.TrimPrefix(r, `{"`), `"`); !strings.HasPrefix(id, "services.") {
+		if !strings.HasPrefix(id, "services.") {
 			t.Errorf("row added since base is not a services row:\n%s", r)
 		}
 	}

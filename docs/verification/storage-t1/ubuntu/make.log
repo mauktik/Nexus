@@ -1,0 +1,194 @@
+BASE='' RUN='^TestTCSTG|^TestStorageFakeZFS' test/harness/run.sh
+harness: docker endpoint unix://~/.colima/default/docker.sock (local socket)
+harness: docker context default, daemon architecture aarch64 -> GOARCH=arm64, BASE=ubuntu:latest, init systemd
+harness: building image nexus-harness:ubuntu-latest from test/harness/Dockerfile
+harness: building linux/arm64 test-only binaries into build/harness/
+harness: building the self-update fixtures (v9.9.1 v9.9.2 v9.9.3 v9.9.4 v9.9.5 v9.9.6 v9.9.7) into build/harness/selfupdate
+harness: per-run signing key build/harness/release-test.key, public key JLE3qV/jNNvWQ+RcDhXcCSqoiEfp2JN28ex/8t5lqDk=; untrusted key build/harness/release-untrusted.key
+harness: fixture v9.9.1: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.1-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.2: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.2-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.3: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.3-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.4: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.4-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.5: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.5-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.6: refused by the per-run key, as intended (signed by build/harness/release-untrusted.key)
+harness: fixture v9.9.7: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.7-linux-arm64.tar.gz: signature verified
+harness: starting container nexus-harness-20261119T182125Z-70541
+harness: mounts: volume:/var/lib/containerd volume:/var/lib/docker 
+harness: waiting for systemd (running or degraded)
+harness: system state: degraded
+harness: failed units: systemd-modules-load.service
+harness: required unit systemd-journald.service active
+harness: required unit dbus.service active
+harness: required unit docker.service active
+harness: versions: systemd 259 (259.9-0ubuntu0.1) apt 3.2.1ubuntu0.1 dpkg 1.23.7ubuntu1 nginx version: nginx/1.28.3 (Ubuntu) curl 8.18.0 (aarch64-unknown-linux-gnu) libcurl/8.18.0 OpenSSL/3.5.5 zlib/1.3.1 brotli/1.2.0 zstd/1.5.7 libidn2/2.3.8 libpsl/0.21.2 libssh2/1.11.1 nghttp2/1.68.0 librtmp/2.3 mit-krb5/1.22.1 OpenLDAP/2.6.10 Ubuntu 26.04.1 LTS
+harness: copying binaries, unit, lib.sh and fixtures in with docker cp
+harness: host signing key ~/.config/nexus/release-signing.key unchanged (mtime 1794699338)
+harness: fixture file: total 223072
+harness: fixture file: -rw-r--r--  1 devuser  staff  16256729 Nov 19 10:21 nexusd-v9.9.1-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 19 10:21 nexusd-v9.9.1-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  16256714 Nov 19 10:21 nexusd-v9.9.2-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 19 10:21 nexusd-v9.9.2-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  16256739 Nov 19 10:21 nexusd-v9.9.3-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 19 10:21 nexusd-v9.9.3-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff   1133768 Nov 19 10:21 nexusd-v9.9.4-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 19 10:21 nexusd-v9.9.4-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  31379572 Nov 19 10:21 nexusd-v9.9.5-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 19 10:21 nexusd-v9.9.5-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  16256720 Nov 19 10:21 nexusd-v9.9.6-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 19 10:21 nexusd-v9.9.6-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  16256889 Nov 19 10:21 nexusd-v9.9.7-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 19 10:21 nexusd-v9.9.7-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff        45 Nov 19 10:21 release-test.pub
+harness: copying the self-update fixtures into /harness/selfupdate
+harness: running tests
+=== RUN   TestStorageFakeZFS
+    storage_fakezfs_test.go:58: not invoked by the fake zpool or zfs wrapper
+--- SKIP: TestStorageFakeZFS (0.00s)
+=== RUN   TestTCSTG220_EveryStorageReadAnswersUnderTheExact
+    storage_test.go:670: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    storage_test.go:670: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 495
+    storage_test.go:671: nine reads 200: 3 pools, 18 datasets, 635 snapshots, health 3 signals
+    storage_test.go:684: reads.log: 17 read processes, every argv[0] /usr/sbin/zpool or /usr/sbin/zfs; calls.log empty
+--- PASS: TestTCSTG220_EveryStorageReadAnswersUnderTheExact (0.59s)
+=== RUN   TestTCSTG221_PlantedVzdumpAndTimeMachineTreesAre
+    storage_test.go:690: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    storage_test.go:690: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 800
+    storage_test.go:723: vzdump-lxc-106-2026_08_27-10_34_41.tar.zst: notes null, reason "no notes file"
+    storage_test.go:780: nx-mac: lastBackupAt 2026-11-18 21:40:00 +0000 UTC, sizeBytes 16781312, du 16781312
+--- PASS: TestTCSTG221_PlantedVzdumpAndTimeMachineTreesAre (0.50s)
+=== RUN   TestTCSTG222_NoSandboxDenialInTheJournalDuring
+    storage_test.go:797: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    storage_test.go:797: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 1032
+    storage_test.go:798: nine reads 200: 3 pools, 18 datasets, 635 snapshots, health 3 signals
+    storage_test.go:812: no denial pattern in the journal; MainPID 1032 CapEff 0000000000000004 lacks bit 21, as every read process's
+--- PASS: TestTCSTG222_NoSandboxDenialInTheJournalDuring (0.59s)
+=== RUN   TestTCSTG223_AHungZpoolStatusIsBoundedUnder
+    storage_test.go:862: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    storage_test.go:866: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 1339
+    storage_test.go:889: (1) pools.list took 5.013s: scan null, "zpool status did not finish within 5s"
+    storage_test.go:894: fake process 1374 after the timeout: task states D, pending signals (shared/own) 0000000000000100/0000000000000100
+    storage_test.go:916: (2) pools.list took 29ms: "zpool status is still running since 2026-11-19T18:21:44Z"; reads.log 4 -> 5 lines (no new status)
+    storage_test.go:952: (3) 4 fake processes (pgrep -fc: 4)
+    storage_test.go:958: (3) five reads answered map[datasets.get z1/ds/share:200 pools.get z1:200 pools.get z2:200 pools.get z3:200 snapshots.list:200]; at most 4 fake processes over 87 samples
+    storage_test.go:975: (4) host.health.get took 2.012s; storage block {"source":"storage","observedAt":null,"counts":null,"signals":[],"signalsTruncated":false,"stale":false,"unavailable":{"signals":"the current read did not finish within 2s"}}
+    storage_test.go:990: FUSE: 1 lookups of /run/nx-stuck-fuse/stuck read and left unanswered
+--- PASS: TestTCSTG223_AHungZpoolStatusIsBoundedUnder (17.71s)
+=== RUN   TestTCSTG224_ScrubStartAndStopRunTheFake
+    storage_test.go:1065: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    storage_test.go:1065: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 1656
+    storage_test.go:1085: calls.log: argv ["/usr/sbin/zpool" "scrub" "z1"] euid 0 env ["NEXUS_HARNESS=1" "PATH=/usr/sbin:/usr/bin:/sbin:/bin" "LC_ALL=C" "PWD=/var/lib/nexus/ops/01a1f50b-514e-75bf-bece-7ad2729ec827"] CapEff 000001ffffffffff (CAP_SYS_ADMIN true) ppid 1714 parents [{1714 [/usr/local/bin/nexusd storage-helper run --dir /var/lib/nexus/ops/01a1f50b-514e-75bf-bece-7ad2729ec827]} {1704 [/usr/local/bin/nexusd op-supervise --dir /var/lib/nexus/ops/01a1f50b-514e-75bf-bece-7ad2729ec827]}]
+    storage_test.go:1086: calls.log: argv ["/usr/sbin/zpool" "scrub" "-s" "z1"] euid 0 env ["NEXUS_HARNESS=1" "PATH=/usr/sbin:/usr/bin:/sbin:/bin" "LC_ALL=C" "PWD=/var/lib/nexus/ops/01a1f50b-5403-74a4-bdbc-c0f1599e486b"] CapEff 000001ffffffffff (CAP_SYS_ADMIN true) ppid 1786 parents [{1786 [/usr/local/bin/nexusd storage-helper run --dir /var/lib/nexus/ops/01a1f50b-5403-74a4-bdbc-c0f1599e486b]} {1776 [/usr/local/bin/nexusd op-supervise --dir /var/lib/nexus/ops/01a1f50b-5403-74a4-bdbc-c0f1599e486b]}]
+    storage_test.go:1097: audit storage.pools.scrub 01a1f50b-514e-75bf-bece-7ad2729ec827: [requested Queued Running Succeeded] facts map[force:false pool:z1]
+    storage_test.go:1097: audit storage.pools.stop-scrub 01a1f50b-5403-74a4-bdbc-c0f1599e486b: [requested Queued Running Succeeded] facts map[force:false pool:z1]
+--- PASS: TestTCSTG224_ScrubStartAndStopRunTheFake (1.70s)
+=== RUN   TestTCSTG225_ASnapshotIsCreatedOutsideTheSandbox
+    storage_test.go:1104: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    storage_test.go:1104: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 2024
+    storage_test.go:1118: calls.log: argv ["/usr/sbin/zfs" "snapshot" "-o" "nexus:created-by=01a1f50b-57f1-709e-bffa-0c26576ba8d6" "z1/ds/share@nexus-20261119T182203Z-t1"] euid 0 env ["NEXUS_HARNESS=1" "PATH=/usr/sbin:/usr/bin:/sbin:/bin" "LC_ALL=C" "PWD=/var/lib/nexus/ops/01a1f50b-57f1-709e-bffa-0c26576ba8d6"] CapEff 000001ffffffffff (CAP_SYS_ADMIN true) ppid 2087 parents [{2087 [/usr/local/bin/nexusd storage-helper run --dir /var/lib/nexus/ops/01a1f50b-57f1-709e-bffa-0c26576ba8d6]} {2077 [/usr/local/bin/nexusd op-supervise --dir /var/lib/nexus/ops/01a1f50b-57f1-709e-bffa-0c26576ba8d6]}]
+    storage_test.go:1133: created z1/ds/share@nexus-20261119T182203Z-t1 by 01a1f50b-57f1-709e-bffa-0c26576ba8d6: {"id":"/providers/storage/snapshots/z1%2Fds%2Fshare@nexus-20261119T182203Z-t1","type":"snapshots","name":"z1/ds/share@nexus-20261119T182203Z-t1","host":"harness","properties":{"dataset":"z1/ds/share","createdAt":"2026-11-19T18:22:03Z","usedBytes":0,"referencedBytes":166188146688,"holds":0,"createdByNexus":true}}; audit facts map[dataset:z1/ds/share recursive:false snapshot:nexus-20261119T182203Z-t1]
+--- PASS: TestTCSTG225_ASnapshotIsCreatedOutsideTheSandbox (1.19s)
+=== RUN   TestTCSTG226_EveryWriteRefusalIsAuditedAndLeaves
+    storage_test.go:1138: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    storage_test.go:1138: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 2301
+    storage_test.go:1161: scrub z2 (not allow-listed): 409 not-allowed "pool z2 is not in providers.storage.scrub.pools" map[configKey:providers.storage.scrub.pools pool:z2]
+    storage_test.go:1166: scrub z1 while scanning: 409 scan-in-progress "a scrub is running on pool z1" map[function:scrub pool:z1 state:scanning]
+    storage_test.go:1169: snapshot z1/ds/appdata (not allow-listed): 409 not-allowed "dataset z1/ds/appdata is not in providers.storage.snapshots.datasets" map[configKey:providers.storage.snapshots.datasets dataset:z1/ds/appdata]
+    storage_test.go:1173: scrub z1 with scrub.enabled false: 409 not-allowed "scrub start and stop are disabled: providers.storage.scrub.enabled is false" map[configKey:providers.storage.scrub.enabled]
+    storage_test.go:1181: calls.log: argv ["/usr/sbin/zpool" "scrub" "z1"] euid 0 env ["NEXUS_HARNESS=1" "PATH=/usr/sbin:/usr/bin:/sbin:/bin" "LC_ALL=C" "PWD=/var/lib/nexus/ops/01a1f50b-5ca7-759e-87a9-9583e7498055"] CapEff 000001ffffffffff (CAP_SYS_ADMIN true) ppid 2362 parents [{2362 [/usr/local/bin/nexusd storage-helper run --dir /var/lib/nexus/ops/01a1f50b-5ca7-759e-87a9-9583e7498055]} {2353 [/usr/local/bin/nexusd op-supervise --dir /var/lib/nexus/ops/01a1f50b-5ca7-759e-87a9-9583e7498055]}]
+--- PASS: TestTCSTG226_EveryWriteRefusalIsAuditedAndLeaves (1.33s)
+=== RUN   TestTCSTG227_OnDebian12AndAlpine322
+    storage_test.go:1249: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    storage_test.go:1256: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 2612
+    storage_test.go:1296: host.health.get storage block: {"source":"storage","observedAt":null,"counts":null,"signals":[],"signalsTruncated":false,"stale":false,"unavailable":{"signals":"capability-unavailable: zfs: /usr/sbin/zpool not found (nor /sbin/zpool); backups: not configured; timeMachine: not configured"}}
+    storage_test.go:1325: log: storage preflight lines 1 -> 1 -> 2 over 20 requests (1.098s after the start) and one reload; other storage lines 2 -> 2
+    storage_test.go:1346: audit: 6 refused records for storage writes, every one capability-unavailable (none not-allowed)
+--- PASS: TestTCSTG227_OnDebian12AndAlpine322 (0.86s)
+=== RUN   TestTCSTG228_OnDebian12WithTheFakeTools
+    storage_test.go:1363: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    storage_test.go:1365: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 2855
+    storage_test.go:1375: capabilities storage unavailable "zfs: /dev/zfs not found (the zfs kernel module is not loaded); backups: not configured; timeMachine: not configured"; features.zfs map[available:false reason:zfs: /dev/zfs not found (the zfs kernel module is not loaded)]; reads.log empty
+--- PASS: TestTCSTG228_OnDebian12WithTheFakeTools (0.47s)
+=== RUN   TestTCSTG229_OnAlpineOpenRCTheScrubRunsUnder
+    storage_test.go:1381: requires openrc (detected systemd)
+--- SKIP: TestTCSTG229_OnAlpineOpenRCTheScrubRunsUnder (0.00s)
+=== RUN   TestTCSTG230_CaptureShInTheHarnessContainersYields
+    storage_test.go:1434: capture.sh: <nil>
+        capture.sh: 308e05982a20 written to /tmp/cap (redaction: mac: 0; guest: 0; plist-strings: 0); mapping in /tmp/capmap.txt, keep it on this host
+        capture.sh: review /tmp/cap before handing it over
+    storage_test.go:1473: capture.sh wrote 81 files under /tmp/cap, every one with an Exit line; /tmp/capmap.txt mode 600; nothing else written
+    storage_test.go:1477: no committed degradation capture for ubuntu: the file-set comparison runs on debian (pihole) and alpine (public-nginx)
+--- SKIP: TestTCSTG230_CaptureShInTheHarnessContainersYields (1.76s)
+PASS
+harness: WARNING: 3 test(s) SKIPPED, not verified on this run:
+    --- SKIP: TestStorageFakeZFS (0.00s)
+    --- SKIP: TestTCSTG229_OnAlpineOpenRCTheScrubRunsUnder (0.00s)
+    --- SKIP: TestTCSTG230_CaptureShInTheHarnessContainersYields (1.76s)
+harness: tests exited 0
+harness: collecting logs into build/harness/logs/20261119T182125Z
+harness: container nexus-harness-20261119T182125Z-70541 removed
+harness: dist/ untouched
+harness: exit 0
+EXIT 0

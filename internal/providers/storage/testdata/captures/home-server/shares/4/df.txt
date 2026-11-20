@@ -1,0 +1,3 @@
+Filesystem            1B-blocks         Used    Available Use% Mounted on
+z2/d1/timemachine 1099511496704 914450939904 185060556800  84% /media/timemachine2
+Exit 0

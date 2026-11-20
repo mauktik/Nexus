@@ -1,0 +1,67 @@
+BASE='debian:12' RUN='^TestTCSTG227' test/harness/run.sh
+harness: docker endpoint unix://~/.colima/default/docker.sock (local socket)
+harness: docker context default, daemon architecture aarch64 -> GOARCH=arm64, BASE=debian:12, init systemd
+harness: building image nexus-harness:debian-12 from test/harness/Dockerfile
+harness: building linux/arm64 test-only binaries into build/harness/
+harness: building the self-update fixtures (v9.9.1 v9.9.2 v9.9.3 v9.9.4 v9.9.5 v9.9.6 v9.9.7) into build/harness/selfupdate
+harness: per-run signing key build/harness/release-test.key, public key 12rHbg6ISWTTv91gsd41FC7NHW6wuyx95dWatAyoixw=; untrusted key build/harness/release-untrusted.key
+harness: fixture v9.9.1: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.1-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.2: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.2-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.3: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.3-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.4: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.4-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.5: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.5-linux-arm64.tar.gz: signature verified
+harness: fixture v9.9.6: refused by the per-run key, as intended (signed by build/harness/release-untrusted.key)
+harness: fixture v9.9.7: nexus-release: <repo>/build/harness/selfupdate/pkg/nexusd-v9.9.7-linux-arm64.tar.gz: signature verified
+harness: starting container nexus-harness-20261119T182951Z-80624
+harness: mounts: volume:/var/lib/containerd volume:/var/lib/docker 
+harness: waiting for systemd (running or degraded)
+harness: system state: running
+harness: failed units: none
+harness: required unit systemd-journald.service active
+harness: required unit dbus.service active
+harness: required unit docker.service active
+harness: versions: systemd 252 (252.39-1~deb12u2) apt 2.6.2 dpkg 1.21.23 nginx version: nginx/1.22.1 curl 7.88.1 (aarch64-unknown-linux-gnu) libcurl/7.88.1 OpenSSL/3.0.22 zlib/1.2.13 brotli/1.0.9 zstd/1.5.4 libidn2/2.3.3 libpsl/0.21.2 (+libidn2/2.3.3) libssh2/1.10.0 nghttp2/1.52.0 librtmp/2.3 OpenLDAP/2.5.13 Debian GNU/Linux 12 (bookworm)
+harness: copying binaries, unit, lib.sh and fixtures in with docker cp
+harness: host signing key ~/.config/nexus/release-signing.key unchanged (mtime 1794699338)
+harness: fixture file: total 223360
+harness: fixture file: -rw-r--r--  1 devuser  staff  16280155 Nov 19 10:29 nexusd-v9.9.1-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 19 10:30 nexusd-v9.9.1-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  16280207 Nov 19 10:30 nexusd-v9.9.2-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 19 10:30 nexusd-v9.9.2-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  16280214 Nov 19 10:30 nexusd-v9.9.3-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 19 10:30 nexusd-v9.9.3-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff   1158098 Nov 19 10:30 nexusd-v9.9.4-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 19 10:30 nexusd-v9.9.4-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  31403428 Nov 19 10:30 nexusd-v9.9.5-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 19 10:30 nexusd-v9.9.5-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  16280207 Nov 19 10:30 nexusd-v9.9.6-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 19 10:30 nexusd-v9.9.6-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff  16280323 Nov 19 10:30 nexusd-v9.9.7-linux-arm64.tar.gz
+harness: fixture file: -rw-r--r--  1 devuser  staff        89 Nov 19 10:30 nexusd-v9.9.7-linux-arm64.tar.gz.sig
+harness: fixture file: -rw-r--r--  1 devuser  staff        45 Nov 19 10:30 release-test.pub
+harness: copying the self-update fixtures into /harness/selfupdate
+harness: running tests
+=== RUN   TestTCSTG227_OnDebian12AndAlpine322
+    storage_test.go:1249: install.sh: <nil>
+        install.sh: installed nexusd dev as /usr/local/bin/nexusd and /etc/systemd/system/nexusd.service
+        install.sh: wrote the default configuration to /etc/nexus/nexusd.yaml (root:root 0600, listen 127.0.0.1:7443, every provider disabled)
+        /etc/nexus/nexusd.yaml: configuration is valid
+        install.sh: next steps:
+        install.sh:   enable providers in /etc/nexus/nexusd.yaml and check it with: /usr/local/bin/nexusd validate-config
+        install.sh:   create a token: /usr/local/bin/nexusd token create --name NAME --scope SCOPE
+        install.sh:   start nexusd: systemctl enable --now nexusd.service
+    storage_test.go:1256: nexusd.service: /etc/systemd/system/nexusd.service sha256 5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a = deploy/nexusd.service, no drop-in; MainPID 373
+    storage_test.go:1296: host.health.get storage block: {"source":"storage","observedAt":null,"counts":null,"signals":[],"signalsTruncated":false,"stale":false,"unavailable":{"signals":"capability-unavailable: zfs: /usr/sbin/zpool not found (nor /sbin/zpool); backups: not configured; timeMachine: not configured"}}
+    storage_test.go:1325: log: storage preflight lines 1 -> 1 -> 2 over 20 requests (1.115s after the start) and one reload; other storage lines 2 -> 2
+    storage_test.go:1359: storage.pools.scrub answered 503 with 0 new capability-unavailable audit records, want at least 1
+    storage_test.go:1359: storage.pools.stop-scrub answered 503 with 0 new capability-unavailable audit records, want at least 1
+    storage_test.go:1359: storage.datasets.snapshot answered 503 with 0 new capability-unavailable audit records, want at least 1
+    storage_test.go:1363: audit: 0 capability-unavailable records for the 3 writes of step 2 (6 refused storage records in all, none not-allowed)
+--- FAIL: TestTCSTG227_OnDebian12AndAlpine322 (0.78s)
+FAIL
+harness: tests exited 1
+harness: collecting logs into build/harness/logs/20261119T182951Z
+harness: container nexus-harness-20261119T182951Z-80624 removed
+harness: dist/ untouched
+harness: exit 1
+make: *** [test-harness] Error 1

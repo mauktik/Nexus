@@ -23,17 +23,19 @@ type row struct {
 	cli, tool        string
 }
 
-// golden is the Operation catalog table, row for row (95 rows: the 25 of
+// golden is the Operation catalog table, row for row (107 rows: the 25 of
 // the base table, the 7 nexusd rows of the self-management table and the 26
 // pihole rows of the pihole-dns-zones table, then the nginx operations table
 // (planning/nginx-provider/architecture.md, 13 rows), the host table
-// (planning/system-provider/architecture.md, Operation catalog, 10 rows) and
+// (planning/system-provider/architecture.md, Operation catalog, 10 rows),
 // the nexusd token, config read and config set rows of the remote-admin
 // table (planning/nexusd-remote-admin/architecture.md, Operation catalog,
-// 3 + 2 + 1 rows, after nexusd.uploads.add), and the services table
-// (planning/services-provider/architecture.md, Operation catalog, 8 rows).
-// Rows are in catalog.All() order, so the host rows come after pihole's and
-// the services rows last. Any added op must update it on purpose.
+// 3 + 2 + 1 rows, after nexusd.uploads.add), the services table
+// (planning/services-provider/architecture.md, Operation catalog, 8 rows)
+// and the storage table (planning/storage-provider/architecture.md,
+// Operation catalog, 12 rows). Rows are in catalog.All() order, so the host
+// rows come after pihole's, then the services rows, then the storage rows.
+// Any added op must update it on purpose.
 var golden = []row{
 	{"system.capabilities.get", "GET /capabilities", "", def.RiskReadOnly, def.ModeSync, "capability get", "get_capabilities"},
 	{"system.operations.list", "GET /operations", "", def.RiskReadOnly, def.ModeSync, "operation get", "list_operations"},
@@ -134,6 +136,18 @@ var golden = []row{
 	{"services.services.restart", "POST /providers/services/services/{name}/restart", "services:write", def.RiskMutating, def.ModeLongRunning, "service restart name", ""},
 	{"services.services.control", "POST /providers/services/services/{name}/control", "services:write", def.RiskDestructive, def.ModeLongRunning, "service invoke name", "control_service"},
 	{"services.actions.reboot", "POST /providers/services/actions/reboot", "services:reboot", def.RiskDestructive, def.ModeLongRunning, "machine restart", ""},
+	{"storage.health.get", "GET /providers/storage/health", "storage:read", def.RiskReadOnly, def.ModeSync, "storagehealth get", "get_storage_health"},
+	{"storage.pools.list", "GET /providers/storage/pools", "storage:read", def.RiskReadOnly, def.ModeSync, "pool get", "list_zfs_pools"},
+	{"storage.pools.get", "GET /providers/storage/pools/{name}", "storage:read", def.RiskReadOnly, def.ModeSync, "pool get name", ""},
+	{"storage.datasets.list", "GET /providers/storage/datasets", "storage:read", def.RiskReadOnly, def.ModeSync, "dataset get", "list_zfs_datasets"},
+	{"storage.datasets.get", "GET /providers/storage/datasets/{name}", "storage:read", def.RiskReadOnly, def.ModeSync, "dataset get name", ""},
+	{"storage.snapshots.list", "GET /providers/storage/snapshots", "storage:read", def.RiskReadOnly, def.ModeSync, "snapshot get", ""},
+	{"storage.backups.list", "GET /providers/storage/backups", "storage:read", def.RiskReadOnly, def.ModeSync, "backup get", ""},
+	{"storage.backups.summary", "GET /providers/storage/backupsummary", "storage:read", def.RiskReadOnly, def.ModeSync, "backupsummary get", "get_backup_summary"},
+	{"storage.timemachine.list", "GET /providers/storage/timemachine", "storage:read", def.RiskReadOnly, def.ModeSync, "timemachine get", "list_timemachine_shares"},
+	{"storage.pools.scrub", "POST /providers/storage/pools/{name}/scrub", "storage:scrub", def.RiskMutating, def.ModeLongRunning, "scrub start name", ""},
+	{"storage.pools.stop-scrub", "POST /providers/storage/pools/{name}/stop-scrub", "storage:scrub", def.RiskMutating, def.ModeLongRunning, "scrub stop name", ""},
+	{"storage.datasets.snapshot", "POST /providers/storage/datasets/{name}/snapshot", "storage:snapshot", def.RiskMutating, def.ModeLongRunning, "snapshot add name", ""},
 }
 
 func rowOf(t *testing.T, op def.Op) row {
@@ -164,8 +178,8 @@ func rowOf(t *testing.T, op def.Op) row {
 // TC-146: the catalog matches the Operation catalog table exactly.
 func TestCatalogMatchesGoldenTable(t *testing.T) {
 	ops := catalog.Ops()
-	if len(golden) != 58+13+10+3+2+1+8 {
-		t.Fatalf("golden table has %d rows, the architectures' have 58+13+10+3+2+1+8", len(golden))
+	if len(golden) != 58+13+10+3+2+1+8+12 {
+		t.Fatalf("golden table has %d rows, the architectures' have 58+13+10+3+2+1+8+12", len(golden))
 	}
 	if len(ops) != len(golden) {
 		t.Errorf("catalog has %d ops, the table %d", len(ops), len(golden))

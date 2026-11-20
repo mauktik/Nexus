@@ -67,9 +67,12 @@ func TestTCSV123_MCPListsExactlyFourServicesToolsWithin(t *testing.T) {
 	}
 	var got []string
 	for _, tool := range tools {
-		if _, ok := specOf[tool.Name]; ok {
-			got = append(got, tool.Name)
+		if _, ok := specOf[tool.Name]; !ok {
+			continue
 		}
+		got = append(got, tool.Name)
+		// rc7 integration: only the services tools are checked, so storage's
+		// list_timemachine_shares is not taken for a reboot tool.
 		if strings.Contains(tool.Name, "reboot") || strings.Contains(tool.Name, "machine") {
 			t.Errorf("tool %s names reboot or machine: the reboot is not an MCP tool", tool.Name)
 		}
@@ -105,20 +108,25 @@ func TestTCSV123_MCPListsExactlyFourServicesToolsWithin(t *testing.T) {
 
 	chars, total := toolBudget(tools)
 	baseChars, base := toolBudget(without)
-	t.Logf("TC-SV-123: %d tools, %d characters, %d tokens; services adds %d tools, %d characters, %d tokens "+
-		"(ceiling: 800 characters, 200 tokens, total 3,100)", len(tools), chars, total, len(tools)-len(without),
-		chars-baseChars, total-base)
+	// rc7 integration: the 3,100 ceiling applies to the catalog without
+	// storage's five tools, as storage scoped TC-HP-106's 2,850.
+	_, withoutStorage := toolBudget(slices.DeleteFunc(slices.Clone(tools), func(tool *mcp.Tool) bool {
+		return slices.Contains(storageTools, tool.Name)
+	}))
+	t.Logf("TC-SV-123: %d tools, %d characters, %d tokens (%d without storage); services adds %d tools, %d characters, "+
+		"%d tokens (ceiling: 800 characters, 200 tokens, total 3,100 without storage)", len(tools), chars, total,
+		withoutStorage, len(tools)-len(without), chars-baseChars, total-base)
 	if d := chars - baseChars; d > 800 {
 		t.Errorf("services adds %d characters, want at most 800", d)
 	}
 	if d := total - base; d <= 0 || d > 200 {
 		t.Errorf("services adds %d tokens, want 1 to 200", d)
 	}
-	if total > 3100 {
-		t.Errorf("total %d tokens, want at most 3,100", total)
+	if withoutStorage > 3100 { // rc7 integration: services' ceiling, storage excluded
+		t.Errorf("total %d tokens without storage, want at most 3,100", withoutStorage)
 	}
-	if len(tools) != 72 {
-		t.Errorf("%d tools, want 72", len(tools))
+	if len(tools) != 77 { // rc7 integration: 72 + storage's 5
+		t.Errorf("%d tools, want 77", len(tools))
 	}
 }
 

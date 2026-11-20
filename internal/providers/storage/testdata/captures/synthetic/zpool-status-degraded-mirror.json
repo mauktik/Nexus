@@ -1,0 +1,94 @@
+{
+  "output_version": {
+    "command": "zpool status",
+    "vers_major": 0,
+    "vers_minor": 1
+  },
+  "pools": {
+    "tank": {
+      "name": "tank",
+      "state": "DEGRADED",
+      "guid": 3920273586464696295,
+      "txg": 16597,
+      "spa_version": 5000,
+      "zpl_version": 5,
+      "status": "One or more devices has experienced an unrecoverable error.  An\n\tattempt was made to correct the error.  Applications are unaffected.\n",
+      "action": "Determine if the device needs to be replaced, and clear the errors\n\tusing 'zpool clear' or replace the device with 'zpool replace'.\n",
+      "msgid": "ZFS-8000-9P",
+      "moreinfo": "https://openzfs.github.io/openzfs-docs/msg/ZFS-8000-9P",
+      "scan_stats": {
+        "function": "SCRUB",
+        "state": "FINISHED",
+        "start_time": 1794708000,
+        "end_time": 1794718817,
+        "to_examine": 67348883046,
+        "examined": 67348883046,
+        "skipped": 0,
+        "processed": 0,
+        "errors": 0,
+        "bytes_per_scan": 67348883046,
+        "pass_start": 1794708000,
+        "scrub_pause": 0,
+        "scrub_spent_paused": 0,
+        "issued_bytes_per_scan": 67348883046,
+        "issued": 67348883046
+      },
+      "vdevs": {
+        "tank": {
+          "name": "tank",
+          "alloc_space": 67216238182,
+          "total_space": 16492674416640,
+          "def_space": 12424481393869,
+          "read_errors": 0,
+          "write_errors": 0,
+          "checksum_errors": 0,
+          "vdevs": {
+            "mirror-0": {
+              "name": "mirror-0",
+              "vdev_type": "mirror",
+              "guid": 763132626387621737,
+              "state": "DEGRADED",
+              "alloc_space": 67108864000,
+              "total_space": 4002222325105,
+              "def_space": 7982454417654,
+              "rep_dev_size": 4002222325105,
+              "read_errors": 0,
+              "write_errors": 0,
+              "checksum_errors": 0,
+              "vdevs": {
+                "ca1eb824-c371-491d-ac13-37637e35c683": {
+                  "name": "ca1eb824-c371-491d-ac13-37637e35c683",
+                  "vdev_type": "disk",
+                  "guid": 12841765308123764671,
+                  "path": "/dev/disk/by-partuuid/ca1eb824-c371-491d-ac13-37637e35c683",
+                  "state": "ONLINE",
+                  "rep_dev_size": 4002222325105,
+                  "phys_space": 4002222325105,
+                  "read_errors": 0,
+                  "write_errors": 0,
+                  "checksum_errors": 0,
+                  "slow_ios": 0
+                },
+                "97cd98fb-8fb8-4ac4-bc84-bd8950a7ace7": {
+                  "name": "97cd98fb-8fb8-4ac4-bc84-bd8950a7ace7",
+                  "vdev_type": "disk",
+                  "guid": 1527839927278881561,
+                  "path": "/dev/disk/by-partuuid/97cd98fb-8fb8-4ac4-bc84-bd8950a7ace7",
+                  "state": "DEGRADED",
+                  "rep_dev_size": 4002222325105,
+                  "phys_space": 4002222325105,
+                  "read_errors": 3,
+                  "write_errors": 1,
+                  "checksum_errors": 24,
+                  "slow_ios": 0,
+                  "aux": "ERR_EXCEEDED"
+                }
+              }
+            }
+          }
+        }
+      },
+      "error_count": 0
+    }
+  }
+}

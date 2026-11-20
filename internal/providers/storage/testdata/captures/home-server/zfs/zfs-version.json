@@ -1,0 +1,2 @@
+{"output_version":{"command":"zfs version","vers_major":0,"vers_minor":1},"zfs_version":{"userland":"zfs-2.4.1-1ubuntu5.1","kernel":"zfs-kmod-2.4.1-1ubuntu5.1"}}
+Exit 0

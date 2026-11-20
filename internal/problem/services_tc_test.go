@@ -22,7 +22,8 @@ func TestTCSV30_TheEightServicesProblemTypesAreRegistered(t *testing.T) {
 		extensions     []string
 		operationLevel bool
 	}{
-		{"not-allowed", 409, 1, []string{"service", "action", "configKey"}, false},
+		// rc7 integration: not-allowed is shared with storage, its extensions the union (M-1).
+		{"not-allowed", 409, 1, []string{"service", "action", "configKey", "pool", "dataset"}, false},
 		{"protected-service", 409, 1, []string{"service", "reason"}, false},
 		{"reboot-unavailable", 409, 1, []string{"reason", "configKey"}, false},
 		{"nexusd-not-enabled-at-boot", 409, 1, []string{"service", "state"}, false},

@@ -234,8 +234,8 @@ func TestTCSV130_DocsMcpMdListsTheToolsThe(t *testing.T) {
 	if err != nil || m == nil {
 		t.Fatalf("TestToolBudget failed or logged no total (%v):\n%s", err, out)
 	}
-	if m[1] != "72" {
-		t.Errorf("TestToolBudget measures %s tools, want 72", m[1])
+	if m[1] != "77" { // rc7 integration: 72 + storage's 5
+		t.Errorf("TestToolBudget measures %s tools, want 77", m[1])
 	}
 	stated := regexp.MustCompile(`Current figure: \*\*(\d+) tools, ([0-9,]+) characters, ([0-9,]+) tokens\*\*`).
 		FindStringSubmatch(svFold(doc))

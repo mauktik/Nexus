@@ -28,6 +28,9 @@ and the reboot record, for an operation that completes in the next boot;
 audited streams; `TypedConfirmation`; `OperationsUser`; and untimed frames
 in the MCP since-pager; see
 [section 8](#8-generic-mechanisms-added-for-the-services-provider).
+The `storage` provider added `provider.HealthSource`, through which a
+provider's health signals reach the `host` provider's health read; see
+[section 9](#9-generic-mechanism-added-for-the-storage-provider-providerhealthsource).
 A provider that needs
 a new kind of mechanism changes core, and that change must be generic, not
 keyed on the provider's name, and documented here.
@@ -521,3 +524,62 @@ and keyed on the declaration rather than on the provider's name (CON-4).
   `nextOffset`, and the agent asks again with a smaller `tail`. The rule is
   keyed on the frame, not the provider: frames that all carry a time, such
   as the journal's and Docker's, page exactly as before.
+
+## 9. Generic mechanism added for the storage provider: `provider.HealthSource`
+
+The `storage` provider's pool, backup and Time Machine findings belong beside
+the host's own health, in `host.health.get` (`get_host_health`), without the
+`host` provider knowing about storage. This was added to core as a generic
+mechanism, `provider.HealthSource` (`internal/provider/health.go`), fanned in
+by the daemon (`internal/daemon/health.go`). It is keyed on the interface,
+not on a provider name: any provider that implements it contributes a block,
+and nothing in core names `storage`.
+
+- **The contract.** A provider that implements
+  `HealthSignals(ctx context.Context) (provider.HealthReport, error)` is a
+  `HealthSource`. `HealthSignals` must honour `ctx`'s deadline and never
+  mutates. Its report carries `ObservedAt`, the signals (each with an id, a
+  severity of `critical`, `warning` or `info`, a subject and a message),
+  `Counts` over every signal the source found, including any past its own cap,
+  `Truncated` when it capped its list, and `Unavailable`, a reason per
+  feature it could not read. The fan-in uses the source's `Counts` as they
+  are, so the counts agree with the provider's own health read however many
+  signals there are; it re-sorts the signals critical, warning, info
+  (stable) and keeps the first 10 (`signalsTruncated`).
+- **The reader.** A provider that implements `HealthSourcesUser` has
+  `UseHealthSources(provider.HealthSources)` called once by `daemon.New`,
+  after the registry exists and before anything is served. The `host`
+  provider is the reader: `Collect(ctx, timeout)` returns one
+  `apitypes.ProviderSignals` block per enabled source, sorted by provider
+  name, for its `providerSignals` field. Without an injected fan-in
+  (validate-config, tests) that field is `[]`.
+- **Enablement and availability.** Only enabled providers are read: a
+  disabled provider contributes no block, and enabling it by a reload adds
+  one at the next collect. An enabled source's availability is read at call
+  time with `Registry.AvailableForCall`, inside the source's flight, so a
+  source that was unavailable at startup (a missed 1-second startup
+  preflight) is re-checked on the health path once its last preflight is
+  older than 5 seconds, exactly as a direct call would re-check it, and the
+  re-check's preflight is not cancelled by the collect's
+  deadline. A source still unavailable gives a block with `counts: null` and
+  `unavailable.signals` set to `capability-unavailable: <reason>`, and its
+  `HealthSignals` is not called.
+- **The bound.** A collect waits at most the host's `sourceTimeout`
+  (default 2 s), and the `host` provider runs it beside its own reads, so a
+  source delays `host.health.get` by at most that bound whatever the source
+  does. `HealthSignals` gets a context with that deadline.
+- **One call in flight per source.** The fan-in keeps one call in flight per
+  source (availability, then `HealthSignals`); a later collect joins it
+  until its own deadline rather than starting another. Each call runs in its
+  own goroutine with a recover: a panic is logged at error with the
+  provider's name and reported as `internal error`; an error is reported with its text. A source
+  that ignores `ctx` keeps its one goroutine until it returns, and no second
+  one is started beside it.
+- **Late and stale reports.** The fan-in keeps each source's last completed
+  report, also one that completed after the deadline of the collect that
+  started it. When the current call errs or misses the deadline, the block is
+  that last report with its own `observedAt`, `stale: true` and
+  `unavailable.signals` naming why the current read did not complete ("the
+  current read did not finish within 2s", or the error), provided the report
+  is at most 5 minutes old; otherwise, or with no earlier report, the block
+  has `counts: null`, `signals: []` and that reason.

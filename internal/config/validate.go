@@ -22,6 +22,7 @@ import (
 	nexusdspec "github.com/mauktik/nexus/internal/providers/nexusd/spec"
 	"github.com/mauktik/nexus/internal/providers/scripts/spec"
 	servicesspec "github.com/mauktik/nexus/internal/providers/services/spec"
+	storagespec "github.com/mauktik/nexus/internal/providers/storage/spec"
 	"github.com/mauktik/nexus/internal/release"
 	"github.com/mauktik/nexus/internal/svcctl"
 )
@@ -109,6 +110,7 @@ func (c *Config) validate(errs *collector) {
 	v.piholeDNSFile("providers.pihole.dnsFile", c.Providers.Pihole.Settings.DNSFile)
 	v.host(c.Providers.Host.Settings)
 	v.services(c.Providers.Services.Settings)
+	v.storage(c.Providers.Storage.Settings)
 }
 
 // serviceNameRE is the services spec's copy of svcctl.ServiceNamePattern,
@@ -276,6 +278,159 @@ func (v validator) host(h HostProviderConfig) {
 		v.failf(p+".sourceTimeout", "must be between %s and %s, got %s", shortDuration(hostspec.MinSourceTimeout),
 			shortDuration(hostspec.MaxSourceTimeout), shortDuration(h.SourceTimeout))
 	}
+}
+
+var (
+	storagePoolRE       = regexp.MustCompile(storagespec.PoolNamePattern)
+	storageDatasetRE    = regexp.MustCompile(storagespec.DatasetNamePattern)
+	storageDatasetNotRE = regexp.MustCompile(storagespec.DatasetNameNotPattern)
+)
+
+// Bounds of the storage section that the spec does not declare.
+const (
+	minStoragePercent      = 1
+	maxStoragePercent      = 100
+	minStorageScrubMaxDays = 1
+	maxStorageScrubMaxDays = 366
+)
+
+// storage checks the storage section against the spec's patterns and bounds
+// (FR-9 to FR-15, CON-7). Every rule applies whether or not the section is
+// enabled, so a file is valid or not before it is switched on.
+func (v validator) storage(s StorageConfig) {
+	const p = "providers.storage."
+	v.storageDuration(p+"commandTimeout", s.CommandTimeout, storagespec.MinCommandTimeout, storagespec.MaxCommandTimeout)
+	v.storagePaths(p+"backups.vzdumpPaths", s.Backups.VzdumpPaths)
+	v.storageDuration(p+"backups.maxAge", s.Backups.MaxAge, storagespec.MinMaxAge, storagespec.MaxMaxAge)
+	first := map[int]int{}
+	for i, id := range s.Backups.ExpectedGuests {
+		path := fmt.Sprintf("%sbackups.expectedGuests[%d]", p, i)
+		if id < storagespec.MinVMID || id > storagespec.MaxVMID {
+			v.failf(path, "must be a vmid between %d and %d, got %d", storagespec.MinVMID, storagespec.MaxVMID, id)
+			continue
+		}
+		if j, dup := first[id]; dup {
+			v.failf(path, "duplicate of expectedGuests[%d]: %d", j, id)
+			continue
+		}
+		first[id] = i
+	}
+
+	v.storagePaths(p+"timeMachine.paths", s.TimeMachine.Paths)
+	v.storageDuration(p+"timeMachine.maxAge", s.TimeMachine.MaxAge, storagespec.MinMaxAge, storagespec.MaxMaxAge)
+	v.storageDuration(p+"timeMachine.sizeInterval", s.TimeMachine.SizeInterval, storagespec.MinSizeInterval,
+		storagespec.MaxSizeInterval)
+
+	t := s.Thresholds
+	pcw := v.storagePercent(p+"thresholds.poolCapacityWarn", t.PoolCapacityWarn)
+	pcc := v.storagePercent(p+"thresholds.poolCapacityCrit", t.PoolCapacityCrit)
+	if pcw && pcc && t.PoolCapacityWarn >= t.PoolCapacityCrit {
+		v.failf(p+"thresholds.poolCapacityWarn", "must be less than poolCapacityCrit (%d), got %d",
+			t.PoolCapacityCrit, t.PoolCapacityWarn)
+	}
+	if t.ScrubMaxAgeDays < minStorageScrubMaxDays || t.ScrubMaxAgeDays > maxStorageScrubMaxDays {
+		v.failf(p+"thresholds.scrubMaxAgeDays", "must be between %d and %d, got %d", minStorageScrubMaxDays,
+			maxStorageScrubMaxDays, t.ScrubMaxAgeDays)
+	}
+	v.storagePercent(p+"thresholds.quotaWarn", t.QuotaWarn)
+	sw := v.storagePercent(p+"thresholds.shareWarn", t.ShareWarn)
+	sc := v.storagePercent(p+"thresholds.shareCrit", t.ShareCrit)
+	if sw && sc && t.ShareWarn >= t.ShareCrit {
+		v.failf(p+"thresholds.shareWarn", "must be less than shareCrit (%d), got %d", t.ShareCrit, t.ShareWarn)
+	}
+
+	pools := map[string]int{}
+	for i, name := range s.Scrub.Pools {
+		path := fmt.Sprintf("%sscrub.pools[%d]", p, i)
+		if !storagePoolRE.MatchString(name) {
+			v.failf(path, "must be a pool name matching %s, got %q", storagespec.PoolNamePattern, name)
+			continue
+		}
+		if j, dup := pools[name]; dup {
+			v.failf(path, "duplicate of pools[%d]: %q", j, name)
+			continue
+		}
+		pools[name] = i
+	}
+
+	datasets := map[string]int{}
+	for i, d := range s.Snapshots.Datasets {
+		path := fmt.Sprintf("%ssnapshots.datasets[%d]", p, i)
+		if d.Name == "" {
+			v.fail(path+".name", "required: the dataset snapshots may be taken of")
+			continue
+		}
+		if !storageDatasetName(d.Name) {
+			v.failf(path+".name", "must be a dataset name matching %s, with no \".\" or \"..\" component and at "+
+				"most %d bytes, got %q", storagespec.DatasetNamePattern, storagespec.MaxNameLength, d.Name)
+			continue
+		}
+		if j, dup := datasets[d.Name]; dup {
+			v.failf(path, "duplicate of datasets[%d]: %q", j, d.Name)
+			continue
+		}
+		datasets[d.Name] = i
+	}
+	v.storagePercent(p+"snapshots.maxPoolCapacityPercent", s.Snapshots.MaxPoolCapacityPercent)
+}
+
+// storageDatasetName reports whether name is a dataset name the spec accepts.
+func storageDatasetName(name string) bool {
+	return len(name) <= storagespec.MaxNameLength && storageDatasetRE.MatchString(name) &&
+		!storageDatasetNotRE.MatchString(name)
+}
+
+// storagePaths requires each path to be absolute, clean, not / and listed
+// once. A path that Clean would change, such as /media/../etc or a trailing
+// slash, is refused rather than cleaned, so the provider reads exactly what
+// the file says.
+func (v validator) storagePaths(path string, paths []string) {
+	key := path[strings.LastIndexByte(path, '.')+1:]
+	first := map[string]int{}
+	for i, dir := range paths {
+		p := fmt.Sprintf("%s[%d]", path, i)
+		if !filepath.IsAbs(dir) || filepath.Clean(dir) != dir || dir == "/" {
+			v.failf(p, "must be an absolute, clean path other than /, got %q", dir)
+			continue
+		}
+		if j, dup := first[dir]; dup {
+			v.failf(p, "duplicate of %s[%d]: %q", key, j, dir)
+			continue
+		}
+		first[dir] = i
+	}
+}
+
+// storageDuration requires lo <= d <= hi, both bounds inclusive (A-56).
+func (v validator) storageDuration(path string, d, lo, hi time.Duration) {
+	if d < lo || d > hi {
+		v.failf(path, "must be between %s and %s, got %s", storageDurationText(lo), storageDurationText(hi),
+			storageDurationText(d))
+	}
+}
+
+// storagePercent requires a percentage of 1..100 and reports whether it is.
+func (v validator) storagePercent(path string, n int) bool {
+	if n < minStoragePercent || n > maxStoragePercent {
+		v.failf(path, "must be between %d and %d, got %d", minStoragePercent, maxStoragePercent, n)
+		return false
+	}
+	return true
+}
+
+// storageDurationText spells d as the storage section's comments do: whole
+// hours as 192h, whole minutes of ten or more as 10m, and whole seconds
+// below that as 120s. Anything else is left to String.
+func storageDurationText(d time.Duration) string {
+	switch {
+	case d != 0 && d%time.Hour == 0:
+		return strconv.FormatInt(int64(d/time.Hour), 10) + "h"
+	case d >= 10*time.Minute && d%time.Minute == 0:
+		return strconv.FormatInt(int64(d/time.Minute), 10) + "m"
+	case d != 0 && d < 10*time.Minute && d%time.Second == 0:
+		return strconv.FormatInt(int64(d/time.Second), 10) + "s"
+	}
+	return d.String()
 }
 
 // shortDuration spells d as it is written in the file: whole hours as 24h

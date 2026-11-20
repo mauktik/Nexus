@@ -93,8 +93,9 @@ func TestDefaultConfigMatchesDefaultsAndHasEveryKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range structKeyPaths(reflect.TypeOf(Config{}), "") {
-		if strings.Contains(path, "catalog.") || strings.HasPrefix(path, "providers.services.control.") {
-			continue // the default catalog and allow-list are empty, so entry keys cannot appear
+		if strings.Contains(path, "catalog.") || strings.HasPrefix(path, "providers.services.control.") ||
+			strings.Contains(path, "snapshots.datasets.") {
+			continue // the default catalog and allow-lists are empty, so entry keys cannot appear
 		}
 		if keyNode(doc.Content[0], path) == nil {
 			t.Errorf("deploy/nexusd.default.yaml is missing key %s", path)

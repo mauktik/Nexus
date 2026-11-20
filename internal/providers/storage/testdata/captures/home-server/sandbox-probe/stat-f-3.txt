@@ -1,0 +1,6 @@
+  File: "/media/timemachine"
+    ID: 4215f1a800eecc3c Namelen: 255     Type: zfs
+Block Size: 131072     Fundamental block size: 131072
+Blocks: Total: 41634343   Free: 30240393   Available: 30240393
+Inodes: Total: 7741542658 Free: 7741540666
+Exit 0

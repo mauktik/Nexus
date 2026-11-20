@@ -1,0 +1,14 @@
+2026-08-27 10:34:54 INFO: Starting Backup of VM 103 (lxc)
+2026-08-27 10:34:54 INFO: status = running
+2026-08-27 10:34:54 INFO: CT Name: guest-103
+2026-08-27 10:34:54 INFO: including mount point rootfs ('/') in backup
+2026-08-27 10:34:54 INFO: backup mode: snapshot
+2026-08-27 10:34:54 INFO: ionice priority: 7
+2026-08-27 10:34:54 INFO: create storage snapshot 'vzdump'
+2026-08-27 10:34:55 INFO: creating vzdump archive '/mnt/pve/remote-backup/dump/vzdump-lxc-103-2026_08_27-10_34_54.tar.zst'
+2026-08-27 10:35:01 INFO: Total bytes written: 1269995520 (1.2GiB, 210MiB/s)
+2026-08-27 10:35:01 INFO: archive file size: 393MB
+2026-08-27 10:35:01 INFO: adding notes to backup
+2026-08-27 10:35:01 INFO: cleanup temporary 'vzdump' snapshot
+2026-08-27 10:35:01 INFO: Finished Backup of VM 103 (00:00:07)
+Exit 0

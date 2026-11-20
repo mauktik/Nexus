@@ -1,0 +1,6 @@
+  File: "/media/vzdump/dump"
+    ID: 734e7ba4006bcda6 Namelen: 255     Type: zfs
+Block Size: 131072     Fundamental block size: 131072
+Blocks: Total: 8388607    Free: 6931751    Available: 6931751
+Inodes: Total: 1774528547 Free: 1774528412
+Exit 0

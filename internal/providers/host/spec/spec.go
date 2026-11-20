@@ -508,7 +508,10 @@ type HealthProperties struct {
 	TopByCPU             Array[Process] `json:"topByCpu" jsonschema:"The 5 processes using the most CPU."`
 	TopByMemory          Array[Process] `json:"topByMemory" jsonschema:"The 5 processes with the largest RSS."`
 	ProcessSampleSeconds *float64       `json:"processSampleSeconds" jsonschema:"The interval the process CPU percentages cover."`
-	Unavailable          Unavailable    `json:"unavailable,omitempty" jsonschema:"Fields of this object that could not be read, each with the reason; such a field is null, or [] for a list."`
+	// ProviderSignals is the daemon's health fan-in (storage-provider D-7):
+	// [] when none is injected.
+	ProviderSignals Array[apitypes.ProviderSignals] `json:"providerSignals" jsonschema:"One block per enabled provider that reports health signals (today: storage); a block whose counts is null names why in unavailable."`
+	Unavailable     Unavailable                     `json:"unavailable,omitempty" jsonschema:"Fields of this object that could not be read, each with the reason; such a field is null, or [] for a list."`
 }
 
 // SummaryIdentity is the identity part of the summary.
@@ -814,8 +817,11 @@ var (
 			"used, its evidence and, on Debian/Ubuntu, the packages that asked); the count of failed services " +
 			"(failed systemd units, or crashed OpenRC services) with up to 20 names; OOM kills since boot; and the " +
 			"top 5 processes by CPU and by memory, each with PID, command name, owner, CPU percent and RSS bytes. " +
-			"Command lines and environments are never read." + readOnly + sampled + unavailable +
-			untrusted("Service names, command names and user names"),
+			"Command lines and environments are never read. providerSignals has one block per enabled provider that " +
+			"reports health signals (today: storage), with its counts by severity and up to 10 signals, critical " +
+			"first; a block whose counts is null names why in unavailable, and a stale block is the provider's last " +
+			"report, shown when the current read missed the deadline." + readOnly + sampled + unavailable +
+			untrusted("Service names, command names, user names and the subjects, messages and reasons of provider health signals (bundle, pool, dataset and guest names, and parser text)"),
 		Scope: def.Scope{Name: ReadScope}, Risk: def.RiskReadOnly, Mode: def.ModeSync, Idempotent: true,
 		Untrusted: true,
 		CLI:       def.CLIBinding{Noun: "hosthealth", Verb: "get"},

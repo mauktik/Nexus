@@ -24,6 +24,7 @@ import (
 	hostspec "github.com/mauktik/nexus/internal/providers/host/spec"
 	nexusdspec "github.com/mauktik/nexus/internal/providers/nexusd/spec"
 	servicesspec "github.com/mauktik/nexus/internal/providers/services/spec"
+	storagespec "github.com/mauktik/nexus/internal/providers/storage/spec"
 )
 
 // DefaultPath is where the installer writes the configuration.
@@ -99,6 +100,7 @@ type Providers struct {
 	Pihole   Section[PiholeConfig]       `yaml:"pihole"`
 	Host     Section[HostProviderConfig] `yaml:"host"`
 	Services Section[ServicesConfig]     `yaml:"services"`
+	Storage  Section[StorageConfig]      `yaml:"storage"`
 }
 
 // DockerConfig is the docker provider section.
@@ -248,6 +250,75 @@ type defaulter interface {
 	applyDefaults(locs locations, path string)
 }
 
+// StorageConfig is the storage provider section: ZFS pools, datasets and
+// snapshots, vzdump backup archives and Time Machine shares, read inside the
+// sandbox, and three guarded writes that each act only when enabled and
+// allow-listed here. The lists change only by editing the file.
+type StorageConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// CommandTimeout bounds one zpool or zfs call.
+	CommandTimeout time.Duration            `yaml:"commandTimeout"`
+	Backups        StorageBackupsConfig     `yaml:"backups"`
+	TimeMachine    StorageTimeMachineConfig `yaml:"timeMachine"`
+	Thresholds     StorageThresholdsConfig  `yaml:"thresholds"`
+	Scrub          StorageScrubConfig       `yaml:"scrub"`
+	Snapshots      StorageSnapshotsConfig   `yaml:"snapshots"`
+}
+
+// StorageBackupsConfig is where Proxmox vzdump archives are read from and
+// when a guest's latest archive is stale.
+type StorageBackupsConfig struct {
+	// VzdumpPaths are absolute directories read with their dump/.
+	VzdumpPaths []string      `yaml:"vzdumpPaths"`
+	MaxAge      time.Duration `yaml:"maxAge"`
+	// ExpectedGuests are vmids that must have archives; a missing one is
+	// stale.
+	ExpectedGuests []int `yaml:"expectedGuests"`
+}
+
+// StorageTimeMachineConfig is where Time Machine shares are read from.
+type StorageTimeMachineConfig struct {
+	Paths  []string      `yaml:"paths"`
+	MaxAge time.Duration `yaml:"maxAge"`
+	// SizeInterval is how often bundle sizes are recomputed in the
+	// background.
+	SizeInterval time.Duration `yaml:"sizeInterval"`
+}
+
+// StorageThresholdsConfig holds the health-signal thresholds, in percent
+// except ScrubMaxAgeDays.
+type StorageThresholdsConfig struct {
+	PoolCapacityWarn int `yaml:"poolCapacityWarn"`
+	PoolCapacityCrit int `yaml:"poolCapacityCrit"`
+	ScrubMaxAgeDays  int `yaml:"scrubMaxAgeDays"`
+	QuotaWarn        int `yaml:"quotaWarn"`
+	ShareWarn        int `yaml:"shareWarn"`
+	ShareCrit        int `yaml:"shareCrit"`
+}
+
+// StorageScrubConfig gates scrub start and stop: both act only when Enabled
+// and only on the listed pools.
+type StorageScrubConfig struct {
+	Enabled bool     `yaml:"enabled"`
+	Pools   []string `yaml:"pools"`
+}
+
+// StorageSnapshotsConfig gates snapshot create: it acts only when Enabled,
+// only on a listed dataset, and only while the dataset's pool is less than
+// MaxPoolCapacityPercent full.
+type StorageSnapshotsConfig struct {
+	Enabled                bool                     `yaml:"enabled"`
+	Datasets               []StorageSnapshotDataset `yaml:"datasets"`
+	MaxPoolCapacityPercent int                      `yaml:"maxPoolCapacityPercent"`
+}
+
+// StorageSnapshotDataset is one dataset snapshots may be taken of.
+// Recursive allows a recursive snapshot of it and its descendants.
+type StorageSnapshotDataset struct {
+	Name      string `yaml:"name"`
+	Recursive bool   `yaml:"recursive"`
+}
+
 // Script is one catalog entry.
 type Script struct {
 	ID               string            `yaml:"id"`
@@ -363,6 +434,32 @@ func Default() Config {
 			Services: Section[ServicesConfig]{Settings: ServicesConfig{
 				Control: []ServiceControl{},
 				Reboot:  ServicesReboot{Timeout: servicesspec.DefaultRebootTimeout},
+			}},
+			Storage: Section[StorageConfig]{Settings: StorageConfig{
+				CommandTimeout: storagespec.DefaultCommandTimeout,
+				Backups: StorageBackupsConfig{
+					VzdumpPaths:    []string{},
+					MaxAge:         storagespec.DefaultBackupMaxAge,
+					ExpectedGuests: []int{},
+				},
+				TimeMachine: StorageTimeMachineConfig{
+					Paths:        []string{},
+					MaxAge:       storagespec.DefaultTimeMachineMaxAge,
+					SizeInterval: storagespec.DefaultSizeInterval,
+				},
+				Thresholds: StorageThresholdsConfig{
+					PoolCapacityWarn: storagespec.DefaultPoolCapacityWarn,
+					PoolCapacityCrit: storagespec.DefaultPoolCapacityCrit,
+					ScrubMaxAgeDays:  storagespec.DefaultScrubMaxAgeDays,
+					QuotaWarn:        storagespec.DefaultQuotaWarn,
+					ShareWarn:        storagespec.DefaultShareWarn,
+					ShareCrit:        storagespec.DefaultShareCrit,
+				},
+				Scrub: StorageScrubConfig{Pools: []string{}},
+				Snapshots: StorageSnapshotsConfig{
+					Datasets:               []StorageSnapshotDataset{},
+					MaxPoolCapacityPercent: storagespec.DefaultMaxPoolCapacityPercent,
+				},
 			}},
 		},
 	}

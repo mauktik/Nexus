@@ -1,0 +1,90 @@
+{
+  "output_version": {
+    "command": "zpool list",
+    "vers_major": 1,
+    "vers_minor": 1
+  },
+  "pools": {
+    "tank": {
+      "name": "tank",
+      "type": "POOL",
+      "state": "ONLINE",
+      "guid": "15220353080205405147",
+      "txg": "2671",
+      "spa_version": "5000",
+      "zpl_version": "5",
+      "properties": {
+        "size": {
+          "value": "111G",
+          "source": {
+            "type": "NONE",
+            "data": "-"
+          }
+        },
+        "allocated": {
+          "value": "30.8G",
+          "source": {
+            "type": "NONE",
+            "data": "-"
+          }
+        },
+        "free": {
+          "value": "80.2G",
+          "source": {
+            "type": "NONE",
+            "data": "-"
+          }
+        },
+        "checkpoint": {
+          "value": "-",
+          "source": {
+            "type": "NONE",
+            "data": "-"
+          }
+        },
+        "expandsize": {
+          "value": "-",
+          "source": {
+            "type": "NONE",
+            "data": "-"
+          }
+        },
+        "fragmentation": {
+          "value": "0%",
+          "source": {
+            "type": "NONE",
+            "data": "-"
+          }
+        },
+        "capacity": {
+          "value": "27%",
+          "source": {
+            "type": "NONE",
+            "data": "-"
+          }
+        },
+        "dedupratio": {
+          "value": "1.00x",
+          "source": {
+            "type": "NONE",
+            "data": "-"
+          }
+        },
+        "health": {
+          "value": "ONLINE",
+          "source": {
+            "type": "NONE",
+            "data": "-"
+          }
+        },
+        "altroot": {
+          "value": "-",
+          "source": {
+            "type": "DEFAULT",
+            "data": "-"
+          }
+        }
+      }
+    }
+  }
+}

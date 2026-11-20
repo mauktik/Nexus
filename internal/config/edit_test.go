@@ -975,7 +975,7 @@ func TestTCRAERR13_UnknownKeyPathsNameTheNearestValidParentAndIts(t *testing.T) 
 		children    []string
 	}{
 		{"providers.host.enabeld", "providers.host", host.Children},
-		{"providers.nope.enabled", "providers", []string{"docker", "apt", "scripts", "nginx", "nexusd", "pihole", "host", "services"}},
+		{"providers.nope.enabled", "providers", []string{"docker", "apt", "scripts", "nginx", "nexusd", "pihole", "host", "services", "storage"}},
 		{"bogus", "", []string{"host", "listen", "tls", "limits", "auth", "audit", "mcp", "providers"}},
 	} {
 		_, err := LookupKey(tc.key)

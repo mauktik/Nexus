@@ -332,12 +332,16 @@ func TestTCHP13_SchemasGenerateAndSharedShapesMarshal(t *testing.T) {
 		t.Errorf("Sampler = %s, want %s", got, want)
 	}
 
-	// Every struct reachable from an output carries unavailable, and its
-	// zero value marshals each slice field as [].
+	// Every struct of this package reachable from an output carries
+	// unavailable, and every reachable struct's zero value marshals each
+	// slice field as []. The apitypes health blocks of providerSignals are
+	// the shared wire contract (storage-provider D-7, TC-STG-19), not D-5's.
 	lists := 0
+	specPkg := reflect.TypeFor[spec.Unavailable]().PkgPath()
 	for st := range seen {
 		f, ok := st.FieldByName("Unavailable")
-		if !ok || f.Type != reflect.TypeFor[spec.Unavailable]() || f.Tag.Get("json") != "unavailable,omitempty" {
+		if st.PkgPath() == specPkg &&
+			(!ok || f.Type != reflect.TypeFor[spec.Unavailable]() || f.Tag.Get("json") != "unavailable,omitempty") {
 			t.Errorf("%v: no `unavailable,omitempty` Unavailable field", st)
 		}
 		var m map[string]json.RawMessage

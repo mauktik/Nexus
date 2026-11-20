@@ -23,6 +23,7 @@ import (
 	"github.com/mauktik/nexus/internal/providers/nginx"
 	"github.com/mauktik/nexus/internal/providers/pihole"
 	"github.com/mauktik/nexus/internal/providers/services"
+	storageprov "github.com/mauktik/nexus/internal/providers/storage"
 	"github.com/mauktik/nexus/internal/tlsutil"
 	"github.com/mauktik/nexus/internal/version"
 )
@@ -74,6 +75,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 			// CON-2). Its progress goes to stdout, which the supervisor
 			// frames into the operation's output.
 			return services.Helper(args[1:], stdout, stderr)
+		case storageprov.HelperCommand:
+			// Hidden: a scrub start, scrub stop or snapshot, run by
+			// op-supervise in the operation's unit outside nexusd's sandbox,
+			// as the ZFS ioctls need CAP_SYS_ADMIN (D-4). Its progress goes
+			// to stdout, which the supervisor frames into the operation's
+			// output.
+			return storageprov.Helper(args[1:], stdout, stderr)
 		}
 	}
 

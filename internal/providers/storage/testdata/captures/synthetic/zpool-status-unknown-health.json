@@ -1,0 +1,163 @@
+{
+  "output_version": {
+    "command": "zpool status",
+    "vers_major": 0,
+    "vers_minor": 1
+  },
+  "pools": {
+    "tank": {
+      "name": "tank",
+      "state": "NEXUS_SYNTHETIC_STATE",
+      "guid": 3920273586464696295,
+      "txg": 16597,
+      "spa_version": 5000,
+      "zpl_version": 5,
+      "scan_stats": {
+        "function": "SCRUB",
+        "state": "FINISHED",
+        "start_time": 1794708000,
+        "end_time": 1794718817,
+        "to_examine": 67348883046,
+        "examined": 67348883046,
+        "skipped": 0,
+        "processed": 0,
+        "errors": 0,
+        "bytes_per_scan": 67348883046,
+        "pass_start": 1794708000,
+        "scrub_pause": 0,
+        "scrub_spent_paused": 0,
+        "issued_bytes_per_scan": 67348883046,
+        "issued": 67348883046
+      },
+      "vdevs": {
+        "tank": {
+          "name": "tank",
+          "alloc_space": 67216238182,
+          "total_space": 16492674416640,
+          "def_space": 12424481393869,
+          "read_errors": 0,
+          "write_errors": 0,
+          "checksum_errors": 0,
+          "vdevs": {
+            "raidz1-0": {
+              "name": "raidz1-0",
+              "vdev_type": "raidz",
+              "guid": 763132626387621737,
+              "state": "ONLINE",
+              "alloc_space": 67108864000,
+              "total_space": 11984676742758,
+              "def_space": 7982454417654,
+              "rep_dev_size": 11984676742758,
+              "read_errors": 0,
+              "write_errors": 0,
+              "checksum_errors": 0,
+              "vdevs": {
+                "ca1eb824-c371-491d-ac13-37637e35c683": {
+                  "name": "ca1eb824-c371-491d-ac13-37637e35c683",
+                  "vdev_type": "disk",
+                  "guid": 12841765308123764671,
+                  "path": "/dev/disk/by-partuuid/ca1eb824-c371-491d-ac13-37637e35c683",
+                  "state": "ONLINE",
+                  "rep_dev_size": 4002222325105,
+                  "phys_space": 4002222325105,
+                  "read_errors": 0,
+                  "write_errors": 0,
+                  "checksum_errors": 0,
+                  "slow_ios": 0
+                },
+                "97cd98fb-8fb8-4ac4-bc84-bd8950a7ace7": {
+                  "name": "97cd98fb-8fb8-4ac4-bc84-bd8950a7ace7",
+                  "vdev_type": "disk",
+                  "guid": 1527839927278881561,
+                  "path": "/dev/disk/by-partuuid/97cd98fb-8fb8-4ac4-bc84-bd8950a7ace7",
+                  "state": "ONLINE",
+                  "rep_dev_size": 4002222325105,
+                  "phys_space": 4002222325105,
+                  "read_errors": 0,
+                  "write_errors": 0,
+                  "checksum_errors": 0,
+                  "slow_ios": 0
+                },
+                "e9ddba5f-f948-4734-a472-cb8aa5f0ff65": {
+                  "name": "e9ddba5f-f948-4734-a472-cb8aa5f0ff65",
+                  "vdev_type": "disk",
+                  "guid": 6982750226085199860,
+                  "path": "/dev/disk/by-partuuid/e9ddba5f-f948-4734-a472-cb8aa5f0ff65",
+                  "state": "ONLINE",
+                  "rep_dev_size": 4002222325105,
+                  "phys_space": 4002222325105,
+                  "read_errors": 0,
+                  "write_errors": 0,
+                  "checksum_errors": 0,
+                  "slow_ios": 0
+                }
+              }
+            }
+          }
+        }
+      },
+      "dedup": {
+        "mirror-2": {
+          "name": "mirror-2",
+          "vdev_type": "mirror",
+          "guid": 2227766268377771003,
+          "state": "ONLINE",
+          "alloc_space": 93428122,
+          "total_space": 3980232092549,
+          "def_space": 3980232092549,
+          "rep_dev_size": 3980232092549,
+          "read_errors": 0,
+          "write_errors": 0,
+          "checksum_errors": 0,
+          "vdevs": {
+            "db017360-d8e9-4163-961b-144ca75293a3": {
+              "name": "db017360-d8e9-4163-961b-144ca75293a3",
+              "vdev_type": "disk",
+              "guid": 17880913061695450307,
+              "path": "/dev/disk/by-partuuid/db017360-d8e9-4163-961b-144ca75293a3",
+              "state": "ONLINE",
+              "rep_dev_size": 3991227208827,
+              "phys_space": 4002222325105,
+              "read_errors": 0,
+              "write_errors": 0,
+              "checksum_errors": 0,
+              "slow_ios": 0
+            },
+            "952c3baf-b08a-4a8c-b7fa-33a07af5fe6f": {
+              "name": "952c3baf-b08a-4a8c-b7fa-33a07af5fe6f",
+              "vdev_type": "disk",
+              "guid": 10276374011610020557,
+              "path": "/dev/disk/by-partuuid/952c3baf-b08a-4a8c-b7fa-33a07af5fe6f",
+              "state": "ONLINE",
+              "rep_dev_size": 3991227208827,
+              "phys_space": 4002222325105,
+              "read_errors": 0,
+              "write_errors": 0,
+              "checksum_errors": 0,
+              "slow_ios": 0
+            }
+          }
+        }
+      },
+      "special": {
+        "25d418f8-92bd-4327-b59f-7ef5d5f50d81": {
+          "name": "25d418f8-92bd-4327-b59f-7ef5d5f50d81",
+          "vdev_type": "disk",
+          "guid": 3935742873387713123,
+          "path": "/dev/disk/by-partuuid/25d418f8-92bd-4327-b59f-7ef5d5f50d81",
+          "state": "ONLINE",
+          "alloc_space": 39216742,
+          "total_space": 476741369856,
+          "def_space": 476741369856,
+          "rep_dev_size": 476741369856,
+          "phys_space": 479962595328,
+          "read_errors": 0,
+          "write_errors": 0,
+          "checksum_errors": 0,
+          "slow_ios": 0
+        }
+      },
+      "error_count": 0
+    }
+  }
+}

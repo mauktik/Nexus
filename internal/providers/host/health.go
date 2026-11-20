@@ -18,9 +18,34 @@ func (p *Provider) health(ctx context.Context, _ spec.NoInput) (apitypes.List[sp
 }
 
 // collectHealth reads the health flags live and takes the top processes
-// from snap (nil when the sampler is not running). Each part that fails
-// leaves only its own fields null with the reason (FR-12).
+// from snap (nil when the sampler is not running), with the fan-in's
+// providerSignals. Each part that fails leaves only its own fields null with
+// the reason (FR-12).
 func (p *Provider) collectHealth(ctx context.Context, snap *snapshot) spec.HealthProperties {
+	signals := p.providerSignals(ctx)
+	out := p.readHealth(ctx, snap)
+	out.ProviderSignals = signals()
+	return out
+}
+
+// providerSignals starts the fan-in's Collect, bounded by sourceTimeout, in a
+// goroutine beside the host's own reads (storage-provider DF-6), and returns
+// the call that waits for its blocks: [] without a fan-in. Collect returns by
+// its timeout whatever the sources do, so the wait adds at most that bound.
+// The channel is buffered, so the goroutine exits even if no one waits.
+func (p *Provider) providerSignals(ctx context.Context) func() spec.Array[apitypes.ProviderSignals] {
+	hs := p.healthSources.Load()
+	if hs == nil {
+		return func() spec.Array[apitypes.ProviderSignals] { return nil }
+	}
+	timeout := p.Settings().SourceTimeout
+	ch := make(chan []apitypes.ProviderSignals, 1)
+	go func() { ch <- (*hs).Collect(ctx, timeout) }()
+	return func() spec.Array[apitypes.ProviderSignals] { return <-ch }
+}
+
+// readHealth is the host's own health reads.
+func (p *Provider) readHealth(ctx context.Context, snap *snapshot) spec.HealthProperties {
 	now := p.now()
 	out := spec.HealthProperties{
 		Sampler:        snap.sampler(now),

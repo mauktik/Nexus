@@ -64,6 +64,10 @@ const (
 	NexusdNotEnabledAtBoot Slug = "nexusd-not-enabled-at-boot"
 	OperationsRunning      Slug = "operations-running"
 	LogsUnavailable        Slug = "logs-unavailable"
+	// storage-provider (storage-provider architecture.md, Problem types).
+	ScanInProgress Slug = "scan-in-progress"
+	PoolUnhealthy  Slug = "pool-unhealthy"
+	PoolLowSpace   Slug = "pool-low-space"
 )
 
 // Operation-level problem types: they appear only inside operation.error.
@@ -99,6 +103,8 @@ const (
 	// services-provider: the outcomes of a service action and of a reboot.
 	ServiceActionFailed Slug = "service-action-failed"
 	RebootDidNotHappen  Slug = "reboot-did-not-happen"
+	// storage-provider: a scrub or snapshot helper's zpool or zfs call failed.
+	ZFSCommandFailed Slug = "zfs-command-failed"
 )
 
 // Type is one registered problem type. Problem types are part of the
@@ -171,15 +177,25 @@ var registry = []Type{
 	// MaxRemoteTokens.
 	{Slug: ConfigSetUnavailable, Title: "Configuration set unavailable", Status: 503, Exit: 4, Extensions: []string{"provider", "reason"}},
 	{Slug: TokenLimitReached, Title: "Token limit reached", Status: 409, Exit: 1, Extensions: []string{"maxTokens"}},
-	// services-provider. configKey names the providers.services key that
-	// would allow the action; protected-service's reason names the matched
-	// protected entry, and the helper re-checks it inside the operation.
-	{Slug: NotAllowed, Title: "Not allowed", Status: 409, Exit: 1, Extensions: []string{"service", "action", "configKey"}},
+	// services-provider and storage-provider (M-1). not-allowed is shared:
+	// configKey names the providers.services or providers.storage key that
+	// would allow the action; a services refusal adds service and action, a
+	// storage scrub or snapshot refusal adds pool or dataset.
+	// protected-service's reason names the matched protected entry, and the
+	// helper re-checks it inside the operation.
+	{Slug: NotAllowed, Title: "Not allowed", Status: 409, Exit: 1, Extensions: []string{"service", "action", "configKey", "pool", "dataset"}},
 	{Slug: ProtectedService, Title: "Protected service", Status: 409, Exit: 1, Extensions: []string{"service", "reason"}},
 	{Slug: RebootUnavailable, Title: "Reboot unavailable", Status: 409, Exit: 1, Extensions: []string{"reason", "configKey"}},
 	{Slug: NexusdNotEnabledAtBoot, Title: "nexusd not enabled at boot", Status: 409, Exit: 1, Extensions: []string{"service", "state"}},
 	{Slug: OperationsRunning, Title: "Operations running", Status: 409, Exit: 1, Extensions: []string{"operationIds"}},
 	{Slug: LogsUnavailable, Title: "Logs unavailable", Status: 422, Exit: 1, Extensions: []string{"service", "logSource", "reason"}},
+	// storage-provider (storage-provider architecture.md, Problem types).
+	// Scrub and snapshot admission refusals, raised before any operation
+	// exists (not-allowed is the shared row above).
+	{Slug: ScanInProgress, Title: "Scan in progress", Status: 409, Exit: 1, Extensions: []string{"pool", "function", "state"}},
+	{Slug: PoolUnhealthy, Title: "Pool unhealthy", Status: 409, Exit: 1, Extensions: []string{"pool", "health"}},
+	{Slug: PoolLowSpace, Title: "Pool low on space", Status: 409, Exit: 1,
+		Extensions: []string{"pool", "capacityPercent", "maxCapacityPercent"}},
 
 	// An operation that fails makes the CLI exit 1.
 	{Slug: OutcomeUnknown, Title: "Outcome unknown", Exit: 1, OperationLevel: true},
@@ -236,6 +252,11 @@ var registry = []Type{
 		Extensions: []string{"service", "action", "state", "rawState", "exitCode"}},
 	{Slug: RebootDidNotHappen, Title: "Reboot did not happen", Exit: 1, OperationLevel: true,
 		Extensions: []string{"stage", "bootId", "exitCode"}},
+	// storage-provider: command is the tool and subcommand only (zpool
+	// scrub), never the full argv; output is at most 2 KiB of the tool's
+	// combined output, untrusted.
+	{Slug: ZFSCommandFailed, Title: "ZFS command failed", Exit: 1, OperationLevel: true,
+		Extensions: []string{"command", "exitCode", "output"}},
 }
 
 var bySlug = func() map[Slug]Type {
