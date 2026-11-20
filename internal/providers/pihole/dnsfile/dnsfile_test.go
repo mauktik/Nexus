@@ -98,7 +98,7 @@ func TestTC16_MembershipFR23(t *testing.T) {
 	want := map[string][]string{
 		"home.local": {"kiwi.home.local", "photon.home.local"},
 		"app.lan":    {"photon.app.lan"},
-		"xi.example":   {"photos.xi.example", "router.xi.example"},
+		"xi.example": {"photos.xi.example", "router.xi.example"},
 		"":           {"unity.lan", "unity.local"},
 	}
 	if got := membership(m); !reflect.DeepEqual(got, want) {

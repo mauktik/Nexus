@@ -22,9 +22,9 @@ import (
 
 // TC-SV-22: The existing recovery and detached suites are unchanged by the reboot rules. Owner WI 1.3. Requirements: CON-4.
 //
-// - Setup: `repoRoot`; base `43e5792`.
+// - Setup: `repoRoot`; base `1e6a168`.
 // - Steps:
-//  1. `git diff --exit-code 43e5792 -- internal/ops/recovery_test.go internal/ops/detached_test.go internal/ops/cancel_test.go`.
+//  1. `git diff --exit-code 1e6a168 -- internal/ops/recovery_test.go internal/ops/detached_test.go internal/ops/cancel_test.go`.
 //  2. Unless `skipUnderMake`, run `go test -race -count=1 -run 'Recovery|Detached|Cancel' ./internal/ops`.
 //
 // - Expected: Step 1 shows no diff, and step 2 passes. Ops without the flag behave as before, proven by an unchanged suite.
@@ -32,7 +32,7 @@ func TestTCSV22_TheExistingRecoveryAndDetachedSuitesAre(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
-	const base = "43e5792"
+	const base = "1e6a168"
 	root := repoRoot(t)
 	if out, code := run(t, root, nil, "git", "cat-file", "-e", base+"^{commit}"); code != 0 {
 		t.Skipf("base commit %s not reachable (shallow clone?): %s", base, out)
@@ -144,7 +144,7 @@ func TestTCSV132_BaseOOS7IsAmendedInPlace(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
-	const base = "43e5792"
+	const base = "1e6a168"
 	const rel = "planning/nexus-server-manager/requirements.md"
 	root := repoRoot(t)
 	// copyRepo leaves planning/ out, so `make check`'s run in a repository
@@ -186,9 +186,9 @@ func TestTCSV132_BaseOOS7IsAmendedInPlace(t *testing.T) {
 
 // TC-SV-134: The hardened unit and the OpenRC script are unchanged, and go.mod gains no module. Owner WI 5.2. Requirements: CON-1, CON-3, OOS-9.
 //
-// - Setup: Base `43e5792`.
+// - Setup: Base `1e6a168`.
 // - Steps:
-//  1. `git diff --exit-code 43e5792 -- deploy/nexusd.service deploy/nexusd.openrc`.
+//  1. `git diff --exit-code 1e6a168 -- deploy/nexusd.service deploy/nexusd.openrc`.
 //  2. Compare the `require` blocks of `go.mod` at base and head.
 //
 // - Expected: No diff, and the same module set (versions may differ only by a security bump that the WI records).
@@ -196,7 +196,7 @@ func TestTCSV134_TheHardenedUnitAndTheOpenRCScript(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
-	const base = "43e5792"
+	const base = "1e6a168"
 	root := repoRoot(t)
 	if out, code := run(t, root, nil, "git", "cat-file", "-e", base+"^{commit}"); code != 0 {
 		t.Skipf("base commit %s not reachable (shallow clone?): %s", base, out)

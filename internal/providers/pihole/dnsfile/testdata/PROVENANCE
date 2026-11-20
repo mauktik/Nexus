@@ -16,8 +16,8 @@ live-53-lines.conf
   Pi-hole v5.18.4 / FTL v5.25.2), pasted into the planning conversation on
   2026-11-13 (UTC) from: `cat /etc/dnsmasq.d/03-custom-dns-names.conf` run as root.
   Path: /etc/dnsmasq.d/03-custom-dns-names.conf
-  ls -l: -rw-r--r-- 1 root root 1947 Oct 15 22:03
-  Lines: 53, bytes: 1947 (matches the ls -l size, so the transcription is byte-exact
-  including the final "\n").
-  sha256: 35e3646ba1ca58c420b933d0b63df0dd3cba640d950a114dc3c9d03ed9f3bf2d
+  Anonymized for publication (2026-11-19): the domain, the subnet and the
+  service host names were replaced; record count, zones and structure are unchanged.
+  Lines: 53, bytes: 1847 (of the anonymized file, including the final "\n").
+  sha256: ee47ea4a210c203a72eb55844013bad712413210b457a259dff5185be526f2f3
   Nothing was written to the host to produce this fixture.

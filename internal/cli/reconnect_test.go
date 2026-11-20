@@ -915,7 +915,7 @@ func TestTCSMERR20_ACertificatePinMismatchIsNever(t *testing.T) {
 
 // windowlessGolden is the stderr of a windowless op whose host refuses
 // connections after the POST, captured by this test from the base wait.go
-// (d04583a, unchanged to 2482f06) and normalized by normalizeStderr.
+// (8460afb, unchanged to 2482f06) and normalized by normalizeStderr.
 var windowlessGolden = map[string]string{
 	"wait": "> POST http://127.0.0.1:<port>/v1/providers/gate/gadgets/gated/start\n" +
 		"< 202 Accepted (<d>)\n" +

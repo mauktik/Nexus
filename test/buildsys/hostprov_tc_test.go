@@ -151,13 +151,13 @@ func TestTCHP112_HandWrittenDocsCoverScopeOpsKeys(t *testing.T) {
 // TC-HP-113: The hardened unit and the OpenRC script are unchanged. Owner WI 5.2. Requirements: CON-1, OOS-4.
 //
 // - Setup: `git` in `repoRoot`.
-// - Steps: `git diff --quiet 09b05cff1518fef79c23a87615d70fdaebcfba83 -- deploy/nexusd.service deploy/nexusd.openrc`; run `TestSystemdUnitByteIdenticalToBase`.
+// - Steps: `git diff --quiet e09ada55875815aea8789f61d4263992fe527559 -- deploy/nexusd.service deploy/nexusd.openrc`; run `TestSystemdUnitByteIdenticalToBase`.
 // - Expected: exit 0 (no diff); the existing test passes.
 func TestTCHP113_TheHardenedUnitAndTheOpenRCScript(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")
 	}
-	const base = "09b05cff1518fef79c23a87615d70fdaebcfba83"
+	const base = "e09ada55875815aea8789f61d4263992fe527559"
 	root := repoRoot(t)
 	if out, code := run(t, root, nil, "git", "cat-file", "-e", base+"^{commit}"); code != 0 {
 		t.Skipf("base commit %s not reachable (shallow clone?): %s", base, out)

@@ -426,10 +426,10 @@ func TestTCSMERR3_InvalidCLIUploadAndReconnectWindowDeclarations(t *testing.T) {
 	}
 }
 
-// TC-SM-4 (CON-3): against base d04583a, def gains no non-stdlib dependency
+// TC-SM-4 (CON-3): against base 8460afb, def gains no non-stdlib dependency
 // and no direct import but time.
 func TestTCSM4_DefImportsNothingNewBeyondTime(t *testing.T) {
-	const base = "d04583a"
+	const base = "8460afb"
 	const pkg = "github.com/mauktik/nexus/internal/def"
 	run := func(name string, args ...string) string {
 		t.Helper()

@@ -276,7 +276,7 @@ func TestTCRA91_GeneratedDocsAndTheBuildGateAreCurrent(t *testing.T) {
 
 // docsBaseCommit is the commit this feature branched from (planning
 // test-cases.md TC-RA-92).
-const docsBaseCommit = "521261c"
+const docsBaseCommit = "06ff169"
 
 // docsKeyPaths returns the dotted path of every mapping key in v, with list
 // elements as their index.

@@ -21,7 +21,7 @@ import (
 
 // goldenBase is the commit the storage branch's golden table is diffed
 // against.
-const goldenBase = "43e5792"
+const goldenBase = "1e6a168"
 
 // goldenLines are the row lines of golden_test.go's golden table, as text.
 func goldenLines(t *testing.T, src string) []string {

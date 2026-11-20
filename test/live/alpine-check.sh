@@ -55,9 +55,9 @@ NEXUSD_STATE=/var/lib/nexus
 CGROOT=/sys/fs/cgroup
 BOOT_ID=/proc/sys/kernel/random/boot_id
 UNIT=/etc/systemd/system/nexusd.service
-# SHA-256 of deploy/nexusd.service at d04583a, which TC-52 requires the
+# SHA-256 of deploy/nexusd.service at 8460afb, which TC-52 requires the
 # installed unit to equal. Re-derive it in a checkout with:
-#   git show d04583a:deploy/nexusd.service | sha256sum
+#   git show 8460afb:deploy/nexusd.service | sha256sum
 UNIT_SHA256_D04583A=5dcacb089d8ff0d0dfcae1f5d1f5e40b42437690930aa3a9787e3d8ff629e76a
 # OpenRC issue #910: rc-cgroup.sh's cgroup_running() looks for
 # /sys/fs/cgroup/<svc>, so rc_cgroup_cleanup="YES" does nothing on a unified
@@ -1418,12 +1418,12 @@ ubuntu_checks() {
 	run sha256sum "$UNIT"
 	_sum=${RUN_OUT%% *}
 	if [ "$_sum" = "$UNIT_SHA256_D04583A" ]; then
-		result 52-2 PASS "$UNIT sha256 $_sum equals deploy/nexusd.service at d04583a"
+		result 52-2 PASS "$UNIT sha256 $_sum equals deploy/nexusd.service at 8460afb"
 	else
-		result 52-2 FAIL "$UNIT sha256 ${_sum:-?}, d04583a's is $UNIT_SHA256_D04583A"
+		result 52-2 FAIL "$UNIT sha256 ${_sum:-?}, 8460afb's is $UNIT_SHA256_D04583A"
 	fi
 	log "Byte comparison from a checkout on the dev host (no output means identical):"
-	log "  git show d04583a:deploy/nexusd.service | ssh <host> 'diff - $UNIT'"
+	log "  git show 8460afb:deploy/nexusd.service | ssh <host> 'diff - $UNIT'"
 	result 52-3 MANUAL "make test-harness runs on the dev host (Docker): record its exit status in the template"
 	if in_container; then
 		result 52-host FAIL "running in a container: not a real host"
