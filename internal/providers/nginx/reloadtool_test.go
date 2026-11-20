@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build linux
 
 // Code review B, CR-B1: an init tool that died after it started may have

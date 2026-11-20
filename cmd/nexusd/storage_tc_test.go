@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/storage-provider/test-cases.md TC-STG-184 (owner WI
 // 4.5): the production wiring of the storage helper in the nexusd binary
 // that TestMain builds.

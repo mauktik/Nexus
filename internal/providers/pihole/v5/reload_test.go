@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Cases: TC-156, TC-157 and TC-ERR33 in planning/pihole-dns-zones/test-cases.md
 // (WI 5.6): the FTL list-reload barrier of the v5 Mutator against a
 // FakeHost whose FakeFTL encodes the reload race captured on FTL v5.25.2

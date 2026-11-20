@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Cases: TC-70 (a-h) in planning/pihole-dns-zones/test-cases.md (WI 3.1),
 // TC-146 (WI 5.4), TC-148 step 3 (WI 5.5), plus self-tests of FakeHost's fault injection, FTL events
 // and planted gravity process.

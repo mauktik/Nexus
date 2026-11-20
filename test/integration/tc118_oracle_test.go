@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 package integration
 
 // TC-SM-118's per-attempt oracle. It carries no build tag and touches no

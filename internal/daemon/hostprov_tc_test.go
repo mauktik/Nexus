@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests for planning/system-provider/test-cases.md TC-HP-1, TC-HP-2,
 // TC-HP-3, TC-HP-4, TC-HP-5, TC-HP-6, TC-HP-7, TC-HP-E1, TC-HP-E2,
 // TC-HP-E3, TC-HP-ERR1 and TC-HP-ERR2 (WI 1.1): the generic

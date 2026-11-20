@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package zfs runs and reads the ZFS tools for the storage provider: the
 // tool resolution, the one runner every zpool and zfs call goes through
 // (storage-provider architecture D-3), the in-flight table over it, and the

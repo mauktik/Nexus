@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package ops is the operation manager of nexusd: operation records, lanes,
 // the in-process runner, cancel, and the system.operations.* endpoints
 // (FR-4, FR-5, FR-7). The Dispatcher (internal/core) drives admission in the

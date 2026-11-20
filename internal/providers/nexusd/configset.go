@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 package nexusd
 
 // update-config (F5): config set, a detached operation in the nexusd lane.

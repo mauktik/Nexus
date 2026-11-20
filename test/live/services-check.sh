@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+# SPDX-License-Identifier: Apache-2.0
 # Live check of the services provider (services-provider WI 6.1): TC-SV-L1
 # to TC-SV-L6 and TC-SV-L13, and the read-only boot-ID checks of WI 6.1 (f),
 # on home-server (Ubuntu VM, systemd), pihole (Debian 12 LXC, systemd) and

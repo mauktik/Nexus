@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/storage-provider/test-cases.md TC-STG-110 to TC-STG-122
 // (owner WI 4.1), plus the WI 4.1 tests of bounded and of a stuck
 // configured path at preflight.

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Stub-style: SKIP-only (storage-provider)
 //
 // Tests of planning/storage-provider/test-cases.md TC-STG-35, TC-STG-36, TC-STG-37, TC-STG-38, TC-STG-39, TC-STG-40, TC-STG-41, TC-STG-43.

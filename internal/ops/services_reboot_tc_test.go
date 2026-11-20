@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/services-provider/test-cases.md TC-SV-8 to TC-SV-20,
 // TC-SV-E2, TC-SV-E3, TC-SV-E4, TC-SV-E19 and TC-SV-ERR6 (WI 1.3): the
 // operation manager's reboot rules R1 to R5 (D-3) and Manager.Active.

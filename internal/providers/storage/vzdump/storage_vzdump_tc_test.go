@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/storage-provider/test-cases.md TC-STG-85 to TC-STG-95
 // (WI 3.3): the vzdump name grammar, Scan, Notes and ReadLog over real temp
 // trees opened through os.Root (F-TREE, storagetest/trees.go).

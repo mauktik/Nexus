@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/nexusd-remote-admin/test-cases.md TC-RA-20, TC-RA-21,
 // TC-RA-22, TC-RA-23, TC-RA-24, TC-RA-25, TC-RA-E6 and TC-RA-ERR11 (WI 2.1):
 // the token store extensions the nexusd provider's remote token ops use, and

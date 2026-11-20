@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package cli is the nexus command tree. Commands take the form
 // `nexus <noun> <verb> [args]` (FR-29). No flag disables TLS verification,
 // and no flag accepts a token (FR-35).

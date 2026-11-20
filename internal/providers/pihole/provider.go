@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package pihole is the Pi-hole provider: it reads a Pi-hole v5 host's
 // status, lists and DNS records, and manages the one dnsmasq file Nexus owns
 // (providers.pihole.dnsFile). Its declarations live in the spec subpackage;

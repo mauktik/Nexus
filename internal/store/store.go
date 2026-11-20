@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package store is the durable state of nexusd: operation records,
 // idempotency keys and small key-value data, in one bbolt file, state.db.
 //

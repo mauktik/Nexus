@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Regression tests of planning/services-provider/code-review.md CR-1 and
 // CR-4: a restart that fails while the old instance keeps running, a
 // masked unit, and the F-HOSTS fake replaying the captured failures.

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package auth is the authentication boundary of nexusd: bearer tokens stored
 // as hashes in tokens.json, the HTTP middleware that checks them, the
 // per-source failure rate limiter, and the token store's create, list and

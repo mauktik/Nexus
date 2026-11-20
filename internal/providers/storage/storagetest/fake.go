@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 package storagetest
 
 // F-ZFS (test-strategy.md, Fake Fidelity Contracts; architecture WI 3.5):

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package spec declares the host provider's operations and wire types. It
 // holds only data and types, so the CLI can import it through
 // internal/catalog without linking the provider (CON-4).

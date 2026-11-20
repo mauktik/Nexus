@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/system-provider/test-cases.md TC-HP-16, TC-HP-17,
 // TC-HP-18, TC-HP-19, TC-HP-20, TC-HP-ERR6, TC-HP-ERR7, TC-HP-ERR8 and
 // TC-HP-ERR9 (WI 1.4). They are in the internal package because TC-HP-20

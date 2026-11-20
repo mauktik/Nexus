@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package docker is the docker provider: it reads and manages the existing
 // containers of the host's Docker Engine through the Engine API on the local
 // Unix socket, with API version negotiation (CON-6). It never exposes the

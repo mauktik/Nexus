@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package def declares operations once, for every surface: REST routing,
 // OpenAPI, MCP tools, the CLI and authorization are all derived from an Op
 // (FR-3). It has no runtime or provider dependencies, so the CLI can import

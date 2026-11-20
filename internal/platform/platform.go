@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package platform identifies the host's init system and operating system, so
 // the daemon can choose a service controller and a detach backend (FR-18).
 // Detection is by init system, not by distribution (ASM-16). It depends on

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package svcctltest is the T0 fake of the init systems behind svcctl: an
 // Options.Run that models nginx under systemd or OpenRC and answers every
 // call with outputs and exit codes captured from real systems

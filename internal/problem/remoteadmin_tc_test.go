@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/nexusd-remote-admin/test-cases.md TC-RA-5, TC-RA-6,
 // TC-RA-7, TC-RA-E3. Owner WI: 1.2.
 

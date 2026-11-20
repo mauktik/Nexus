@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/storage-provider/test-cases.md TC-STG-3 to TC-STG-6
 // (WI 1.1). TC-STG-7 and TC-STG-8 (WI 1.2) are in
 // storage_capture_host_tc_test.go.

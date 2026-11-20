@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/system-provider/test-cases.md TC-HP-40, TC-HP-41, TC-HP-42, TC-HP-43, TC-HP-44, TC-HP-45, TC-HP-46, TC-HP-47, TC-HP-E10.
 // Owner WI: 2.4.
 

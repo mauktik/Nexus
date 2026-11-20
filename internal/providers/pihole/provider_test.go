@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Cases: TC-52, TC-53, TC-55, TC-56, TC-57 and TC-ERR7 in
 // planning/pihole-dns-zones/test-cases.md.
 //

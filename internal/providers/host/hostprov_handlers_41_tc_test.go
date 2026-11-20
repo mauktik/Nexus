@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/system-provider/test-cases.md TC-HP-71, TC-HP-72, TC-HP-73, TC-HP-74, TC-HP-75, TC-HP-76, TC-HP-77, TC-HP-78, TC-HP-E18, TC-HP-E19, TC-HP-ERR18, TC-HP-ERR19, TC-HP-ERR20, TC-HP-ERR28.
 // Owner WI: 4.1. The host stack (newHostStack) is in identity_test.go, the
 // synthetic sensor, cpufreq and cpuinfo writers in cpu_test.go, and

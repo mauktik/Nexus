@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/storage-provider/test-cases.md TC-STG-208, TC-STG-209, TC-STG-210.
 // Owner WIs: 5.1 (the storage provider in builtinProviders and
 // providerConfigs).

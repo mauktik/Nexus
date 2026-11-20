@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build integration
 
 // The T1 fake zpool and zfs (storage-provider WI 5.3; test-strategy.md, "T1

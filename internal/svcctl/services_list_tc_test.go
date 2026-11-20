@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/services-provider/test-cases.md TC-SV-46 to TC-SV-60,
 // TC-SV-E8, TC-SV-E9, TC-SV-ERR12 and TC-SV-ERR13 (WI 3.2), and the fuzz
 // targets FuzzParseListUnits, FuzzParseListUnitFiles, FuzzParseShow,

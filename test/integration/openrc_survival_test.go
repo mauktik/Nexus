@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build integration
 
 // T1 Alpine (WI 3.4): nexusd under real OpenRC, through the shipped

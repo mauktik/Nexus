@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package catalog lists every operation declaration compiled into Nexus: each
 // provider's spec package and, from 1.5, internal/systemspec. It is the
 // composition root for the CLI and the documentation generator, so it must

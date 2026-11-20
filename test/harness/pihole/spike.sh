@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+# SPDX-License-Identifier: Apache-2.0
 # WI 0.1 / TC-120a: the T1 feasibility spike. Real Pi-hole v5 (FTL v5.25.2)
 # under systemd in a privileged container, and the pure-Go SQLite probe
 # under deploy/nexusd.service's sandbox. Evidence, not a test suite: there

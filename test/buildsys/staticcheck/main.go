@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Command staticcheck fails unless every ELF file it is given is statically
 // linked (FR-38): no PT_INTERP program header and no DT_NEEDED entry. A
 // release binary with either needs a dynamic loader and libc at run time, so

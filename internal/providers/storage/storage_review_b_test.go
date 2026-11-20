@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Regression tests of planning/storage-provider/code-review-b.md, CR-1 to
 // CR-10: each fails on the code the review found (PRE_FIX_SHA a54647f) and
 // passes on its fix. CR-7 (a Configure wakes RunBackground) is documented,

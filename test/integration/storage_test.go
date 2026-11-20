@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build integration
 
 // T1 of the storage provider (storage-provider WI 5.3): the installed nexusd

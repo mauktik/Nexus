@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Command nexus-gendocs generates the reference documentation from the
 // operation declarations (NFR-9): the CLI reference in docs/cli/ from the
 // nexus command tree, and docs/api.md from the OpenAPI document. `make docs`

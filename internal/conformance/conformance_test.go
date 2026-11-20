@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package conformance_test is the conformance suite (4.2): rules every
 // operation in the catalog must meet, checked generically so a provider
 // added later is covered without editing the suite's logic. A catalog

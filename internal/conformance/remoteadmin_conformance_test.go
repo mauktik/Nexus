@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/nexusd-remote-admin/test-cases.md TC-RA-39, TC-RA-40
 // and TC-RA-41 (WI 2.4): the token ops through the real server and
 // Dispatcher with the real nexusd provider, not its catalog stub.

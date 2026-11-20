@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/system-provider/test-cases.md TC-HP-90, TC-HP-91, TC-HP-92, TC-HP-93, TC-HP-94, TC-HP-95, TC-HP-96, TC-HP-97, TC-HP-ERR25.
 // Owner WI: 4.4. The health helpers (s.health, the container and reboot
 // marker setters, svcctlFailed) are in health_test.go; the host stack is in

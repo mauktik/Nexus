@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package audit is the append-only audit log of nexusd (FR-24): one JSON
 // object per line in audit.jsonl, appended under a mutex and fsynced before
 // Write returns, rotated by size into gzip files that are deleted only once

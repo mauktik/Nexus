@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package gravitydb reads and writes Pi-hole v5's gravity.db (schema version
 // 15, V-5) with modernc.org/sqlite, a pure-Go SQLite with no cgo and no JIT,
 // so it runs under nexusd's MemoryDenyWriteExecute sandbox.

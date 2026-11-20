@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package openapi builds the OpenAPI 3.1 document of the REST API from the
 // operation declarations (FR-26, D-6). It also derives every route, so the
 // server registers exactly what the document describes: rest.go serves

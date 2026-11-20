@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/nexusd-remote-admin/test-cases.md TC-RA-16, TC-RA-17,
 // TC-RA-18 and TC-RA-114 (WI 1.5), on planted ops of a test provider
 // "tcra", whose output types embed apitypes.ActionResult as the real token

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Stub-style: SKIP-only (nexusd-remote-admin)
 //
 // Stubs of planning/nexusd-remote-admin/test-cases.md TC-RA-28, TC-RA-29.

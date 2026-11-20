@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/services-provider/test-cases.md TC-SV-5, TC-SV-6,
 // TC-SV-E1, TC-SV-ERR4 (WI 1.2): the reboot record of an operation's
 // directory.

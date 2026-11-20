@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/services-provider/test-cases.md TC-SV-89 to TC-SV-101
 // and TC-SV-ERR22 to TC-SV-ERR24 (WI 4.3): start, stop, restart and
 // control, their admission, lane, Prepare and Finalize, and the

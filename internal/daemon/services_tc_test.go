@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/services-provider/test-cases.md TC-SV-21, TC-SV-117
 // (its builtinProviders and providerConfigs half; the injection half is in
 // internal/providers/services), TC-SV-120 and TC-SV-127. Owner WIs: 1.3,

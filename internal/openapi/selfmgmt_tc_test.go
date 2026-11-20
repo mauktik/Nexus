@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // nexusd-self-management test cases owned by WI 2.1:
 // planning/nexusd-self-management/test-cases.md. The function names keep
 // the TC IDs so that `grep TestTCSM` traces a case back to test-cases.md.

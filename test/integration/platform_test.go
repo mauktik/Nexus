@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build integration
 
 // Platform gating of the T1 suites (WI 3.4) and the Alpine harness's own

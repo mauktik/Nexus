@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/nexusd-remote-admin/test-cases.md TC-RA-8, TC-RA-9,
 // TC-RA-10, TC-RA-11, TC-RA-111, TC-RA-E4, TC-RA-E29, TC-RA-ERR5,
 // TC-RA-ERR6, TC-RA-ERR7, TC-RA-ERR8 and TC-RA-ERR41 (WI 1.3): the

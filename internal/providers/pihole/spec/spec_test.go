@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Cases: TC-3, TC-4, TC-5, TC-6, TC-E2, TC-ERR3, TC-ERR4 in
 // planning/pihole-dns-zones/test-cases.md. Expected rows are copied from the
 // Operation catalog and Validation rules tables in architecture.md.

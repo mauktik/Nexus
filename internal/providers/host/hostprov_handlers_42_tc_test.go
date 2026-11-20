@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/system-provider/test-cases.md TC-HP-79, TC-HP-80, TC-HP-81, TC-HP-82, TC-HP-83, TC-HP-84, TC-HP-85, TC-HP-86, TC-HP-E20, TC-HP-E21, TC-HP-E22, TC-HP-ERR21, TC-HP-ERR22, TC-HP-E31, TC-HP-E33.
 // Owner WI: 4.2. Split from hostprov_handlers_tc_test.go by the orchestrator so
 // that Phase 4 work items can run in parallel. The helpers they share are in

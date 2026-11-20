@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/nexusd-remote-admin/test-cases.md TC-RA-43 to TC-RA-46
 // and TC-RA-E10 (WI 2.4): the generated nexusdtoken commands against real
 // servers running the real nexusd provider, each behind a proxy that counts

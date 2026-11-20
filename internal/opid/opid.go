@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package opid generates the server-assigned IDs of operations and audit
 // records: RFC 9562 UUIDv7 strings that are strictly increasing within the
 // process, so a byte-order key scan in the store is creation order.

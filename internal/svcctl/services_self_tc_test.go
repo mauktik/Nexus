@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/services-provider/test-cases.md TC-SV-67, TC-SV-68,
 // TC-SV-69, TC-SV-70, TC-SV-71, TC-SV-72, TC-SV-E12, TC-SV-E13 and
 // TC-SV-ERR16 (WI 3.4), and the fuzz targets FuzzCgroupSelf and FuzzDeptree.

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package svcctl starts, stops, restarts and reloads a service and reports
 // its state through the host's init system (FR-19). It has a systemd and an
 // OpenRC implementation, chosen by platform.InitSystem. The init system's

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package mcpadapter serves the operations as MCP tools at /mcp over
 // Streamable HTTP (FR-27): a stateless adapter over the Dispatcher with no
 // business logic of its own. Authentication, scopes, audit, validation and

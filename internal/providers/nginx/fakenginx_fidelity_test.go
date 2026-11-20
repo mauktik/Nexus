@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Code review B, CR-B7: TC-113 compares the real nginx's error-log [alert]
 // line with the constant fakenginxErrorLogLine of the T1 integration tests,
 // which cannot run fakenginx (the harness container has no Go toolchain to

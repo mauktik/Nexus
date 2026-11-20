@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/nexusd-remote-admin/test-cases.md TC-RA-13, TC-RA-14
 // and TC-RA-112 (WI 1.4): what the wire carries for a SecretOutput op, a
 // 429 from a sync handler, and a Done answer at admission.

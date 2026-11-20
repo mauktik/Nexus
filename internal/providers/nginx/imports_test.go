@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // TC-103 of planning/nginx-provider/test-cases.md. The review of each
 // exec.Command call's first argument (never read from input) stays a
 // reviewer check.

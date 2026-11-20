@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Cases: TC-96 to TC-103, TC-E11, TC-E12, TC-ERR20 to TC-ERR25 in
 // planning/pihole-dns-zones/test-cases.md, TC-149 (WI 5.5), and the WI 4.1 branch tests
 // (every syntax-test failure form, the backup failure, a duplicate covering

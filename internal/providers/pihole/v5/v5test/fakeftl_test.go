@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Cases: TC-74 (a-g), TC-154 in planning/pihole-dns-zones/test-cases.md.
 //
 // FakeFTL fidelity: it must reproduce dnsmasq/FTL v5.25.2 behavior the DNS

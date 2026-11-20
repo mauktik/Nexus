@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package vzdump reads Proxmox vzdump backup directories (FR-9, DF-3): the
 // name grammar, a bounded listing of a configured path and its dump/, the
 // head of a notes file and the tail of a log. Every read goes through an

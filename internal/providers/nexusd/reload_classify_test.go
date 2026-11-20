@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 package nexusd
 
 // Code review CR-10: the helper retries a reload only for the not-active

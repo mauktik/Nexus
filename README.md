@@ -121,3 +121,9 @@ and commit `docs/`. `make test` fails while the generated files are stale, namin
 ```sh
 make test-harness RUN='^TestScriptOutcomes$$'
 ```
+
+## License
+
+Nexus is licensed under the [Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE) for attribution.
+
+SPDX-License-Identifier: Apache-2.0

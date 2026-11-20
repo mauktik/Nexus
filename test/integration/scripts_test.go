@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build integration
 
 // T1 tests of the script runner (WI 5.3): real nexusd under the shipped

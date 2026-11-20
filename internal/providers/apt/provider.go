@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package apt is the apt provider: it reads the host's packages through
 // fixed apt and dpkg binaries in the C locale, and refreshes the package
 // indexes in a detached operation (a systemd unit, or a supervised process

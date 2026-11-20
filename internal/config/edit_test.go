@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/nexusd-remote-admin/test-cases.md TC-RA-47 to TC-RA-54,
 // TC-RA-E11 to TC-RA-E14, TC-RA-ERR13, TC-RA-ERR14 and TC-RA-ERR15, owned by
 // WI 3.1: the key schema, assignments, Edit (D-5), Inspect and ReadFile.

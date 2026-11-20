@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package release is the nexusd release-signing format.
 //
 // A release tarball is signed with Ed25519 (RFC 8032, pure, no prehash) over

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Stub-style: SKIP-only (nginx-provider)
 //
 // Stub of planning/nginx-provider/test-cases.md TC-55. The registry part of

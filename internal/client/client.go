@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package client is the nexus CLI's HTTP transport to one nexusd host. Every
 // HTTPS connection is verified: against a pinned SHA-256 leaf fingerprint, or
 // against system trust. Nothing in this package can turn verification off.

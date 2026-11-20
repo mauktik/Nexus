@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build linux
 
 // Code review B, CR-B24 and security review SEC-8: includeDir's owner and

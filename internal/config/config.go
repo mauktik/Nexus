@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package config loads and validates the single nexusd configuration file.
 //
 // Every key is checked against the Go types here at every depth, and every

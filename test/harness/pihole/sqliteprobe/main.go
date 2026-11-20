@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Command sqliteprobe is the WI 0.1 check-5 probe (A-14, A-39). It opens
 // Pi-hole's gravity.db read-only with the exact DSN WI 2.1 will use, prints
 // the journal mode, the info rows and the domainlist row count, and exits.

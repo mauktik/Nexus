@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 package nexusd_test
 
 // TC-SM-99 (WI 6.1): the composition. nexusd is in catalog.All(), so the

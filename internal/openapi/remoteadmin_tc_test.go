@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/nexusd-remote-admin/test-cases.md TC-RA-15 and
 // TC-RA-113 (WI 1.4): how the document describes a SyncMutation op, a
 // SecretOutput op and a CompletesAtAdmission op.

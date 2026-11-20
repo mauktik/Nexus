@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/services-provider/test-cases.md TC-SV-121, TC-SV-122.
 // Owner WI: 5.1. The services ops run against their stubs in catalogStubs.
 

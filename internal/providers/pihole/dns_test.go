@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Cases: TC-104 to TC-108 and TC-ERR26 (WI 4.2), TC-109 to TC-114, TC-E13
 // and TC-ERR27 (WI 4.3), TC-115 to TC-119, TC-E14 and TC-ERR28 (WI 4.4) in
 // planning/pihole-dns-zones/test-cases.md: add-zone, zones.remove,

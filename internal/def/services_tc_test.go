@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/services-provider/test-cases.md TC-SV-1, TC-SV-2,
 // TC-SV-3, TC-SV-ERR1, TC-SV-ERR2 and TC-SV-ERR3 (WI 1.1): the
 // CompletesAcrossReboot and CLI.TypedConfirmation declarations, Audited

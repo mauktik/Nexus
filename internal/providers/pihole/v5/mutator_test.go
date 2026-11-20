@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Security review SEC-3/SEC-4: a setuid-root program that blocks with the
 // script as argv[1] (`sudo /opt/pihole/gravity.sh` at its password prompt)
 // keeps its caller's real uid (measured: "Uid: 65534 0 0 0"); the real-uid

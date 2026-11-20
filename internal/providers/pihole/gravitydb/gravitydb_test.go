@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Cases: TC-32 to TC-36, TC-E9 and TC-ERR5 in
 // planning/pihole-dns-zones/test-cases.md, and TC-147 (WI 5.4). TC-37 (release binary size) is a
 // build measurement, recorded in the WI notes, not a Go test.

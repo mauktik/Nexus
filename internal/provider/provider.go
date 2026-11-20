@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Package provider is the contract between a provider implementation and the
 // core. Bindings tie a handler to a def.Typed declaration, so a handler whose
 // types differ from the declaration does not compile. This package is

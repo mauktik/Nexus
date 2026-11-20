@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Stub-style: SKIP-only (system-provider)
 //
 // Tests of planning/system-provider/test-cases.md TC-HP-48, TC-HP-49, TC-HP-50, TC-HP-51, TC-HP-E11, TC-HP-ERR13.

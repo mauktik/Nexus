@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Stub-style: SKIP-only (nginx-provider)
 //
 // Stubs of planning/nginx-provider/test-cases.md TC-35, TC-36 (WI 3.3) and

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Stub-style: SKIP-only (services-provider)
 //
 // Stubs of planning/services-provider/test-cases.md TC-SV-22, TC-SV-41, TC-SV-132, TC-SV-134.
@@ -34,9 +37,17 @@ func TestTCSV22_TheExistingRecoveryAndDetachedSuitesAre(t *testing.T) {
 	if out, code := run(t, root, nil, "git", "cat-file", "-e", base+"^{commit}"); code != 0 {
 		t.Skipf("base commit %s not reachable (shallow clone?): %s", base, out)
 	}
-	if out, code := run(t, root, nil, "git", "diff", "--exit-code", base, "--",
-		"internal/ops/recovery_test.go", "internal/ops/detached_test.go", "internal/ops/cancel_test.go"); code != 0 {
-		t.Errorf("the recovery, detached or cancel suite differs from %s (CON-4): exit %d\n%s", base, code, out)
+	// The SPDX license header was added repo-wide after the base; strip
+	// exactly that prefix and require the rest to be byte-identical.
+	const spdx = "// SPDX-FileCopyrightText: 2026 Mauktik Gandhi\n// SPDX-License-Identifier: Apache-2.0\n\n"
+	for _, p := range []string{"internal/ops/recovery_test.go", "internal/ops/detached_test.go", "internal/ops/cancel_test.go"} {
+		old, stderr, code := runSplit(t, root, nil, "git", "show", base+":"+p)
+		if code != 0 {
+			t.Fatalf("git show %s:%s: exit %d\n%s", base, p, code, stderr)
+		}
+		if cur := strings.TrimPrefix(readFile(t, filepath.Join(root, p)), spdx); cur != old {
+			t.Errorf("%s differs from %s beyond the SPDX header (CON-4)", p, base)
+		}
 	}
 	skipUnderMake(t)
 	if out, code := run(t, root, nil, "go", "test", "-race", "-count=1", "-run", "Recovery|Detached|Cancel", "./internal/ops"); code != 0 {

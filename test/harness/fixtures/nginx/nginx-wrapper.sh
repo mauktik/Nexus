@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+# SPDX-License-Identifier: Apache-2.0
 # The T1 "fake nginx" (test-strategy.md): installed at /usr/sbin/nginx by
 # test/integration/nginx_test.go, with the real binary copied to
 # /usr/sbin/nginx.t1-real, and removed again in the test's cleanup. It

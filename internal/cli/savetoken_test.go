@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Mauktik Gandhi
+// SPDX-License-Identifier: Apache-2.0
+
 // Tests of planning/nexusd-remote-admin/test-cases.md TC-RA-19, TC-RA-E5,
 // TC-RA-ERR9 and TC-RA-ERR10 (WI 1.5): --save-as-host on the planted
 // SecretOutput op tcra.tokens.add (remoteadmin_tc_test.go).
