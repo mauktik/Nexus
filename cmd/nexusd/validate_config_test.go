@@ -440,7 +440,7 @@ func (f tcsm44Fixture) path(t *testing.T, dir string) string {
 }
 
 // tcsm44Golden is validate-config's output for each fixture, captured from
-// base 8460afb (`git archive 8460afb`, with this file's fixtures run against
+// base 2953509 (`git archive 2953509`, with this file's fixtures run against
 // the nexusd built from that tree). $CONFIG stands for the --config path.
 var tcsm44Golden = map[string]struct {
 	stdout, stderr string
@@ -480,7 +480,7 @@ var tcsm44Golden = map[string]struct {
 }
 
 // TC-SM-44: on every fixture of the tests above, validate-config's stdout,
-// stderr and exit code are byte-identical to base 8460afb's.
+// stderr and exit code are byte-identical to base 2953509's.
 func TestTCSM44_ExistingValidateConfigOutputStaysByte(t *testing.T) {
 	for _, f := range tcsm44Fixtures() {
 		t.Run(f.name, func(t *testing.T) {
@@ -501,11 +501,11 @@ func TestTCSM44_ExistingValidateConfigOutputStaysByte(t *testing.T) {
 
 // TC-SM-44, CR-9 fixtures: a provider's error is the one line WI 3.2
 // changes. It is now an entry at providers.docker like every other, so the
-// base 8460afb line gains that path and still names docker.
+// base 2953509 line gains that path and still names docker.
 func TestTCSM44ProviderErrorAtItsPath(t *testing.T) {
 	long := "/" + strings.Repeat("a", 200) + ".sock"
 	for _, tc := range []struct {
-		name, socket, base string // base: 8460afb's stderr
+		name, socket, base string // base: 2953509's stderr
 	}{
 		{"path longer than sun_path", long,
 			fmt.Sprintf("$CONFIG: provider \"docker\": providers.docker.socket: unix socket path %q is too long\n", long)},

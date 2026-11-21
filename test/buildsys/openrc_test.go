@@ -21,7 +21,7 @@ import (
 )
 
 // baseSHA is the commit the Ubuntu unit must stay byte-identical to (NFR-9).
-const baseSHA = "8460afb8cff24ce077b6c3e89110ff19ba85bb7b"
+const baseSHA = "295350991fecd02a25324cc8124b0c33e35045e1"
 
 // nginx-provider TC-29: The OpenRC service script declares the required
 // behavior. Owner WI 3.1. Requirements: FR-22, FR-23, ASM-17, CON-9.

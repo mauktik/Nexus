@@ -17,7 +17,7 @@ import (
 // revision, so its byte pin is replaced by TC-SM-104's backward-compatibility
 // proof, as this case prescribed.
 func TestTCSM102_DeployInstallShIsByteIdentical(t *testing.T) {
-	// deploy/install.sh changed after 8460afb: nginx-provider WI 3.2 made it
+	// deploy/install.sh changed after 2953509: nginx-provider WI 3.2 made it
 	// POSIX sh with OpenRC support. As TC-SM-102 itself prescribes, the byte
 	// pin is replaced by TC-SM-104's backward-compatibility proof, which runs
 	// the shipped install.sh by hand on real systemd (install_test.go). What

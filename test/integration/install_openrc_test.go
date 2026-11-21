@@ -50,7 +50,7 @@ func fileSHA(t *testing.T, path string) string {
 //	    /etc/systemd/system, /etc/nexus and /var/lib/nexus.
 //	  3. Repeat on a fresh host with the base SHA's install.sh (committed as
 //	    test/harness/fixtures/base-install.sh from git show
-//	    8460afb:deploy/install.sh), run with bash.
+//	    2953509:deploy/install.sh), run with bash.
 //	Expected:
 //	  - The two recorded trees are identical, as are the stdout messages apart
 //	    from timestamps.

@@ -794,7 +794,7 @@ func (re *rebootReconn) run(now func() time.Time, args ...string) reconnRun {
 // - Expected:
 //   - (1) exit 0; the `--yes` line reads "no y/N question is asked here; --yes neither fills nor skips --confirm-host, which is required without a terminal", and the help does not contain "do not ask for confirmation";
 //   - (2) and (3) exit 0; the `--yes` line reads "do not ask for confirmation; required to mutate without a terminal", unchanged from base;
-//   - (4) the generated `nexus_machine_restart.md` carries the new text, and the `--yes` line of `nexus_container_restart.md` equals that line at base `1e6a168` (`git show`; skip with a reason if git is unavailable).
+//   - (4) the generated `nexus_machine_restart.md` carries the new text, and the `--yes` line of `nexus_container_restart.md` equals that line at base `99f2dcd` (`git show`; skip with a reason if git is unavailable).
 func TestTCSV153_TheYesHelpTextOfATyped(t *testing.T) {
 	const (
 		typedText = "no y/N question is asked here; --yes neither fills nor skips --confirm-host, which is required without a terminal"
@@ -847,7 +847,7 @@ func TestTCSV153_TheYesHelpTextOfATyped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const base = "1e6a168"
+	const base = "99f2dcd"
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not found: cannot read nexus_container_restart.md at base " + base)
 	}

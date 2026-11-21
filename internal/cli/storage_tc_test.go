@@ -237,11 +237,11 @@ func TestTCSTG206_CLIGrammarEscapingAndColumnsForThe(t *testing.T) {
 		return
 	}
 	root := filepath.Join("..", "..")
-	show := exec.Command(git, "show", "1e6a168:internal/def/verbs.go")
+	show := exec.Command(git, "show", "99f2dcd:internal/def/verbs.go")
 	show.Dir = root
 	base, err := show.Output()
 	if err != nil {
-		t.Logf("base 1e6a168 not reachable (%v): the verbs.go diff is not checked", err)
+		t.Logf("base 99f2dcd not reachable (%v): the verbs.go diff is not checked", err)
 		return
 	}
 	cur, err := os.ReadFile(filepath.Join(root, "internal", "def", "verbs.go"))
@@ -251,7 +251,7 @@ func TestTCSTG206_CLIGrammarEscapingAndColumnsForThe(t *testing.T) {
 	// The Apache-2.0 relicensing added only this header after the base.
 	const spdx = "// SPDX-FileCopyrightText: 2026 Mauktik Gandhi\n// SPDX-License-Identifier: Apache-2.0\n\n"
 	if string(base) != strings.TrimPrefix(string(cur), spdx) {
-		t.Error("internal/def/verbs.go differs from base 1e6a168 beyond the SPDX header")
+		t.Error("internal/def/verbs.go differs from base 99f2dcd beyond the SPDX header")
 	}
 }
 

@@ -31,15 +31,15 @@ var goldenSpec = Spec{
 }
 
 // nginx-provider TC-18: the systemd path is byte-identical (NFR-9, CON-11).
-// The goldens in testdata/golden were produced by the code at 8460afb, which
+// The goldens in testdata/golden were produced by the code at 2953509, which
 // is also the code of this package's launcher.go and spec.go when the process
 // backend was added. To regenerate them from that code without git stash:
 //
-//	git worktree add /tmp/nexus-8460afb 8460afb
-//	cp internal/detach/process_golden_test.go /tmp/nexus-8460afb/internal/detach/
-//	(cd /tmp/nexus-8460afb && go test ./internal/detach -run TestSystemdArgvAndSpecBytesUnchanged -update)
-//	cp /tmp/nexus-8460afb/internal/detach/testdata/golden/* internal/detach/testdata/golden/
-//	git worktree remove /tmp/nexus-8460afb
+//	git worktree add /tmp/nexus-2953509 2953509
+//	cp internal/detach/process_golden_test.go /tmp/nexus-2953509/internal/detach/
+//	(cd /tmp/nexus-2953509 && go test ./internal/detach -run TestSystemdArgvAndSpecBytesUnchanged -update)
+//	cp /tmp/nexus-2953509/internal/detach/testdata/golden/* internal/detach/testdata/golden/
+//	git worktree remove /tmp/nexus-2953509
 //
 // Supervise(dir, diag, ModeUnit) is the existing code path: every test in
 // supervisor_test.go runs `nexusd op-supervise --dir` without --process and
