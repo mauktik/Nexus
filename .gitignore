@@ -9,3 +9,8 @@
 *.swo
 *~
 .DS_Store
+
+# Local-only artifacts
+/nexusd
+/.orbit
+/research/
