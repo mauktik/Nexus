@@ -292,8 +292,8 @@ func readFile(t *testing.T, path string) string {
 	return string(b)
 }
 
-// TC-E1: .gitignore excludes build output but never planning. The repo's
-// .gitignore is checked inside a scratch git repository with global and system
+// TC-E1: .gitignore excludes build output and planning/, which is a separate
+// private repository cloned into the working tree. The repo's .gitignore is checked inside a scratch git repository with global and system
 // git config disabled, so a user-level excludes file cannot change the result.
 func TestGitignore(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
@@ -319,7 +319,7 @@ func TestGitignore(t *testing.T) {
 		{".vscode/settings.json", true},
 		{"main.go.swp", true},
 		{".DS_Store", true},
-		{"planning/nexus-server-manager/requirements.md", false},
+		{"planning/nexus-server-manager/requirements.md", true},
 		{"cmd/nexusd/main.go", false},
 	}
 	for _, c := range cases {
