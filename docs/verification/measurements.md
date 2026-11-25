@@ -68,7 +68,7 @@ faster because that Engine used the classic image store.
 - **Runs:** two dry runs with a 30 s idle window (not measurements; used to
   check the tests), then measurement run 1 (`make nfr`), then run 2 inside
   the full harness run. The release sizes come from `make nfr-sizes` at
-  commit f26ef0d plus this work item's uncommitted files.
+  commit 1efa116 plus this work item's uncommitted files.
 
 ## Method
 

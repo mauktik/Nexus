@@ -27,7 +27,7 @@ import (
 
 // TC-RA-42: No MCP tool exists for any token op, and the tool budget is unchanged. Owner WI 2.4. Requirements: FR-10, OOS-1.
 //
-// baseTools, the tool set at a2a9d14, is computed from the catalog with the
+// baseTools, the tool set at cc5ab6b, is computed from the catalog with the
 // three token op IDs filtered out. TestToolBudget and TestTCSM96 (exactly
 // two nexusd tools) run unchanged beside it.
 func TestTCRA42_NoMCPToolExistsForAnyTokenOpAndTheToolBudgetIs(t *testing.T) {
@@ -91,7 +91,7 @@ func TestTCRA42_NoMCPToolExistsForAnyTokenOpAndTheToolBudgetIs(t *testing.T) {
 //     2. Count the nexusd tools.
 //   - Expected:
 //   - No tool maps to `nexusd.tokens.*`, `nexusd.config.*` or `nexusd.actions.update-config`.
-//   - The tool count equals the count at `a2a9d14` (computed by filtering the six new IDs from the catalog).
+//   - The tool count equals the count at `cc5ab6b` (computed by filtering the six new IDs from the catalog).
 //   - `TestTCSM96` still sees exactly two nexusd tools.
 func TestTCRA69_NoMCPToolExistsForAnyOfTheSixNewOps(t *testing.T) {
 	newOps := []string{nexusd.TokensList.Op().ID, nexusd.TokensAdd.Op().ID, nexusd.TokensRemove.Op().ID,
@@ -103,7 +103,7 @@ func TestTCRA69_NoMCPToolExistsForAnyOfTheSixNewOps(t *testing.T) {
 			t.Errorf("catalog op %s: index %d; want an op without a tool", id, i)
 		}
 	}
-	// baseTools is the tool set at a2a9d14: the catalog's tools without the
+	// baseTools is the tool set at cc5ab6b: the catalog's tools without the
 	// six new op IDs.
 	baseTools := map[string]bool{}
 	for _, op := range catalog.Ops() {

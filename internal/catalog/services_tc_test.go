@@ -28,14 +28,14 @@ import (
 
 // TC-SV-4: Every existing catalog op still validates and the golden table changes only by the services rows. Owner WI 1.1. Requirements: CON-4.
 //
-// - Setup: `catalog.All()` at the WI's head; the golden table of `internal/catalog/golden_test.go` at base `99f2dcd`, read with `git show 99f2dcd:internal/catalog/golden_test.go` (skip with a reason under `skipUnderMake` if git is unavailable).
+// - Setup: `catalog.All()` at the WI's head; the golden table of `internal/catalog/golden_test.go` at base `0c0fa8e`, read with `git show 0c0fa8e:internal/catalog/golden_test.go` (skip with a reason under `skipUnderMake` if git is unavailable).
 // - Steps:
 //  1. Validate every op of `catalog.All()` (it panics at init if not).
 //  2. Diff the golden rows at the head against base.
 //
 // - Expected: No panic. Every base row is present byte-for-byte. Rows added since base all have op IDs starting `services.`, and there are exactly eight after WI 5.1 adds the catalog line (zero before it; Revision 1 moved the line from WI 2.2).
 func TestTCSV4_EveryExistingCatalogOpStillValidatesAnd(t *testing.T) {
-	const base = "99f2dcd"
+	const base = "0c0fa8e"
 	const servicesRows = 8
 
 	// catalog.All() builds every spec, each op by def.Define, which panics on
@@ -301,7 +301,7 @@ func TestTCSV33_TheCLIGrammarUsesOnlyApprovedVerbs(t *testing.T) {
 	}
 
 	// No new verb: verbs.go is unchanged from the feature's base.
-	const base = "99f2dcd"
+	const base = "0c0fa8e"
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not found: cannot compare verbs.go with base " + base)
 	}

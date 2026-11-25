@@ -425,7 +425,7 @@ func TestTCSTG211_TheStoragePackageExecutesOnlyZpoolAnd(t *testing.T) {
 }
 
 // storageBase is the commit the storage branch is diffed against.
-const storageBase = "99f2dcd"
+const storageBase = "0c0fa8e"
 
 // requirements are the module paths go.mod text requires.
 func requirements(gomod string) map[string]bool {
