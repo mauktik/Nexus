@@ -30,8 +30,8 @@ import (
 	"time"
 )
 
-// Goldens of TokenCommand at cc5ab6b, captured by running it with prog
-// "nexusd" (internal/auth/tokencmd.go is unchanged from cc5ab6b to 7ff95c6).
+// Goldens of TokenCommand at 89fdb5a, captured by running it with prog
+// "nexusd" (internal/auth/tokencmd.go is unchanged from 89fdb5a to 7ff95c6).
 const (
 	goldenTopUsage = "Usage:\n" +
 		"  nexusd token create --name NAME [--scope SCOPE]... [--expires DURATION] [--state-dir DIR]\n" +
@@ -60,7 +60,7 @@ const (
 	goldenRevoked   = "Revoked token %q (id %s).\n"
 )
 
-// Error() texts of the two untyped errors at cc5ab6b (tokens.go:156 and :197).
+// Error() texts of the two untyped errors at 89fdb5a (tokens.go:156 and :197).
 const (
 	goldenNameExistsErr = "a token named %q already exists (id %s); revoke it first or choose another name"
 	goldenNotFoundErr   = "no token with id or name %q"
@@ -145,7 +145,7 @@ func TestTCRA20_TheLocalNexusdTokenCommandKeepsItsFlagsOutputAnd(t *testing.T) {
 }
 
 // rc3Record and rc3TokenFile are copies of record and tokenFile from
-// internal/auth/tokens.go@cc5ab6b, the format an rc3 nexusd reads.
+// internal/auth/tokens.go@89fdb5a, the format an rc3 nexusd reads.
 type rc3Record struct {
 	ID      string     `json:"id"`
 	Name    string     `json:"name"`
@@ -444,7 +444,7 @@ func raceRound(t *testing.T, round int, delay, helperDelay time.Duration) (helpe
 }
 
 func TestTCRA25_ParseLifetimeIsExportedWithTheLocalCommandS(t *testing.T) {
-	// The table and texts are parseLifetime's at cc5ab6b (tokencmd.go:118-141).
+	// The table and texts are parseLifetime's at 89fdb5a (tokencmd.go:118-141).
 	for _, c := range []struct {
 		in   string
 		want time.Duration

@@ -753,7 +753,7 @@ func TestTCRA54_ReadFileKeepsLoadSOwnerAndModeCheckAndLoadEquals(t *testing.T) {
 		uid := fi.Sys().(*syscall.Stat_t).Uid
 
 		// Step 1: the euid-0 core gives exactly Load's error text, as at
-		// cc5ab6b: ErrorList{{File: path, Msg: checkFile's message}}.
+		// 89fdb5a: ErrorList{{File: path, Msg: checkFile's message}}.
 		got, err := readChecked(path, 0)
 		_, loadErr := load(path, 0)
 		var wantMsg string

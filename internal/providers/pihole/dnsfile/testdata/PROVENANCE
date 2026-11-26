@@ -17,7 +17,8 @@ live-53-lines.conf
   2026-11-13 (UTC) from: `cat /etc/dnsmasq.d/03-custom-dns-names.conf` run as root.
   Path: /etc/dnsmasq.d/03-custom-dns-names.conf
   Anonymized for publication (2026-11-19): the domain, the subnet and the
-  service host names were replaced; record count, zones and structure are unchanged.
+  service host names were replaced (2026-11-25: the remaining real service names
+  too); record count, zones and structure are unchanged.
   Lines: 53, bytes: 1847 (of the anonymized file, including the final "\n").
-  sha256: ee47ea4a210c203a72eb55844013bad712413210b457a259dff5185be526f2f3
+  sha256: 749a7f58196c37820fdf6b7e8a79f14a0c312409dcb76c23619ed0cc6d1a9ae0
   Nothing was written to the host to produce this fixture.

@@ -809,7 +809,7 @@ func (f *fakeSystem) handleReload() {
 }
 
 // fakeRestartRequired is a copy of internal/daemon/reload.go
-// restartRequired at cc5ab6b (unexported, and this package cannot import
+// restartRequired at 89fdb5a (unexported, and this package cannot import
 // internal/daemon): the restart-only top-level keys whose values differ from
 // the configuration the daemon started with, which a reload never replaces
 // (d.cfg), sorted, and empty rather than nil as reloadFile returns them.
